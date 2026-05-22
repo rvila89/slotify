@@ -117,7 +117,7 @@ Iteraciones con el asistente para obtener una especificación funcional validada
 
 Actualmente acompañas el desarrollo de Slotify, plataforma SaaS multi-tenant cuyo caso piloto es Masia l'Encís. El proyecto se desarrolla como Trabajo Final de Máster con deadlines.
 
-La especificación funcional completa de Slotify está adjunta al proyecto como EspecificacionFuncional.md. Esa especificación es la fuente de verdad del producto. Antes de responder cualquier pregunta funcional, arquitectónica o de alcance, consúltala.
+La especificación funcional completa de Slotify está adjunta al proyecto como PRD-EspecificacionFuncional.md. Esa especificación es la fuente de verdad del producto. Antes de responder cualquier pregunta funcional, arquitectónica o de alcance, consúltala.
 
 Comparto las siguientes nuevas indicacions para modificar #sym:# Especificación Funcional — Plataforma SaaS de Gestión Integral para Espacios de Eventos Privados  :
 

@@ -206,13 +206,50 @@ Campos en RESERVA para gestión de fianza:
 - fianza_devuelta_fecha: date | null (fecha en que se devolvió la fianza)
 - fianza_devuelta_eur: decimal | null (importe devuelto; puede ser parcial por desperfectos)
 
-Campos en CLIENTE para devolución de fianza:
+Campos en CLIENTE para facturación y devolución de fianza:
+- dni_nif: string | null             (DNI/NIF del cliente, obligatorio para generar presupuesto)
+- direccion_fiscal: string | null    (dirección completa de facturación)
+- codigo_postal: string | null       (código postal)
+- poblacion: string | null           (población/ciudad)
+- provincia: string | null           (provincia)
 - iban_devolucion: string | null     (IBAN proporcionado por cliente para devolución de fianza)
 
 Campos en RESERVA para visita:
 - visita_programada_fecha: date | null  (fecha/hora acordada para la visita)
 - visita_realizada: bool | null         (true si la visita se realizó)
+
+Campos en RESERVA para documentación del día del evento:
+- dni_foto_anverso_url: string | null           (foto del DNI del cliente, cara delantera)
+- dni_foto_reverso_url: string | null           (foto del DNI del cliente, cara trasera)
+- clausula_responsabilidad_firmada_url: string | null  (documento de responsabilidad firmado)
+- clausula_responsabilidad_firmada_fecha: date | null  (fecha de firma de la cláusula)
+
+Campos en RESERVA para condiciones particulares:
+- condiciones_particulares_enviadas_fecha: date | null   (fecha de envío al cliente)
+- condiciones_particulares_firmadas: bool | null         (true si el cliente ha firmado)
+- condiciones_particulares_firmadas_fecha: date | null   (fecha de recepción firmadas)
+- condiciones_particulares_firmadas_url: string | null   (documento firmado subido)
 ```
+
+**Entidad DOCUMENTO_FIRMADO (nueva):**
+
+```
+TABLA: documento_firmado
+────────────────────────
+- id (PK)
+- reserva_id (FK)
+- tipo: enum (condiciones_particulares, clausula_responsabilidad)
+- estado: enum (pendiente_envio, enviado, pendiente_firma, firmado_digital, firmado_fisico)
+- fecha_envio: date | null
+- fecha_firma: date | null
+- archivo_original_url: string | null   (PDF generado por el sistema)
+- archivo_firmado_url: string | null    (PDF/foto firmado subido por gestor)
+- notas: string | null
+```
+
+**Tipos de documento:**
+- **condiciones_particulares:** Documento legal con las condiciones específicas del alquiler del espacio. Se envía junto con la factura del 40% tras confirmar la reserva. El cliente debe firmarlo y reenviarlo (digitalmente o en papel el día del evento).
+- **clausula_responsabilidad:** Documento que el cliente firma el día del evento, asumiendo responsabilidad por desperfectos. Se gestiona presencialmente.
 
 **Reglas del modelo:**
 - Un cliente no puede existir sin al menos una reserva asociada. Si un cliente recurrente reaparece, se crea una nueva reserva que referencia al cliente existente.
@@ -282,6 +319,49 @@ TABLA: extra
 - **>50 invitados:** fallback manual. El sistema no calcula automáticamente; el gestor introduce precio.
 - **Versionado de tarifas:** los presupuestos generados quedan congelados con la tarifa vigente en el momento de generación. Si la tarifa cambia después, NO se recalcula el presupuesto enviado.
 - **IVA:** los precios del dossier ya incluyen IVA al 21%. La factura desglosa base imponible + IVA.
+
+**Estructura del presupuesto PDF:**
+
+El presupuesto generado incluye un desglose claro de los pagos:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  PRESUPUESTO - [Nombre Evento] - [Fecha]                    │
+├─────────────────────────────────────────────────────────────┤
+│  Concepto                                    │    Importe   │
+│  ─────────────────────────────────────────────────────────  │
+│  Alquiler espacio (X horas, Y invitados)     │   X.XXX,XX € │
+│  Extra: Barbacoa                             │      30,00 € │
+│  Extra: Paellero                             │      30,00 € │
+│  ─────────────────────────────────────────────────────────  │
+│  IMPORTE TOTAL (IVA incluido)                │   X.XXX,XX € │
+├─────────────────────────────────────────────────────────────┤
+│  DESGLOSE DE PAGOS:                                         │
+│  ─────────────────────────────────────────────────────────  │
+│  Señal (40%) - a abonar para confirmar       │     XXX,XX € │
+│  Liquidación (60%) - antes del evento        │     XXX,XX € │
+│  Fianza (reembolsable)                       │     XXX,XX € │
+├─────────────────────────────────────────────────────────────┤
+│  INSTRUCCIONES DE PAGO:                                     │
+│  Transferencia bancaria a:                                  │
+│  • Beneficiario: [transferencia_destinatario]               │
+│  • Concepto: [transferencia_concepto]                       │
+│  • IBAN: [iban_tenant]                                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Configuración por tenant para presupuestos:**
+```
+tenant_settings:
+- presupuesto_porcentaje_senal: int (default 40)     [CONFIG]
+- presupuesto_porcentaje_liquidacion: int (default 60) [CONFIG]
+- fianza_default_eur: decimal                         [CONFIG]
+- transferencia_destinatario: string                  [CONFIG]
+  (ej: "Canoliart, SL")
+- transferencia_concepto: string                      [CONFIG]
+  (ej: "Masia l'Encís")
+- iban_tenant: string                                 [CONFIG]
+```
 
 ---
 
@@ -529,12 +609,12 @@ Si el cliente no hace nada, simplemente espera. Solo recibirá otro email si:
 | 2.c | Gestor | Cliente confirma fecha pero falta nº invitados | Bloqueo extendido 3 días más; email solicitando información faltante. **Si hay consultas en cola, se vacían y notifican.** |
 | 2.d | Sistema | Cliente pide fecha bloqueada por otra consulta en 2.b | Consulta creada en cola con posición asignada; email informativo con CTA "Salir de la cola" |
 | 2.v | Gestor | Cliente solicita visita al espacio antes de decidir | Gestor acepta y programa visita (máx. 7 días desde solicitud); fecha bloqueada hasta día posterior a la visita; email al cliente confirmando fecha/hora. Tras la visita: si interesa → 2.b o 3; si no → 2.z |
-| 3 | Gestor | Cliente confirma toda la info; se hace pre-reserva | Fecha bloqueada 7 días; presupuesto PDF generado y enviado. **Si hay consultas en cola sobre esa fecha, se vacían y notifican.** |
-| 4 | Gestor | Recibe justificante de señal y lo sube al sistema | Estado pasa a `reserva_confirmada`. **Generación y envío de factura de señal (40%) adjunta en email de confirmación.** Fecha bloqueada en firme. Activan en paralelo sub-procesos 5, 6 y 6b. |
+| 3 | Gestor | Cliente confirma toda la info (fecha, invitados, tipo evento, **datos fiscales**); se hace pre-reserva | Fecha bloqueada 7 días; presupuesto PDF con desglose (total + 40% + 60% + fianza) generado y enviado. **Si hay consultas en cola sobre esa fecha, se vacían y notifican.** |
+| 4 | Gestor | Recibe justificante de señal y lo sube al sistema | Estado pasa a `reserva_confirmada`. **Generación y envío de factura de señal (40%) + condiciones particulares adjuntas en email de confirmación.** Fecha bloqueada en firme. Activan en paralelo sub-procesos 5, 6 y 6b. |
 | 5 | Gestor + Cliente | Trabajan colaborativamente la ficha del evento (T-Xd → T-1d) | Ficha completa: menús, timing, invitados, proveedores. Cliente recibe recordatorios automáticos. |
 | 6 | Gestor | Recibe justificante del importe restante (deadline T-1d) | Liquidación marcada como cobrada. **Generación y envío de factura de liquidación (60% + extras).** |
 | 6b | Gestor | Recibe justificante de fianza (deadline T-0, día del evento) | Fianza marcada como cobrada. **Envío de recibo de fianza.** El cliente puede pagar antes del evento o el mismo día. Es un pago a parte de la liquidación |
-| 7 | Gestor + equipo | Ejecutan el evento (solo si 5, 6 cerrados) | Briefing recibido; vista móvil "evento en curso" activa |
+| 7 | Gestor + equipo | Ejecutan el evento (solo si 5, 6 cerrados). **Captura de documentación obligatoria:** foto DNI cliente (anverso + reverso), cláusula de responsabilidad firmada. | Briefing recibido; vista móvil "evento en curso" activa; checklist de documentación pendiente visible |
 | 8 | Sistema | Cierre del expediente y NPS | **Si hay fianza cobrada → solicitud automática de IBAN al cliente para devolución.** NPS enviada a T+3d; devolución de fianza cuando se recibe IBAN |
 | 9 | Sistema | Reserva pasa al histórico consultable | Disponible en búsqueda, filtros y reporting |
 
@@ -610,20 +690,21 @@ Si el cliente no hace nada, simplemente espera. Solo recibirá otro email si:
 - **Si la consulta tenía cola asociada (era una 2.b con cola): vaciar la cola.** Todas las consultas en cola apuntando a esta pasan a `consulta_descartada_por_cola` (2.y) con email de notificación.
 
 **2.a / 2.b / 2.c → 3: Gestor activa la pre-reserva** (acción manual explícita)
-- **La transición a `pre_reserva` es siempre una acción manual del gestor**, activada mediante el botón "Generar presupuesto" en la ficha de la consulta. Requiere que el cliente haya confirmado: fecha, nº de invitados y tipo de evento. La transición NO ocurre automáticamente.
+- **La transición a `pre_reserva` es siempre una acción manual del gestor**, activada mediante el botón "Generar presupuesto" en la ficha de la consulta. Requiere que el cliente haya confirmado: fecha, nº de invitados, tipo de evento **y datos de facturación (DNI/NIF, dirección, código postal, población, provincia)**. La transición NO ocurre automáticamente.
 - Cambio de estado a `pre_reserva`
 - Reset del bloqueo de la fecha (TTL: 7 días desde la transición) `[CONFIG]`
-- Generación automática del presupuesto PDF (borrador editable; el gestor puede revisar y ajustar antes de enviar)
-- Envío del presupuesto por email con instrucciones de pago de la señal (40%) `[CONFIG]`
+- Generación automática del presupuesto PDF con desglose (total + 40% + 60% + fianza). Borrador editable; el gestor puede revisar y ajustar antes de enviar.
+- Envío del presupuesto por email con instrucciones de pago de la señal (40%) **incluyendo beneficiario y concepto de la transferencia** `[CONFIG]`
 - **Si la consulta tenía cola asociada: vaciar la cola** (caso poco frecuente porque normalmente la cola ya se vació en la transición a 2.c, pero se contempla por si se salta directamente de 2.b a 3).
 
 **3 → 4: Gestor confirma recepción del justificante de señal** (subida manual del adjunto)
 - Cambio de estado a `reserva_confirmada`
 - Bloqueo definitivo de la fecha (sin TTL)
 - **Generación automática de factura de señal** (40% del presupuesto aceptado)
+- **Generación del documento de condiciones particulares** (plantilla del tenant)
 - Generación automática de checklist pre-evento
 - Creación de la ficha operativa del evento (vacía, lista para rellenar)
-- **Envío de email de confirmación al cliente con factura de señal adjunta**, resumen y próximos hitos
+- **Envío de email de confirmación al cliente con factura de señal adjunta + condiciones particulares adjuntas**, resumen, próximos hitos e instrucciones para firmar y reenviar las condiciones particulares
 
 **4 → (5 + 6 + 6b en paralelo): Reserva confirmada**
 - Activación de TRES sub-procesos paralelos independientes:
@@ -667,6 +748,7 @@ Si el cliente no hace nada, simplemente espera. Solo recibirá otro email si:
 
 **7 → 8: Gestor marca el evento como finalizado**
 - Cambio de estado a `post_evento`
+- **Si falta documentación del día del evento (foto DNI o cláusula):** alerta al gestor indicando qué documentos faltan. No bloquea la transición.
 - **Si la reserva tiene fianza cobrada (`fianza_eur` > 0):**
   - Solicitud automática de IBAN al cliente para devolución
   - Email: "El evento ha finalizado. Para devolverte la fianza, indícanos tu IBAN."
@@ -750,7 +832,13 @@ Si el cliente no hace nada, simplemente espera. Solo recibirá otro email si:
   - Si el evento inicia sin fianza cobrada → activación de "Política de fianza tardía" (§4.9b)
 
 **Dentro de 7 (evento_en_curso):**
-- Sin automatizaciones temporales; registro manual de incidencias y consumos por el equipo
+- Registro manual de incidencias y consumos por el equipo
+- **Checklist de documentación obligatoria visible en la vista móvil:**
+  - [ ] Foto DNI cliente (anverso) → subir a `dni_foto_anverso_url`
+  - [ ] Foto DNI cliente (reverso) → subir a `dni_foto_reverso_url`
+  - [ ] Cláusula de responsabilidad firmada → subir a `clausula_responsabilidad_firmada_url`
+- El gestor/owner puede subir las fotos directamente desde el móvil
+- La documentación no bloquea el paso a post_evento, pero queda marcada como "documentación incompleta" si falta alguna
 
 **Dentro de 8 (post_evento):**
 - **Si hay fianza cobrada:**
@@ -936,7 +1024,7 @@ NOTA: desde cualquier estado TERMINAL no hay transición de salida.
 
 ## 6. Automatizaciones
 
-### 6.1 Top 27 automatizaciones de alto impacto
+### 6.1 Top 30 automatizaciones de alto impacto
 
 | # | Trigger | Acción automática | Dolor resuelto | Tiempo ahorrado | Override manual |
 |---|---|---|---|---|---|
@@ -945,7 +1033,7 @@ NOTA: desde cualquier estado TERMINAL no hay transición de salida.
 | A3 | Día +2 en `consulta.2.b` sin respuesta | Recordatorio amable al cliente | D11 | 5 min × varios leads/sem | Gestor puede pausar recordatorios para esta consulta (ver §6.3) |
 | A4 | Día +3 en `consulta.2.b` sin respuesta (TTL agotado) | Liberar fecha + notificar gestor + **promoción automática del primero en cola** | D4, D11, **D13** | Previene leads perdidos | Gestor puede extender/acortar TTL manualmente antes de que expire (ver §6.3) |
 | A5 | Día +7 en `pre_reserva` sin justificante | Liberar fecha + cancelar reserva + notificar | D4, D11 | Previene doble reserva | Gestor puede extender TTL manualmente antes de que expire (ver §6.3) |
-| A6 | Gestor sube justificante de señal | Pasar a `reserva_confirmada` + **generar factura de señal (40%) en borrador** + activar sub-procesos paralelos + checklist | D3, D6, D9 | ~20 min | Gestor revisa y aprueba la factura de señal antes del envío al cliente |
+| A6 | Gestor sube justificante de señal | Pasar a `reserva_confirmada` + **generar factura de señal (40%) en borrador** + **generar documento de condiciones particulares** + activar sub-procesos paralelos + checklist | D3, D6, D9 | ~20 min | Gestor revisa y aprueba la factura de señal y condiciones particulares antes del envío al cliente |
 | A7 | Inicio sub-proceso liquidación | Generar factura de liquidación en borrador + alerta al gestor | D6, D9 | ~20 min | Gestor revisa y aprueba la factura antes del envío al cliente |
 | A7b | Inicio sub-proceso fianza | Generar recibo de fianza en borrador + alerta al gestor para enviar al cliente | D6, D9 | ~10 min | Gestor decide cuándo enviar el recibo al cliente |
 | A8 | Inicio sub-proceso pre-evento | Email al cliente confirmando nº invitados, menú, timing | D11 | 15 min | Gestor puede pausar email para esta reserva (ver §6.3) |
@@ -968,6 +1056,10 @@ NOTA: desde cualquier estado TERMINAL no hay transición de salida.
 | A24 | T+7d post-evento sin IBAN recibido | Segundo recordatorio cliente + alerta al gestor | D11 | Automático | Gestor puede pausar recordatorios para esta reserva (ver §6.3) |
 | A25 | T-3d sin pago de fianza | Recordatorio al cliente: "Recuerda que la fianza debe estar abonada antes del evento" | D11 | Automático | Gestor puede pausar recordatorios para esta reserva (ver §6.3) |
 | A26 | T-1d sin pago de fianza | ALERTA al gestor: "Fianza pendiente para mañana" | D11 | Automático | — |
+| A27 | T+7d desde envío condiciones particulares sin firma | Recordatorio al cliente: "Recuerda firmar y devolver las condiciones particulares" | D11 | Automático | Gestor puede pausar recordatorios para esta reserva |
+| A28 | Gestor registra recepción de condiciones particulares firmadas | Actualizar `condiciones_particulares_firmadas = true` + registrar fecha + alerta de confirmación | D9 | ~2 min | — (accionado por gestor) |
+| A29 | Día del evento sin condiciones particulares firmadas | ALERTA al gestor: "Condiciones particulares pendientes de firma. El cliente puede firmar presencialmente." | D11 | Automático | — |
+| A30 | Gestor sube documentación día evento (foto DNI / cláusula) | Registrar URLs en la reserva + actualizar checklist de documentación | D9, D10 | ~3 min | — (accionado por gestor) |
 
 ### 6.2 Automatizaciones de soporte
 
@@ -1155,6 +1247,11 @@ El alcance del MVP del TFM se ha acotado deliberadamente para garantizar entrega
 | **Factura de señal (40%) adjunta en email de confirmación** | ✅ Implementado |
 | **Factura de liquidación (60% + extras) enviada al confirmar cobro** | ✅ Implementado |
 | **Gestión de fianza:** cobro, recibo independiente, solicitud IBAN, devolución | ✅ Implementado |
+| **Datos fiscales del cliente** (DNI, dirección, CP, población, provincia) para presupuestos y facturas | ✅ Implementado |
+| **Presupuesto con desglose** (importe total + 40% señal + 60% liquidación + fianza) | ✅ Implementado |
+| **Instrucciones de transferencia** en emails (beneficiario + concepto configurables por tenant) | ✅ Implementado |
+| **Condiciones particulares:** generación, envío con factura 40%, registro de firma | ✅ Implementado |
+| **Documentación día evento:** captura foto DNI (anverso/reverso) + cláusula responsabilidad firmada | ✅ Implementado |
 | Factura complementaria post-evento (ajustes) | 📐 Solo diseñado |
 | Emails automáticos del flujo principal (5 emails clave, ver lista abajo) | ✅ Implementado |
 | Emails de cola (entrada en cola, promoción, descartado) | 📐 Solo diseñado |
@@ -1176,8 +1273,8 @@ De los emails diseñados en la especificación, el MVP TFM implementa los **8 em
 | # | Trigger | Email | Comportamiento |
 |---|---|---|---|
 | E1 | Lead entrante (1 → 2.a/2.b) | Respuesta inicial al cliente con tarifa estimada | **Condicional:** el gestor introduce el lead en el formulario normalizado de la herramienta (sea cual sea el canal de origen). Si los campos clave están completos y no hay comentarios → auto-envío. Si hay comentarios → el sistema genera un borrador que el gestor revisa, edita si es necesario, y confirma el envío (ver §4.2.1). |
-| E2 | Gestor activa pre-reserva (transición a `pre_reserva`) | Email con presupuesto PDF adjunto e instrucciones de señal (40%) | **Automático** tras aprobación del presupuesto borrador por el gestor |
-| E3 | Gestor sube justificante de señal (transición a `reserva_confirmada`) | **Confirmación de reserva al cliente con factura de señal adjunta** y próximos hitos | **Automático** tras aprobación de la factura de señal por el gestor |
+| E2 | Gestor activa pre-reserva (transición a `pre_reserva`) | Email con presupuesto PDF adjunto (con desglose 40%/60%/fianza) e instrucciones de señal. **Incluye instrucciones de transferencia** (beneficiario + concepto). Opcionalmente puede mencionar las condiciones particulares que se enviarán tras el pago. | **Automático** tras aprobación del presupuesto borrador por el gestor |
+| E3 | Gestor sube justificante de señal (transición a `reserva_confirmada`) | **Confirmación de reserva al cliente con factura de señal (40%) adjunta + documento de condiciones particulares adjunto.** Incluye instrucciones: "Por favor, firma y reenvía el documento de condiciones particulares por email o entrégalo firmado el día del evento." Próximos hitos y calendario de pagos. | **Automático** tras aprobación de la factura de señal por el gestor |
 | E4 | Inicio sub-proceso liquidación | Email con factura de liquidación (60% + extras) + recibo de fianza | **Automático** tras aprobación de la factura de liquidación por el gestor |
 | E5 | Evento marcado completado (transición a `post_evento`) | Email de agradecimiento + NPS + **solicitud de IBAN para devolución de fianza** | **Automático** |
 | E6 | Gestor acepta solicitud de visita (transición a 2.v) | Confirmación de visita programada con fecha/hora | **Automático** |
@@ -1235,7 +1332,14 @@ Los emails restantes (recordatorios pre-evento, cola, recurrentes, briefing al e
 2. **Un tenant = un espacio.** El espacio es implícito en el tenant; no es entidad independiente. Atributos del espacio (nombre comercial, capacidad máxima, descripción) viven en `tenant_settings`.
 3. **Reserva como agregado raíz** (DDD).
 4. **Máquina de estados como configuración, no como código.** `workflow_definition` por tenant.
-5. **TTLs, porcentajes de pago, plazos y fianza en `tenant_settings`.** Incluye `fianza_default_eur` (importe por defecto de fianza) y `max_dias_programar_visita` (máximo días desde solicitud para programar visita, default 7).
+5. **TTLs, porcentajes de pago, plazos, fianza e instrucciones de pago en `tenant_settings`.** Incluye:
+   - `fianza_default_eur` (importe por defecto de fianza)
+   - `max_dias_programar_visita` (máximo días desde solicitud para programar visita, default 7)
+   - `presupuesto_porcentaje_senal` (default 40%)
+   - `presupuesto_porcentaje_liquidacion` (default 60%)
+   - `transferencia_destinatario` (ej: "Canoliart, SL")
+   - `transferencia_concepto` (ej: "Masia l'Encís")
+   - `iban_tenant` (IBAN para recibir transferencias)
 6. **Plantillas de email y PDF como entidades por tenant.**
 7. **Tipos de evento y extras como datos del tenant.**
 8. **Audit log de todas las acciones sobre reservas y facturas.**
