@@ -1310,7 +1310,7 @@ Los emails restantes (recordatorios pre-evento, cola, recurrentes, briefing al e
 
 | Capa | Tecnología | Razón |
 |---|---|---|
-| Frontend | **Next.js 14+ (App Router) + React + TypeScript** | Productividad, SSR, ecosistema maduro |
+| Frontend | **Vite + React + TypeScript** | SPA pura; producto interno sin SEO; frontera limpia con el backend NestJS |
 | UI | **Tailwind + shadcn/ui** | Velocidad de desarrollo |
 | Calendario | **FullCalendar** o **react-big-calendar** | Maduros, fiables para vistas mensuales y semanales |
 | Backend | **Node.js + tRPC o NestJS** | Type-safety end-to-end / estructura empresarial |
