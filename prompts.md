@@ -257,6 +257,17 @@ Crea o sobreescribe el archivo `docs/use-cases.md` en la raíz del proyecto con 
 - Los casos deben ser viables
 - Los diagramas deben ser simples y comprensibles
 
+### ER diagram
+
+**Prompt 3**:
+/er-diagram genera el diagrama de ER para todos los casos de uso identificados y extraidos en #file:use-cases.md con alcance para el MVP
+
+### ARCH diagradam
+
+Ejecuto el prompt almacenado en .github (previamente modificado, indincandole sobretodo la importancia que toda la funcionalidad definida en el MVP esté representada en el diseño y que no sobredimensione el alcance de este)
+**Prompt 4**:
+/arch-diagram
+
 ---
 
 ## 2. Arquitectura del Sistema
@@ -264,18 +275,117 @@ Crea o sobreescribe el archivo `docs/use-cases.md` en la raíz del proyecto con 
 ### **2.1. Diagrama de arquitectura:**
 
 **Prompt 1:**
+Actúa como arquitecto de software documentando el proyecto Slotify, una plataforma SaaS multi-tenant de gestión de espacios de eventos privados.
+
+NO generes nada todavía. Tu única tarea en este mensaje es leer y resumir el contexto.
+
+1. Lee estos archivos del workspace:
+   - arquitectura.md (fuente de verdad para arquitectura)
+   - er-diagram.md (modelo de datos)
+   - use-cases.md (casos de uso)
+
+2. Devuélveme un resumen estructurado de:
+   a) Los componentes de la ARQUITECTURA DE IMPLEMENTACIÓN DEL MVP (no la objetivo de producción AWS): frontend, backend, base de datos, jobs, auth, storage, email, observabilidad, y cómo se despliega (monorepo, dos destinos).
+   b) Las tecnologías concretas de cada componente.
+   c) Las decisiones de arquitectura explícitas y su justificación, especialmente: monolito modular vs microservicios; SPA Vite+React vs Next.js; NestJS con hexagonal/DDD/OpenAPI; PostgreSQL única sin Redis; bloqueo atómico por UNIQUE(tenant_id,fecha); cron simple vs serverless; JWT access+refresh.
+
+REGLAS ESTRICTAS:
+- Usa ÚNICAMENTE información presente en esos archivos. No añadas componentes, tecnologías ni patrones que no aparezcan en ellos.
+- Si algo no está en los documentos, escribe "NO ESPECIFICADO" en vez de inventarlo.
+- Distingue siempre MVP (lo que se construye) de objetivo de producción (visión AWS).
+
+Cuando termines el resumen, espera mi siguiente instrucción. No generes diagramas aún.
 
 **Prompt 2:**
 
+Ahora genera el DIAGRAMA DE ARQUITECTURA de la implementación del MVP de Slotify, basándote EXCLUSIVAMENTE en el resumen que acabas de hacer.
+
+FORMATO: usa Mermaid (sintaxis `graph TB`), porque es texto versionable en Git, se renderiza en GitHub/GitLab y en la memoria del TFM, y es coherente con el resto de la documentación del proyecto. Entrégalo dentro de un bloque ```mermaid.
+
+CONTENIDO OBLIGATORIO del diagrama:
+- El actor (gestor) accediendo desde el navegador.
+- La SPA (Vite+React) servida como estáticos desde un CDN.
+- El backend NestJS como proceso vivo, mostrando sus capas internas
+  (interface, application, domain, infrastructure).
+- La base de datos PostgreSQL única (anota RLS multi-tenant y UNIQUE(tenant_id,fecha)).
+- El cron de barrido de TTLs/cola.
+- Servicios externos: storage, email, observabilidad.
+- Las conexiones etiquetadas con su propósito, marcando la llamada del navegador a la API como cross-origin (CORS).
+
+REGLAS:
+- Refleja que es UN monorepo con DOS destinos de despliegue (SPA a CDN, backend a su plataforma). No lo dibujes como un único servidor monolítico ni como microservicios.
+- No incluyas componentes de la arquitectura objetivo AWS (ni ALB, ni Redis, ni Lambda, ni Cognito, etc.).
+- Verifica que cada subgraph tenga su `end` y que la sintaxis Mermaid sea válida.
+
+Después del diagrama, dame una lista de las suposiciones que hayas tenido que hacer, si alguna.
+
 **Prompt 3:**
+
+Ahora redacta la SECCIÓN ESCRITA que acompaña al diagrama, para la memoria del TFM. Estructúrala en exactamente estas cuatro partes:
+
+1. PATRÓN ARQUITECTÓNICO: indica qué patrón sigue (monolito modular con arquitectura hexagonal y DDD en el backend) y describe brevemente cada concepto aplicado al proyecto. Si hay patrones secundarios (puertos y adaptadores, agregado raíz,
+   máquina de estados como configuración), menciónalos.
+
+2. JUSTIFICACIÓN DE LA ELECCIÓN: explica por qué se eligió esta arquitectura para ESTE contexto (TFM con plazo ajustado, un solo tenant piloto, desarrollo asistido por IA, riesgo crítico de doble reserva). Contrasta explícitamente con las
+   alternativas descartadas (microservicios, Next.js full-stack, Redis para el lock, arquitectura AWS completa) y por qué se descartaron en esta fase.
+
+3. BENEFICIOS PRINCIPALES: lista los beneficios concretos que aporta al proyecto (atomicidad transaccional nativa, simplicidad operativa, type-safety end-to-end, testabilidad para TDD, coherencia con el temario del máster, coste bajo de hosting).
+
+4. SACRIFICIOS Y DÉFICITS: sé honesto sobre lo que esta arquitectura sacrifica (no escala horizontalmente como microservicios, acoplamiento de despliegue del backend, CORS por la separación de dominios, ausencia de alta disponibilidad, el coste de mantener dos frameworks). Para cada sacrificio, indica si es asumible en la fase MVP y cómo se resolvería en la arquitectura objetivo de producción.
+
+REGLAS:
+- Tono técnico, objetivo y realista. No vendas la arquitectura como perfecta: la sección de sacrificios debe ser tan rigurosa como la de beneficios.
+- Apóyate solo en las decisiones documentadas en arquitectura.md. No inventes beneficios genéricos de SaaS que no apliquen.
+- Prosa en castellano, sin bullets excesivos; máximo una lista por sección.
+- Conecta cada beneficio/sacrificio con una decisión concreta del diagrama.
+
+OUTPUT
+Devuelve en bloque de código en formato markdown el diagrama de arquitectura generado en el anterior punto y a continuación la sección escrita solicitada
 
 ### **2.2. Descripción de componentes principales:**
 
 **Prompt 1:**
 
-**Prompt 2:**
+##ROL
+Actúa como arquitecto de software documentando el proyecto Slotify
 
-**Prompt 3:**
+##CONTEXT
+Utiliza los siguientes ficheros para contextualizar el proyecto: er-diagram, architecture, use-cases. Usa solo la información de estos archivos;
+
+##GOAL
+Redactar la sección "2.2 Descripción de componentes principales" para la memoria del TFM de Slotify, basándote EXCLUSIVAMENTE en la arquitectura de implementación del MVP documentada en arquitectura.md (NO la arquitectura objetivo de producción AWS).
+
+##INSTRUCCIONES
+Esta sección 2.2 es un CATÁLOGO DESCRIPTIVO componente a componente. NO repitas la justificación de por qué se eligió el monolito o la SPA; aquí DESCRIBE cada pieza: qué es, qué responsabilidad tiene, qué tecnología usa, y cómo se relaciona con las demás. La argumentación de las decisiones pertenece a 2.1, no aquí.
+
+##OUTPUT
+Una entrada por cada componente, con estos campos para cada uno:
+  - Nombre del componente
+  - Responsabilidad (qué hace y de qué se ocupa en el sistema)
+  - Tecnología concreta (framework/librería/servicio y por qué encaja técnicamente, no por qué se eligió frente a alternativas)
+  - Relaciones (con qué otros componentes habla y cómo: HTTP/REST, transacciones, etc.)
+  - Alcance MVP: qué parte está implementada y qué queda como diseñado/post-TFM
+
+COMPONENTES A DESCRIBIR (todos los del MVP; no incluyas componentes AWS):
+  1. Frontend SPA (Vite + React + React Router + TypeScript; Tailwind + shadcn/ui; cliente generado desde OpenAPI)
+  2. Backend NestJS y sus capas internas (interface, application, domain, infrastructure) — describe la responsabilidad de cada capa
+  3. ORM Prisma
+  4. Base de datos PostgreSQL (RLS multi-tenant, UNIQUE(tenant_id,fecha), FTS)
+  5. Módulo de autenticación (JWT access+refresh, NestJS+Passport)
+  6. Cron de barrido (TTLs, promoción de cola, recordatorios)
+  7. Generación de PDF (presupuestos y facturas)
+  8. Proveedor de email (plantillas E1-E8)
+  9. Storage de documentos y justificantes
+  10. Observabilidad (errores)
+
+REGLAS ESTRICTAS:
+- Usa SOLO lo documentado en arquitectura.md y, si hace falta para responsabilidades de datos, er-diagram.md. No inventes componentes, librerías ni responsabilidades.
+- Si un detalle no está especificado, escribe "NO ESPECIFICADO" en vez de rellenarlo.
+- Distingue MVP (implementado) de diseñado/post-TFM en el campo "Alcance MVP".
+- Tono técnico y objetivo. Prosa en castellano. Puedes usar una ficha por componente (subtítulo + los campos), pero evita justificar decisiones (eso es 2.1).
+- No menciones ALB, Redis, Lambda, Cognito ni ningún componente de la arquitectura AWS.
+- La sección 2.1 ya cubre la VISTA DE CONJUNTO, el PATRÓN y la JUSTIFICACIÓN global. No dupliques esa información. Al final, lista cualquier suposición que hayas tenido que hacer.
+
 
 ### **2.3. Descripción de alto nivel del proyecto y estructura de ficheros**
 

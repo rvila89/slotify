@@ -115,6 +115,6 @@ Una vez proporciones la información anterior, recibirás:
 
 Una vez completados los entregables, crea o sobreescribe el archivo `docs/er-diagram.md` en la raíz del proyecto con el siguiente contenido:
 
-1. **Resumen breve** (2-3 párrafos) describiendo el dominio, las entidades principales y las decisiones de diseño más relevantes.
+1. **Resumen breve** describiendo el dominio, las entidades principales y las decisiones de diseño más relevantes.
 2. El **diagrama** completo en el formato seleccionado, dentro de un bloque de código.
 3. El **diccionario de datos** resumido con las entidades y sus atributos clave.

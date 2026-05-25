@@ -37,6 +37,30 @@ Los casos de uso se han seleccionado aplicando los siguientes criterios:
 4. **Trazabilidad**: Cada caso traza a requisitos específicos de la especificación funcional
 5. **Completitud del flujo**: Cubriendo el ciclo completo lead → archivo
 
+### 1.4 Estructura de la Interfaz de Usuario
+
+La aplicación sigue un layout consistente con los siguientes elementos:
+
+#### Sidebar (Menú lateral fijo)
+
+Menú de navegación principal ubicado en el lateral izquierdo, siempre visible:
+
+| Opción | Descripción |
+|--------|-------------|
+| **Calendario** | Vista principal del calendario de disponibilidad y reservas. Es la página de inicio tras el login. |
+| **Reservas** | Listado y gestión de todas las reservas (pipeline, histórico). |
+| **Dashboard** | Panel operativo con widgets de resumen y alertas. |
+
+#### Header (Cabecera fija)
+
+Barra superior persistente con elementos de acceso rápido:
+
+| Elemento | Descripción |
+|----------|-------------|
+| **Indicador reservas hoy** | Muestra el número de reservas/eventos programados para el día actual. |
+| **Icono notificaciones** | Acceso a alertas y notificaciones pendientes (TTLs próximos, pagos vencidos, etc.). |
+| **Botón nueva reserva** | Acceso directo al formulario de alta de nueva consulta/reserva (UC-03). |
+
 ---
 
 ## 2. Catálogo de Casos de Uso
@@ -87,7 +111,7 @@ Los casos de uso se han seleccionado aplicando los siguientes criterios:
 3. El gestor introduce email y contraseña
 4. El sistema valida las credenciales
 5. El sistema identifica el tenant asociado al usuario
-6. El sistema redirige al dashboard operativo
+6. El sistema redirige al calendario
 7. El sistema registra el acceso en audit log
 
 **Flujos Alternativos:**
@@ -302,7 +326,7 @@ stateDiagram-v2
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema, Cliente |
 | **Descripción** | El gestor programa una visita al espacio cuando el cliente lo solicita antes de decidir |
-| **Precondiciones** | - Consulta en sub-estado 2.a o 2.b<br>- Cliente ha solicitado visita<br>- Fecha de visita ≤ 7 días desde solicitud |
+| **Precondiciones** | - Consulta en sub-estado 2.a, 2.b o 2.c<br>- Cliente ha solicitado visita<br>- Fecha de visita ≤ 7 días desde solicitud |
 | **Postcondiciones** | - Consulta pasa a sub-estado 2.v<br>- Fecha del evento bloqueada hasta día posterior a la visita<br>- Visita registrada con fecha/hora<br>- Recordatorio programado para el gestor |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
@@ -311,7 +335,7 @@ stateDiagram-v2
 1. El gestor abre la ficha de consulta
 2. El gestor selecciona "Programar visita"
 3. El sistema muestra formulario de programación
-4. El gestor introduce fecha y hora de la visita (máx. 7 días desde solicitud)
+4. El gestor introduce fecha y hora de la visita
 5. El sistema valida la fecha de visita
 6. El sistema cambia el sub-estado a 2.v
 7. El sistema registra `visita_programada_fecha`
@@ -321,8 +345,7 @@ stateDiagram-v2
 11. El sistema registra la transición en audit log
 
 **Flujos Alternativos:**
-- **FA-01**: Fecha de visita > 7 días desde solicitud → Sistema rechaza y muestra error
-- **FA-02**: Consulta en cola (2.d) → NO permitido, debe ser promovida primero
+- **FA-01**: Consulta en cola (2.d) → NO permitido, debe ser promovida primero
 
 ---
 
@@ -509,7 +532,7 @@ sequenceDiagram
 |-------|-------------|
 | **ID** | UC-13 |
 | **Nombre** | Salir Voluntariamente de la Cola |
-| **Actor Principal** | Cliente (vía CTA en email) / Gestor |
+| **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
 | **Descripción** | Un cliente en cola decide no esperar más y sale voluntariamente |
 | **Precondiciones** | - Consulta en sub-estado 2.d |
@@ -517,18 +540,13 @@ sequenceDiagram
 | **Prioridad** | Media |
 | **Frecuencia** | Baja |
 
-**Flujo Básico (cliente vía email):**
-1. El cliente hace clic en "Salir de la cola" en el email recibido
-2. El sistema valida el token del enlace
-3. El sistema cambia sub-estado de 2.d a 2.z
-4. El sistema reordena la cola (los siguientes suben una posición)
-5. El sistema muestra confirmación al cliente
-
-**Flujo Alternativo (gestor):**
+**Flujo Básico (gestor):**
 1. El gestor abre la ficha de consulta en cola
 2. El gestor selecciona "Forzar salida de cola"
 3. El gestor opcionalmente indica motivo
-4. Continúa desde paso 3 del flujo básico
+4. El sistema cambia sub-estado de 2.d a 2.z
+5. El sistema reordena la cola (los siguientes suben una posición)
+6. El sistema muestra confirmación al cliente
 
 ---
 

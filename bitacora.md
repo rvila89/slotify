@@ -51,8 +51,8 @@ Aunque el modelo de datos de la aplicación se defina desde el inicio como multi
 
 #### STACK TECNOLÓGICO
 - Monorepo: Turborepo (apps/web, apps/api, packages/shared)
-- Frontend: Next.js (App Router) + Typescript + Tailwind + shadcn/ui
-- Backend: Node.js + Typescript + Prisma + Zod
+- Frontend: Vite + React + TypeScript + Tailwind + shadcn/ui (SPA consumiendo OpenAPI)
+- Backend: NestJS + TypeScript + Prisma (hexagonal + DDD + OpenAPI)
 - Base de datos: PostgreSQL
 - CI/CD: GitHub Actions
 
@@ -201,20 +201,28 @@ Mantén estos riesgos presentes en cualquier diseño o recomendación:
 ### CREACION PROYECTO
 En este momento, dentro también de la fase de planificación, creo el proyecto ya en directorio para empezar a iterar el PRD-Especficación funcional con el prompt (adjuntar link) para terminar de refinar y validar la especificación del producto y empezar a generar los artefactos necesarios para poder construirlo. Empiezo utilizando Copilot como asistente, con el uso de modelos Claude (Opus y Sonnet) para ese trabajo iterativo de refinamiento y validación.
 
+## ARTEFACTOS (DISEÑO?)
+Una vez finalizado el refinamiento y validado el SlotifyGeneralSpecs, empezamos a generar los distintos artefactos necesarios para poder construir el proyecto.
+
+### USE CASES
+Para poder generar los uses cases ejecutamos el prompt (enlace) indicando claramente el alcance del MVP solicitando que toda la funcionalidad contemplada para esta primera fase del producto este cubierta en los casos de uso generados
+
+### ER DIAGRAM
+Siguiendo con los artefactos, empezamos a trabajar de una forma más aterrizada el modelo de datos. Para ello utilizo el prompt que nos compartió el Mentor Daniel... y adjunto como contexto del prompt los uses-cases generados en el apartado anterior, así como una indicación que el alcance a cubrir es el indicado para el VMP (prompt---)
+El primer artefacto generado no termina de convencerme y hay ciertas decisiones tomadas (como separar por entidades Reserva y Consulta, y otras) que no son fieles a los casos de uso y a la GeneralSpec. Empiezo un proceso de iteración volviendo al Claude Project web para conseguir el er-diagram definitivo
+
+### ARCH DIAGRAM
+Para generar el diagrama de arquitectura a alto nivel utilizo el prompt que nos compartió Daniel y que en su momento me funcionó muy bien, adaptandolo un poco a las necesidades de mi proyecto. Sobretodo le añado indicaciones y validaciones posteriores para asegurar que toda la funcionalidad definida en el MVP esté representada en el diseño.
+Para el prompt que me permita generar el diagrama en Diagrams GPT le he indicado claramente que no sobredimensiones el diseño de la arquitectura, y que se enfoque solamente en los componentes y servicios necesarios para el MVP.
+
+El resultado inicial es bastante sobre ingeniería y lo que hago a partir de esa primera versión es utilizar Claude Project para solicitar arquitectura y luego aprovechar para compararla con la dada a través de Copilot. En ese proceso comparativo y de refinamiento voy elaborando mejor el diseño de arquitectura final hasta tener una versión 3.2 final como resultado óptimo para poder empezar.
+
+### ARQUITECTURA DEL SISTEMA
+Después de generar el artefacto anterior, y junto a los otros dos artefactos generados anteriormente (er-diagram use-cases) solicito a la propia IA una série de prompts para poder contextualizar la arquitectura final del sistema, el diagrama definitivo y definir las decisiones, justificaciones y el resultado final. Refino esos prompts y los ejecuto para tener ya definida completamente la arquitectura del sistema Slotify (MVP)
+
 --------------------------
 
 SEGUIR AQUI
-
-
-## REQUISITOS
-
-1) Para empezar con la fase inicial de desarrollo del software, vamos a empezar con el diseño y documentación del sistema siguiendo las fases de investigación y análisis, casos de uso, modelado de datos y diseño a alto nivel.
-
-1.1) Descripción breve del software, valor añadido y ventajas competitivas. Explicación de las funciones principales. Añadir un diagrama Lean Canvas para entender el modelo de negocio
-1.2) Descripción de los 3 casos de uso principales, con el diagraama asociado a cada uno
-1.3) Modelo de datos que cubra entidades, atributos (nombre y tipi) y relaciones
-1.4) Diseño del sistema a alto nivel, tanto explicado como diagrama adjunto
-1.5) Diagrama C4 que llegue en profundidad a uno de los componentes del sistema.
 
 ## DISEÑO UX
 
