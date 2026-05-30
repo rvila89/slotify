@@ -217,8 +217,18 @@ Para el prompt que me permita generar el diagrama en Diagrams GPT le he indicado
 
 El resultado inicial es bastante sobre ingeniería y lo que hago a partir de esa primera versión es utilizar Claude Project para solicitar arquitectura y luego aprovechar para compararla con la dada a través de Copilot. En ese proceso comparativo y de refinamiento voy elaborando mejor el diseño de arquitectura final hasta tener una versión 3.2 final como resultado óptimo para poder empezar.
 
+### C4 DIAGRAM
+Para generar el diagrama c4 utilizo el prompt que nos compartió Daniel y que en su momento me funcionó muy bien, adaptandolo un poco a las necesidades de mi proyecto (prompt link)
+
 ### ARQUITECTURA DEL SISTEMA
-Después de generar el artefacto anterior, y junto a los otros dos artefactos generados anteriormente (er-diagram use-cases) solicito a la propia IA una série de prompts para poder contextualizar la arquitectura final del sistema, el diagrama definitivo y definir las decisiones, justificaciones y el resultado final. Refino esos prompts y los ejecuto para tener ya definida completamente la arquitectura del sistema Slotify (MVP)
+Después de generar el artefacto anterior, y junto a los otros tres artefactos generados anteriormente (er-diagram, use-cases, c4-diagram) solicito a la propia IA una série de prompts para poder contextualizar la arquitectura final del sistema, el diagrama definitivo y definir las decisiones, justificaciones y el resultado final. Refino esos prompts y los ejecuto para tener ya definida completamente la arquitectura del sistema Slotify (MVP)
+
+--- no se si aplica
+
+### CREACION DE UNA SKILL PARA ACTUALIZAR DINÁMICAMENTE TODOS ESTOS DIAGRAMAS Y DOCUMENTACIÓN
+Llegados a este punto, con el gran número de artefactos y diagramas desarrollados, veo la necesidad de crerar una skill que permita mantener y actualizar toda esta documentación cuando hayan cambios en el código que tengan un impacto sobre ello. (desarrollar mas el punto)
+
+---
 
 --------------------------
 
