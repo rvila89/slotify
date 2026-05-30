@@ -223,16 +223,9 @@ Para generar el diagrama c4 utilizo el prompt que nos compartió Daniel y que en
 ### ARQUITECTURA DEL SISTEMA
 Después de generar el artefacto anterior, y junto a los otros tres artefactos generados anteriormente (er-diagram, use-cases, c4-diagram) solicito a la propia IA una série de prompts para poder contextualizar la arquitectura final del sistema, el diagrama definitivo y definir las decisiones, justificaciones y el resultado final. Refino esos prompts y los ejecuto para tener ya definida completamente la arquitectura del sistema Slotify (MVP)
 
---- no se si aplica
+## HISTORIAS DE USUARIO
+Voy a generar las historias de usuario necesarias para desarrollar el MVP de Slotify. Utilizo el prompt (enlace) para generar historias de usuario, ejecutandolo por área funcional para no sufrir problemas y errores por culpa de problemas de contexto lógicos.
 
-### CREACION DE UNA SKILL PARA ACTUALIZAR DINÁMICAMENTE TODOS ESTOS DIAGRAMAS Y DOCUMENTACIÓN
-Llegados a este punto, con el gran número de artefactos y diagramas desarrollados, veo la necesidad de crerar una skill que permita mantener y actualizar toda esta documentación cuando hayan cambios en el código que tengan un impacto sobre ello. (desarrollar mas el punto)
-
----
-
---------------------------
-
-SEGUIR AQUI
 
 ## DISEÑO UX
 
