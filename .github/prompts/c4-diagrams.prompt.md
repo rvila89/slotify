@@ -1,9 +1,9 @@
 ---
 agent: 'agent'
-description: 'Genera los diagramas C4 para el sistema ATS usando PlantUML con la librería C4-PlantUML'
+description: 'Genera los diagramas C4 mi plataforma Slotify usando PlantUML con la librería C4-PlantUML'
 ---
 
-Necesito crear los diagramas C4 para el sistema ATS que estamos diseñando. Haz uso del lenguaje PlantUML y de la siguiente referencia para darme el código necesario.
+Necesito crear los diagramas C4 para la plataforma Slotify que estamos diseñando. Haz uso del lenguaje PlantUML y de la siguiente referencia para darme el código necesario.
 
 Una vez generados los diagramas, crea o sobreescribe el archivo `docs/c4-diagrams.md` en la raíz del proyecto con el siguiente contenido:
 
@@ -13,7 +13,8 @@ Una vez generados los diagramas, crea o sobreescribe el archivo `docs/c4-diagram
 La referencia de estructura a seguir es la siguiente:
 
 ```plantuml
-@startuml "techtribesjs"
+@startuml "slotify"
+
 !include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
 ' uncomment the following line and comment the first to use locally
 ' !include C4_Container.puml
@@ -27,7 +28,7 @@ Person_Ext(anonymous_user, "Anonymous User")
 Person(aggregated_user, "Aggregated User")
 Person(administration_user, "Administration User")
 
-System_Boundary(c1, "techtribes.js"){
+System_Boundary(c1, "slotify"){
 
     Container(web_app, "Web Application", "Java, Spring MVC, Tomcat 7.x", "Allows users to view people, tribes, content, events, jobs, etc. from the local tech, digital and IT sector")
 

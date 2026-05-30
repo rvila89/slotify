@@ -262,11 +262,298 @@ Crea o sobreescribe el archivo `docs/use-cases.md` en la raíz del proyecto con 
 **Prompt 3**:
 /er-diagram genera el diagrama de ER para todos los casos de uso identificados y extraidos en #file:use-cases.md con alcance para el MVP
 
-### ARCH diagradam
+### ARCH diagram
 
 Ejecuto el prompt almacenado en .github (previamente modificado, indincandole sobretodo la importancia que toda la funcionalidad definida en el MVP esté representada en el diseño y que no sobredimensione el alcance de este)
 **Prompt 4**:
 /arch-diagram
+
+### C4 diagram
+**Prompt 5**:
+Necesito crear los diagramas C4 para la plataforma Slotify que estamos diseñando. Haz uso del lenguaje PlantUML y de la siguiente referencia para darme el código necesario.
+
+Una vez generados los diagramas, crea o sobreescribe el archivo `docs/c4-diagrams.md` en la raíz del proyecto con el siguiente contenido:
+
+1. **Resumen breve** (2-3 párrafos) describiendo los niveles C4 representados y las decisiones de diseño clave.
+2. El **código PlantUML completo** de cada diagrama dentro de bloques de código individuales, con un encabezado que indique el nivel (Context, Container, Component, etc.).
+
+La referencia de estructura a seguir es la siguiente:
+
+```plantuml
+@startuml "slotify"
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+' uncomment the following line and comment the first to use locally
+' !include C4_Container.puml
+
+LAYOUT_TOP_DOWN()
+'LAYOUT_AS_SKETCH()
+LAYOUT_WITH_LEGEND()
+
+
+Person_Ext(anonymous_user, "Anonymous User")
+Person(aggregated_user, "Aggregated User")
+Person(administration_user, "Administration User")
+
+System_Boundary(c1, "slotify"){
+
+    Container(web_app, "Web Application", "Java, Spring MVC, Tomcat 7.x", "Allows users to view people, tribes, content, events, jobs, etc. from the local tech, digital and IT sector")
+
+    ContainerDb(rel_db, "Relational Database", "MySQL 5.5.x", "Stores people, tribes, tribe membership, talks, events, jobs, badges, GitHub repos, etc.")
+
+    Container(filesystem, "File System", "FAT32", "Stores search indexes")
+
+    ContainerDb(nosql, "NoSQL Data Store", "MongoDB 2.2.x", "Stores from RSS/Atom feeds (blog posts) and tweets")
+
+    Container(updater, "Updater", "Java 7 Console App", "Updates profiles, tweets, GitHub repos and content on a scheduled basis")
+}
+
+System_Ext(twitter, "Twitter")
+System_Ext(github, "GitHub")
+System_Ext(blogs, "Blogs")
+
+
+Rel(anonymous_user, web_app, "Uses", "HTTPS")
+Rel(aggregated_user, web_app, "Uses", "HTTPS")
+Rel(administration_user, web_app, "Uses", "HTTPS")
+
+Rel(web_app, rel_db, "Reads from and writes to", "SQL/JDBC, port 3306")
+Rel(web_app, filesystem, "Reads from")
+Rel(web_app, nosql, "Reads from", "MongoDB wire protocol, port 27017")
+
+Rel_U(updater, rel_db, "Reads from and writes data to", "SQL/JDBC, port 3306")
+Rel_U(updater, filesystem, "Writes to")
+Rel_U(updater, nosql, "Reads from and writes to", "MongoDB wire protocol, port 27017")
+
+Rel(updater, twitter, "Gets profile information and tweets from", "HTTPS")
+Rel(updater, github, "Gets information about public code repositories from", "HTTPS")
+Rel(updater, blogs, "Gets content using RSS and Atom feeds from", "HTTP")
+
+Lay_R(rel_db, filesystem)
+
+@enduml
+```
+--- no se si aplica
+
+### CREACIÓN DE UNA SKILL PARA ACTUALIZAR TODOS ESTOS ARTEFACTOS Y DOCUMENTACIÓN DE UNA FORMA DINÁMICA
+**Prompt 6**:
+#CONTEXT:
+Adopta el rol de un arquitecto de software senior, especialista en documentación viva (living documentation), ingeniería de software, automatización documental y mantenimiento de skills. Tu misión es crear y/o actualizar una skill especializada en documentación técnica de aplicaciones software que se ejecute automáticamente cuando existan cambios en el código fuente o en la documentación funcional/técnica y que determine de forma inteligente qué artefactos documentales deben regenerarse, actualizarse o validarse.
+
+La skill debe actuar como un sistema de sincronización documental inteligente para una aplicación software y trabajar siempre en español.
+
+Debes asumir que la documentación es viva y que cualquier cambio puede impactar diferentes niveles de arquitectura, análisis funcional y diseño técnico.
+
+La skill debe detectar impactos sobre:
+
+- Diagramas de arquitectura técnica
+- Diagramas C4 (Context, Container, Component y Code)
+- Diagramas entidad-relación (ER)
+- Diagramas Lean Canvas
+- Diagramas de secuencia
+- Diagramas Mermaid existentes
+- Diagramas de flujo
+- Casos de uso (use-cases)
+- Documento de especificaciones generales (por ejemplo SlotifyGeneralSpecs)
+- Documentación técnica auxiliar
+- Relaciones entre componentes, APIs, integraciones y bounded contexts
+- Dependencias tecnológicas
+- Convenciones arquitectónicas y decisiones técnicas (ADR si aplica)
+
+La skill debe estar diseñada para ejecutarse cuando exista un cambio en:
+
+- Código fuente
+- Pull Requests
+- Commits
+- Archivos de documentación
+- Cambios estructurales en modelos de datos
+- Cambios de APIs
+- Cambios de dependencias
+- Cambios funcionales o de negocio
+
+Debes diseñar la skill siguiendo una filosofía “impact-aware documentation”, es decir: NO regenerar todo indiscriminadamente, sino identificar el alcance real del cambio y actualizar únicamente los artefactos afectados.
+
+Debes utilizar obligatoriamente estas librerías y frameworks:
+
+- diagrams (Python):
+https://github.com/mingrammer/diagrams
+
+- C4-PlantUML:
+https://github.com/plantuml-stdlib/C4-PlantUML
+
+- Mermaid (como estándar documental adicional):
+https://mermaid.js.org/
+
+- Herramientas/librerías de soporte Mermaid (seleccionar y justificar según el caso):
+  - Mermaid CLI (mmdc):
+    https://github.com/mermaid-js/mermaid-cli
+  - pyStateGram (si aporta valor para generación desde Python):
+    https://github.com/MaslasBros/pyStateGram
+  - parser o renderizador Mermaid para validación sintáctica y exportación automatizada cuando sea necesario
+
+La skill debe decidir inteligentemente qué tecnología usar para cada tipo de diagrama:
+
+Ejemplo esperado (adaptarlo y justificarlo):
+- C4 Architecture → C4-PlantUML
+- Arquitectura cloud/integraciones → diagrams (Python)
+- Diagramas embebidos en Markdown → Mermaid
+- Sequence diagrams → Mermaid o PlantUML según complejidad
+- Flujos de negocio → Mermaid
+- ER diagrams → Mermaid ER + representación avanzada cuando aplique
+- Lean Canvas → Mermaid o plantilla Markdown estructurada
+
+La skill debe producir diagramas:
+- mantenibles
+- versionables
+- regenerables
+- trazables
+- legibles en repositorios Git
+- compatibles con Markdown
+- exportables a PNG/SVG/PDF cuando sea necesario
+
+La skill debe incluir instrucciones precisas para:
+- estructura de carpetas
+- scripts Python necesarios
+- flujo de ejecución
+- detección de cambios
+- reglas de decisión
+- convenciones documentales
+- automatización
+- prompts internos de la skill
+- dependencias necesarias
+- formato de archivos
+- gobernanza documental
+
+La skill debe diseñarse para integrarse fácilmente en repositorios Git y pipelines CI/CD.
+
+#GOAL:
+Crear una especificación completa, implementable y lista para construir una skill de documentación viva de software que detecte cambios, determine impacto documental y regenere automáticamente únicamente los artefactos afectados, incorporando soporte nativo para Mermaid junto con diagrams y C4-PlantUML.
+
+#RESPONSE GUIDELINES:
+Sigue este proceso paso a paso:
+
+1. Analiza el objetivo funcional de la skill y define claramente:
+   - propósito
+   - responsabilidades
+   - límites
+   - inputs
+   - outputs
+   - criterios de ejecución
+   - casos de activación
+   - casos de exclusión
+
+2. Diseña una arquitectura completa de la skill incluyendo:
+   - estructura de carpetas
+   - convenciones de nombres
+   - módulos internos
+   - flujos de trabajo
+   - componentes desacoplados
+   - estrategia de extensibilidad
+   - versionado documental
+
+3. Diseña una “estrategia de selección de motor de diagramación”.
+
+Debes construir una matriz explícita que determine:
+   - cuándo usar Mermaid
+   - cuándo usar C4-PlantUML
+   - cuándo usar diagrams (Python)
+   - cuándo combinar tecnologías
+   - trade-offs
+   - coste de mantenimiento
+   - legibilidad en Git
+
+4. Define una estrategia de detección de cambios:
+   - análisis de git diff
+   - análisis de commits
+   - cambios documentales
+   - cambios estructurales
+   - cambios funcionales
+   - cambios de dependencias
+   - heurísticas para inferir impacto
+   - matriz de impacto entre cambios y documentos
+
+5. Diseña una “Matriz de Impacto Documental” con reglas explícitas.
+
+6. Define una estrategia de actualización inteligente:
+   - cuándo regenerar completamente
+   - cuándo editar parcialmente
+   - cuándo solo marcar para revisión humana
+   - cómo minimizar ruido documental
+   - cómo preservar contexto manual
+   - cómo no romper diagramas Mermaid existentes
+
+7. Diseña la generación de diagramas utilizando obligatoriamente:
+   - diagrams (Python)
+   - C4-PlantUML
+   - Mermaid
+
+Incluye:
+   - convenciones
+   - plantillas
+   - naming conventions
+   - estructura de archivos
+   - versionado
+   - validación
+   - exportación
+   - linting de diagramas
+
+8. Genera scripts Python necesarios para automatizar:
+   - detección de cambios
+   - análisis de impacto
+   - generación de diagramas
+   - validación Mermaid
+   - regeneración selectiva
+   - sincronización documental
+
+Incluye:
+   - responsabilidades de cada script
+   - pseudoimplementación
+   - dependencias Python
+   - comandos de ejecución
+
+9. Diseña el flujo operativo completo end-to-end:
+   - trigger
+   - análisis
+   - clasificación
+   - impacto
+   - decisión del motor de diagramado
+   - actualización
+   - validación
+   - exportación
+   - commit documental opcional
+
+10. Diseña prompts internos de la skill para:
+   - actualizar SlotifyGeneralSpecs
+   - actualizar use-cases
+   - actualizar diagramas Mermaid incrementalmente
+   - explicar cambios detectados
+   - justificar decisiones documentales
+   - detectar inconsistencias
+
+12. Cuando existan ambigüedades:
+   - declara supuestos
+   - propone alternativas
+   - justifica decisiones
+
+13. Incluye ejemplos concretos de:
+   - Mermaid
+   - C4-PlantUML
+   - diagrams
+   - scripts Python
+   - CI/CD
+   - reglas de impacto
+   - actualización incremental
+
+14. Usa pensamiento de arquitecto software:
+   - modularidad
+   - bajo acoplamiento
+   - mantenibilidad
+   - trazabilidad
+   - automatización
+   - documentación viva
+   - extensibilidad
+
+--- nose si aplica 
 
 ---
 
@@ -283,6 +570,7 @@ NO generes nada todavía. Tu única tarea en este mensaje es leer y resumir el c
    - arquitectura.md (fuente de verdad para arquitectura)
    - er-diagram.md (modelo de datos)
    - use-cases.md (casos de uso)
+   - c4-diagram.md
 
 2. Devuélveme un resumen estructurado de:
    a) Los componentes de la ARQUITECTURA DE IMPLEMENTACIÓN DEL MVP (no la objetivo de producción AWS): frontend, backend, base de datos, jobs, auth, storage, email, observabilidad, y cómo se despliega (monorepo, dos destinos).
@@ -385,6 +673,8 @@ REGLAS ESTRICTAS:
 - Tono técnico y objetivo. Prosa en castellano. Puedes usar una ficha por componente (subtítulo + los campos), pero evita justificar decisiones (eso es 2.1).
 - No menciones ALB, Redis, Lambda, Cognito ni ningún componente de la arquitectura AWS.
 - La sección 2.1 ya cubre la VISTA DE CONJUNTO, el PATRÓN y la JUSTIFICACIÓN global. No dupliques esa información. Al final, lista cualquier suposición que hayas tenido que hacer.
+
+
 
 
 ### **2.3. Descripción de alto nivel del proyecto y estructura de ficheros**
