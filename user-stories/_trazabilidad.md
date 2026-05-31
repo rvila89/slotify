@@ -1,5 +1,3 @@
-PATH: /user-stories/_trazabilidad.md
-
 # Matriz de Trazabilidad — Slotify MVP
 
 > Artefacto de verificación obligatorio según `generate-user-story.prompt.md`.  
@@ -12,6 +10,7 @@ PATH: /user-stories/_trazabilidad.md
 | Lote | Área funcional | UC cubiertos | Historias generadas | Estado |
 |------|----------------|-------------|---------------------|--------|
 | 0 | **Infraestructura / Fundación técnica** | *(ningún UC — prerequisito técnico)* | US-000 | ✅ Completo |
+| 0b | **Infraestructura / App Shell** | *(ningún UC — prerequisito de UI)* | US-000A | ✅ Completo |
 | 1 | Autenticación | UC-01, UC-02 | US-001, US-002 | ✅ Completo |
 | 2a | Gestión de Leads y Consultas (UC-03 a UC-06) | UC-03, UC-04, UC-05, UC-06 | US-003, US-004, US-005, US-006, US-007 | ✅ Completo |
 | 2b | Gestión de Leads y Consultas (UC-07 a UC-10) | UC-07, UC-08, UC-09, UC-10 | US-008, US-009, US-010, US-011, US-012, US-013 | ✅ Completo |
@@ -26,8 +25,8 @@ PATH: /user-stories/_trazabilidad.md
 | 11 | Dashboard | UC-34 | US-044 | ✅ Completo |
 | 12 | Comunicaciones | UC-35, UC-36 | US-045, US-046 | ✅ Completo |
 
-**UC cubiertos: 36/36** ✅  
-**Historias que pasan la puerta INVEST: 47/47** ✅ *(incluye US-000 — Technical Foundation Story)*
+**UC cubiertos: 36/36** ✅
++**Historias que pasan la puerta INVEST: 48/48** ✅ *(incluye US-000 y US-000A — Technical Foundation Stories)*
 
 ---
 
@@ -46,11 +45,25 @@ PATH: /user-stories/_trazabilidad.md
 
 ---
 
+### Área 0b: Infraestructura / App Shell
+ 
+| UC | Historia(s) US | Área | Prioridad | Dolor | Alcance | INVEST | Cubierto |
+|----|----------------|------|-----------|-------|---------|--------|----------|
+| *(ninguno)* | [US-000A](US-000A-app-shell-esqueleto-navegacion.md) — App Shell y Esqueleto de Navegación | Infraestructura | Crítica | D2 | ✅ Implementado | OK (excepción I declarada: depende de US-000; independiente de toda historia de dominio) | ✅ |
+ 
+**Verificación del lote:**
+- UC cubiertos en este lote: **N/A** (infraestructura de UI, prerequisito de toda pantalla autenticada)
+- Historias que pasan la puerta INVEST: **1/1** (excepción I justificada: dependencia de scaffolding)
+- US sin UC de origen (invenciones): **ninguna** — US-000A es prerequisito de UI documentado en `architecture.md §2` (SPA Vite+React+React Router) y en los diseños Figma (shell compartido por todas las pantallas autenticadas)
+- Re-cableo: **US-001 (login) pasa a depender de US-000A** (se monta sobre el routing del shell y redirige a él tras autenticar). El layout de autenticación del login es propio de US-001 y no usa este shell.
+
+---
+
 ### Área 1: Autenticación
 
 | UC | Historia(s) US | Área | Prioridad | Dolor | Alcance | INVEST | Cubierto |
 |----|----------------|------|-----------|-------|---------|--------|----------|
-| UC-01 | [US-001](US-001-iniciar-sesion.md) — Iniciar Sesión | Autenticación | Alta | D1 | ✅ Implementado | OK | ✅ |
+| UC-01 | [US-001](US-001-iniciar-sesion.md) — Iniciar Sesión | Autenticación | Alta | D1 | ✅ Implementado | OK (excepción I declarada: depende de US-000A — el login se monta sobre el routing del shell y redirige a él tras autenticar; usa su propio layout de auth) | ✅ |
 | UC-02 | [US-002](US-002-cerrar-sesion.md) — Cerrar Sesión | Autenticación | Alta | D1 | ✅ Implementado | OK (excepción I declarada: dependencia lógica de US-001) | ✅ |
 
 **Verificación del lote:**

@@ -512,7 +512,6 @@ REGLAS ESTRICTAS:
 ### 5. Historias de Usuario
 Generador de Historias de Usuario para el MVP de Slotify
 > Diseñado para ejecutarse **por área funcional** (12 áreas), no en una sola pasada.
-
 ---
 **Prompt 1:**
 ## ROL
@@ -785,6 +784,101 @@ Cuando te indique un **área funcional** (p. ej. "Gestión de Leads y Consultas,
 Quiero que también actues como senior arquitecto de software para generar una US-000 para construir el set-up y scaffolding del proyecto
 
 **Prompt 3:**
+## MODO
+Tarea **mecánica**. La extracción la hace un script determinista ya escrito (`scripts/extract_backlog.py`). **No deliberes y NO leas las historias en tu contexto.** Ejecuta el script, valida la salida y reporta.
+
+## PASOS
+
+### 1. Ejecuta el extractor
+```bash
+python3 scripts/extract_backlog.py
+```
+El script lee `user-stories/US-*.md`, extrae los campos, construye el grafo (fan-out transitivo, ciclos, profundidad) y escribe `user-stories/_analisis.json`. Imprime un resumen y devuelve código de salida 1 si hay ciclos o dependencias rotas.
+
+### 2. Valida (sin leer las historias completas)
+Mira el resumen impreso y el campo `grafo.anomalias_extraccion` del JSON:
+- **Pocas o cero anomalías** → has terminado.
+- **Muchas anomalías** (p. ej. >5 historias sin Prioridad, o `area` casi siempre vacía) → la plantilla difiere de lo que asume el regex. Solo entonces: abre **UNA** historia de muestra (`Read` de un único fichero) para ver el formato real de las etiquetas, **edita el regex en `scripts/extract_backlog.py`** (es un fichero real, edítalo directamente) y vuelve a ejecutar el script. No abras más de una historia.
+
+### 3. Reporta en el chat (breve)
+- Nº de historias, ciclos (o "ninguno"), dependencias rotas, huérfanos, profundidad máxima, nº de anomalías y las 5 de mayor fan-out.
+- Comprueba y comenta si `US-000A` está entre las de mayor fan-out (debería: toda pantalla autenticada cuelga de ella).
+- **No vuelques el JSON completo**; ya está en `user-stories/_analisis.json`.
+
+## NOTAS
+- Requiere `python3` (solo librería estándar, sin instalaciones).
+- `user-stories/_analisis.json` es el único insumo de `/ordenar-backlog`.
+- Si quieres usarlo como verificación en CI/pre-commit más adelante: el script sale con código 1 cuando el grafo no está limpio.
+
+**Prompt 4:**
+## ROL
+Eres arquitecto de software senior. Esta es la **segunda pasada**. Recibes el fichero compacto `user-stories/_analisis.json` (de `/analizar-backlog`) y produces el **backlog ordenado**. NO relees las 47 historias: todo lo que necesitas está en `_analisis.json`.
+
+**Alcance estricto:** ordenas y clasificas; **NO** asignas sprints ni estimas capacidad de equipo (eso es de un paso posterior).
+
+## ENTRADA
+- **Lee** `user-stories/_analisis.json`. Si no existe o es JSON inválido, **detente** e indica al usuario que ejecute primero `/analizar-backlog`.
+- Si `grafo.ciclos` no está vacío, **detente** y repórtalo: no se puede ordenar topológicamente con ciclos.
+
+## EFICIENCIA
+El grafo ya viene **calculado de forma determinista** por el script de la pasada 1: `fan_out`, `ciclos`, `huerfanos`, `dependencias_rotas` y `profundidad_max` son fiables. **No los recalcules ni deliberes sobre ellos.** Trabajas sobre datos compactos (un JSON pequeño), así que no necesitas razonamiento intensivo: dedica tu juicio solo a lo que requiere criterio (clasificar capa, ordenar, estimar talla).
+
+## PRINCIPIO RECTOR: ORDEN DE CONSTRUCCIÓN ≠ ORDEN DE PANTALLA
+Que una pantalla sea la primera que ve el usuario (p. ej. el **calendario**, home tras login) NO implica que se construya primero. El orden lo manda el **grafo de dependencias**.
+- El **armazón de navegación / app shell** (US-000A) es infraestructura compartida → `Fundacional`/temprano.
+- El **contenido con datos** de una vista de lectura (calendario que pinta reservas, listados, widgets) depende de que esas entidades existan → se ordena según dependencias, normalmente más tarde. No la marques temprana solo por ser la primera pantalla.
+
+## PASOS
+1. **Orden topológico (restricción dura e inviolable):** ninguna historia puede ir antes que cualquiera de sus `depende_de`. Reconstruye la adyacencia desde `depende_de`.
+2. **Clasificar `tipo`:**
+   - `Fundacional`: scaffolding, app shell / navegación, autenticación, y operaciones con **alto fan_out** o **concurrencia_critica** (bloqueo atómico de fecha, motor de tarifas, infraestructura de email, máquina de estados).
+   - `Spine`: camino feliz de la reserva (consulta con fecha → presupuesto/pre-reserva → confirmación de señal → ejecución → post-evento/devolución).
+   - `Soporte`: el resto, que se apoya en las anteriores y se construye después (cola, contenido del calendario, listados, histórico, CSV, dashboard, comunicaciones manuales, flujos alternativos). `Soporte` = orden posterior, **no** menor importancia.
+3. **Ordenar:** dentro de lo que el orden topológico permite → `Fundacional → Spine → Soporte`; dentro de cada grupo, **concurrencia y mayor fan_out suben** (riesgo primero); desempate por criticidad `Critica > Alta > Media > Baja`.
+4. **Estimar `talla_tecnica`** (`XS/S/M/L/XL`) con las señales del análisis: `concurrencia_critica`, `integraciones`, `num_edge_cases`, y la posición en la máquina de estados. Solo complejidad arquitectónica; NO la conviertas en días ni story points. Una línea de justificación por historia.
+5. **Validar:** todas las historias ordenadas; ninguna precede a su dependencia; reporta `historias_ordenadas: X/N`, `profundidad_max`, `historias_fundacionales: K`.
+6. **Escribe** `user-stories/_backlog.json` con el esquema de abajo. Tras escribirlo, imprime en el chat solo el resumen de validación (no vuelques el JSON entero).
+
+## ESQUEMA DE `_backlog.json`
+```json
+{
+  "meta": {
+    "proyecto": "Slotify MVP",
+    "generado": "<ISO-8601>",
+    "total_historias": 47,
+    "ventana_codigo": { "inicio": "2026-06-12", "fin_codigo": "2026-07-10" }
+  },
+  "validacion": {
+    "historias_ordenadas": "47/47",
+    "profundidad_max_grafo": 0,
+    "historias_fundacionales": 0,
+    "ciclos": [], "huerfanos": [], "dependencias_rotas": []
+  },
+  "backlog": [
+    {
+      "orden": 1,
+      "id": "US-000",
+      "titulo": "<corto>",
+      "area": "<área>",
+      "prioridad": "Critica",
+      "tipo": "Fundacional | Spine | Soporte",
+      "talla_tecnica": "XS | S | M | L | XL",
+      "talla_justificacion": "<una línea>",
+      "concurrencia_critica": false,
+      "fan_out": 0,
+      "depende_de": [],
+      "dolores": ["D1"]
+    }
+  ]
+}
+```
+
+## RESTRICCIONES
+- `backlog` ordenado por `orden` (1..N) = orden de ejecución del paso 3.
+- `id` admite sufijos no numéricos (`US-000A`): trátalos como texto.
+- No violar el orden topológico por criticidad ni por orden de pantalla.
+- No asignar sprints ni story points de esfuerzo.
+- No emitir texto dentro del bloque JSON ni JSON inválido.
 
 ---
 

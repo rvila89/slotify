@@ -35,7 +35,7 @@
   - El gestor existe y ha sido provisionado mediante seed/script al crear el tenant (no existe UI de registro en MVP).
   - El tenant está activo en el momento del login.
   - El sistema opera con un único tenant activo (Masia l'Encís) durante el MVP.
-- Dependencias: ninguna (US-001 es el punto de entrada del sistema; no depende de otras historias de usuario)
+- Dependencias: US-000A (app shell y esqueleto de navegación — el login se monta sobre el routing que establece y redirige al shell tras autenticar; su layout de auth es propio y no usa este shell).
 - Notas de alcance:
   - **FA-03 (sesión en otro dispositivo):** se genera el criterio de aceptación per la especificación UC-01, aunque la implementación exacta del multi-device (registro de sesiones activas) queda sujeta a decisión de sprint.
   - La gestión de roles múltiples (admin-tenant, operario) y la creación de usuarios por UI son `📐 Solo diseñado` — fuera del MVP.

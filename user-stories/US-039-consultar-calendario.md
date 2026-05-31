@@ -32,7 +32,7 @@
 - Supuestos:
   - Los sub-estados terminales (2.x, 2.y, 2.z) no ocupan fecha (la fecha ya fue liberada); no aparecen como bloqueadas.
   - `evento_en_curso` y `post_evento` heredan el color verde de `reserva_confirmada` (diferenciación visual de detalle solo en la ficha).
-- Dependencias: ninguna de implementación (vista de lectura sobre datos generados por otras US).
+- Dependencias: US-000A (el calendario renderiza dentro del app shell autenticado).
 - Notas de alcance: UC-29 menciona "Indicador 🔁: tiene cola de espera" sin especificar el color exacto para 2.d. SlotifyGeneralSpecs §11.3 añade "violeta = en cola"; sin embargo, en la vista de calendario el indicador actúa sobre la fecha bloqueante (gris + 🔁), no sobre una celda propia para 2.d. No hay conflicto de entidades; el color violeta se reserva para futuras vistas de pipeline. Si el PO prefiere mostrar un chip distinto, es decisión negociable de UI.
 
 ## ✅ Criterios de Aceptación (BDD)

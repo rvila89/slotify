@@ -225,7 +225,11 @@ Después de generar el artefacto anterior, y junto a los otros tres artefactos g
 
 ## HISTORIAS DE USUARIO
 Voy a generar las historias de usuario necesarias para desarrollar el MVP de Slotify. Utilizo el prompt (enlace) para generar historias de usuario, ejecutandolo por área funcional para no sufrir problemas y errores por culpa de problemas de contexto lógicos.
+Creo también unas user-stories iniciales para construir el scaffolding del proyecto y el app-shell con el layout y navegación de la app
 
+Mediante un script Python determinista (`scripts/extract_backlog.py`) y el siguiente prompt (enlace) se extraen automáticamente las dependencias entre las 48 user stories generadas, se construye el grafo de dependencias (fan-out, ciclos, profundidad) y se genera un análisis como fuente de verdad del grafo. Con el output (análisis) generado, lanzo enl siguiente prompt (enlace) para clasificar las historias por capa arquitectónica Fundacional / Spine / Soporte), estimar la talla técnica (XS–XL), y finalmente poder generar un backlog ordenado como entrada para la planificación de sprints.
+
+......sprints
 
 ## DISEÑO UX
 
