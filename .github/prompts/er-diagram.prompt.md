@@ -3,8 +3,6 @@ agent: 'agent'
 description: 'Genera un diagrama de entidad-relación (DER) profesional con configuración personalizable'
 ---
 
-# Prompt Generador de Diagramas de Entidad-Relación
-
 ## Instrucciones Iniciales
 
 Necesito que generes un diagrama de entidad-relación (DER) profesional. Por favor, responde a las siguientes preguntas para personalizar el resultado. Las opciones no mencionadas aquí seguirán estándares técnicos recomendados.

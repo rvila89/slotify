@@ -1,7 +1,3 @@
-> Detalla en esta sección los prompts principales utilizados durante la creación del proyecto, que justifiquen el uso de asistentes de código en todas las fases del ciclo de vida del desarrollo. Esperamos un máximo de 3 por sección, principalmente los de creación inicial o  los de corrección o adición de funcionalidades que consideres más relevantes.
-Puedes añadir adicionalmente la conversación completa como link o archivo adjunto si así lo consideras
-
-
 ## Índice
 
 1. [Descripción general del producto](#1-descripción-general-del-producto)
@@ -128,49 +124,404 @@ Quiero un plan con los cambios especificados en el documento para que pueda vali
 
 ---
 
-## Artefactos
+## 2. Arquitectura del Sistema
 
-### Diagrama Lean Canvas
-
-Utilizo este prompt y lo ejecuto en el GPT Draw.io Creator
+### **2.1. Diagrama de arquitectura:**
 
 **Prompt 1:**
 
-Adjunto Especificación Funcional de Slotify #file:SlotifyGeneralSpecs.md
+## Rol y contexto
 
-Quiero que lo analices y generes código XML compatible con Draw.io para representar un Lean Canvas visual con las siguientes condiciones: 
-Tu tarea: 
-1. Lee el contenido del PRD y extrae tú mismo la información relevante para llenar los bloques del Lean Canvas, sin que yo lo tenga que estructurar. 
-Estructura: 
-- Cada bloque del Lean Canvas debe tener dos celdas apiladas verticalmente: 
-1. Una celda superior con el título del bloque: - Color de fondo según el bloque. - Texto centrado, en negrita (fontStyle=1), fontSize=12. - Altura fija: 30 px. - Márgenes internos: spacingTop=4, spacingLeft=6. 
-2. Una celda inferior con el contenido: - Fondo blanco (fillColor=#FFFFFF). - Texto en viñetas (-), con saltos de línea usando . - Fuente fontSize=10, alineado a la izquierda. - Altura fija: 120 px (salvo en bloques más altos). - Estilo: whiteSpace=wrap;html=1;spacingTop=4;spacingLeft=6. 
-Distribución del Lean Canvas: 
-- Fila 1: Problema, Segmentos de Clientes, Propuesta de Valor Única, Ventaja Competitiva (esta va al final, de forma vertical). 
-- Fila 2: Solución, Canales, Fuentes de Ingresos. 
-- Fila 3: Estructura de Costes, Métricas Clave. 
-Colores de fondo para los títulos: 
-- Problema: #F8CECC 
-- Segmentos de Clientes: #D5E8D4 
-- Propuesta de Valor Única: #FFF2CC 
-- Solución: #F8CECC 
-- Canales: #D5E8D4 
-- Fuentes de Ingresos: #DAE8FC 
-- Estructura de Costes: #DAE8FC 
-- Métricas Clave: #FFF2CC - Ventaja Competitiva: #E1D5E7 📐 Dimensiones exactas: 
-- Cada bloque horizontal: 250 px de ancho × 150 px de alto (30 para título + 120 para contenido). 
-- "Estructura de Costes" y "Métricas Clave": 375 px de ancho × 150 px de alto. 
-- "Ventaja Competitiva" debe tener 250 px de ancho × 450 px de alto para alinearse exactamente con las tres filas que ocupa a su izquierda. 
-Instrucciones de formato: 
-- Usa whiteSpace=wrap;html=1;spacingTop=4;spacingLeft=6 en todas las celdas de contenido. 
-- No uses bordes redondeados. 
-- El resultado debe estar contenido entre <mxGraphModel> y </mxGraphModel>. 
-- No incluyas ninguna explicación ni resumen adicional, solo el código XML final. 
-- Asegúrate que todo el código esté contenido en un solo bloque y en formato markdown para copiar y pegar fácilmente El PRD que debes analizar para completar el Lean Canvas se encuentra adjunto
+A partir de este momento, **actúa como un Arquitecto de Software** con experiencia en:
 
-### Casos de uso
+- Distribución de componentes
+- Integración de sistemas externos
+- Patrones de comunicación
 
-**Prompt 2**:
+Aplica además los **fundamentos de patrones de arquitectura más usados**, incluyendo:
+
+- Caché
+- CDN
+- Reverse proxy
+- Load balancer
+- Otros patrones relevantes
+
+## Requisitos técnicos
+
+Usa **servicios de la nube de AWS exclusivamente**.
+La arquitectura debe cumplir con los **requisitos no funcionales** de:
+
+- Escalabilidad
+- Seguridad
+- Mantenibilidad
+- Alta disponibilidad
+
+## Instrucciones de diseño
+
+1. Crea una **arquitectura de alto nivel** para el sistema **Slotify**.
+2. Usa **buenas prácticas**, **frameworks** y **herramientas** (open source o comerciales) cuando sea relevante.
+3. Considera **toda la información obtenida hasta el momento**, incluido el **modelo de datos** y los **casos de uso** definidos.
+4. Toda la funcionalidad definida en el **alcance del MVP** debe estar representada en el diseño.
+
+## Entregables (artefactos separados)
+
+- **Explicación general del diseño de la arquitectura.**
+- **Diagrama del sistema en formato Mermaid.**
+- **Prompt para generar el diagrama con el servicio de DiagramsGPT.**
+
+Asegúrate de:
+
+- Verificar que la **sintaxis Mermaid sea correcta**.
+- **Corregir cualquier error** que pueda aparecer.
+- Validar que toda la funcionalidad del MVP esté representada en el diseño.
+
+## Guardado de resultados
+
+Una vez generados los entregables, crea o sobreescribe el archivo `docs/architecture.md` en la raíz del proyecto con el siguiente contenido:
+
+1. **Resumen breve** (2-3 párrafos) describiendo las decisiones de diseño principales.
+2. El **diagrama Mermaid** completo dentro de un bloque de código.
+3. El **prompt para DiagramsGPT** dentro de un bloque de texto. Este prompt tiene que ser claro y detallado para que DiagramsGPT pueda generar el diagrama correctamente y no sobredimensione el diseño de la aplicación, enfocándose solo en los componentes y servicios necesarios para el MVP.
+
+## Restricciones
+
+- No generes ningún otro tipo de artefacto que no esté especificado en los entregables.
+- No sobredimensiones el diseño de la arquitectura, enfocándote solo en los componentes y servicios necesarios para el MVP.
+
+**Prompt 2:**
+
+Necesito crear los diagramas C4 para la plataforma Slotify que estamos diseñando. Haz uso del lenguaje PlantUML y de la siguiente referencia para darme el código necesario.
+
+Una vez generados los diagramas, crea o sobreescribe el archivo `docs/c4-diagrams.md` en la raíz del proyecto con el siguiente contenido:
+
+1. **Resumen breve** (2-3 párrafos) describiendo los niveles C4 representados y las decisiones de diseño clave.
+2. El **código PlantUML completo** de cada diagrama dentro de bloques de código individuales, con un encabezado que indique el nivel (Context, Container, Component, etc.).
+
+La referencia de estructura a seguir es la siguiente:
+
+```plantuml
+@startuml "slotify"
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+' uncomment the following line and comment the first to use locally
+' !include C4_Container.puml
+
+LAYOUT_TOP_DOWN()
+'LAYOUT_AS_SKETCH()
+LAYOUT_WITH_LEGEND()
+
+
+Person_Ext(anonymous_user, "Anonymous User")
+Person(aggregated_user, "Aggregated User")
+Person(administration_user, "Administration User")
+
+System_Boundary(c1, "slotify"){
+
+    Container(web_app, "Web Application", "Java, Spring MVC, Tomcat 7.x", "Allows users to view people, tribes, content, events, jobs, etc. from the local tech, digital and IT sector")
+
+    ContainerDb(rel_db, "Relational Database", "MySQL 5.5.x", "Stores people, tribes, tribe membership, talks, events, jobs, badges, GitHub repos, etc.")
+
+    Container(filesystem, "File System", "FAT32", "Stores search indexes")
+
+    ContainerDb(nosql, "NoSQL Data Store", "MongoDB 2.2.x", "Stores from RSS/Atom feeds (blog posts) and tweets")
+
+    Container(updater, "Updater", "Java 7 Console App", "Updates profiles, tweets, GitHub repos and content on a scheduled basis")
+}
+
+System_Ext(twitter, "Twitter")
+System_Ext(github, "GitHub")
+System_Ext(blogs, "Blogs")
+
+
+Rel(anonymous_user, web_app, "Uses", "HTTPS")
+Rel(aggregated_user, web_app, "Uses", "HTTPS")
+Rel(administration_user, web_app, "Uses", "HTTPS")
+
+Rel(web_app, rel_db, "Reads from and writes to", "SQL/JDBC, port 3306")
+Rel(web_app, filesystem, "Reads from")
+Rel(web_app, nosql, "Reads from", "MongoDB wire protocol, port 27017")
+
+Rel_U(updater, rel_db, "Reads from and writes data to", "SQL/JDBC, port 3306")
+Rel_U(updater, filesystem, "Writes to")
+Rel_U(updater, nosql, "Reads from and writes to", "MongoDB wire protocol, port 27017")
+
+Rel(updater, twitter, "Gets profile information and tweets from", "HTTPS")
+Rel(updater, github, "Gets information about public code repositories from", "HTTPS")
+Rel(updater, blogs, "Gets content using RSS and Atom feeds from", "HTTP")
+
+Lay_R(rel_db, filesystem)
+
+@enduml
+```
+
+**Prompt 3:**
+
+## ROL 
+
+Eres un Product Manager senior especializado en plataformas SaaS B2B
+
+## CONTEXTO 
+
+Adjunto especificación funcional del producto #file:SlotifyGeneralSpecs.md y diagramas de arquitectura #file:architecture.md  y #file:c4-diagrams.md  del producto 
+
+## OBJETIVO 
+
+Quiero realizar una descripción general de la arquitectura del producto para la entrega de documentación técnica del trabajo realizado
+
+## RESTRICCCIONES 
+
+La respuesta tiene que contemplar únicamente el alcance definido para el MVP
+
+## OUTPUT 
+
+## 2. Arquitectura del Sistema
+### **2.1. Diagrama de arquitectura:**
+> Usa el formato que consideres más adecuado para representar los componentes principales de la aplicación y las tecnologías utilizadas. Explica si sigue algún patrón predefinido, justifica por qué se ha elegido esta arquitectura, y destaca los beneficios principales que aportan al proyecto y justifican su uso, así como sacrificios o déficits que implica.
+### **2.2. Descripción de componentes principales:**
+> Describe los componentes más importantes, incluyendo la tecnología utilizada
+### **2.3. Descripción de alto nivel del proyecto y estructura de ficheros**
+> Representa la estructura del proyecto y explica brevemente el propósito de las carpetas principales, así como si obedece a algún patrón o arquitectura específica.
+
+### **2.2. Descripción de componentes principales:**
+
+##ROL
+Actúa como arquitecto de software documentando el proyecto Slotify
+
+##CONTEXT
+Utiliza los siguientes ficheros para contextualizar el proyecto: er-diagram, architecture, use-cases. Usa solo la información de estos archivos;
+
+##GOAL
+Redactar la sección "2.2 Descripción de componentes principales" para la memoria del TFM de Slotify, basándote EXCLUSIVAMENTE en la arquitectura de implementación del MVP documentada en arquitectura.md (NO la arquitectura objetivo de producción AWS).
+
+##INSTRUCCIONES
+Esta sección 2.2 es un CATÁLOGO DESCRIPTIVO componente a componente. NO repitas la justificación de por qué se eligió el monolito o la SPA; aquí DESCRIBE cada pieza: qué es, qué responsabilidad tiene, qué tecnología usa, y cómo se relaciona con las demás. La argumentación de las decisiones pertenece a 2.1, no aquí.
+
+##OUTPUT
+Una entrada por cada componente, con estos campos para cada uno:
+  - Nombre del componente
+  - Responsabilidad (qué hace y de qué se ocupa en el sistema)
+  - Tecnología concreta (framework/librería/servicio y por qué encaja técnicamente, no por qué se eligió frente a alternativas)
+  - Relaciones (con qué otros componentes habla y cómo: HTTP/REST, transacciones, etc.)
+  - Alcance MVP: qué parte está implementada y qué queda como diseñado/post-TFM
+
+COMPONENTES A DESCRIBIR (todos los del MVP; no incluyas componentes AWS):
+  1. Frontend SPA (Vite + React + React Router + TypeScript; Tailwind + shadcn/ui; cliente generado desde OpenAPI)
+  2. Backend NestJS y sus capas internas (interface, application, domain, infrastructure) — describe la responsabilidad de cada capa
+  3. ORM Prisma
+  4. Base de datos PostgreSQL (RLS multi-tenant, UNIQUE(tenant_id,fecha), FTS)
+  5. Módulo de autenticación (JWT access+refresh, NestJS+Passport)
+  6. Cron de barrido (TTLs, promoción de cola, recordatorios)
+  7. Generación de PDF (presupuestos y facturas)
+  8. Proveedor de email (plantillas E1-E8)
+  9. Storage de documentos y justificantes
+  10. Observabilidad (errores)
+
+REGLAS ESTRICTAS:
+- Usa SOLO lo documentado en arquitectura.md y, si hace falta para responsabilidades de datos, er-diagram.md. No inventes componentes, librerías ni responsabilidades.
+- Si un detalle no está especificado, escribe "NO ESPECIFICADO" en vez de rellenarlo.
+- Distingue MVP (implementado) de diseñado/post-TFM en el campo "Alcance MVP".
+- Tono técnico y objetivo. Prosa en castellano. Puedes usar una ficha por componente (subtítulo + los campos), pero evita justificar decisiones (eso es 2.1).
+- No menciones ALB, Redis, Lambda, Cognito ni ningún componente de la arquitectura AWS.
+- La sección 2.1 ya cubre la VISTA DE CONJUNTO, el PATRÓN y la JUSTIFICACIÓN global. No dupliques esa información. Al final, lista cualquier suposición que hayas tenido que hacer.
+
+### **2.3. Descripción de alto nivel del proyecto y estructura de ficheros**
+
+**Prompt 1:**
+## ROL 
+Eres un Arquitecto software senior especializado en plataformas SaaS B2B
+## CONTEXTO 
+Adjunto especificación funcional del producto #file:SlotifyGeneralSpecs.md y diagramas de arquitectura #file:architecture.md  y #file:c4-diagrams.md del producto 
+# OBJETIVO 
+Quiero realizar una descripción general de la arquitectura del producto para la entrega de documentación técnica del trabajo realizado
+# RESTRICCCIONES 
+La respuesta tiene que contemplar únicamente el alcance definido para el MVP
+# OUTPUT 
+## 2. Arquitectura del Sistema
+### **2.3. Descripción de alto nivel del proyecto y estructura de ficheros**
+> Representa la estructura del proyecto y explica brevemente el propósito de las carpetas principales, así como si obedece a algún patrón o arquitectura específica.
+
+### **2.4. Infraestructura y despliegue**
+
+**Prompt 1:**
+
+**Prompt 2:**
+
+**Prompt 3:**
+
+### **2.5. Seguridad**
+
+**Prompt 1:**
+
+**Prompt 2:**
+
+**Prompt 3:**
+
+### **2.6. Tests**
+
+**Prompt 1:**
+
+**Prompt 2:**
+
+**Prompt 3:**
+
+---
+
+### 3. Modelo de Datos
+
+**Prompt 1:**
+
+## Instrucciones Iniciales
+
+Necesito que generes un diagrama de entidad-relación (DER) profesional. Por favor, responde a las siguientes preguntas para personalizar el resultado. Las opciones no mencionadas aquí seguirán estándares técnicos recomendados.
+
+---
+
+## OPCIONES CONFIGURABLES DEL USUARIO
+
+### 1. **Idioma del Diagrama**
+
+Elige uno:
+- [ ] **Español** - Entidades y atributos en español
+- [ ] **Inglés** - Entidades y atributos en inglés (RECOMENDADO para proyectos formales)
+
+### 2. **Contexto del Proyecto**
+
+Describe brevemente el dominio del negocio:
+- ¿Qué tipo de sistema estás diseñando? (Ej: Sistema de ventas, Gestión hospitalaria, Red social)
+- ¿Cuáles son las entidades principales?
+- ¿Qué relaciones existen entre ellas?
+
+### 3. **Nivel de Detalle**
+
+Elige uno:
+- [ ] **Básico** - Solo entidades principales y relaciones clave
+- [ ] **Estándar** - Entidades, atributos esenciales y relaciones (RECOMENDADO)
+- [ ] **Completo** - Incluir atributos derivados, multivaluados y todas las restricciones
+
+### 4. **Notación Preferida**
+
+Elige uno:
+- [ ] **Chen** - Notación académica (rectángulos, óvalos, diamantes)
+- [ ] **Crow's Foot** - Notación práctica para implementación (RECOMENDADO)
+
+### 5. **Formato de Salida**
+
+Elige uno:
+- [ ] **PlantUML** - Sintaxis textual, fácil de versionizar
+- [ ] **Mermaid** - Renderizable directamente, visual
+- [ ] **Draw.io XML** - Formato editable en draw.io
+- [ ] **Descripción + Diagrama Mermaid** (RECOMENDADO)
+
+### 6. **Restricciones Especiales**
+
+¿Hay restricciones de negocio particulares que deba considerar?
+- (Ej: auditoría, soft delete, multi-tenancy, etc.)
+
+---
+
+## CONFIGURACIÓN ESTÁNDAR (AUTOMÁTICA)
+
+Estos aspectos se aplicarán directamente sin requerir selección:
+
+### Nomenclatura
+- **Entidades**: PascalCase en singular (Usuario, Producto, Pedido)
+- **Atributos**: snake_case en minúsculas (nombre_usuario, fecha_creacion, es_activo)
+- **Claves primarias**: id_{entidad} o {entidad}_id (ej: id_usuario)
+- **Claves foráneas**: fk_{referencia} o {entidad}_id cuando es referencia (ej: usuario_id)
+
+### Normalización
+- Mínimo tercera forma normal (3NF)
+- Sin atributos compuestos o multivaluados directamente en entidades
+- Eliminación de redundancias
+- Validación de dependencias funcionales
+
+### Atributos Comunes Automáticos
+Se añadirán automáticamente a todas las entidades (a menos que indiques lo contrario):
+- `id_{entidad}` : INT <<PK>> - Identificador único
+- `fecha_creacion` : TIMESTAMP - Auditoría
+- `fecha_actualizacion` : TIMESTAMP - Auditoría
+- `activo` : BOOLEAN DEFAULT TRUE - Soft delete
+
+### Cardinalidad y Participación
+- Todas las relaciones tendrán cardinalidad explícita (1:1, 1:N, N:M)
+- Participación marcada claramente (obligatoria = línea sólida, opcional = línea punteada)
+- Relaciones N:M se descompondrán en tablas de unión explícitas
+
+### Validaciones de Calidad
+Se verificará automáticamente:
+- ✓ No hay entidades huérfanas
+- ✓ Todas las claves foráneas apuntan a claves primarias válidas
+- ✓ Ciclos de relaciones detectados y documentados
+- ✓ Datos tipos coherentes en relaciones
+
+### Documentación Incluida
+- Diccionario de datos con descripción de cada entidad
+- Explicación de cada relación y su cardinalidad
+- Restricciones de negocio identificadas
+- Decisiones de diseño justificadas
+
+---
+
+## FORMATO DE RESPUESTA ESPERADA
+
+Una vez proporciones la información anterior, recibirás:
+
+1. **Resumen de Configuración** - Confirmación de opciones seleccionadas
+2. **Diagrama Visual** - En el formato elegido
+3. **Diccionario de Datos** - Definición de todas las entidades y atributos
+4. **Validaciones** - Checklist de estándares aplicados
+5. **Notas de Diseño** - Decisiones y justificaciones
+
+## RESTRICCIONES
+
+- Solo genera el diagrama en la información solicitada.
+
+## GUARDADO DE RESULTADOS
+
+Una vez completados los entregables, crea o sobreescribe el archivo `docs/er-diagram.md` en la raíz del proyecto con el siguiente contenido:
+
+1. **Resumen breve** describiendo el dominio, las entidades principales y las decisiones de diseño más relevantes.
+2. El **diagrama** completo en el formato seleccionado, dentro de un bloque de código.
+3. El **diccionario de datos** resumido con las entidades y sus atributos clave.
+
+**Prompt 2:**
+
+## ROL 
+Eres un Product Manager senior especializado en plataformas SaaS B2B
+## CONTEXTO 
+Adjunto especificación funcional del producto #file:SlotifyGeneralSpecs.md y diagramas de entidad-relación #file:er-diagram.md  del producto 
+## OBJETIVO 
+Quiero realizar una descripción general del modelo de datos del producto para la entrega de documentación técnica del trabajo realizado
+## RESTRICCCIONES 
+- La respuesta tiene que contemplar únicamente el alcance definido para el MVP
+- Devolver la salida en bloque de código markdown
+## OUTPUT 
+Devolver en bloquedo de código markdown
+## 3. Modelo de Datos
+### **3.1. Diagrama del modelo de datos:**
+> Recomendamos usar mermaid para el modelo de datos, y utilizar todos los parámetros que permite la sintaxis para dar el máximo detalle, por ejemplo las claves primarias y foráneas.
+### **3.2. Descripción de entidades principales:**
+> Recuerda incluir el máximo detalle de cada entidad, como el nombre y tipo de cada atributo, descripción breve si procede, claves primarias y foráneas, relaciones y tipo de relación, restricciones (unique, not null…), etc.
+
+**Prompt 3:**
+
+---
+
+### 4. Especificación de la API
+
+**Prompt 1:**
+
+**Prompt 2:**
+
+**Prompt 3:**
+
+---
+
+### 5. Historias de Usuario
+
+**Prompt 1:**
+
+Para empezar generando casos de uso:
 
 #ROL
 A partir de este momento, **actúa como un Analista de Requisitos** especializado en:
@@ -257,259 +608,8 @@ Crea o sobreescribe el archivo `docs/use-cases.md` en la raíz del proyecto con 
 - Los casos deben ser viables
 - Los diagramas deben ser simples y comprensibles
 
-### ER diagram
-
-**Prompt 3**:
-/er-diagram genera el diagrama de ER para todos los casos de uso identificados y extraidos en #file:use-cases.md con alcance para el MVP
-
-### ARCH diagram
-
-Ejecuto el prompt almacenado en .github (previamente modificado, indincandole sobretodo la importancia que toda la funcionalidad definida en el MVP esté representada en el diseño y que no sobredimensione el alcance de este)
-**Prompt 4**:
-/arch-diagram
-
-### C4 diagram
-**Prompt 5**:
-Necesito crear los diagramas C4 para la plataforma Slotify que estamos diseñando. Haz uso del lenguaje PlantUML y de la siguiente referencia para darme el código necesario.
-
-Una vez generados los diagramas, crea o sobreescribe el archivo `docs/c4-diagrams.md` en la raíz del proyecto con el siguiente contenido:
-
-1. **Resumen breve** (2-3 párrafos) describiendo los niveles C4 representados y las decisiones de diseño clave.
-2. El **código PlantUML completo** de cada diagrama dentro de bloques de código individuales, con un encabezado que indique el nivel (Context, Container, Component, etc.).
-
-La referencia de estructura a seguir es la siguiente:
-
-```plantuml
-@startuml "slotify"
-
-!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
-' uncomment the following line and comment the first to use locally
-' !include C4_Container.puml
-
-LAYOUT_TOP_DOWN()
-'LAYOUT_AS_SKETCH()
-LAYOUT_WITH_LEGEND()
-
-
-Person_Ext(anonymous_user, "Anonymous User")
-Person(aggregated_user, "Aggregated User")
-Person(administration_user, "Administration User")
-
-System_Boundary(c1, "slotify"){
-
-    Container(web_app, "Web Application", "Java, Spring MVC, Tomcat 7.x", "Allows users to view people, tribes, content, events, jobs, etc. from the local tech, digital and IT sector")
-
-    ContainerDb(rel_db, "Relational Database", "MySQL 5.5.x", "Stores people, tribes, tribe membership, talks, events, jobs, badges, GitHub repos, etc.")
-
-    Container(filesystem, "File System", "FAT32", "Stores search indexes")
-
-    ContainerDb(nosql, "NoSQL Data Store", "MongoDB 2.2.x", "Stores from RSS/Atom feeds (blog posts) and tweets")
-
-    Container(updater, "Updater", "Java 7 Console App", "Updates profiles, tweets, GitHub repos and content on a scheduled basis")
-}
-
-System_Ext(twitter, "Twitter")
-System_Ext(github, "GitHub")
-System_Ext(blogs, "Blogs")
-
-
-Rel(anonymous_user, web_app, "Uses", "HTTPS")
-Rel(aggregated_user, web_app, "Uses", "HTTPS")
-Rel(administration_user, web_app, "Uses", "HTTPS")
-
-Rel(web_app, rel_db, "Reads from and writes to", "SQL/JDBC, port 3306")
-Rel(web_app, filesystem, "Reads from")
-Rel(web_app, nosql, "Reads from", "MongoDB wire protocol, port 27017")
-
-Rel_U(updater, rel_db, "Reads from and writes data to", "SQL/JDBC, port 3306")
-Rel_U(updater, filesystem, "Writes to")
-Rel_U(updater, nosql, "Reads from and writes to", "MongoDB wire protocol, port 27017")
-
-Rel(updater, twitter, "Gets profile information and tweets from", "HTTPS")
-Rel(updater, github, "Gets information about public code repositories from", "HTTPS")
-Rel(updater, blogs, "Gets content using RSS and Atom feeds from", "HTTP")
-
-Lay_R(rel_db, filesystem)
-
-@enduml
-```
-
----
-
-## 2. Arquitectura del Sistema
-
-### **2.1. Diagrama de arquitectura:**
-
-**Prompt 1:**
-Actúa como arquitecto de software documentando el proyecto Slotify, una plataforma SaaS multi-tenant de gestión de espacios de eventos privados.
-
-NO generes nada todavía. Tu única tarea en este mensaje es leer y resumir el contexto.
-
-1. Lee estos archivos del workspace:
-   - arquitectura.md (fuente de verdad para arquitectura)
-   - er-diagram.md (modelo de datos)
-   - use-cases.md (casos de uso)
-   - c4-diagram.md
-
-2. Devuélveme un resumen estructurado de:
-   a) Los componentes de la ARQUITECTURA DE IMPLEMENTACIÓN DEL MVP (no la objetivo de producción AWS): frontend, backend, base de datos, jobs, auth, storage, email, observabilidad, y cómo se despliega (monorepo, dos destinos).
-   b) Las tecnologías concretas de cada componente.
-   c) Las decisiones de arquitectura explícitas y su justificación, especialmente: monolito modular vs microservicios; SPA Vite+React vs Next.js; NestJS con hexagonal/DDD/OpenAPI; PostgreSQL única sin Redis; bloqueo atómico por UNIQUE(tenant_id,fecha); cron simple vs serverless; JWT access+refresh.
-
-REGLAS ESTRICTAS:
-- Usa ÚNICAMENTE información presente en esos archivos. No añadas componentes, tecnologías ni patrones que no aparezcan en ellos.
-- Si algo no está en los documentos, escribe "NO ESPECIFICADO" en vez de inventarlo.
-- Distingue siempre MVP (lo que se construye) de objetivo de producción (visión AWS).
-
-Cuando termines el resumen, espera mi siguiente instrucción. No generes diagramas aún.
-
 **Prompt 2:**
 
-Ahora genera el DIAGRAMA DE ARQUITECTURA de la implementación del MVP de Slotify, basándote EXCLUSIVAMENTE en el resumen que acabas de hacer.
-
-FORMATO: usa Mermaid (sintaxis `graph TB`), porque es texto versionable en Git, se renderiza en GitHub/GitLab y en la memoria del TFM, y es coherente con el resto de la documentación del proyecto. Entrégalo dentro de un bloque ```mermaid.
-
-CONTENIDO OBLIGATORIO del diagrama:
-- El actor (gestor) accediendo desde el navegador.
-- La SPA (Vite+React) servida como estáticos desde un CDN.
-- El backend NestJS como proceso vivo, mostrando sus capas internas
-  (interface, application, domain, infrastructure).
-- La base de datos PostgreSQL única (anota RLS multi-tenant y UNIQUE(tenant_id,fecha)).
-- El cron de barrido de TTLs/cola.
-- Servicios externos: storage, email, observabilidad.
-- Las conexiones etiquetadas con su propósito, marcando la llamada del navegador a la API como cross-origin (CORS).
-
-REGLAS:
-- Refleja que es UN monorepo con DOS destinos de despliegue (SPA a CDN, backend a su plataforma). No lo dibujes como un único servidor monolítico ni como microservicios.
-- No incluyas componentes de la arquitectura objetivo AWS (ni ALB, ni Redis, ni Lambda, ni Cognito, etc.).
-- Verifica que cada subgraph tenga su `end` y que la sintaxis Mermaid sea válida.
-
-Después del diagrama, dame una lista de las suposiciones que hayas tenido que hacer, si alguna.
-
-**Prompt 3:**
-
-Ahora redacta la SECCIÓN ESCRITA que acompaña al diagrama, para la memoria del TFM. Estructúrala en exactamente estas cuatro partes:
-
-1. PATRÓN ARQUITECTÓNICO: indica qué patrón sigue (monolito modular con arquitectura hexagonal y DDD en el backend) y describe brevemente cada concepto aplicado al proyecto. Si hay patrones secundarios (puertos y adaptadores, agregado raíz,
-   máquina de estados como configuración), menciónalos.
-
-2. JUSTIFICACIÓN DE LA ELECCIÓN: explica por qué se eligió esta arquitectura para ESTE contexto (TFM con plazo ajustado, un solo tenant piloto, desarrollo asistido por IA, riesgo crítico de doble reserva). Contrasta explícitamente con las
-   alternativas descartadas (microservicios, Next.js full-stack, Redis para el lock, arquitectura AWS completa) y por qué se descartaron en esta fase.
-
-3. BENEFICIOS PRINCIPALES: lista los beneficios concretos que aporta al proyecto (atomicidad transaccional nativa, simplicidad operativa, type-safety end-to-end, testabilidad para TDD, coherencia con el temario del máster, coste bajo de hosting).
-
-4. SACRIFICIOS Y DÉFICITS: sé honesto sobre lo que esta arquitectura sacrifica (no escala horizontalmente como microservicios, acoplamiento de despliegue del backend, CORS por la separación de dominios, ausencia de alta disponibilidad, el coste de mantener dos frameworks). Para cada sacrificio, indica si es asumible en la fase MVP y cómo se resolvería en la arquitectura objetivo de producción.
-
-REGLAS:
-- Tono técnico, objetivo y realista. No vendas la arquitectura como perfecta: la sección de sacrificios debe ser tan rigurosa como la de beneficios.
-- Apóyate solo en las decisiones documentadas en arquitectura.md. No inventes beneficios genéricos de SaaS que no apliquen.
-- Prosa en castellano, sin bullets excesivos; máximo una lista por sección.
-- Conecta cada beneficio/sacrificio con una decisión concreta del diagrama.
-
-OUTPUT
-Devuelve en bloque de código en formato markdown el diagrama de arquitectura generado en el anterior punto y a continuación la sección escrita solicitada
-
-### **2.2. Descripción de componentes principales:**
-
-**Prompt 1:**
-
-##ROL
-Actúa como arquitecto de software documentando el proyecto Slotify
-
-##CONTEXT
-Utiliza los siguientes ficheros para contextualizar el proyecto: er-diagram, architecture, use-cases. Usa solo la información de estos archivos;
-
-##GOAL
-Redactar la sección "2.2 Descripción de componentes principales" para la memoria del TFM de Slotify, basándote EXCLUSIVAMENTE en la arquitectura de implementación del MVP documentada en arquitectura.md (NO la arquitectura objetivo de producción AWS).
-
-##INSTRUCCIONES
-Esta sección 2.2 es un CATÁLOGO DESCRIPTIVO componente a componente. NO repitas la justificación de por qué se eligió el monolito o la SPA; aquí DESCRIBE cada pieza: qué es, qué responsabilidad tiene, qué tecnología usa, y cómo se relaciona con las demás. La argumentación de las decisiones pertenece a 2.1, no aquí.
-
-##OUTPUT
-Una entrada por cada componente, con estos campos para cada uno:
-  - Nombre del componente
-  - Responsabilidad (qué hace y de qué se ocupa en el sistema)
-  - Tecnología concreta (framework/librería/servicio y por qué encaja técnicamente, no por qué se eligió frente a alternativas)
-  - Relaciones (con qué otros componentes habla y cómo: HTTP/REST, transacciones, etc.)
-  - Alcance MVP: qué parte está implementada y qué queda como diseñado/post-TFM
-
-COMPONENTES A DESCRIBIR (todos los del MVP; no incluyas componentes AWS):
-  1. Frontend SPA (Vite + React + React Router + TypeScript; Tailwind + shadcn/ui; cliente generado desde OpenAPI)
-  2. Backend NestJS y sus capas internas (interface, application, domain, infrastructure) — describe la responsabilidad de cada capa
-  3. ORM Prisma
-  4. Base de datos PostgreSQL (RLS multi-tenant, UNIQUE(tenant_id,fecha), FTS)
-  5. Módulo de autenticación (JWT access+refresh, NestJS+Passport)
-  6. Cron de barrido (TTLs, promoción de cola, recordatorios)
-  7. Generación de PDF (presupuestos y facturas)
-  8. Proveedor de email (plantillas E1-E8)
-  9. Storage de documentos y justificantes
-  10. Observabilidad (errores)
-
-REGLAS ESTRICTAS:
-- Usa SOLO lo documentado en arquitectura.md y, si hace falta para responsabilidades de datos, er-diagram.md. No inventes componentes, librerías ni responsabilidades.
-- Si un detalle no está especificado, escribe "NO ESPECIFICADO" en vez de rellenarlo.
-- Distingue MVP (implementado) de diseñado/post-TFM en el campo "Alcance MVP".
-- Tono técnico y objetivo. Prosa en castellano. Puedes usar una ficha por componente (subtítulo + los campos), pero evita justificar decisiones (eso es 2.1).
-- No menciones ALB, Redis, Lambda, Cognito ni ningún componente de la arquitectura AWS.
-- La sección 2.1 ya cubre la VISTA DE CONJUNTO, el PATRÓN y la JUSTIFICACIÓN global. No dupliques esa información. Al final, lista cualquier suposición que hayas tenido que hacer.
-
-
-
-### **2.3. Descripción de alto nivel del proyecto y estructura de ficheros**
-
-**Prompt 1:**
-
-**Prompt 2:**
-
-**Prompt 3:**
-
-### **2.4. Infraestructura y despliegue**
-
-**Prompt 1:**
-
-**Prompt 2:**
-
-**Prompt 3:**
-
-### **2.5. Seguridad**
-
-**Prompt 1:**
-
-**Prompt 2:**
-
-**Prompt 3:**
-
-### **2.6. Tests**
-
-**Prompt 1:**
-
-**Prompt 2:**
-
-**Prompt 3:**
-
----
-
-### 3. Modelo de Datos
-
-**Prompt 1:**
-
-**Prompt 2:**
-
-**Prompt 3:**
-
----
-
-### 4. Especificación de la API
-
-**Prompt 1:**
-
-**Prompt 2:**
-
-**Prompt 3:**
-
----
-
-### 5. Historias de Usuario
 Generador de Historias de Usuario para el MVP de Slotify
 > Diseñado para ejecutarse **por área funcional** (12 áreas), no en una sola pasada.
 ---
@@ -779,11 +879,8 @@ Esta matriz **no es "comentario"**: es el contrato de calidad de la generación.
 
 Cuando te indique un **área funcional** (p. ej. "Gestión de Leads y Consultas, UC-03 a UC-10"), genera las historias de esa área siguiendo todo lo anterior y, al final del lote, su fragmento de matriz de trazabilidad. No empieces hasta que te indique el área (o responde "Listo, indícame el área" si no se especifica).
 
-**Prompt 2:**
-/generate-user-story #file:use-cases.md #file:er-diagram.md  #file:c4-diagrams.md #file:architecture.md #file:SlotifyGeneralSpecs.md 
-Quiero que también actues como senior arquitecto de software para generar una US-000 para construir el set-up y scaffolding del proyecto
-
 **Prompt 3:**
+
 ## MODO
 Tarea **mecánica**. La extracción la hace un script determinista ya escrito (`scripts/extract_backlog.py`). **No deliberes y NO leas las historias en tu contexto.** Ejecuta el script, valida la salida y reporta.
 
@@ -883,6 +980,8 @@ Que una pantalla sea la primera que ve el usuario (p. ej. el **calendario**, hom
 ---
 
 ### 6. Tickets de Trabajo
+
+Voy a utilizar metodologia SDD por lo que mi intención es definir tareas atomicas en cada spec de cada historia de usuario.
 
 **Prompt 1:**
 
