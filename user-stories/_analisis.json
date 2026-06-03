@@ -1,0 +1,1002 @@
+{
+  "meta": {
+    "proyecto": "Slotify MVP",
+    "generado": "2026-05-31T21:44:57+00:00",
+    "total_historias": 48
+  },
+  "grafo": {
+    "ciclos": [],
+    "huerfanos": [
+      "US-016"
+    ],
+    "dependencias_rotas": [],
+    "contradicciones": [],
+    "profundidad_max": 21,
+    "anomalias_extraccion": []
+  },
+  "historias": [
+    {
+      "id": "US-000",
+      "titulo": "Setup y Scaffolding del Monorepo",
+      "area": "**Infraestructura / Fundación técnica** (prerequisito transversal a las 12 áreas funcionales)",
+      "prioridad": "**Crítica** — ninguna otra historia puede iniciarse sin este scaffolding",
+      "depende_de": [],
+      "fan_out": 44,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D1"
+      ]
+    },
+    {
+      "id": "US-000A",
+      "titulo": "App Shell y Esqueleto de Navegación",
+      "area": "Infraestructura / Fundación técnica",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-000"
+      ],
+      "fan_out": 43,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 3,
+      "dolores": [
+        "D2"
+      ]
+    },
+    {
+      "id": "US-001",
+      "titulo": "Iniciar Sesión",
+      "area": "Autenticación",
+      "prioridad": "Alta  (heredada de UC-01)",
+      "depende_de": [
+        "US-000A"
+      ],
+      "fan_out": 41,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 5,
+      "dolores": [
+        "D1"
+      ]
+    },
+    {
+      "id": "US-002",
+      "titulo": "Cerrar Sesión",
+      "area": "Autenticación",
+      "prioridad": "Alta  (heredada de UC-02)",
+      "depende_de": [
+        "US-001"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 3,
+      "dolores": [
+        "D1"
+      ]
+    },
+    {
+      "id": "US-003",
+      "titulo": "Alta de consulta exploratoria sin fecha de evento",
+      "area": "Gestión de Leads y Consultas",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-001"
+      ],
+      "fan_out": 37,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 5,
+      "dolores": [
+        "D1",
+        "D2",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-004",
+      "titulo": "Alta de consulta con fecha de evento disponible",
+      "area": "Gestión de Leads y Consultas",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-001",
+        "US-003"
+      ],
+      "fan_out": 35,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 6,
+      "dolores": [
+        "D1",
+        "D13",
+        "D2",
+        "D4",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-005",
+      "titulo": "Transicionar consulta exploratoria a consulta con fecha (2.a → 2.b)",
+      "area": "Gestión de Leads y Consultas",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-001",
+        "US-004"
+      ],
+      "fan_out": 32,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D2",
+        "D3",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-006",
+      "titulo": "Extender plazo de bloqueo de fecha",
+      "area": "Gestión de Leads y Consultas",
+      "prioridad": "Media",
+      "depende_de": [
+        "US-001",
+        "US-004",
+        "US-005"
+      ],
+      "fan_out": 3,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D11",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-007",
+      "titulo": "Transicionar consulta a pendiente de número de invitados (2.c)",
+      "area": "Gestión de Leads y Consultas",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-001",
+        "US-004",
+        "US-005"
+      ],
+      "fan_out": 30,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D13",
+        "D2",
+        "D3",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-008",
+      "titulo": "Programar visita al espacio (→ 2.v)",
+      "area": "Gestión de Leads y Consultas",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-001",
+        "US-004",
+        "US-005",
+        "US-007"
+      ],
+      "fan_out": 29,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 5,
+      "dolores": [
+        "D2",
+        "D3",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-009",
+      "titulo": "Registrar resultado de visita — cliente interesado (2.v → 2.b)",
+      "area": "Gestión de Leads y Consultas",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-001",
+        "US-008"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D2",
+        "D3",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-010",
+      "titulo": "Registrar resultado de visita — reserva inmediata (2.v → pre_reserva)",
+      "area": "Gestión de Leads y Consultas",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-001",
+        "US-008"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 3,
+      "dolores": [
+        "D2",
+        "D3",
+        "D6"
+      ]
+    },
+    {
+      "id": "US-011",
+      "titulo": "Registrar resultado de visita — cliente descarta (2.v → 2.z)",
+      "area": "Gestión de Leads y Consultas",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-001",
+        "US-008"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 3,
+      "dolores": [
+        "D13",
+        "D2",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-012",
+      "titulo": "Expirar consulta automáticamente por TTL agotado",
+      "area": "Gestión de Leads y Consultas",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-001",
+        "US-004",
+        "US-005",
+        "US-006",
+        "US-007",
+        "US-008"
+      ],
+      "fan_out": 2,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 7,
+      "dolores": [
+        "D1",
+        "D13",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-013",
+      "titulo": "Marcar consulta como descartada por cliente (→ 2.z)",
+      "area": "Gestión de Leads y Consultas",
+      "prioridad": "Media",
+      "depende_de": [
+        "US-001"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 6,
+      "dolores": [
+        "D2",
+        "D3",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-014",
+      "titulo": "Generar Presupuesto y Activar Pre-reserva",
+      "area": "Pre-reserva y Presupuestos",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-003",
+        "US-004",
+        "US-005",
+        "US-007",
+        "US-008"
+      ],
+      "fan_out": 20,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 8,
+      "dolores": [
+        "D2",
+        "D3",
+        "D4",
+        "D8"
+      ]
+    },
+    {
+      "id": "US-015",
+      "titulo": "Editar y Reenviar Presupuesto en Pre-reserva",
+      "area": "Pre-reserva y Presupuestos",
+      "prioridad": "Media",
+      "depende_de": [
+        "US-014"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 8,
+      "dolores": [
+        "D2",
+        "D8"
+      ]
+    },
+    {
+      "id": "US-016",
+      "titulo": "Motor de Cálculo de Tarifa",
+      "area": "Pre-reserva y Presupuestos",
+      "prioridad": "Critica",
+      "depende_de": [],
+      "fan_out": 0,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 9,
+      "dolores": [
+        "D8",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-017",
+      "titulo": "Visualizar Cola de Espera de una Fecha",
+      "area": "Gestión de Cola de Espera",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-004",
+        "US-007",
+        "US-008"
+      ],
+      "fan_out": 2,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 5,
+      "dolores": [
+        "D2",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-018",
+      "titulo": "Promoción Automática de la Primera Consulta en Cola",
+      "area": "Gestión de Cola de Espera",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-012"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 6,
+      "dolores": [
+        "D13",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-019",
+      "titulo": "Promoción Manual de Consulta en Cola por el Gestor",
+      "area": "Gestión de Cola de Espera",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-012",
+        "US-017"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 7,
+      "dolores": [
+        "D2",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-020",
+      "titulo": "Salir Voluntariamente de la Cola de Espera",
+      "area": "Gestión de Cola de Espera",
+      "prioridad": "Media",
+      "depende_de": [
+        "US-004",
+        "US-017"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 6,
+      "dolores": [
+        "D2",
+        "D3",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-021",
+      "titulo": "Confirmar Pago de Señal y Activar Reserva Confirmada",
+      "area": "Confirmación de Reserva",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-014"
+      ],
+      "fan_out": 18,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 6,
+      "dolores": [
+        "D1",
+        "D3",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-022",
+      "titulo": "Generar Factura de Señal al Confirmar Reserva",
+      "area": "Confirmación de Reserva",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-021"
+      ],
+      "fan_out": 13,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 5,
+      "dolores": [
+        "D1",
+        "D6"
+      ]
+    },
+    {
+      "id": "US-023",
+      "titulo": "Generar y Enviar Condiciones Particulares al Cliente",
+      "area": "Confirmación de Reserva",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-021"
+      ],
+      "fan_out": 1,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 3,
+      "dolores": [
+        "D1",
+        "D3"
+      ]
+    },
+    {
+      "id": "US-024",
+      "titulo": "Registrar Firma de Condiciones Particulares",
+      "area": "Confirmación de Reserva",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-023"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 5,
+      "dolores": [
+        "D1",
+        "D3"
+      ]
+    },
+    {
+      "id": "US-025",
+      "titulo": "Cumplimentar y cerrar la ficha operativa del evento",
+      "area": "Sub-procesos Paralelos",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-021"
+      ],
+      "fan_out": 10,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 3,
+      "dolores": [
+        "D1",
+        "D10",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-026",
+      "titulo": "Sistema cierra la ficha operativa automáticamente en T-1d",
+      "area": "Sub-procesos Paralelos",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-021",
+        "US-025"
+      ],
+      "fan_out": 9,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D10",
+        "D11"
+      ]
+    },
+    {
+      "id": "US-027",
+      "titulo": "Sistema genera factura de liquidación y recibo de fianza en borrador al activar la reserva confirmada",
+      "area": "Sub-procesos Paralelos",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-021",
+        "US-022"
+      ],
+      "fan_out": 12,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 3,
+      "dolores": [
+        "D6",
+        "D8",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-028",
+      "titulo": "Gestor aprueba y envía la factura de liquidación al cliente",
+      "area": "Sub-procesos Paralelos",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-027"
+      ],
+      "fan_out": 11,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D1",
+        "D6",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-029",
+      "titulo": "Gestor registra el cobro de la liquidación",
+      "area": "Sub-procesos Paralelos",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-028"
+      ],
+      "fan_out": 9,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D1",
+        "D11",
+        "D6"
+      ]
+    },
+    {
+      "id": "US-030",
+      "titulo": "Gestor registra el cobro de la fianza",
+      "area": "Sub-procesos Paralelos",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-028"
+      ],
+      "fan_out": 9,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 5,
+      "dolores": [
+        "D1",
+        "D11",
+        "D6"
+      ]
+    },
+    {
+      "id": "US-031",
+      "titulo": "Sistema transiciona reserva a evento en curso cuando se cumplen las precondiciones",
+      "area": "Ejecución del Evento",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-025",
+        "US-026",
+        "US-029",
+        "US-030"
+      ],
+      "fan_out": 8,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 3,
+      "dolores": [
+        "D10",
+        "D2",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-032",
+      "titulo": "Gestor fuerza el inicio del evento cuando alguna precondición está incumplida",
+      "area": "Ejecución del Evento",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-031"
+      ],
+      "fan_out": 7,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D2"
+      ]
+    },
+    {
+      "id": "US-033",
+      "titulo": "Gestor/Equipo captura la documentación obligatoria durante el evento",
+      "area": "Ejecución del Evento",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-031",
+        "US-032"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 5,
+      "dolores": [
+        "D1",
+        "D10",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-034",
+      "titulo": "Gestor finaliza el evento y activa el proceso de post-evento",
+      "area": "Ejecución del Evento",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-031",
+        "US-032"
+      ],
+      "fan_out": 5,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D1",
+        "D6",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-035",
+      "titulo": "Gestor registra el IBAN del cliente para la devolución de fianza y el sistema confirma la recepción (E8)",
+      "area": "Post-evento",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-034"
+      ],
+      "fan_out": 4,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D6",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-036",
+      "titulo": "Gestor registra la devolución (completa o parcial) de la fianza al cliente",
+      "area": "Post-evento",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-034",
+        "US-035"
+      ],
+      "fan_out": 3,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D1",
+        "D6"
+      ]
+    },
+    {
+      "id": "US-037",
+      "titulo": "Sistema archiva automáticamente la reserva a `reserva_completada` a T+7d de post_evento",
+      "area": "Post-evento",
+      "prioridad": "Media",
+      "depende_de": [
+        "US-034",
+        "US-036"
+      ],
+      "fan_out": 1,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D1",
+        "D5",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-038",
+      "titulo": "Gestor archiva manualmente la reserva a `reserva_completada` antes del T+7d automático",
+      "area": "Post-evento",
+      "prioridad": "Media",
+      "depende_de": [
+        "US-034",
+        "US-036"
+      ],
+      "fan_out": 1,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D1",
+        "D5"
+      ]
+    },
+    {
+      "id": "US-039",
+      "titulo": "Visualizar el Calendario de Disponibilidad",
+      "area": "Calendario y Disponibilidad",
+      "prioridad": "Crítica  (heredada de UC-29)",
+      "depende_de": [
+        "US-000A"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 6,
+      "dolores": [
+        "D2",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-040",
+      "titulo": "Bloquear Fecha Atómicamente",
+      "area": "Calendario y Disponibilidad",
+      "prioridad": "Crítica  (heredada de UC-30)",
+      "depende_de": [],
+      "fan_out": 1,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 9,
+      "dolores": [
+        "D4"
+      ]
+    },
+    {
+      "id": "US-041",
+      "titulo": "Liberar Bloqueo de Fecha",
+      "area": "Calendario y Disponibilidad",
+      "prioridad": "Crítica  (heredada de UC-31)",
+      "depende_de": [
+        "US-040"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 10,
+      "dolores": [
+        "D13",
+        "D4"
+      ]
+    },
+    {
+      "id": "US-042",
+      "titulo": "Buscar y Filtrar en el Histórico de Reservas",
+      "area": "Histórico",
+      "prioridad": "Alta  (heredada de UC-32)",
+      "depende_de": [
+        "US-037",
+        "US-038"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 6,
+      "dolores": [
+        "D1",
+        "D5",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-043",
+      "titulo": "Exportar Reservas a CSV",
+      "area": "Histórico",
+      "prioridad": "Media  (heredada de UC-33)",
+      "depende_de": [
+        "US-001"
+      ],
+      "fan_out": 1,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D1",
+        "D5",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-044",
+      "titulo": "Visualizar Dashboard Operativo",
+      "area": "Dashboard",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-001",
+        "US-003",
+        "US-043"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": true,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D11",
+        "D2",
+        "D7"
+      ]
+    },
+    {
+      "id": "US-045",
+      "titulo": "Sistema envía email automático al detectar el trigger (E1–E8)",
+      "area": "Comunicaciones",
+      "prioridad": "Critica",
+      "depende_de": [
+        "US-003",
+        "US-004"
+      ],
+      "fan_out": 1,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "pdf",
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D1",
+        "D3",
+        "D9"
+      ]
+    },
+    {
+      "id": "US-046",
+      "titulo": "Gestor revisa y envía email borrador generado por el sistema",
+      "area": "Comunicaciones",
+      "prioridad": "Alta",
+      "depende_de": [
+        "US-045"
+      ],
+      "fan_out": 0,
+      "concurrencia_critica": false,
+      "integraciones": [
+        "email"
+      ],
+      "num_edge_cases": 4,
+      "dolores": [
+        "D1",
+        "D3"
+      ]
+    }
+  ]
+}
