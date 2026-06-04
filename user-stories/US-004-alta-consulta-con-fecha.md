@@ -1,3 +1,10 @@
+---
+id: US-004
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Alta de consulta con fecha de evento disponible
 
 ## 🆔 Metadatos

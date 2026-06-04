@@ -1,3 +1,10 @@
+---
+id: US-037
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Sistema archiva automáticamente la reserva a `reserva_completada` a T+7d de post_evento
 
 ## 🆔 Metadatos

@@ -1,3 +1,10 @@
+---
+id: US-005
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Transicionar consulta exploratoria a consulta con fecha (2.a → 2.b)
 
 ## 🆔 Metadatos

@@ -1,3 +1,10 @@
+---
+id: US-000A
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: App Shell y Esqueleto de Navegación
 
 ## 🆔 Metadatos

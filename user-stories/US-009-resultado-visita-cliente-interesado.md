@@ -1,3 +1,10 @@
+---
+id: US-009
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Registrar resultado de visita — cliente interesado (2.v → 2.b)
 
 ## 🆔 Metadatos

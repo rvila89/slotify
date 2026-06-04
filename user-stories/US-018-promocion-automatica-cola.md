@@ -1,3 +1,10 @@
+---
+id: US-018
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Promoción Automática de la Primera Consulta en Cola
 
 ## 🆔 Metadatos

@@ -1,3 +1,10 @@
+---
+id: US-046
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Gestor revisa y envía email borrador generado por el sistema
 
 ## 🆔 Metadatos

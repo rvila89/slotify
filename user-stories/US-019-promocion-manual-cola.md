@@ -1,3 +1,10 @@
+---
+id: US-019
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Promoción Manual de Consulta en Cola por el Gestor
 
 ## 🆔 Metadatos

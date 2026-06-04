@@ -1,3 +1,10 @@
+---
+id: US-022
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Generar Factura de Señal al Confirmar Reserva
 
 ## 🆔 Metadatos

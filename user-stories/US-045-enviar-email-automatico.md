@@ -1,3 +1,10 @@
+---
+id: US-045
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Sistema envía email automático al detectar el trigger (E1–E8)
 
 ## 🆔 Metadatos

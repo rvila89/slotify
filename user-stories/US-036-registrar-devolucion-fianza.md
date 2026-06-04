@@ -1,3 +1,10 @@
+---
+id: US-036
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Gestor registra la devolución (completa o parcial) de la fianza al cliente
 
 ## 🆔 Metadatos

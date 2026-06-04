@@ -1,3 +1,10 @@
+---
+id: US-006
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Extender plazo de bloqueo de fecha
 
 ## 🆔 Metadatos

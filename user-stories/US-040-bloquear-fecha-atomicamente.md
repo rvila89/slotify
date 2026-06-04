@@ -1,3 +1,10 @@
+---
+id: US-040
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Bloquear Fecha Atómicamente
 
 ## 🆔 Metadatos

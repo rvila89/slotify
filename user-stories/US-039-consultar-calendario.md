@@ -1,3 +1,10 @@
+---
+id: US-039
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Visualizar el Calendario de Disponibilidad
 
 ## 🆔 Metadatos

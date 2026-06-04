@@ -1,3 +1,10 @@
+---
+id: US-014
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Generar Presupuesto y Activar Pre-reserva
 
 ## 🆔 Metadatos

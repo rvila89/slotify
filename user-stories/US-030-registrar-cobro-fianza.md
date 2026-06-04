@@ -1,3 +1,10 @@
+---
+id: US-030
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Gestor registra el cobro de la fianza
 
 ## 🆔 Metadatos

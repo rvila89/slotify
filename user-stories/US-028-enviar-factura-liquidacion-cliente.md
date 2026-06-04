@@ -1,3 +1,10 @@
+---
+id: US-028
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Gestor aprueba y envía la factura de liquidación al cliente
 
 ## 🆔 Metadatos

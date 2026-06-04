@@ -1,3 +1,10 @@
+---
+id: US-012
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Expirar consulta automáticamente por TTL agotado
 
 ## 🆔 Metadatos

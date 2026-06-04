@@ -1,3 +1,10 @@
+---
+id: US-026
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Sistema cierra la ficha operativa automáticamente en T-1d
 
 ## 🆔 Metadatos

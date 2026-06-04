@@ -1,3 +1,10 @@
+---
+id: US-010
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Registrar resultado de visita — reserva inmediata (2.v → pre_reserva)
 
 ## 🆔 Metadatos

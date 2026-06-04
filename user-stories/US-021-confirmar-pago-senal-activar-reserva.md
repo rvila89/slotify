@@ -1,3 +1,10 @@
+---
+id: US-021
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Confirmar Pago de Señal y Activar Reserva Confirmada
 
 ## 🆔 Metadatos

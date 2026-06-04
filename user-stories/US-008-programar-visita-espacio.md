@@ -1,3 +1,10 @@
+---
+id: US-008
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Programar visita al espacio (→ 2.v)
 
 ## 🆔 Metadatos

@@ -1,3 +1,10 @@
+---
+id: US-001
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Iniciar Sesión
 
 ## 🆔 Metadatos

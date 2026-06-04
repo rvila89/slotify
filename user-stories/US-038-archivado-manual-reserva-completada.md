@@ -1,3 +1,10 @@
+---
+id: US-038
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Gestor archiva manualmente la reserva a `reserva_completada` antes del T+7d automático
 
 ## 🆔 Metadatos

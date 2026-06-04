@@ -1,3 +1,10 @@
+---
+id: US-020
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Salir Voluntariamente de la Cola de Espera
 
 ## 🆔 Metadatos

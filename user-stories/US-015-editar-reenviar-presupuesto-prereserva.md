@@ -1,3 +1,10 @@
+---
+id: US-015
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Editar y Reenviar Presupuesto en Pre-reserva
 
 ## 🆔 Metadatos

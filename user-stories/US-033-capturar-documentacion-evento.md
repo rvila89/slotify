@@ -1,3 +1,10 @@
+---
+id: US-033
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Gestor/Equipo captura la documentación obligatoria durante el evento
 
 ## 🆔 Metadatos

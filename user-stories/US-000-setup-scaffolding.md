@@ -1,3 +1,10 @@
+---
+id: US-000
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Setup y Scaffolding del Monorepo
 
 ## 🆔 Metadatos

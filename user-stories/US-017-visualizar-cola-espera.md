@@ -1,3 +1,10 @@
+---
+id: US-017
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Visualizar Cola de Espera de una Fecha
 
 ## 🆔 Metadatos

@@ -1,3 +1,10 @@
+---
+id: US-023
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Generar y Enviar Condiciones Particulares al Cliente
 
 ## 🆔 Metadatos

@@ -1,3 +1,10 @@
+---
+id: US-027
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Sistema genera factura de liquidación y recibo de fianza en borrador al activar la reserva confirmada
 
 ## 🆔 Metadatos

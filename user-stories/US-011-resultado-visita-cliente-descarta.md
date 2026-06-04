@@ -1,3 +1,10 @@
+---
+id: US-011
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Registrar resultado de visita — cliente descarta (2.v → 2.z)
 
 ## 🆔 Metadatos

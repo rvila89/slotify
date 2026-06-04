@@ -1,3 +1,10 @@
+---
+id: US-016
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Motor de Cálculo de Tarifa
 
 ## 🆔 Metadatos

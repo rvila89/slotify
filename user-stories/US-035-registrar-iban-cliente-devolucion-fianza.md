@@ -1,3 +1,10 @@
+---
+id: US-035
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Gestor registra el IBAN del cliente para la devolución de fianza y el sistema confirma la recepción (E8)
 
 ## 🆔 Metadatos

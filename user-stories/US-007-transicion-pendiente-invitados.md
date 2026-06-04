@@ -1,3 +1,10 @@
+---
+id: US-007
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Transicionar consulta a pendiente de número de invitados (2.c)
 
 ## 🆔 Metadatos

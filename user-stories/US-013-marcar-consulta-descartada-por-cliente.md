@@ -1,3 +1,10 @@
+---
+id: US-013
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Marcar consulta como descartada por cliente (→ 2.z)
 
 ## 🆔 Metadatos

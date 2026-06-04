@@ -1,3 +1,10 @@
+---
+id: US-043
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Exportar Reservas a CSV
 
 ## 🆔 Metadatos

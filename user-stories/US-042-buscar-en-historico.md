@@ -1,3 +1,10 @@
+---
+id: US-042
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Buscar y Filtrar en el Histórico de Reservas
 
 ## 🆔 Metadatos

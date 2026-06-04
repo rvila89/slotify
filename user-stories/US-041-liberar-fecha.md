@@ -1,3 +1,10 @@
+---
+id: US-041
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Liberar Bloqueo de Fecha
 
 ## 🆔 Metadatos

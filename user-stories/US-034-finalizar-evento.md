@@ -1,3 +1,10 @@
+---
+id: US-034
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Gestor finaliza el evento y activa el proceso de post-evento
 
 ## 🆔 Metadatos

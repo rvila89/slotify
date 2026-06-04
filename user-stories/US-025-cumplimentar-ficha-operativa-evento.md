@@ -1,3 +1,10 @@
+---
+id: US-025
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Cumplimentar y cerrar la ficha operativa del evento
 
 ## 🆔 Metadatos

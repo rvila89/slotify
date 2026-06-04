@@ -1,3 +1,10 @@
+---
+id: US-024
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Registrar Firma de Condiciones Particulares
 
 ## 🆔 Metadatos

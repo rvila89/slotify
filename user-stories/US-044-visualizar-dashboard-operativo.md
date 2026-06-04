@@ -1,3 +1,10 @@
+---
+id: US-044
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Visualizar Dashboard Operativo
 
 ## 🆔 Metadatos

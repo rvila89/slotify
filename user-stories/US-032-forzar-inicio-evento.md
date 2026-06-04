@@ -1,3 +1,10 @@
+---
+id: US-032
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Gestor fuerza el inicio del evento cuando alguna precondición está incumplida
 
 ## 🆔 Metadatos

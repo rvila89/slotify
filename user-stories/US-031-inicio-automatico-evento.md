@@ -1,3 +1,10 @@
+---
+id: US-031
+estado: backlog
+branch: null
+pr: null
+---
+
 # 🧾 Historia de Usuario: Sistema transiciona reserva a evento en curso cuando se cumplen las precondiciones
 
 ## 🆔 Metadatos
