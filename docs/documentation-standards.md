@@ -1,49 +1,74 @@
 ---
-description: Standards and best practices for technical documentation in this project, including documentation structure, update processes, and language rules.
+description: Estándares y buenas prácticas para la documentación técnica de Slotify, incluyendo estructura, proceso de actualización y reglas de idioma.
 globs:
 alwaysApply: true
 ---
-# Rules and Patterns for documentation and AI specs
+# Reglas y patrones de documentación y AI specs — Slotify
 
-## Introduction
-Technical documentation applies to all the documentation relative to the project, such as the data model, README, API specs, and other MD docs that describe how the project is structured, runs, and operates.
-AI specs refers to the documents that explain AI agents how to behave, document, plan, code, etc, which includes team agreements, standards and conventions.
+## Introducción
+La **documentación técnica** abarca toda la documentación relativa al proyecto: modelo de datos, README, especificación de la API, diagramas y demás documentos `.md` que describen cómo está estructurado, cómo se ejecuta y cómo opera Slotify.
+Las **AI specs** son los documentos que explican a los Agentes IA cómo comportarse, documentar, planificar y codificar: incluyen acuerdos de equipo, estándares y convenciones.
 
-## General rules
-- ALWAYS WRITE IN ENGLISH, including comments and any explanation in the files. This applies both to creating new documentation and updating existing one, and it also applies to documentation within the code (comments, explanations of functions or fields, etc.).
+## Reglas generales de idioma
+- **ESCRIBE SIEMPRE EN ESPAÑOL** toda la documentación, incluidos comentarios y explicaciones dentro de los ficheros. Aplica tanto a documentación nueva como a la actualización de la existente, y también a la documentación dentro del código (comentarios, explicaciones de funciones o campos).
+- Respeta el **lenguaje ubicuo del dominio** definido en [base-standards.md §2](./base-standards.md): conceptos de negocio en español (reserva, presupuesto, fianza, cola de espera), nombres de librerías y APIs de framework en su forma nativa.
+- No traduzcas identificadores de código de terceros ni palabras clave técnicas.
 
+## Conjunto de documentos en `docs/`
 
+| Documento | Contenido | ¿Quién lo modifica? |
+|---|---|---|
+| `architecture.md` | Arquitectura MVP y objetivo de producción | Contexto canónico — **no modificar sin acuerdo** |
+| `er-diagram.md` | Diagrama entidad-relación canónico (Mermaid) | Fuente de verdad del modelo de datos |
+| `use-cases.md` | 36 casos de uso (UC-01…UC-36) y máquina de estados | Contexto canónico |
+| `c4-diagrams.md` | Diagramas C4 (Context, Container MVP, Component) en PlantUML | Se regenera vía `.github/prompts/c4-diagrams.prompt.md` |
+| `data-model.md` | Definición de entidades, campos y reglas de validación para implementación | Actualizar ante cambios de modelo |
+| `api-spec.yml` | Contrato OpenAPI 3.0 de la API (fuente del cliente type-safe del front) | Actualizar ante cambios de endpoints |
+| `base-standards.md` | Principios transversales y política de idioma | Actualizar con acuerdos de equipo |
+| `backend-standards.md` | Estándares del backend NestJS | Actualizar ante cambios de stack/patrón |
+| `frontend-standards.md` | Estándares del frontend React | Actualizar ante cambios de stack/patrón |
+| `documentation-standards.md` | Este documento | Actualizar con acuerdos de equipo |
+| `development_guide.md` | Puesta en marcha del entorno y tests | Actualizar ante cambios de instalación |
+| `openspec-tasks-mandatory-steps.md` | Checklist obligatorio de `tasks.md` | Convención del harness OpenSpec |
 
-## Technical Documentation
-Before making any commit or git push, or if you're asked to document a commit, you must ALWAYS review which technical documentation should be updated.
+## Documentación técnica: proceso de actualización
+Antes de cualquier commit o `git push`, o si se te pide documentar un commit, **siempre** debes revisar qué documentación técnica conviene actualizar.
 
-When updating documentation, I will:
-1. Review all recent changes in the codebase
-2. Identify which documentation files need updates based on the changes. Some clear examples:
-   - For data model changes: Update data model definition section in data-model.md
-   - For API changes: Update api-spec.yml
-   - For changes in libraries, database migrations, or anything that changes the installation process, update *-standards.md
-3. Update each affected documentation file in English, maintaining consistency with existing documentation
-4. Ensure all documentation is properly formatted and follows the established structure
-5. Verify that all changes are accurately reflected in the documentation
-6. Report which files were updated and what changes were made
+Al actualizar documentación:
+1. Revisa todos los cambios recientes en el código.
+2. Identifica qué ficheros de documentación necesitan actualizarse según los cambios. Ejemplos claros:
+   - Cambios en el modelo de datos → actualiza `data-model.md` **y** `er-diagram.md` (deben quedar consistentes entre sí y con `schema.prisma`).
+   - Cambios en la API → actualiza `api-spec.yml` (y regenera el cliente del front si procede).
+   - Cambios en librerías, migraciones de base de datos o cualquier cosa que afecte la instalación → actualiza el `*-standards.md` correspondiente y `development_guide.md`.
+   - Cambios de arquitectura/contenedores → solicita la regeneración de `c4-diagrams.md` con el prompt de `.github/prompts/`.
+3. Actualiza cada fichero afectado **en español**, manteniendo la consistencia con la documentación existente.
+4. Asegura que todo esté correctamente formateado y siga la estructura establecida.
+5. Verifica que las **referencias cruzadas entre documentos** sigan siendo coherentes (entidades, enums, endpoints y nombres de módulos alineados entre `data-model.md`, `api-spec.yml`, `er-diagram.md` y `*-standards.md`).
+6. Reporta qué ficheros se actualizaron y qué cambios se hicieron.
+
+## Formato y estilo
+- Encabezado de documento con metadatos (documento, proyecto, versión, fecha, fuente) como en `architecture.md` y `er-diagram.md`.
+- Tablas Markdown para diccionarios de datos, enums y endpoints.
+- Bloques de código etiquetados con el lenguaje (`ts`, `prisma`, `yaml`, `mermaid`, `plantuml`, `bash`).
+- Enlaces relativos entre documentos de `docs/`.
+- Fechas en formato `DD/MM/AAAA`.
 
 ## AI specs
 
-This rule establishes a mandatory process for the AI to:
-*   Learn from user feedback, guidance, and suggestions during interactions.
-*   Identify opportunities to improve existing Development Rules based on these learnings proactively.
-*   Keep the AI's assistance aligned with evolving project needs and user expectations.
-*   Incorporate user feedback into the AI's operational framework to maximize its value.
+Esta regla establece un proceso obligatorio para que el Agente IA:
+*   Aprenda del feedback, las indicaciones y las sugerencias del usuario durante las interacciones.
+*   Identifique de forma proactiva oportunidades de mejora de las reglas de desarrollo existentes a partir de esos aprendizajes.
+*   Mantenga su asistencia alineada con las necesidades cambiantes del proyecto y las expectativas del usuario.
+*   Incorpore el feedback del usuario a su marco operativo para maximizar su valor.
 
-This rule is applicable after any interaction where the user provides explicit or implicit feedback, suggestions, corrections, new information, or expresses preferences. **The AI MUST actively analyze all user interactions for such learning opportunities, not only passively waiting for direct feedback, to proactively refine its understanding and the project's best practices.**
+Aplica tras cualquier interacción donde el usuario proporcione feedback explícito o implícito, sugerencias, correcciones, nueva información o preferencias. **El Agente IA DEBE analizar activamente todas las interacciones en busca de estas oportunidades de aprendizaje, no solo esperar pasivamente feedback directo.**
 
-### Common Pitfalls and Anti-Patterns to be avoided by the AI
+### Errores comunes y anti-patrones a evitar por el Agente IA
 
-*   **Skipping Approval Process:** Applying rule modifications without obtaining explicit user review and approval first.
-*   **Unlinked Proposals:** Proposing rule changes without clearly connecting them to the specific user feedback or insights gained from the interaction.
-*   **Imprecise Modifications:** Suggesting modifications without precisely identifying which rule or specific sections within a rule should be changed, hindering effective user review.
-*   **Unaddressed Feedback:** Not initiating the learning and review process when the user provides relevant feedback that could improve the rules.
-*   **Scope Creep:** Updating multiple unrelated rules simultaneously or making changes that exceed the scope of the feedback received.
-*   **Unprompted Rule Changes:** Modifying rules proactively when there is no direct connection to user feedback or a learning opportunity. Rule updates should be reactive and feedback-driven.
-*   **Missing Update Confirmation:** Failing to notify the user after a rule modification has been successfully implemented following their approval.
+*   **Saltarse el proceso de aprobación:** aplicar modificaciones de reglas sin obtener antes revisión y aprobación explícita del usuario.
+*   **Propuestas sin vínculo:** proponer cambios de reglas sin conectarlos claramente con el feedback o los aprendizajes concretos de la interacción.
+*   **Modificaciones imprecisas:** sugerir cambios sin identificar con precisión qué regla o sección debe cambiar, dificultando la revisión.
+*   **Feedback no atendido:** no iniciar el proceso de aprendizaje y revisión cuando el usuario da feedback relevante que podría mejorar las reglas.
+*   **Scope creep:** actualizar varias reglas no relacionadas a la vez o exceder el alcance del feedback recibido.
+*   **Cambios no solicitados:** modificar reglas proactivamente sin conexión directa con feedback o una oportunidad de aprendizaje. Las actualizaciones de reglas deben ser reactivas y guiadas por feedback.
+*   **Falta de confirmación:** no avisar al usuario tras implementar con éxito una modificación de regla aprobada.

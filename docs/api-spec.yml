@@ -1,410 +1,849 @@
 openapi: 3.0.0
 info:
-  title: LTI (Learning Technology Initiative) API
+  title: Slotify API
   description: |
-    REST API for the Learning Technology Initiative platform, designed for managing candidates, positions, interviews, and recruitment processes.
-    
-    This API follows Domain-Driven Design principles and implements a layered architecture for scalable recruitment management.
-    
-    ## Features
-    - Candidate management with education and work experience tracking
-    - Position management with company and interview flow integration
-    - Application tracking through interview processes
-    - File upload capabilities for resumes and documents
-    - Comprehensive filtering, sorting, and pagination support
-    
-  version: 0.0.0.001
+    API REST de **Slotify**, la plataforma SaaS de gestión integral para espacios
+    boutique de eventos privados (masías, fincas, villas).
+
+    La reserva es el agregado raíz: recorre toda la máquina de estados, desde los
+    sub-estados de consulta (2.a–2.z) hasta `reserva_completada`. El bloqueo atómico
+    de fecha se garantiza con la restricción `UNIQUE(tenant_id, fecha)` en PostgreSQL
+    y transacciones `SELECT ... FOR UPDATE`.
+
+    La API sigue arquitectura hexagonal + DDD sobre NestJS, es multi-tenant (RLS) y
+    expone este contrato OpenAPI como fuente de verdad para generar el cliente HTTP
+    type-safe del frontend.
+
+    ## Convenciones
+    - Lenguaje ubicuo del dominio en español (reservas, presupuestos, fianza…).
+    - Autenticación JWT Bearer (access token de vida corta) + refresh token en cookie httpOnly.
+    - Identificadores en formato UUID.
+    - Importes monetarios como `number` con 2 decimales (EUR).
+    - Todas las operaciones están aisladas por tenant (derivado del JWT, no del path).
+
+  version: 1.0.0
   contact:
-    name: LTI Development Team
+    name: Equipo Slotify
   license:
-    name: ISC
-    
+    name: UNLICENSED
+
 servers:
-  - url: http://localhost:3000
-    description: Development server
-  - url: https://api.lti.dev
-    description: Production server
+  - url: http://localhost:3000/api
+    description: Servidor de desarrollo (backend NestJS)
+  - url: https://api.slotify.app/api
+    description: Servidor de producción
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+    description: Autenticación y sesión (UC-01, UC-02)
+  - name: Reservas
+    description: Ciclo de vida de la reserva y transiciones de estado (UC-03 a UC-10, UC-23 a UC-28)
+  - name: Cola
+    description: Cola de espera de fechas bloqueadas (UC-11 a UC-13)
+  - name: Presupuestos
+    description: Pre-reserva, tarifas y presupuestos (UC-14 a UC-16)
+  - name: Confirmacion
+    description: Confirmación de reserva, pagos, facturas y condiciones particulares (UC-17 a UC-19)
+  - name: Subprocesos
+    description: Sub-procesos paralelos pre-evento, liquidación y fianza (UC-20 a UC-22, UC-26, UC-27)
+  - name: Facturas
+    description: Emisión de facturas y registro de pagos (UC-18, UC-21)
+  - name: FichaOperativa
+    description: Briefing operativo del evento (UC-20, UC-24)
+  - name: Calendario
+    description: Disponibilidad, bloqueo y liberación de fechas (UC-29 a UC-31)
+  - name: Clientes
+    description: Datos de contacto y fiscales de clientes (UC-03, UC-14)
+  - name: Historico
+    description: Búsqueda y exportación del histórico (UC-32, UC-33)
+  - name: Dashboard
+    description: KPIs operativos y financieros (UC-34)
+  - name: Comunicaciones
+    description: Envío y log de emails E1–E8 y manuales (UC-35, UC-36)
+  - name: Documentos
+    description: Subida y descarga de documentos polimórficos (UC-19, UC-24)
+  - name: Cron
+    description: Endpoint protegido de barrido periódico (TTLs, cola, recordatorios)
 
 paths:
-  /candidates:
+  # ============================ AUTH ============================
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Iniciar sesión (UC-01)
+      description: Valida credenciales y devuelve un access token JWT. El refresh token se entrega en una cookie httpOnly.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Autenticación correcta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Renovar access token
+      description: Usa el refresh token de la cookie httpOnly para emitir un nuevo access token.
+      security: []
+      responses:
+        '200':
+          description: Nuevo access token emitido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Cerrar sesión (UC-02)
+      description: Invalida el refresh token y limpia la cookie de sesión.
+      responses:
+        '204':
+          description: Sesión cerrada
+
+  /auth/me:
     get:
-      summary: Get all candidates
-      description: Retrieve a paginated list of candidates with optional filtering and sorting capabilities
-      tags:
-        - Candidates
+      tags: [Auth]
+      summary: Usuario autenticado
+      responses:
+        '200':
+          description: Datos del usuario en sesión
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Usuario'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================ RESERVAS ============================
+  /reservas:
+    get:
+      tags: [Reservas]
+      summary: Listar reservas
+      description: Lista paginada de reservas del tenant con filtros por estado, sub-estado, fecha y canal.
       parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
         - in: query
-          name: page
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
-          description: Page number for pagination
+          name: estado
+          schema: { $ref: '#/components/schemas/EstadoReserva' }
         - in: query
-          name: limit
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 10
-          description: Number of candidates per page
+          name: subEstado
+          schema: { $ref: '#/components/schemas/SubEstadoConsulta' }
+        - in: query
+          name: fechaDesde
+          schema: { type: string, format: date }
+        - in: query
+          name: fechaHasta
+          schema: { type: string, format: date }
         - in: query
           name: search
-          schema:
-            type: string
-          description: Search term to filter candidates by first name, last name, or email
-        - in: query
-          name: sort
-          schema:
-            type: string
-            enum: [firstName, lastName, email]
-            default: firstName
-          description: Field to sort candidates by
-        - in: query
-          name: order
-          schema:
-            type: string
-            enum: [asc, desc]
-            default: asc
-          description: Sort order
+          schema: { type: string }
+          description: Búsqueda por código, nombre de cliente o notas
       responses:
         '200':
-          description: Successfully retrieved candidates
+          description: Reservas recuperadas
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CandidateListResponse'
-        '400':
-          description: Invalid request parameters
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-    
+                $ref: '#/components/schemas/ReservaListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
     post:
-      summary: Create a new candidate
-      description: Add a new candidate to the system with their personal information, education, and work experience
-      tags:
-        - Candidates
+      tags: [Reservas]
+      summary: Dar de alta un nuevo lead/consulta (UC-03)
+      description: Crea una reserva en estado `consulta`. Sub-estado `2.a` (sin fecha) o `2.b` (con fecha, dispara bloqueo blando).
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateCandidateRequest'
+              $ref: '#/components/schemas/CreateReservaRequest'
       responses:
         '201':
-          description: Candidate created successfully
+          description: Reserva creada
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreateCandidateResponse'
+                $ref: '#/components/schemas/Reserva'
         '400':
-          description: Validation error or email already exists
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
-  /candidates/{id}:
+  /reservas/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
     get:
-      summary: Get candidate by ID
-      description: Retrieve detailed information about a specific candidate including their applications, interviews, and related data
-      tags:
-        - Candidates
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: integer
-          description: Candidate ID
+      tags: [Reservas]
+      summary: Detalle de reserva
       responses:
         '200':
-          description: Successfully retrieved candidate
+          description: Reserva recuperada
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CandidateDetails'
-        '400':
-          description: Invalid ID format
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ReservaDetalle'
         '404':
-          description: Candidate not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-    
-    put:
-      summary: Update candidate interview stage
-      description: Update the current interview stage for a candidate's application
-      tags:
-        - Candidates
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: integer
-          description: Candidate ID
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Reservas]
+      summary: Actualizar datos de la reserva
+      description: Actualización parcial de los campos editables (invitados, duración, tipo de evento, notas…). No cambia el estado.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateCandidateStageRequest'
+              $ref: '#/components/schemas/UpdateReservaRequest'
       responses:
         '200':
-          description: Candidate stage updated successfully
+          description: Reserva actualizada
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UpdateCandidateStageResponse'
+                $ref: '#/components/schemas/Reserva'
         '400':
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ValidationError'
         '404':
-          description: Application not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/NotFound'
 
-  /positions:
-    get:
-      summary: Get all positions
-      description: Retrieve all visible positions in the system
-      tags:
-        - Positions
-      responses:
-        '200':
-          description: Successfully retrieved positions
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Position'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /positions/{id}:
-    get:
-      summary: Get position by ID
-      description: Retrieve detailed information about a specific position
-      tags:
-        - Positions
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: integer
-          description: Position ID
-      responses:
-        '200':
-          description: Successfully retrieved position
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Position'
-        '400':
-          description: Invalid position ID format
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Position not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-    
-    put:
-      summary: Update position
-      description: |
-        Update an existing position with new information. Supports partial updates - only fields provided in the request body will be updated.
-        Fields not provided will maintain their existing values in the database.
-      tags:
-        - Positions
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: integer
-          description: Position ID
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdatePositionRequest'
-      responses:
-        '200':
-          description: Position updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UpdatePositionResponse'
-        '400':
-          description: Validation error or invalid reference data
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Position not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /positions/{id}/candidates:
-    get:
-      summary: Get candidates by position
-      description: Retrieve all candidates who have applied to a specific position with their interview progress
-      tags:
-        - Positions
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: integer
-          description: Position ID
-      responses:
-        '200':
-          description: Successfully retrieved candidates for position
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/PositionCandidate'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /positions/{id}/candidates/names:
-    get:
-      summary: Get candidate names by position
-      description: Retrieve simplified candidate information (ID and name only) for a specific position
-      tags:
-        - Positions
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: integer
-          description: Position ID
-      responses:
-        '200':
-          description: Successfully retrieved candidate names
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/CandidateName'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /positions/{id}/interviewflow:
-    get:
-      summary: Get interview flow by position
-      description: Retrieve the interview flow configuration for a specific position
-      tags:
-        - Positions
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: integer
-          description: Position ID
-      responses:
-        '200':
-          description: Successfully retrieved interview flow
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InterviewFlowResponse'
-        '404':
-          description: Position not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: Server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /upload:
+  /reservas/{id}/transiciones:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
     post:
-      summary: Upload file
-      description: Upload a file (PDF or DOCX) for resume or document storage
-      tags:
-        - File Upload
+      tags: [Reservas]
+      summary: Ejecutar una transición de estado (UC-04, UC-06, UC-10, UC-23, UC-25, UC-28)
+      description: |
+        Aplica una transición de la máquina de estados de la reserva. El backend valida la
+        transición contra la tabla declarativa de transiciones y sus guardas. Cubre, entre otras:
+        2.a→2.b (asignar fecha), 2.b→2.c (pendiente invitados), →2.z (descartar por cliente),
+        iniciar evento, finalizar evento y archivar.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransicionRequest'
+      responses:
+        '200':
+          description: Transición aplicada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reserva'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: Transición no permitida o guarda no satisfecha
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /reservas/{id}/extender-bloqueo:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Reservas]
+      summary: Extender plazo de bloqueo (UC-05)
+      description: Amplía el `ttl_expiracion` del bloqueo blando vigente según la política del tenant.
+      responses:
+        '200':
+          description: Bloqueo extendido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reserva'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reservas/{id}/visita:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Reservas]
+      summary: Programar visita al espacio (UC-07)
+      description: Transiciona la consulta a sub-estado `2.v` y fija fecha/hora de visita.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProgramarVisitaRequest'
+      responses:
+        '200':
+          description: Visita programada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+        '400':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      tags: [Reservas]
+      summary: Registrar resultado de visita (UC-08)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResultadoVisitaRequest'
+      responses:
+        '200':
+          description: Resultado registrado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+
+  # ============================ COLA ============================
+  /reservas/{id}/cola:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [Cola]
+      summary: Visualizar cola de espera de la fecha de una reserva bloqueante (UC-11)
+      responses:
+        '200':
+          description: Cola FIFO ordenada por posición
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ColaItem' }
+
+  /reservas/{id}/promover:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Cola]
+      summary: Promover consulta de la cola (UC-12)
+      description: Promueve la primera consulta en cola (2.d→2.b) cuando la bloqueante se libera. Encadenamiento automático.
+      responses:
+        '200':
+          description: Consulta promovida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /reservas/{id}/salir-cola:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Cola]
+      summary: Salir voluntariamente de la cola (UC-13)
+      responses:
+        '200':
+          description: Reserva retirada de la cola
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+
+  # ============================ PRESUPUESTOS / TARIFAS ============================
+  /tarifas/calcular:
+    post:
+      tags: [Presupuestos]
+      summary: Calcular tarifa según configuración (UC-16)
+      description: Motor de tarifas. Calcula el precio a partir de temporada (derivada de la fecha), duración, nº de invitados y extras.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalculoTarifaRequest'
+      responses:
+        '200':
+          description: Tarifa calculada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalculoTarifaResponse'
+        '422':
+          description: Sin tarifa aplicable (p. ej. >50 invitados = "a consultar")
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /reservas/{id}/presupuestos:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [Presupuestos]
+      summary: Listar versiones de presupuesto de la reserva
+      responses:
+        '200':
+          description: Presupuestos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Presupuesto' }
+    post:
+      tags: [Presupuestos]
+      summary: Generar presupuesto y activar pre-reserva (UC-14)
+      description: Crea una nueva versión de presupuesto (PDF), congela la tarifa y transiciona la reserva a `pre_reserva` (bloqueo firme/7 días).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePresupuestoRequest'
+      responses:
+        '201':
+          description: Presupuesto generado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Presupuesto' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /presupuestos/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/IdGenerico' }
+    patch:
+      tags: [Presupuestos]
+      summary: Editar y enviar presupuesto (UC-15)
+      description: Edita líneas/descuento y, opcionalmente, marca el presupuesto como `enviado` (dispara email E-presupuesto).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePresupuestoRequest'
+      responses:
+        '200':
+          description: Presupuesto actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Presupuesto' }
+
+  # ============================ EXTRAS DE RESERVA ============================
+  /reservas/{id}/extras:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [Presupuestos]
+      summary: Listar extras de la reserva
+      responses:
+        '200':
+          description: Extras de la reserva
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ReservaExtra' }
+    post:
+      tags: [Presupuestos]
+      summary: Añadir extra a la reserva (UC-14, UC-21)
+      description: Añade una línea de extra con precio congelado. `origen` indica si viene del presupuesto o se añade tras la confirmación.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReservaExtraRequest'
+      responses:
+        '201':
+          description: Extra añadido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReservaExtra' }
+
+  # ============================ CONFIRMACIÓN / PAGOS / FACTURAS ============================
+  /reservas/{id}/pagos:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Confirmacion]
+      summary: Confirmar pago de señal / registrar cobro (UC-17, UC-21, UC-22)
+      description: Registra un `Pago` conciliado contra una factura. El pago de señal transiciona la reserva a `reserva_confirmada` (bloqueo firme).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePagoRequest'
+      responses:
+        '201':
+          description: Pago registrado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pago' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reservas/{id}/facturas:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [Facturas]
+      summary: Listar facturas de la reserva
+      responses:
+        '200':
+          description: Facturas
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Factura' }
+    post:
+      tags: [Facturas]
+      summary: Generar factura (UC-18, UC-21)
+      description: Emite una factura (`senal`, `liquidacion`, `fianza` o `complementaria`). La liquidación arrastra los `ReservaExtra` con `factura_id` nulo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFacturaRequest'
+      responses:
+        '201':
+          description: Factura generada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Factura' }
+
+  /reservas/{id}/condiciones-particulares:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Confirmacion]
+      summary: Gestionar condiciones particulares (UC-19)
+      description: Marca el envío o la firma de las condiciones particulares y asocia el documento firmado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CondicionesParticularesRequest'
+      responses:
+        '200':
+          description: Estado de condiciones actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+
+  # ============================ SUB-PROCESOS ============================
+  /reservas/{id}/subprocesos:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    patch:
+      tags: [Subprocesos]
+      summary: Gestionar sub-procesos paralelos (UC-20, UC-21, UC-22)
+      description: Avanza el estado de los sub-procesos `pre_evento`, `liquidacion` y/o `fianza`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubprocesosRequest'
+      responses:
+        '200':
+          description: Sub-procesos actualizados
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+
+  /reservas/{id}/fianza/solicitar-iban:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Subprocesos]
+      summary: Solicitar IBAN para devolución de fianza (UC-26)
+      responses:
+        '200':
+          description: Solicitud de IBAN enviada (email)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+
+  /reservas/{id}/fianza/devolver:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Subprocesos]
+      summary: Procesar devolución de fianza (UC-27)
+      description: Registra la devolución total o parcial (retención por desperfectos) de la fianza.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevolucionFianzaRequest'
+      responses:
+        '200':
+          description: Devolución procesada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+
+  # ============================ FICHA OPERATIVA ============================
+  /reservas/{id}/ficha-operativa:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [FichaOperativa]
+      summary: Consultar ficha operativa del evento (UC-24)
+      responses:
+        '200':
+          description: Ficha operativa
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FichaOperativa' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [FichaOperativa]
+      summary: Crear/actualizar ficha operativa (UC-20, UC-24)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertFichaOperativaRequest'
+      responses:
+        '200':
+          description: Ficha guardada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FichaOperativa' }
+
+  # ============================ CALENDARIO ============================
+  /calendario:
+    get:
+      tags: [Calendario]
+      summary: Consultar calendario y disponibilidad (UC-29)
+      description: Devuelve reservas y fechas bloqueadas del tenant en un rango, para las vistas mensual/semanal.
+      parameters:
+        - in: query
+          name: desde
+          required: true
+          schema: { type: string, format: date }
+        - in: query
+          name: hasta
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Disponibilidad del rango
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CalendarioItem' }
+
+  /fechas-bloqueadas:
+    post:
+      tags: [Calendario]
+      summary: Bloquear fecha (UC-30)
+      description: |
+        Operación crítica. Crea un `FechaBloqueada` dentro de una transacción con
+        `SELECT ... FOR UPDATE`. La restricción `UNIQUE(tenant_id, fecha)` garantiza
+        que dos peticiones concurrentes para la misma fecha resulten en un éxito y un 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BloquearFechaRequest'
+      responses:
+        '201':
+          description: Fecha bloqueada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FechaBloqueada' }
+        '409':
+          description: La fecha ya está bloqueada (doble reserva evitada)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /fechas-bloqueadas/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/IdGenerico' }
+    delete:
+      tags: [Calendario]
+      summary: Liberar fecha (UC-31)
+      description: Libera la fecha y dispara la promoción de la cola de espera si la hay.
+      responses:
+        '204':
+          description: Fecha liberada
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================ CLIENTES ============================
+  /clientes:
+    get:
+      tags: [Clientes]
+      summary: Listar/buscar clientes
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - in: query
+          name: search
+          schema: { type: string }
+          description: Búsqueda por nombre, email o DNI/NIF
+      responses:
+        '200':
+          description: Clientes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Cliente' }
+    post:
+      tags: [Clientes]
+      summary: Crear cliente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateClienteRequest'
+      responses:
+        '201':
+          description: Cliente creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cliente' }
+
+  /clientes/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/IdGenerico' }
+    get:
+      tags: [Clientes]
+      summary: Detalle de cliente
+      responses:
+        '200':
+          description: Cliente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cliente' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Clientes]
+      summary: Actualizar datos fiscales del cliente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateClienteRequest'
+      responses:
+        '200':
+          description: Cliente actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cliente' }
+
+  # ============================ HISTÓRICO ============================
+  /historico/reservas:
+    get:
+      tags: [Historico]
+      summary: Buscar en histórico (UC-32)
+      description: Búsqueda full-text sobre reservas archivadas (código, cliente, notas).
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Resultados del histórico
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaListResponse'
+
+  /historico/exportar:
+    get:
+      tags: [Historico]
+      summary: Exportar reservas (UC-33)
+      description: Exporta el histórico filtrado a CSV.
+      parameters:
+        - in: query
+          name: fechaDesde
+          schema: { type: string, format: date }
+        - in: query
+          name: fechaHasta
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Fichero CSV
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+
+  # ============================ DASHBOARD ============================
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Visualizar dashboard operativo (UC-34)
+      description: Devuelve KPIs operativos (ocupación, conversión, pipeline) y financieros (ingresos, cobros pendientes).
+      responses:
+        '200':
+          description: KPIs del dashboard
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardResponse' }
+
+  # ============================ COMUNICACIONES ============================
+  /reservas/{id}/comunicaciones:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [Comunicaciones]
+      summary: Log de comunicaciones de la reserva
+      responses:
+        '200':
+          description: Comunicaciones
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Comunicacion' }
+    post:
+      tags: [Comunicaciones]
+      summary: Enviar email manual o automático (UC-35, UC-36)
+      description: Crea y envía (o guarda como borrador para revisión, UC-36) un email vinculado a la reserva.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateComunicacionRequest'
+      responses:
+        '201':
+          description: Comunicación creada/enviada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Comunicacion' }
+
+  # ============================ DOCUMENTOS ============================
+  /documentos:
+    post:
+      tags: [Documentos]
+      summary: Subir documento (UC-19, UC-24)
+      description: Sube un documento polimórfico (DNI, cláusula, condiciones, justificante de pago, etc.) al storage y registra sus metadatos.
       requestBody:
         required: true
         content:
@@ -415,679 +854,572 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: File to upload (PDF or DOCX, max 10MB)
-              required:
-                - file
+                tipo:
+                  $ref: '#/components/schemas/TipoDocumento'
+                reservaId:
+                  type: string
+                  format: uuid
+              required: [file, tipo]
+      responses:
+        '201':
+          description: Documento subido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Documento' }
+        '400':
+          description: Tipo de fichero no válido o demasiado grande (>10MB)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # ============================ CRON ============================
+  /cron/barrido:
+    post:
+      tags: [Cron]
+      summary: Barrido periódico de TTLs, cola y recordatorios
+      description: |
+        Endpoint protegido (token de servicio) invocado por el cron. Es idempotente:
+        barre reservas con `ttl_expiracion` vencido, las expira (2.b→2.x), libera la fecha,
+        promueve la cola y dispara recordatorios automáticos. No depende del reloj exacto.
+      security:
+        - cronToken: []
       responses:
         '200':
-          description: File uploaded successfully
+          description: Barrido ejecutado
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/FileUploadResponse'
-        '400':
-          description: Invalid file type or file too large
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: Upload error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/BarridoResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token JWT de vida corta. `tenant_id` y `rol` van firmados en el payload.
+    cronToken:
+      type: apiKey
+      in: header
+      name: X-Cron-Token
+      description: Token de servicio para el endpoint de barrido del cron.
+
+  parameters:
+    Page:
+      in: query
+      name: page
+      schema: { type: integer, minimum: 1, default: 1 }
+      description: Número de página
+    Limit:
+      in: query
+      name: limit
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      description: Elementos por página
+    IdReserva:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+      description: ID de la reserva
+    IdGenerico:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+      description: Identificador del recurso
+
+  responses:
+    Unauthorized:
+      description: No autenticado o token inválido
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Recurso no encontrado en el tenant
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ValidationError:
+      description: Error de validación de entrada
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Conflicto de estado o de concurrencia (p. ej. fecha ya bloqueada)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
   schemas:
-    CandidateListResponse:
+    # -------- Enums --------
+    EstadoReserva:
+      type: string
+      enum: [consulta, pre_reserva, reserva_confirmada, evento_en_curso, post_evento, reserva_completada, reserva_cancelada]
+    SubEstadoConsulta:
+      type: string
+      enum: ['2a', '2b', '2c', '2d', '2v', '2x', '2y', '2z']
+    CanalEntrada:
+      type: string
+      enum: [web, email, whatsapp, instagram, telefono]
+    DuracionHoras:
+      type: integer
+      enum: [4, 8, 12]
+    TipoEvento:
+      type: string
+      enum: [boda, corporativo, privado, otro]
+    Temporada:
+      type: string
+      enum: [alta, media, baja]
+    TipoBloqueo:
+      type: string
+      enum: [blando, firme]
+    OrigenExtra:
+      type: string
+      enum: [presupuesto, anadido_post_confirmacion]
+    TipoFactura:
+      type: string
+      enum: [senal, liquidacion, fianza, complementaria]
+    EstadoPresupuesto:
+      type: string
+      enum: [borrador, enviado, aceptado, rechazado]
+    EstadoFactura:
+      type: string
+      enum: [borrador, enviada, cobrada]
+    FianzaStatus:
+      type: string
+      enum: [pendiente, recibo_enviado, cobrada, devuelta, retenida_parcial]
+    PreEventoStatus:
+      type: string
+      enum: [pendiente, en_curso, cerrado]
+    LiquidacionStatus:
+      type: string
+      enum: [pendiente, facturada, cobrada]
+    TipoDocumento:
+      type: string
+      enum: [dni_anverso, dni_reverso, clausula_responsabilidad, condiciones_particulares, justificante_pago, presupuesto, factura, otro]
+    CodigoEmail:
+      type: string
+      enum: [E1, E2, E3, E4, E5, E6, E7, E8, manual]
+
+    # -------- Auth --------
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+    LoginResponse:
+      type: object
+      required: [accessToken, usuario]
+      properties:
+        accessToken: { type: string, description: JWT de vida corta (~15 min) }
+        usuario: { $ref: '#/components/schemas/Usuario' }
+    Usuario:
       type: object
       properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/Candidate'
-        metadata:
-          $ref: '#/components/schemas/PaginationMetadata'
-      required:
-        - data
-        - metadata
+        idUsuario: { type: string, format: uuid }
+        email: { type: string, format: email }
+        nombre: { type: string }
+        apellidos: { type: string, nullable: true }
+        rol: { type: string, enum: [gestor, admin, operario] }
 
-    Candidate:
+    # -------- Reserva --------
+    Reserva:
       type: object
       properties:
-        id:
-          type: integer
-          description: Unique candidate identifier
-        firstName:
-          type: string
-          description: Candidate's first name
-        lastName:
-          type: string
-          description: Candidate's last name
-        email:
-          type: string
-          format: email
-          description: Candidate's email address
-        phone:
-          type: string
-          nullable: true
-          description: Candidate's phone number
-        address:
-          type: string
-          nullable: true
-          description: Candidate's address
-        educations:
-          type: array
-          items:
-            $ref: '#/components/schemas/Education'
-        workExperiences:
-          type: array
-          items:
-            $ref: '#/components/schemas/WorkExperience'
-        resumes:
-          type: array
-          items:
-            $ref: '#/components/schemas/Resume'
-        applications:
-          type: array
-          items:
-            $ref: '#/components/schemas/Application'
-      required:
-        - firstName
-        - lastName
-        - email
-
-    CandidateDetails:
+        idReserva: { type: string, format: uuid }
+        codigo: { type: string, example: 'SLO-2026-0001' }
+        clienteId: { type: string, format: uuid }
+        estado: { $ref: '#/components/schemas/EstadoReserva' }
+        subEstado: { $ref: '#/components/schemas/SubEstadoConsulta' }
+        canalEntrada: { $ref: '#/components/schemas/CanalEntrada' }
+        fechaEvento: { type: string, format: date, nullable: true }
+        duracionHoras: { allOf: [{ $ref: '#/components/schemas/DuracionHoras' }], nullable: true }
+        tipoEvento: { allOf: [{ $ref: '#/components/schemas/TipoEvento' }], nullable: true }
+        numAdultosNinosMayores4: { type: integer, nullable: true }
+        numNinosMenores4: { type: integer, nullable: true }
+        numInvitadosFinal: { type: integer, nullable: true }
+        importeTotal: { type: number, format: double, nullable: true }
+        importeSenal: { type: number, format: double, nullable: true }
+        importeLiquidacion: { type: number, format: double, nullable: true }
+        ttlExpiracion: { type: string, format: date-time, nullable: true }
+        preEventoStatus: { $ref: '#/components/schemas/PreEventoStatus' }
+        liquidacionStatus: { $ref: '#/components/schemas/LiquidacionStatus' }
+        fianzaStatus: { $ref: '#/components/schemas/FianzaStatus' }
+        posicionCola: { type: integer, nullable: true }
+        consultaBloqueanteId: { type: string, format: uuid, nullable: true }
+        notas: { type: string, nullable: true }
+        fechaCreacion: { type: string, format: date-time }
+      required: [idReserva, codigo, clienteId, estado, canalEntrada]
+    ReservaDetalle:
       allOf:
-        - $ref: '#/components/schemas/Candidate'
+        - $ref: '#/components/schemas/Reserva'
         - type: object
           properties:
-            applications:
+            cliente: { $ref: '#/components/schemas/Cliente' }
+            extras:
               type: array
-              items:
-                allOf:
-                  - $ref: '#/components/schemas/Application'
-                  - type: object
-                    properties:
-                      position:
-                        type: object
-                        properties:
-                          id:
-                            type: integer
-                          title:
-                            type: string
-                      interviews:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/Interview'
-
-    CreateCandidateRequest:
+              items: { $ref: '#/components/schemas/ReservaExtra' }
+            presupuestos:
+              type: array
+              items: { $ref: '#/components/schemas/Presupuesto' }
+            facturas:
+              type: array
+              items: { $ref: '#/components/schemas/Factura' }
+    ReservaListResponse:
       type: object
+      required: [data, metadata]
       properties:
-        firstName:
-          type: string
-          description: Candidate's first name
-        lastName:
-          type: string
-          description: Candidate's last name
-        email:
-          type: string
-          format: email
-          description: Candidate's email address
-        phone:
-          type: string
-          nullable: true
-          description: Candidate's phone number
-        address:
-          type: string
-          nullable: true
-          description: Candidate's address
-        educations:
-          type: array
-          items:
-            $ref: '#/components/schemas/CreateEducationRequest'
-        workExperiences:
-          type: array
-          items:
-            $ref: '#/components/schemas/CreateWorkExperienceRequest'
-        cv:
-          $ref: '#/components/schemas/CreateResumeRequest'
-      required:
-        - firstName
-        - lastName
-        - email
-
-    CreateCandidateResponse:
-      type: object
-      properties:
-        id:
-          type: integer
-          description: Created candidate ID
-        firstName:
-          type: string
-        lastName:
-          type: string
-        email:
-          type: string
-        phone:
-          type: string
-          nullable: true
-        address:
-          type: string
-          nullable: true
-      required:
-        - id
-        - firstName
-        - lastName
-        - email
-
-    UpdateCandidateStageRequest:
-      type: object
-      properties:
-        applicationId:
-          type: string
-          description: Application ID (will be converted to integer)
-        currentInterviewStep:
-          type: string
-          description: Current interview step (will be converted to integer)
-      required:
-        - applicationId
-        - currentInterviewStep
-
-    UpdateCandidateStageResponse:
-      type: object
-      properties:
-        message:
-          type: string
-          example: "Candidate stage updated successfully"
         data:
-          $ref: '#/components/schemas/Application'
-
-    Position:
+          type: array
+          items: { $ref: '#/components/schemas/Reserva' }
+        metadata: { $ref: '#/components/schemas/PaginationMetadata' }
+    CreateReservaRequest:
+      type: object
+      required: [canalEntrada, cliente]
+      properties:
+        canalEntrada: { $ref: '#/components/schemas/CanalEntrada' }
+        fechaEvento: { type: string, format: date, nullable: true, description: 'Si se envía, se crea en sub-estado 2.b con bloqueo blando' }
+        tipoEvento: { $ref: '#/components/schemas/TipoEvento' }
+        duracionHoras: { $ref: '#/components/schemas/DuracionHoras' }
+        numAdultosNinosMayores4: { type: integer }
+        numNinosMenores4: { type: integer }
+        notas: { type: string }
+        cliente: { $ref: '#/components/schemas/CreateClienteRequest' }
+    UpdateReservaRequest:
       type: object
       properties:
-        id:
-          type: integer
-          description: Position unique identifier
-        companyId:
-          type: integer
-          description: Associated company ID
-        interviewFlowId:
-          type: integer
-          description: Associated interview flow ID
-        title:
-          type: string
-          description: Position title
-        description:
-          type: string
-          description: Position description
-        status:
-          type: string
-          description: Position status
-          default: "Draft"
-        isVisible:
-          type: boolean
-          description: Whether position is visible to candidates
-          default: false
-        location:
-          type: string
-          description: Position location
-        jobDescription:
-          type: string
-          description: Detailed job description
-        requirements:
-          type: string
-          nullable: true
-          description: Position requirements
-        responsibilities:
-          type: string
-          nullable: true
-          description: Position responsibilities
-        salaryMin:
-          type: number
-          nullable: true
-          description: Minimum salary
-        salaryMax:
-          type: number
-          nullable: true
-          description: Maximum salary
-        employmentType:
-          type: string
-          nullable: true
-          description: Type of employment
-        benefits:
-          type: string
-          nullable: true
-          description: Position benefits
-        companyDescription:
-          type: string
-          nullable: true
-          description: Company description
-        applicationDeadline:
-          type: string
-          format: date-time
-          nullable: true
-          description: Application deadline
-        contactInfo:
-          type: string
-          nullable: true
-          description: Contact information
-      required:
-        - companyId
-        - interviewFlowId
-        - title
-        - description
-        - location
-        - jobDescription
+        tipoEvento: { $ref: '#/components/schemas/TipoEvento' }
+        duracionHoras: { $ref: '#/components/schemas/DuracionHoras' }
+        numAdultosNinosMayores4: { type: integer }
+        numNinosMenores4: { type: integer }
+        numInvitadosFinal: { type: integer }
+        notas: { type: string }
+    TransicionRequest:
+      type: object
+      required: [estadoDestino]
+      properties:
+        estadoDestino: { $ref: '#/components/schemas/EstadoReserva' }
+        subEstadoDestino: { $ref: '#/components/schemas/SubEstadoConsulta' }
+        motivo: { type: string, description: 'Obligatorio en cancelaciones/descartes' }
+    ProgramarVisitaRequest:
+      type: object
+      required: [visitaFecha, visitaHora]
+      properties:
+        visitaFecha: { type: string, format: date }
+        visitaHora: { type: string, example: '17:30' }
+    ResultadoVisitaRequest:
+      type: object
+      required: [visitaRealizada]
+      properties:
+        visitaRealizada: { type: boolean }
+        notas: { type: string }
 
-    UpdatePositionRequest:
+    # -------- Cola --------
+    ColaItem:
       type: object
       properties:
-        companyId:
-          type: integer
-          minimum: 1
-          description: Associated company ID (must be a positive integer)
-        interviewFlowId:
-          type: integer
-          minimum: 1
-          description: Associated interview flow ID (must be a positive integer)
-        title:
-          type: string
-          maxLength: 100
-          minLength: 1
-          description: Position title (required, 1-100 characters)
-        description:
-          type: string
-          minLength: 1
-          description: Position description (required, cannot be empty)
-        status:
-          type: string
-          enum: [Open, Contratado, Cerrado, Borrador]
-          description: Position status (must be one of the valid status values)
-        isVisible:
-          type: boolean
-          description: Whether position is visible to candidates
-        location:
-          type: string
-          minLength: 1
-          description: Position location (required, cannot be empty)
-        jobDescription:
-          type: string
-          minLength: 1
-          description: Detailed job description (required, cannot be empty)
-        requirements:
-          type: string
-          nullable: true
-          description: Position requirements
-        responsibilities:
-          type: string
-          nullable: true
-          description: Position responsibilities
-        salaryMin:
-          type: number
-          minimum: 0
-          nullable: true
-          description: Minimum salary (must be >= 0, cannot be greater than salaryMax)
-        salaryMax:
-          type: number
-          minimum: 0
-          nullable: true
-          description: Maximum salary (must be >= 0, cannot be less than salaryMin)
-        employmentType:
-          type: string
-          nullable: true
-          description: Type of employment
-        benefits:
-          type: string
-          nullable: true
-          description: Position benefits
-        companyDescription:
-          type: string
-          nullable: true
-          description: Company description
-        applicationDeadline:
-          type: string
-          format: date-time
-          nullable: true
-          description: Application deadline (must be a future date)
-        contactInfo:
-          type: string
-          nullable: true
-          description: Contact information
-
-    UpdatePositionResponse:
+        idReserva: { type: string, format: uuid }
+        codigo: { type: string }
+        posicionCola: { type: integer }
+        clienteNombre: { type: string }
+    # -------- Cliente --------
+    Cliente:
       type: object
       properties:
-        message:
-          type: string
-          example: "Position updated successfully"
-        data:
-          $ref: '#/components/schemas/Position'
-
-    PositionCandidate:
+        idCliente: { type: string, format: uuid }
+        nombre: { type: string }
+        apellidos: { type: string, nullable: true }
+        email: { type: string, format: email, nullable: true }
+        telefono: { type: string, nullable: true }
+        dniNif: { type: string, nullable: true }
+        direccion: { type: string, nullable: true }
+        codigoPostal: { type: string, nullable: true }
+        poblacion: { type: string, nullable: true }
+        provincia: { type: string, nullable: true }
+        ibanDevolucion: { type: string, nullable: true }
+      required: [idCliente, nombre]
+    CreateClienteRequest:
       type: object
+      required: [nombre]
       properties:
-        fullName:
-          type: string
-          description: Candidate's full name
-        currentInterviewStep:
-          type: string
-          description: Current interview step name
-        candidateId:
-          type: integer
-          description: Candidate ID
-        applicationId:
-          type: integer
-          description: Application ID
-        averageScore:
-          type: number
-          description: Average interview score
-      required:
-        - fullName
-        - currentInterviewStep
-        - candidateId
-        - applicationId
-        - averageScore
-
-    CandidateName:
-      type: object
-      properties:
-        candidateId:
-          type: integer
-          description: Candidate ID
-        fullName:
-          type: string
-          description: Candidate's full name
-      required:
-        - candidateId
-        - fullName
-
-    InterviewFlowResponse:
-      type: object
-      properties:
-        interviewFlow:
-          type: object
+        nombre: { type: string }
+        apellidos: { type: string }
+        email: { type: string, format: email }
+        telefono: { type: string }
+        dniNif: { type: string }
+        direccion: { type: string }
+        codigoPostal: { type: string }
+        poblacion: { type: string }
+        provincia: { type: string }
+    UpdateClienteRequest:
+      allOf:
+        - $ref: '#/components/schemas/CreateClienteRequest'
+        - type: object
           properties:
-            positionName:
-              type: string
-              description: Position title
-            interviewFlow:
-              $ref: '#/components/schemas/InterviewFlow'
+            ibanDevolucion: { type: string }
 
-    InterviewFlow:
+    # -------- Tarifa / Presupuesto / Extra --------
+    CalculoTarifaRequest:
+      type: object
+      required: [fechaEvento, duracionHoras, numInvitados]
+      properties:
+        fechaEvento: { type: string, format: date }
+        duracionHoras: { $ref: '#/components/schemas/DuracionHoras' }
+        numInvitados: { type: integer }
+        extraIds:
+          type: array
+          items: { type: string, format: uuid }
+    CalculoTarifaResponse:
       type: object
       properties:
-        id:
-          type: integer
-          description: Interview flow ID
-        description:
-          type: string
-          description: Interview flow description
-        interviewSteps:
+        temporada: { $ref: '#/components/schemas/Temporada' }
+        baseImponible: { type: number, format: double }
+        ivaPorcentaje: { type: number, format: double, example: 21 }
+        ivaImporte: { type: number, format: double }
+        total: { type: number, format: double }
+        lineas:
           type: array
           items:
-            $ref: '#/components/schemas/InterviewStep'
-
-    InterviewStep:
+            type: object
+            properties:
+              concepto: { type: string }
+              importe: { type: number, format: double }
+    Presupuesto:
       type: object
       properties:
-        id:
-          type: integer
-          description: Interview step ID
-        interviewFlowId:
-          type: integer
-          description: Associated interview flow ID
-        interviewTypeId:
-          type: integer
-          description: Associated interview type ID
-        name:
-          type: string
-          description: Interview step name
-        orderIndex:
-          type: integer
-          description: Step order in the interview flow
-
-    Education:
+        idPresupuesto: { type: string, format: uuid }
+        reservaId: { type: string, format: uuid }
+        version: { type: integer }
+        baseImponible: { type: number, format: double }
+        ivaPorcentaje: { type: number, format: double }
+        ivaImporte: { type: number, format: double }
+        total: { type: number, format: double }
+        descuentoEur: { type: number, format: double, nullable: true }
+        descuentoMotivo: { type: string, nullable: true }
+        pdfUrl: { type: string, nullable: true }
+        estado: { $ref: '#/components/schemas/EstadoPresupuesto' }
+        fechaEnvio: { type: string, format: date-time, nullable: true }
+    CreatePresupuestoRequest:
       type: object
       properties:
-        id:
-          type: integer
-          description: Education record ID
-        candidateId:
-          type: integer
-          description: Associated candidate ID
-        institution:
-          type: string
-          description: Educational institution name
-        title:
-          type: string
-          description: Degree or certification title
-        startDate:
-          type: string
-          format: date-time
-          description: Education start date
-        endDate:
-          type: string
-          format: date-time
-          nullable: true
-          description: Education end date
-      required:
-        - institution
-        - title
-        - startDate
-
-    CreateEducationRequest:
+        descuentoEur: { type: number, format: double }
+        descuentoMotivo: { type: string }
+        extras:
+          type: array
+          items: { $ref: '#/components/schemas/CreateReservaExtraRequest' }
+    UpdatePresupuestoRequest:
       type: object
       properties:
-        institution:
-          type: string
-          description: Educational institution name
-        title:
-          type: string
-          description: Degree or certification title
-        startDate:
-          type: string
-          format: date-time
-          description: Education start date
-        endDate:
-          type: string
-          format: date-time
-          nullable: true
-          description: Education end date
-      required:
-        - institution
-        - title
-        - startDate
-
-    WorkExperience:
+        descuentoEur: { type: number, format: double }
+        descuentoMotivo: { type: string }
+        enviar: { type: boolean, description: 'Si true, marca como enviado y dispara el email' }
+    ReservaExtra:
       type: object
       properties:
-        id:
-          type: integer
-          description: Work experience record ID
-        candidateId:
-          type: integer
-          description: Associated candidate ID
-        company:
-          type: string
-          description: Company name
-        position:
-          type: string
-          description: Job position title
-        description:
-          type: string
-          nullable: true
-          description: Job description
-        startDate:
-          type: string
-          format: date-time
-          description: Employment start date
-        endDate:
-          type: string
-          format: date-time
-          nullable: true
-          description: Employment end date
-      required:
-        - company
-        - position
-        - startDate
+        idReservaExtra: { type: string, format: uuid }
+        reservaId: { type: string, format: uuid }
+        extraId: { type: string, format: uuid, nullable: true }
+        facturaId: { type: string, format: uuid, nullable: true }
+        conceptoLibre: { type: string, nullable: true }
+        origen: { $ref: '#/components/schemas/OrigenExtra' }
+        cantidad: { type: integer }
+        precioUnitario: { type: number, format: double }
+        subtotal: { type: number, format: double }
+    CreateReservaExtraRequest:
+      type: object
+      required: [cantidad, origen]
+      properties:
+        extraId: { type: string, format: uuid, nullable: true }
+        conceptoLibre: { type: string, description: 'Para extras fuera de catálogo' }
+        cantidad: { type: integer, minimum: 1 }
+        origen: { $ref: '#/components/schemas/OrigenExtra' }
+        precioUnitario: { type: number, format: double, description: 'Obligatorio si extraId es nulo' }
 
-    CreateWorkExperienceRequest:
+    # -------- Factura / Pago --------
+    Factura:
       type: object
       properties:
-        company:
-          type: string
-          description: Company name
-        position:
-          type: string
-          description: Job position title
-        description:
-          type: string
-          nullable: true
-          description: Job description
-        startDate:
-          type: string
-          format: date-time
-          description: Employment start date
-        endDate:
-          type: string
-          format: date-time
-          nullable: true
-          description: Employment end date
-      required:
-        - company
-        - position
-        - startDate
-
-    Resume:
+        idFactura: { type: string, format: uuid }
+        reservaId: { type: string, format: uuid }
+        numeroFactura: { type: string, example: 'F-2026-0001' }
+        tipo: { $ref: '#/components/schemas/TipoFactura' }
+        baseImponible: { type: number, format: double }
+        ivaPorcentaje: { type: number, format: double }
+        ivaImporte: { type: number, format: double }
+        total: { type: number, format: double }
+        concepto: { type: string, nullable: true }
+        pdfUrl: { type: string, nullable: true }
+        estado: { $ref: '#/components/schemas/EstadoFactura' }
+        fechaEmision: { type: string, format: date-time, nullable: true }
+    CreateFacturaRequest:
+      type: object
+      required: [tipo]
+      properties:
+        tipo: { $ref: '#/components/schemas/TipoFactura' }
+        concepto: { type: string }
+    Pago:
       type: object
       properties:
-        id:
-          type: integer
-          description: Resume record ID
-        candidateId:
-          type: integer
-          description: Associated candidate ID
-        filePath:
-          type: string
-          description: Resume file path
-        fileType:
-          type: string
-          description: Resume file MIME type
-      required:
-        - filePath
-        - fileType
+        idPago: { type: string, format: uuid }
+        facturaId: { type: string, format: uuid }
+        importe: { type: number, format: double }
+        fechaCobro: { type: string, format: date }
+        justificanteDocId: { type: string, format: uuid, nullable: true }
+    CreatePagoRequest:
+      type: object
+      required: [facturaId, importe, fechaCobro]
+      properties:
+        facturaId: { type: string, format: uuid }
+        importe: { type: number, format: double }
+        fechaCobro: { type: string, format: date }
+        justificanteDocId: { type: string, format: uuid, nullable: true }
 
-    CreateResumeRequest:
+    # -------- Condiciones / Sub-procesos / Fianza --------
+    CondicionesParticularesRequest:
+      type: object
+      required: [accion]
+      properties:
+        accion: { type: string, enum: [enviar, marcar_firmadas] }
+        documentoId: { type: string, format: uuid, description: 'Documento firmado, en marcar_firmadas' }
+    SubprocesosRequest:
       type: object
       properties:
-        filePath:
-          type: string
-          description: Resume file path
-        fileType:
-          type: string
-          description: Resume file MIME type
-      required:
-        - filePath
-        - fileType
+        preEventoStatus: { $ref: '#/components/schemas/PreEventoStatus' }
+        liquidacionStatus: { $ref: '#/components/schemas/LiquidacionStatus' }
+        fianzaStatus: { $ref: '#/components/schemas/FianzaStatus' }
+    DevolucionFianzaRequest:
+      type: object
+      required: [importeDevuelto]
+      properties:
+        importeDevuelto: { type: number, format: double, description: 'Menor que fianza_eur si hay retención parcial' }
+        motivoRetencion: { type: string }
 
-    Application:
+    # -------- Ficha operativa --------
+    FichaOperativa:
       type: object
       properties:
-        id:
-          type: integer
-          description: Application ID
-        candidateId:
-          type: integer
-          description: Associated candidate ID
-        positionId:
-          type: integer
-          description: Associated position ID
-        applicationDate:
-          type: string
-          format: date-time
-          description: Application submission date
-        currentInterviewStep:
-          type: integer
-          description: Current interview step ID
-        notes:
-          type: string
-          nullable: true
-          description: Application notes
-
-    Interview:
+        idFicha: { type: string, format: uuid }
+        reservaId: { type: string, format: uuid }
+        numInvitadosConfirmado: { type: integer, nullable: true }
+        menuSeleccionado: { type: string, nullable: true }
+        timingDetallado: { type: string, nullable: true }
+        contactoEventoNombre: { type: string, nullable: true }
+        contactoEventoTelefono: { type: string, nullable: true }
+        notasOperativas: { type: string, nullable: true }
+        briefingEquipo: { type: string, nullable: true }
+        fichaCerrada: { type: boolean }
+    UpsertFichaOperativaRequest:
       type: object
       properties:
-        interviewDate:
-          type: string
-          format: date-time
-          description: Interview date and time
-        interviewStep:
-          type: object
-          properties:
-            name:
-              type: string
-              description: Interview step name
-        notes:
-          type: string
-          nullable: true
-          description: Interview notes
-        score:
-          type: number
-          nullable: true
-          description: Interview score
+        numInvitadosConfirmado: { type: integer }
+        menuSeleccionado: { type: string }
+        timingDetallado: { type: string }
+        contactoEventoNombre: { type: string }
+        contactoEventoTelefono: { type: string }
+        notasOperativas: { type: string }
+        briefingEquipo: { type: string }
+        fichaCerrada: { type: boolean }
 
-    FileUploadResponse:
+    # -------- Calendario --------
+    CalendarioItem:
       type: object
       properties:
-        filePath:
-          type: string
-          description: Uploaded file path
-        fileType:
-          type: string
-          description: Uploaded file MIME type
-      required:
-        - filePath
-        - fileType
+        fecha: { type: string, format: date }
+        reservaId: { type: string, format: uuid, nullable: true }
+        codigo: { type: string, nullable: true }
+        estado: { $ref: '#/components/schemas/EstadoReserva' }
+        tipoBloqueo: { allOf: [{ $ref: '#/components/schemas/TipoBloqueo' }], nullable: true }
+    FechaBloqueada:
+      type: object
+      properties:
+        idBloqueo: { type: string, format: uuid }
+        fecha: { type: string, format: date }
+        reservaId: { type: string, format: uuid }
+        tipoBloqueo: { $ref: '#/components/schemas/TipoBloqueo' }
+        ttlExpiracion: { type: string, format: date-time, nullable: true }
+    BloquearFechaRequest:
+      type: object
+      required: [fecha, reservaId, tipoBloqueo]
+      properties:
+        fecha: { type: string, format: date }
+        reservaId: { type: string, format: uuid }
+        tipoBloqueo: { $ref: '#/components/schemas/TipoBloqueo' }
 
+    # -------- Comunicaciones --------
+    Comunicacion:
+      type: object
+      properties:
+        idComunicacion: { type: string, format: uuid }
+        reservaId: { type: string, format: uuid, nullable: true }
+        clienteId: { type: string, format: uuid }
+        codigoEmail: { $ref: '#/components/schemas/CodigoEmail' }
+        asunto: { type: string }
+        destinatarioEmail: { type: string, format: email }
+        estado: { type: string, enum: [borrador, enviado, fallido] }
+        fechaEnvio: { type: string, format: date-time, nullable: true }
+    CreateComunicacionRequest:
+      type: object
+      required: [codigoEmail, destinatarioEmail, asunto]
+      properties:
+        codigoEmail: { $ref: '#/components/schemas/CodigoEmail' }
+        destinatarioEmail: { type: string, format: email }
+        asunto: { type: string }
+        cuerpo: { type: string }
+        guardarComoBorrador: { type: boolean, description: 'UC-36: guarda para revisión antes de enviar' }
+
+    # -------- Documento --------
+    Documento:
+      type: object
+      properties:
+        idDocumento: { type: string, format: uuid }
+        reservaId: { type: string, format: uuid, nullable: true }
+        tipo: { $ref: '#/components/schemas/TipoDocumento' }
+        nombreArchivo: { type: string }
+        url: { type: string }
+        mimeType: { type: string }
+        tamanoBytes: { type: integer, nullable: true }
+
+    # -------- Dashboard --------
+    DashboardResponse:
+      type: object
+      properties:
+        ocupacionMesActual: { type: number, format: double, description: '% de fechas ocupadas' }
+        tasaConversion: { type: number, format: double, description: 'consultas → reservas confirmadas' }
+        pipelineActivo: { type: integer, description: 'reservas en consulta + pre_reserva' }
+        ingresosMes: { type: number, format: double }
+        cobrosPendientes: { type: number, format: double }
+        ticketMedio: { type: number, format: double }
+
+    # -------- Cron --------
+    BarridoResponse:
+      type: object
+      properties:
+        reservasExpiradas: { type: integer }
+        fechasLiberadas: { type: integer }
+        consultasPromovidas: { type: integer }
+        recordatoriosEnviados: { type: integer }
+
+    # -------- Comunes --------
     PaginationMetadata:
       type: object
+      required: [total, page, limit, totalPages]
       properties:
-        total:
-          type: integer
-          description: Total number of records
-        page:
-          type: integer
-          description: Current page number
-        limit:
-          type: integer
-          description: Records per page
-        totalPages:
-          type: integer
-          description: Total number of pages
-      required:
-        - total
-        - page
-        - limit
-        - totalPages
-
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+        totalPages: { type: integer }
     ErrorResponse:
       type: object
+      required: [statusCode, message]
       properties:
+        statusCode: { type: integer, example: 409 }
         message:
-          type: string
-          description: Error message
-        error:
-          type: string
-          description: Detailed error information
-      required:
-        - message
-
-tags:
-  - name: Candidates
-    description: Operations related to candidate management
-  - name: Positions
-    description: Operations related to job position management
-  - name: File Upload
-    description: Operations related to file uploads
+          oneOf:
+            - type: string
+            - type: array
+              items: { type: string }
+          description: Mensaje(s) de error (formato de excepción de NestJS)
+        error: { type: string, example: 'Conflict' }

@@ -1,153 +1,173 @@
-# Development Guide
+# Guía de Desarrollo — Slotify
 
-This guide provides step-by-step instructions for setting up the development environment and running tests for the LTI ATS system.
+Esta guía explica, paso a paso, cómo poner en marcha el entorno de desarrollo y ejecutar los tests de Slotify. La arquitectura de referencia está en [architecture.md](./architecture.md): un **monolito modular** en un único monorepo con dos aplicaciones (`apps/web` y `apps/api`) y una única base de datos PostgreSQL.
 
-## 🚀 Setup Instructions
+## 🧱 Estructura del monorepo
 
-### Prerequisites
-
-Ensure you have the following installed:
-- **Node.js** (v16 or higher)
-- **npm** (v8 or higher)
-- **Docker** and **Docker Compose**
-- **Git**
-
-### 1. Clone the Repository
-
-```bash
-git clone git@github.com:LIDR-academy/AI4Devs-LTI-extended.git
-cd AI4Devs-LTI-extended
+```
+slotify/
+├── apps/
+│   ├── web/                 # Frontend SPA (Vite + React + TypeScript)
+│   └── api/                 # Backend (NestJS + Prisma)
+├── packages/                # (opcional) código compartido (tipos, cliente OpenAPI generado)
+├── docs/                    # Documentación técnica (este directorio)
+├── package.json             # Workspaces del monorepo
+└── pnpm-workspace.yaml       # Definición de workspaces (pnpm)
 ```
 
-### 2. Environment Configuration
+> El frontend se publica como **estáticos en un CDN**; el backend corre como **proceso vivo** contra PostgreSQL. Ambos salen del mismo monorepo pero despliegan a destinos distintos.
 
-Create environment files for both backend and frontend:
+## 🚀 Puesta en marcha
 
-**Backend Environment** (`backend/.env`):
+### Requisitos previos
+
+Asegúrate de tener instalado:
+- **Node.js** (v20 LTS o superior)
+- **pnpm** (v9 o superior) — gestor de paquetes del monorepo
+- **Docker** y **Docker Compose** (para PostgreSQL en local)
+- **Git**
+
+### 1. Clonar el repositorio
+
+```bash
+git clone <url-del-repo-slotify>
+cd slotify
+pnpm install        # instala dependencias de todos los workspaces
+```
+
+### 2. Configuración de variables de entorno
+
+**Backend** (`apps/api/.env`):
 ```env
-# Database Configuration
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=LTIdbUser
-DB_PASSWORD=D1ymf8wyQEGthFR1E9xhCq
-DB_NAME=LTIdb
+# Base de datos
+DATABASE_URL="postgresql://slotify:slotify@localhost:5432/slotify?schema=public"
 
-# Application Configuration
+# Aplicación
 PORT=3000
 NODE_ENV=development
 
-# Prisma Database URL
-DATABASE_URL="postgresql://LTIdbUser:D1ymf8wyQEGthFR1E9xhCq@localhost:5432/LTIdb"
+# CORS: origen permitido de la SPA
+CORS_ORIGIN=http://localhost:5173
+
+# Autenticación JWT
+JWT_ACCESS_SECRET=<secreto-de-desarrollo>
+JWT_ACCESS_TTL=15m
+JWT_REFRESH_SECRET=<secreto-refresh-de-desarrollo>
+JWT_REFRESH_TTL=7d
+
+# Endpoint de barrido del cron (token de servicio)
+CRON_TOKEN=<token-de-servicio>
+
+# Email transaccional (Resend/Postmark)
+EMAIL_API_KEY=<api-key>
+EMAIL_FROM="reservas@tu-espacio.com"
+
+# Storage de ficheros (Supabase Storage / Railway)
+STORAGE_BUCKET=slotify-docs
+STORAGE_URL=<url-storage>
+STORAGE_KEY=<key-storage>
 ```
 
-**Frontend Environment** (`frontend/.env`):
+**Frontend** (`apps/web/.env`):
 ```env
-REACT_APP_API_URL=http://localhost:3000
+VITE_API_URL=http://localhost:3000/api
 ```
 
-### 3. Database Setup (PostgreSQL with Docker)
+> Nunca se commitean ficheros `.env` ni secretos. En producción se usan variables de entorno cifradas del hosting (ver [architecture.md §5](./architecture.md)).
 
-Start the PostgreSQL database using Docker Compose:
+### 3. Base de datos (PostgreSQL con Docker)
 
 ```bash
-# Start PostgreSQL container
-docker-compose up -d
+# Arrancar PostgreSQL
+docker compose up -d
 
-# Verify the database is running
-docker-compose ps
+# Verificar que está corriendo
+docker compose ps
 ```
 
-The PostgreSQL database will be available at:
+PostgreSQL quedará disponible en:
 - **Host**: `localhost`
-- **Port**: `5432`
-- **Database**: `LTIdb`
-- **Username**: `LTIdbUser`
-- **Password**: `D1ymf8wyQEGthFR1E9xhCq`
+- **Puerto**: `5432`
+- **Base de datos**: `slotify`
+- **Usuario / Contraseña**: `slotify` / `slotify` (solo desarrollo)
 
-### 4. Backend Setup
+### 4. Backend (`apps/api`)
 
 ```bash
-# Navigate to backend directory
-cd backend
+cd apps/api
 
-# Install dependencies
-npm install
+# Generar el cliente Prisma
+pnpm prisma generate
 
-# Generate Prisma client
-npm run prisma:generate
+# Aplicar migraciones
+pnpm prisma migrate deploy        # o `pnpm prisma migrate dev` en desarrollo
 
-# Run database migrations
-npx prisma migrate deploy
+# Sembrar datos iniciales (tenant + gestor único + tarifario base)
+pnpm prisma db seed
 
-# (Optional) Seed the database with sample data
-npx prisma db seed
-
-# Start the development server
-npm run dev
+# Arrancar el servidor de desarrollo (hot reload)
+pnpm start:dev
 ```
 
-The backend API will be available at `http://localhost:3000`
+La API quedará disponible en `http://localhost:3000/api`.
+La documentación OpenAPI/Swagger en `http://localhost:3000/api/docs`.
 
-### 5. Frontend Setup
+> **Aprovisionamiento del gestor:** en el MVP hay un único gestor por tenant, creado por el *seed* (no hay UI de alta de usuarios). Ver [architecture.md §2.8](./architecture.md).
+
+### 5. Frontend (`apps/web`)
 
 ```bash
-# Navigate to frontend directory (from project root)
-cd frontend
+cd apps/web
 
-# Install dependencies
-npm install
+# (Opcional) regenerar el cliente HTTP type-safe desde el contrato OpenAPI
+pnpm generate:api
 
-# Start the development server
-npm start
+# Arrancar el servidor de desarrollo
+pnpm dev
 ```
 
-The frontend application will be available at `http://localhost:3001`
+La SPA quedará disponible en `http://localhost:5173`.
 
-### 6. Cypress Testing Suite Setup
+### 6. Cron de barrido (TTLs y cola) en local
+
+El barrido de TTLs y la promoción de cola corren como tarea programada del backend (NestJS Scheduler). En local se ejecutan automáticamente con el backend en marcha. También puede invocarse manualmente el endpoint protegido:
 
 ```bash
-# From the frontend directory
-cd frontend
-
-# Install Cypress (if not already installed)
-npm install
-
-# Open Cypress Test Runner (Interactive)
-npm run cypress:open
-
-# Or run tests headlessly
-npm run cypress:run
+curl -X POST http://localhost:3000/api/cron/barrido -H "X-Cron-Token: <token-de-servicio>"
 ```
 
 ## 🧪 Testing
 
-### Backend Testing
+El orden TDD lo impone la arquitectura: **primero los tests de concurrencia del núcleo crítico** (bloqueo atómico, promoción de cola), antes que UI o CRUD.
+
+### Backend (`apps/api`)
 
 ```bash
-cd backend
+cd apps/api
 
-# Run all tests
-npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Run tests with coverage
-npm run test:coverage
+pnpm test                 # tests unitarios (Jest)
+pnpm test:watch           # modo watch
+pnpm test:cov             # cobertura
+pnpm test:e2e             # tests de integración/e2e (Supertest, base de datos de test)
 ```
 
-### Frontend Testing
+> Los tests de concurrencia del bloqueo de fecha usan transacciones simultáneas para verificar que la restricción `UNIQUE(tenant_id, fecha)` produce exactamente un éxito y un conflicto, sin ventana de carrera.
+
+### Frontend (`apps/web`)
 
 ```bash
-cd frontend
+cd apps/web
 
-# Run unit tests
-npm test
-
-# Run E2E tests with Cypress
-npm run cypress:run
-
-# Open Cypress Test Runner
-npm run cypress:open
+pnpm test                 # tests unitarios/de componentes (Vitest + Testing Library)
+pnpm test:e2e             # tests end-to-end (Playwright)
 ```
 
+## 🔁 Flujo de trabajo
+
+- Crea una rama `feature/<nombre>` antes de cualquier cambio (ver [openspec-tasks-mandatory-steps.md](./openspec-tasks-mandatory-steps.md)).
+- Mantén las ramas pequeñas y enfocadas.
+- Ejecuta lint, type-check y tests antes de cada commit:
+  ```bash
+  pnpm lint && pnpm typecheck && pnpm test
+  ```
+- Actualiza la documentación afectada antes de hacer push (ver [documentation-standards.md](./documentation-standards.md)).
