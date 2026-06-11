@@ -2,8 +2,6 @@
 
 > **Documento**: Modelo de Datos
 > **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados
-> **Versión**: 2.1 MVP
-> **Fecha**: 24/05/2026
 > **Fuente**: Especificación Funcional (EspecificacionFuncional.md) + Casos de Uso (use-cases.md)
 
 ---

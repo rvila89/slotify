@@ -2,8 +2,6 @@
 
 > **Documento**: Diagramas de Arquitectura C4 (PlantUML)
 > **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados
-> **Versión**: 1.0
-> **Fecha**: 29/05/2026
 > **Fuente**: architecture.md · SlotifyGeneralSpecs.md
 
 ---
