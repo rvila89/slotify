@@ -24,16 +24,19 @@ Carga `openspec-propose`, `openspec-archive`, `slotify-domain` y `us-traceabilit
 ## Pasos obligatorios en todo `tasks.md`
 (De `docs/openspec-tasks-mandatory-steps.md`.)
 - **Step 0**: crear feature branch.
+- **GATE revisión humana (SDD)**: `[ ] proposal + spec-delta + design aprobados por el humano (esperar OK)` — el flujo se detiene aquí antes de implementar.
 - **TDD primero**: tests antes de implementación (concurrencia del bloqueo, máquina de estados).
 - **Step N**: revisar/actualizar tests unitarios.
 - **Step N+1**: ejecutar unit tests + verificar estado BD + report `reports/YYYY-MM-DD-step-N+1-*.md`.
 - **Step N+2**: pruebas manuales con curl (AGENTE DEBE EJECUTAR, restaurar BD) + report.
 - **Step N+3**: E2E con Playwright MCP si hay frontend (AGENTE DEBE EJECUTAR) + report.
 - **Step N+4**: actualizar documentación técnica.
+- **Code review (OBLIGATORIO)**: `[ ] code-reviewer del diff → report con `Veredicto: APTO` en reports/`.
+- **GATE revisión humana final**: `[ ] code-review APTO + validación manual aprobados por el humano (esperar OK)` — antes de archive/PR.
 - Marca cada tarea `[x]` **solo** tras ejecutarla y verificarla. Nunca delegues testing al usuario.
 
 ## Archivar
-Cuando el change está completo y testeado: `openspec archive <change>`; actualiza `openspec/specs/`; abre PR (GitHub MCP o `gh`).
+Solo tras code-review **APTO** y la aprobación humana del gate final: `openspec archive <change>`; actualiza `openspec/specs/`; abre PR (GitHub MCP o `gh`). Sin informe APTO, el hook `require-code-review` bloquea el archivado y el PR.
 
 ## Reglas
 - Escribes **solo** bajo `openspec/` (y el branch). No implementas código de negocio.
