@@ -17,12 +17,15 @@ Al iniciar un cambio de funcionalidad nuevo, antes de tocar código.
 
 ### Pasos obligatorios en tasks.md
 - **Step 0** — crear branch (PRIMERO).
+- **GATE revisión humana (SDD)** — proposal + spec-delta + design aprobados por el humano (PARADA: esperar OK antes de implementar).
 - **TDD** — tests primero, antes de implementación.
 - **Step N** — revisar/actualizar tests unitarios.
 - **Step N+1** — ejecutar tests unitarios + verificar estado BD + crear report en `changes/<change>/reports/YYYY-MM-DD-step-N+1-*.md`.
 - **Step N+2** — pruebas manuales de endpoints con `curl` (AGENTE DEBE EJECUTAR; restaurar BD después).
 - **Step N+3** — E2E con Playwright MCP (si aplica; AGENTE DEBE EJECUTAR).
 - **Step N+4** — actualizar documentación técnica.
+- **Code review (OBLIGATORIO)** — code-reviewer del diff → report `YYYY-MM-DD-step-review-code-review.md` con línea `Veredicto: APTO`.
+- **GATE revisión humana final** — code-review APTO + validación manual aprobados por el humano (PARADA: esperar OK antes de archive/PR).
 
 ## Patrón de referencia
 `feature/reserva-cola` → proposal + delta sobre `openspec/specs/reservas/` → tasks.md con Step 0..N+4 → `openspec validate --strict` OK.

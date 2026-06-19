@@ -28,6 +28,10 @@ mandatory_steps:
     title: "Crear feature branch"
     required: true
     first: true
+  - id: review-gate-sdd
+    title: "GATE revisión humana: aprobar proposal + spec-delta + design ANTES de implementar"
+    required: true
+    human_review: true   # el agente DEBE detenerse y devolver los artefactos; no avanza sin OK explícito del humano
   - id: tdd-first
     title: "Tests primero (concurrencia del bloqueo, máquina de estados, tarifas)"
     required: true
@@ -52,7 +56,24 @@ mandatory_steps:
   - id: step-N+4
     title: "Actualizar documentación técnica"
     required: true
+  - id: code-review
+    title: "Code review del diff contra guardrails (informe con veredicto APTO/NO APTO)"
+    required: true
+    agent_must_execute: true
+    report: "YYYY-MM-DD-step-review-code-review.md"
+    # Convención del informe: incluir una línea literal `Veredicto: APTO` o `Veredicto: NO APTO`.
+    # El hook require-code-review.py la lee para permitir/bloquear el archivado y el PR.
+  - id: review-gate-final
+    title: "GATE revisión humana: aprobar (code-review APTO + validación manual) ANTES de archive/PR"
+    required: true
+    human_review: true
+  - id: archive
+    title: "Archivar change + abrir PR (solo tras gate final y code-review APTO)"
+    required: true
 
 quality_gates:
   pre_commit: ["pnpm lint", "pnpm typecheck", "pnpm test"]
   contract_validation: ["spectral lint docs/api-spec.yml"]
+  pre_archive:
+    - "informe de code-review con veredicto APTO en openspec/changes/<change>/reports/"
+    - "aprobación humana del gate final"
