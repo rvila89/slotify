@@ -198,7 +198,7 @@ El seed debe provisionar exactamente:
 | `TENANT` | id conocido para tests, nombre "Masia l'Encís" |
 | `TENANT_SETTINGS` | `pct_senal=40`, `fianza_default_eur=500`, `ttl_consulta_dias=3`, `ttl_prereserva_dias=7`, `max_dias_programar_visita=7` |
 | `USUARIO` | email `gestor@masiallencis.com`, password hasheado (argon2), `rol=gestor` |
-| `TEMPORADA_CALENDARIO` | Alta: meses 5–9; Media: 3,4,10,11; Baja: 12,1,2 (15 filas) |
+| `TEMPORADA_CALENDARIO` | Alta: meses 5–9; Media: 3,4,10,11; Baja: 12,1,2 (12 filas, una por mes) |
 | `TARIFA` | 45 entradas (3 temporadas × 3 duraciones × 5 tramos invitados) con precios representativos; `vigente_desde=2026-01-01` |
 | `EXTRA` | "Barbacoa" €30, "Paellero" €30, ambos activos |
 
@@ -262,7 +262,7 @@ NODE_ENV="development"
 
 - **Dado** que las migraciones han sido aplicadas  
   **Cuando** se ejecuta `pnpm db:seed`  
-  **Entonces** la base de datos contiene el tenant "Masia l'Encís" con su gestor, `TENANT_SETTINGS`, 45 entradas de `TARIFA`, 15 entradas de `TEMPORADA_CALENDARIO` y 2 `EXTRA` activos
+  **Entonces** la base de datos contiene el tenant "Masia l'Encís" con su gestor, `TENANT_SETTINGS`, 45 entradas de `TARIFA`, 12 entradas de `TEMPORADA_CALENDARIO` y 2 `EXTRA` activos
 
 ### 🎯 Happy Path — Backend NestJS arranca
 

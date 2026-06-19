@@ -61,13 +61,13 @@ no produzcan doble fila. (Fuente: US-000 §Concurrencia, architecture §2.4, er-
 `apps/api/prisma/seed.ts` SHALL (DEBE) provisionar el tenant **Masia l'Encís** con su
 `TENANT_SETTINGS` (`pct_senal=40`, `fianza_default_eur=500`, `ttl_consulta_dias=3`,
 `ttl_prereserva_dias=7`, `max_dias_programar_visita=7`), un `USUARIO` gestor
-(`gestor@masiallencis.com`, password argon2), 15 `TEMPORADA_CALENDARIO`, 45 `TARIFA`
+(`gestor@masiallencis.com`, password argon2), 12 `TEMPORADA_CALENDARIO`, 45 `TARIFA`
 (`vigente_desde=2026-01-01`) y 2 `EXTRA` activos. (Fuente: US-000 §Seed.)
 
 #### Scenario: Seed crea los datos piloto
 - **WHEN** se ejecuta `pnpm db:seed` tras migrar
 - **THEN** existe el tenant "Masia l'Encís" con su gestor y `TENANT_SETTINGS`
-- **AND** hay 45 `TARIFA`, 15 `TEMPORADA_CALENDARIO` y 2 `EXTRA` activos
+- **AND** hay 45 `TARIFA`, 12 `TEMPORADA_CALENDARIO` y 2 `EXTRA` activos
 
 #### Scenario: Reinsertar misma fecha bloqueada del piloto falla con P2002
 - **GIVEN** el seed ejecutado
