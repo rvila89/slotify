@@ -98,8 +98,10 @@ El desarrollo se hace con un harness de subagentes especializados. **No cargues 
 
 ## Flujo de trabajo diario
 
-`SDD → Contrato → TDD-RED → Implementación (back ∥ front) → QA → Review → Docs → Archive/PR`
+`SDD → ⏸ Gate revisión artefactos → Contrato → TDD-RED → Implementación (back ∥ front) → QA → Code-review (obligatorio) → Docs → ⏸ Gate final → Archive/PR`
 
+- **⏸ Gates de revisión humana (paradas obligatorias)**: (1) tras SDD, el flujo se DETIENE para que apruebes `proposal` + spec-delta + `design` antes de implementar; (2) antes de `archive`/PR, se DETIENE para tu OK final. Se cumplen aunque se diga "continúa", salvo renuncia explícita a un gate.
+- **Code-review obligatorio**: el `code-reviewer` se ejecuta siempre antes de cerrar y deja un informe con `Veredicto: APTO`. Reforzado por hook: sin APTO no se puede archivar ni abrir/mergear PR.
 - **Gates duros y secuenciales**: SDD → contrato → TDD-RED. No se implementa sin tests rojos.
 - El contrato OpenAPI + SDK generado es la frontera que permite a back y front avanzar en paralelo.
 - **El cliente HTTP del frontend se genera, nunca se edita a mano** (dueño: `contract-engineer`).
@@ -112,6 +114,7 @@ Configurados en `.claude/settings.json` (`scripts/hooks/`):
 - **Hexagonal**: bloquea imports de framework/infra en `domain/` (`no-infra-in-domain`).
 - **Bloqueo atómico**: bloquea Redis/Redlock/locks distribuidos (`no-distributed-lock`).
 - **Contrato**: bloquea editar el cliente generado a mano (`protect-generated-client`); valida `api-spec.yml` al editarlo (`validate-openapi`).
+- **Code review**: bloquea `openspec archive` y la creación/merge de PR si no hay informe del code-reviewer con `Veredicto: APTO` en `reports/` (`require-code-review`).
 
 ## Workflows / comandos
 

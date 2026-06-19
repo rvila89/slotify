@@ -29,6 +29,11 @@ def target_path(data):
     return ti.get("file_path") or ti.get("path") or ""
 
 
+def bash_command(data):
+    """Comando que el agente intenta ejecutar con la tool Bash."""
+    return tool_input(data).get("command", "") or ""
+
+
 def edited_text(data):
     """Texto que el agente intenta introducir (Write: content; Edit: new_string)."""
     ti = tool_input(data)

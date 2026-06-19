@@ -328,6 +328,23 @@ This rule applies when:
    - Database state restoration actions
    - Any issues encountered and resolutions
 
+## Gate de revisión humana de artefactos (tras SDD)
+
+Después de crear el change (proposal + spec-delta + design) y **antes de implementar** (contrato/TDD/impl), el flujo **se detiene** para revisión humana.
+
+- **Posición**: justo después de Step 0 (branch), antes de `tdd-first`. En `openspec/config.yaml` es el paso `review-gate-sdd` (`human_review: true`).
+- **Responsabilidad del agente**: presentar al humano un resumen de `proposal.md`, el spec-delta y `design.md`, y **esperar su OK explícito**. No avanzar por defecto, ni aunque la US parezca trivial o el usuario haya dicho "continúa" de forma genérica.
+- **Por qué**: es el momento barato de corregir alcance/diseño. Una vez implementado y archivado, cambiarlo exige un nuevo change.
+
+## Code Review obligatorio + Gate final (antes de archive/PR)
+
+Antes de cerrar el change, el `code-reviewer` es **obligatorio** y hay un segundo gate de revisión humana.
+
+- **Paso `code-review`** (`openspec/config.yaml`, `agent_must_execute: true`): el agente `code-reviewer` revisa el diff contra los guardrails y deja un informe en `openspec/changes/<change>/reports/YYYY-MM-DD-step-review-code-review.md`.
+  - **Convención del veredicto**: el informe DEBE incluir una línea literal `Veredicto: APTO` o `Veredicto: NO APTO`. Si es NO APTO o hay Bloqueantes, se vuelve a implementación y se repite.
+- **Paso `review-gate-final`** (`human_review: true`): tras un code-review APTO y la validación manual, el flujo **se detiene** para el OK humano antes de `openspec archive`/PR.
+- **Enforcement (no-bypass)**: el hook `scripts/hooks/require-code-review.py` (PreToolUse sobre Bash) **bloquea** `openspec archive` y `gh pr create|merge` si no existe un informe `*code-review*.md` con `Veredicto: APTO` en `reports/` del change. Ver `quality_gates.pre_archive` en `openspec/config.yaml`.
+
 ## Failure to Follow
 
 If you create tasks without following these mandatory steps, the user will need to manually fix the tasks.md file. Always read `openspec/config.yaml` first and ensure all mandatory steps are included.
