@@ -1,9 +1,7 @@
 # Análisis de Casos de Uso — Slotify MVP
 
 > **Documento**: Especificación de Casos de Uso  
-> **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados  
-> **Versión**: 1.0 MVP  
-> **Fecha**: 22/05/2026  
+> **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados   
 > **Fuente**: SlotifyGeneralSpecs.md
 
 ---

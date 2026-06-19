@@ -130,7 +130,7 @@ Quiero un plan con los cambios especificados en el documento para que pueda vali
 
 **Prompt 1:**
 
-## Rol y contexto
+#Rol y contexto
 
 A partir de este momento, **actúa como un Arquitecto de Software** con experiencia en:
 
@@ -146,7 +146,7 @@ Aplica además los **fundamentos de patrones de arquitectura más usados**, incl
 - Load balancer
 - Otros patrones relevantes
 
-## Requisitos técnicos
+#Requisitos técnicos
 
 Usa **servicios de la nube de AWS exclusivamente**.
 La arquitectura debe cumplir con los **requisitos no funcionales** de:
@@ -156,14 +156,14 @@ La arquitectura debe cumplir con los **requisitos no funcionales** de:
 - Mantenibilidad
 - Alta disponibilidad
 
-## Instrucciones de diseño
+#Instrucciones de diseño
 
 1. Crea una **arquitectura de alto nivel** para el sistema **Slotify**.
 2. Usa **buenas prácticas**, **frameworks** y **herramientas** (open source o comerciales) cuando sea relevante.
 3. Considera **toda la información obtenida hasta el momento**, incluido el **modelo de datos** y los **casos de uso** definidos.
 4. Toda la funcionalidad definida en el **alcance del MVP** debe estar representada en el diseño.
 
-## Entregables (artefactos separados)
+#Entregables (artefactos separados)
 
 - **Explicación general del diseño de la arquitectura.**
 - **Diagrama del sistema en formato Mermaid.**
@@ -175,7 +175,7 @@ Asegúrate de:
 - **Corregir cualquier error** que pueda aparecer.
 - Validar que toda la funcionalidad del MVP esté representada en el diseño.
 
-## Guardado de resultados
+#Guardado de resultados
 
 Una vez generados los entregables, crea o sobreescribe el archivo `docs/architecture.md` en la raíz del proyecto con el siguiente contenido:
 
@@ -183,7 +183,7 @@ Una vez generados los entregables, crea o sobreescribe el archivo `docs/architec
 2. El **diagrama Mermaid** completo dentro de un bloque de código.
 3. El **prompt para DiagramsGPT** dentro de un bloque de texto. Este prompt tiene que ser claro y detallado para que DiagramsGPT pueda generar el diagrama correctamente y no sobredimensione el diseño de la aplicación, enfocándose solo en los componentes y servicios necesarios para el MVP.
 
-## Restricciones
+#Restricciones
 
 - No generes ningún otro tipo de artefacto que no esté especificado en los entregables.
 - No sobredimensiones el diseño de la arquitectura, enfocándote solo en los componentes y servicios necesarios para el MVP.
@@ -256,47 +256,47 @@ Lay_R(rel_db, filesystem)
 
 **Prompt 3:**
 
-## ROL 
+#ROL 
 
 Eres un Product Manager senior especializado en plataformas SaaS B2B
 
-## CONTEXTO 
+#CONTEXTO 
 
 Adjunto especificación funcional del producto #file:SlotifyGeneralSpecs.md y diagramas de arquitectura #file:architecture.md  y #file:c4-diagrams.md  del producto 
 
-## OBJETIVO 
+#OBJETIVO 
 
 Quiero realizar una descripción general de la arquitectura del producto para la entrega de documentación técnica del trabajo realizado
 
-## RESTRICCCIONES 
+#RESTRICCCIONES 
 
 La respuesta tiene que contemplar únicamente el alcance definido para el MVP
 
-## OUTPUT 
+#OUTPUT 
 
-## 2. Arquitectura del Sistema
-### **2.1. Diagrama de arquitectura:**
+##2. Arquitectura del Sistema
+###**2.1. Diagrama de arquitectura:**
 > Usa el formato que consideres más adecuado para representar los componentes principales de la aplicación y las tecnologías utilizadas. Explica si sigue algún patrón predefinido, justifica por qué se ha elegido esta arquitectura, y destaca los beneficios principales que aportan al proyecto y justifican su uso, así como sacrificios o déficits que implica.
-### **2.2. Descripción de componentes principales:**
+###**2.2. Descripción de componentes principales:**
 > Describe los componentes más importantes, incluyendo la tecnología utilizada
-### **2.3. Descripción de alto nivel del proyecto y estructura de ficheros**
+###**2.3. Descripción de alto nivel del proyecto y estructura de ficheros**
 > Representa la estructura del proyecto y explica brevemente el propósito de las carpetas principales, así como si obedece a algún patrón o arquitectura específica.
 
 ### **2.2. Descripción de componentes principales:**
 
-##ROL
+#ROL
 Actúa como arquitecto de software documentando el proyecto Slotify
 
-##CONTEXT
+#CONTEXT
 Utiliza los siguientes ficheros para contextualizar el proyecto: er-diagram, architecture, use-cases. Usa solo la información de estos archivos;
 
-##GOAL
+#GOAL
 Redactar la sección "2.2 Descripción de componentes principales" para la memoria del TFM de Slotify, basándote EXCLUSIVAMENTE en la arquitectura de implementación del MVP documentada en arquitectura.md (NO la arquitectura objetivo de producción AWS).
 
-##INSTRUCCIONES
+#INSTRUCCIONES
 Esta sección 2.2 es un CATÁLOGO DESCRIPTIVO componente a componente. NO repitas la justificación de por qué se eligió el monolito o la SPA; aquí DESCRIBE cada pieza: qué es, qué responsabilidad tiene, qué tecnología usa, y cómo se relaciona con las demás. La argumentación de las decisiones pertenece a 2.1, no aquí.
 
-##OUTPUT
+#OUTPUT
 Una entrada por cada componente, con estos campos para cada uno:
   - Nombre del componente
   - Responsabilidad (qué hace y de qué se ocupa en el sistema)
@@ -327,17 +327,17 @@ REGLAS ESTRICTAS:
 ### **2.3. Descripción de alto nivel del proyecto y estructura de ficheros**
 
 **Prompt 1:**
-## ROL 
+#ROL 
 Eres un Arquitecto software senior especializado en plataformas SaaS B2B
-## CONTEXTO 
+#CONTEXTO 
 Adjunto especificación funcional del producto #file:SlotifyGeneralSpecs.md y diagramas de arquitectura #file:architecture.md  y #file:c4-diagrams.md del producto 
-# OBJETIVO 
+#OBJETIVO 
 Quiero realizar una descripción general de la arquitectura del producto para la entrega de documentación técnica del trabajo realizado
-# RESTRICCCIONES 
+#RESTRICCCIONES 
 La respuesta tiene que contemplar únicamente el alcance definido para el MVP
-# OUTPUT 
-## 2. Arquitectura del Sistema
-### **2.3. Descripción de alto nivel del proyecto y estructura de ficheros**
+#OUTPUT 
+##2. Arquitectura del Sistema
+###**2.3. Descripción de alto nivel del proyecto y estructura de ficheros**
 > Representa la estructura del proyecto y explica brevemente el propósito de las carpetas principales, así como si obedece a algún patrón o arquitectura específica.
 
 ### **2.4. Infraestructura y despliegue**
@@ -370,41 +370,39 @@ La respuesta tiene que contemplar únicamente el alcance definido para el MVP
 
 **Prompt 1:**
 
-## Instrucciones Iniciales
+#Instrucciones Iniciales
 
 Necesito que generes un diagrama de entidad-relación (DER) profesional. Por favor, responde a las siguientes preguntas para personalizar el resultado. Las opciones no mencionadas aquí seguirán estándares técnicos recomendados.
 
----
+#OPCIONES CONFIGURABLES DEL USUARIO
 
-## OPCIONES CONFIGURABLES DEL USUARIO
-
-### 1. **Idioma del Diagrama**
+##1. **Idioma del Diagrama**
 
 Elige uno:
 - [ ] **Español** - Entidades y atributos en español
 - [ ] **Inglés** - Entidades y atributos en inglés (RECOMENDADO para proyectos formales)
 
-### 2. **Contexto del Proyecto**
+##2. **Contexto del Proyecto**
 
 Describe brevemente el dominio del negocio:
 - ¿Qué tipo de sistema estás diseñando? (Ej: Sistema de ventas, Gestión hospitalaria, Red social)
 - ¿Cuáles son las entidades principales?
 - ¿Qué relaciones existen entre ellas?
 
-### 3. **Nivel de Detalle**
+##3. **Nivel de Detalle**
 
 Elige uno:
 - [ ] **Básico** - Solo entidades principales y relaciones clave
 - [ ] **Estándar** - Entidades, atributos esenciales y relaciones (RECOMENDADO)
 - [ ] **Completo** - Incluir atributos derivados, multivaluados y todas las restricciones
 
-### 4. **Notación Preferida**
+##4. **Notación Preferida**
 
 Elige uno:
 - [ ] **Chen** - Notación académica (rectángulos, óvalos, diamantes)
 - [ ] **Crow's Foot** - Notación práctica para implementación (RECOMENDADO)
 
-### 5. **Formato de Salida**
+##5. **Formato de Salida**
 
 Elige uno:
 - [ ] **PlantUML** - Sintaxis textual, fácil de versionizar
@@ -412,57 +410,53 @@ Elige uno:
 - [ ] **Draw.io XML** - Formato editable en draw.io
 - [ ] **Descripción + Diagrama Mermaid** (RECOMENDADO)
 
-### 6. **Restricciones Especiales**
+##6. **Restricciones Especiales**
 
 ¿Hay restricciones de negocio particulares que deba considerar?
 - (Ej: auditoría, soft delete, multi-tenancy, etc.)
 
----
-
-## CONFIGURACIÓN ESTÁNDAR (AUTOMÁTICA)
+#CONFIGURACIÓN ESTÁNDAR (AUTOMÁTICA)
 
 Estos aspectos se aplicarán directamente sin requerir selección:
 
-### Nomenclatura
+###Nomenclatura
 - **Entidades**: PascalCase en singular (Usuario, Producto, Pedido)
 - **Atributos**: snake_case en minúsculas (nombre_usuario, fecha_creacion, es_activo)
 - **Claves primarias**: id_{entidad} o {entidad}_id (ej: id_usuario)
 - **Claves foráneas**: fk_{referencia} o {entidad}_id cuando es referencia (ej: usuario_id)
 
-### Normalización
+###Normalización
 - Mínimo tercera forma normal (3NF)
 - Sin atributos compuestos o multivaluados directamente en entidades
 - Eliminación de redundancias
 - Validación de dependencias funcionales
 
-### Atributos Comunes Automáticos
+###Atributos Comunes Automáticos
 Se añadirán automáticamente a todas las entidades (a menos que indiques lo contrario):
 - `id_{entidad}` : INT <<PK>> - Identificador único
 - `fecha_creacion` : TIMESTAMP - Auditoría
 - `fecha_actualizacion` : TIMESTAMP - Auditoría
 - `activo` : BOOLEAN DEFAULT TRUE - Soft delete
 
-### Cardinalidad y Participación
+###Cardinalidad y Participación
 - Todas las relaciones tendrán cardinalidad explícita (1:1, 1:N, N:M)
 - Participación marcada claramente (obligatoria = línea sólida, opcional = línea punteada)
 - Relaciones N:M se descompondrán en tablas de unión explícitas
 
-### Validaciones de Calidad
+###Validaciones de Calidad
 Se verificará automáticamente:
 - ✓ No hay entidades huérfanas
 - ✓ Todas las claves foráneas apuntan a claves primarias válidas
 - ✓ Ciclos de relaciones detectados y documentados
 - ✓ Datos tipos coherentes en relaciones
 
-### Documentación Incluida
+###Documentación Incluida
 - Diccionario de datos con descripción de cada entidad
 - Explicación de cada relación y su cardinalidad
 - Restricciones de negocio identificadas
 - Decisiones de diseño justificadas
 
----
-
-## FORMATO DE RESPUESTA ESPERADA
+#FORMATO DE RESPUESTA ESPERADA
 
 Una vez proporciones la información anterior, recibirás:
 
@@ -472,11 +466,11 @@ Una vez proporciones la información anterior, recibirás:
 4. **Validaciones** - Checklist de estándares aplicados
 5. **Notas de Diseño** - Decisiones y justificaciones
 
-## RESTRICCIONES
+#RESTRICCIONES
 
 - Solo genera el diagrama en la información solicitada.
 
-## GUARDADO DE RESULTADOS
+#GUARDADO DE RESULTADOS
 
 Una vez completados los entregables, crea o sobreescribe el archivo `docs/er-diagram.md` en la raíz del proyecto con el siguiente contenido:
 
@@ -486,26 +480,22 @@ Una vez completados los entregables, crea o sobreescribe el archivo `docs/er-dia
 
 **Prompt 2:**
 
-## ROL 
+#ROL 
 Eres un Product Manager senior especializado en plataformas SaaS B2B
-## CONTEXTO 
+#CONTEXTO 
 Adjunto especificación funcional del producto #file:SlotifyGeneralSpecs.md y diagramas de entidad-relación #file:er-diagram.md  del producto 
-## OBJETIVO 
+#OBJETIVO 
 Quiero realizar una descripción general del modelo de datos del producto para la entrega de documentación técnica del trabajo realizado
-## RESTRICCCIONES 
+#RESTRICCCIONES 
 - La respuesta tiene que contemplar únicamente el alcance definido para el MVP
 - Devolver la salida en bloque de código markdown
-## OUTPUT 
+#OUTPUT 
 Devolver en bloquedo de código markdown
-## 3. Modelo de Datos
-### **3.1. Diagrama del modelo de datos:**
+##3. Modelo de Datos
+###**3.1. Diagrama del modelo de datos:**
 > Recomendamos usar mermaid para el modelo de datos, y utilizar todos los parámetros que permite la sintaxis para dar el máximo detalle, por ejemplo las claves primarias y foráneas.
-### **3.2. Descripción de entidades principales:**
+###**3.2. Descripción de entidades principales:**
 > Recuerda incluir el máximo detalle de cada entidad, como el nombre y tipo de cada atributo, descripción breve si procede, claves primarias y foráneas, relaciones y tipo de relación, restricciones (unique, not null…), etc.
-
-**Prompt 3:**
-
----
 
 ### 4. Especificación de la API
 
@@ -614,7 +604,7 @@ Generador de Historias de Usuario para el MVP de Slotify
 > Diseñado para ejecutarse **por área funcional** (12 áreas), no en una sola pasada.
 ---
 **Prompt 1:**
-## ROL
+#ROL
 
 Eres un **Product Manager senior + Business Analyst** especializado en SaaS B2B para gestión de espacios boutique de eventos privados (masías, fincas, villas), trabajando con **Spec-Driven Development (SDD) + TDD asistido por IA**.
 
@@ -622,9 +612,7 @@ Tu tarea: generar **Historias de Usuario** del **MVP de Slotify**, trazables, ve
 
 **Estándar de calidad rector: INVEST.** Toda historia se rige por INVEST (ver sección dedicada). Es el criterio dominante de aceptación: una historia que no supera la puerta INVEST **no se emite** — se parte, se reescribe o se descarta. INVEST tiene la misma jerarquía que la regla de alcance (`✅`) y el modelo mental; ninguna historia puede sacrificar uno por otro.
 
----
-
-## FUENTES DE VERDAD Y JERARQUÍA DE AUTORIDAD
+#FUENTES DE VERDAD Y JERARQUÍA DE AUTORIDAD
 
 Usa **exclusivamente** los documentos adjuntos al Project. No inventes nada fuera de ellos. Orden de autoridad ante conflicto:
 
@@ -638,9 +626,7 @@ Usa **exclusivamente** los documentos adjuntos al Project. No inventes nada fuer
 - Si una historia requiere algo **no cubierto** por estos documentos, **dilo** y no la generes.
 - Nunca presentes un comportamiento no documentado como si estuviera en la spec.
 
----
-
-## REGLA DE ALCANCE (DURA — PRIORIDAD MÁXIMA)
+#REGLA DE ALCANCE (DURA — PRIORIDAD MÁXIMA)
 
 Genera historias **únicamente** para funcionalidades marcadas **`✅ Implementado en MVP TFM`** en `SlotifyGeneralSpecs.md §9.2`.
 
@@ -659,9 +645,7 @@ Genera historias **únicamente** para funcionalidades marcadas **`✅ Implementa
 
 Si un UC roza una zona `📐`, genera **solo la parte `✅`** y añade en `Notas de alcance` qué quedó fuera y por qué.
 
----
-
-## MODELO MENTAL OBLIGATORIO (GUARDARRAÍLES)
+#MODELO MENTAL OBLIGATORIO (GUARDARRAÍLES)
 
 Toda historia debe respetar, sin excepción:
 
@@ -674,9 +658,7 @@ Toda historia debe respetar, sin excepción:
 7. **Bloqueo atómico** vía `FECHA_BLOQUEADA` con `UNIQUE(tenant_id, fecha)` en BD. No lógica aplicativa.
 8. **"Opinado por fuera, configurable por dentro"**: un único flujo visible, pero TTLs/%/plantillas vienen de `TENANT_SETTINGS`.
 
----
-
-## INVEST — ESTÁNDAR DE CALIDAD RECTOR (PUERTA OBLIGATORIA)
+#INVEST — ESTÁNDAR DE CALIDAD RECTOR (PUERTA OBLIGATORIA)
 
 INVEST es el criterio dominante. **Antes de emitir cualquier historia**, aplícale esta puerta. Cada letra está operacionalizada para Slotify: no basta con afirmar que se cumple, hay que demostrarlo con la evidencia indicada o declarar la excepción justificada.
 
@@ -699,9 +681,7 @@ INVEST es el criterio dominante. **Antes de emitir cualquier historia**, aplíca
 
 Una historia sin Autoauditoría INVEST está **incompleta** y no debe emitirse.
 
----
-
-## VOCABULARIOS CERRADOS (ANTI-ALUCINACIÓN)
+#VOCABULARIOS CERRADOS (ANTI-ALUCINACIÓN)
 
 Usa **solo** estos valores. No inventes nombres nuevos.
 
@@ -714,24 +694,18 @@ Usa **solo** estos valores. No inventes nombres nuevos.
 - **Automatizaciones:** `A1`–`A30` (referencia la que aplique al UC).
 - **Dolores:** `D1`–`D13`. **KPIs:** los de §7.4. **Módulos:** `M1`–`M10`.
 
----
-
-## UNIDAD DE TRABAJO Y COBERTURA
+#UNIDAD DE TRABAJO Y COBERTURA
 
 - **Ancla en los UC.** Cada historia mapea a **uno o más UC** de `use-cases.md`. Un UC puede dividirse en varias historias **solo** si contiene objetivos de usuario claramente separables o flujos alternativos que merezcan historia propia (ej. UC-08 "resultado visita" → interés / reserva inmediata / descarte).
 - **Cobertura obligatoria:** los 36 UC deben quedar cubiertos. Al final, **emite la matriz de trazabilidad** (ver sección de salida) para demostrar cobertura 36/36, sin huérfanos ni inventados.
 - **Agrupa por las 12 áreas funcionales** del índice de `use-cases.md §2.1`.
 - **Ejecución por lotes:** genera un área funcional por respuesta cuando se te indique el área. No intentes las 12 a la vez.
 
----
-
-## PRIORIDAD
+#PRIORIDAD
 
 **Hereda** la prioridad del UC desde `use-cases.md §5` (`Crítica` | `Alta` | `Media` | `Baja`). No la re-derives. Si una historia cubre varios UC, usa la prioridad más alta.
 
----
-
-## ACTOR SISTEMA
+#ACTOR SISTEMA
 
 Para UC de actor `Sistema` o disparados por TTL/job programado (ej. UC-09 expirar, UC-12 promover, UC-30/31 bloquear/liberar, UC-16 calcular tarifa), usa la variante de plantilla:
 
@@ -742,9 +716,7 @@ Para UC de actor `Sistema` o disparados por TTL/job programado (ej. UC-09 expira
 
 E identifica el `trigger` y la `automatización Axx` correspondiente.
 
----
-
-## CRITERIOS DE ACEPTACIÓN (BDD + CONCURRENCIA)
+#CRITERIOS DE ACEPTACIÓN (BDD + CONCURRENCIA)
 
 - Escribe en **Gherkin español** (`Dado` / `Cuando` / `Entonces`), atómico y verificable. Cada criterio debe poder convertirse directamente en un test.
 - Deriva el **happy path** del flujo básico del UC.
@@ -756,9 +728,7 @@ E identifica el `trigger` y la `automatización Axx` correspondiente.
   > Entonces exactamente una tiene éxito y la otra recibe violación de `UNIQUE(tenant_id, fecha)`, sin doble reserva (D4)
 - **Puerta INVEST obligatoria:** antes de emitir, valida la historia contra la sección *INVEST — Estándar de calidad rector*. Si falla **Small**, pártela; si falla cualquier otra letra, reescríbela o no la generes. Rellena la Autoauditoría INVEST en la plantilla.
 
----
-
-## PLANTILLA EXACTA DE LA HISTORIA
+#PLANTILLA EXACTA DE LA HISTORIA
 
 Usa esta plantilla **sin omitir secciones**:
 
@@ -827,9 +797,7 @@ Usa esta plantilla **sin omitir secciones**:
 - **T — Testable:** <Cumple | zona crítica: incluye test de concurrencia>
 ```
 
----
-
-## FORMATO Y ESTRUCTURA DE SALIDA
+#FORMATO Y ESTRUCTURA DE SALIDA
 
 1. **Una historia por fichero Markdown.** No mezcles historias en un fichero.
 2. Ruta y nombre:
@@ -845,9 +813,7 @@ Usa esta plantilla **sin omitir secciones**:
    seguido de la historia completa con la plantilla.
 4. IDs **secuenciales y sin colisiones** a lo largo de toda la generación (lleva el contador entre lotes).
 
----
-
-## ARTEFACTO DE VERIFICACIÓN OBLIGATORIO
+#ARTEFACTO DE VERIFICACIÓN OBLIGATORIO
 
 Al cerrar cada lote (o al final), emite además una **Matriz de Trazabilidad** (fichero `/user-stories/_trazabilidad.md`):
 
@@ -860,9 +826,7 @@ Al cerrar cada lote (o al final), emite además una **Matriz de Trazabilidad** (
 
 Esta matriz **no es "comentario"**: es el contrato de calidad de la generación.
 
----
-
-## RESTRICCIONES (NO NEGOCIABLES)
+#RESTRICCIONES (NO NEGOCIABLES)
 
 - ❌ Nada de historias genéricas o vagas.
 - ❌ Ninguna funcionalidad fuera de los UC / fuera de `✅ MVP`.
@@ -873,59 +837,57 @@ Esta matriz **no es "comentario"**: es el contrato de calidad de la generación.
 - ❌ No omitir tests de concurrencia en zonas críticas.
 - ✅ Si dudas o detectas contradicción/ausencia en la spec, **dilo explícitamente** antes de generar. Un "no está cubierto" honesto es preferible a inventar.
 
----
-
-## INSTRUCCIÓN DE ARRANQUE
+#INSTRUCCIÓN DE ARRANQUE
 
 Cuando te indique un **área funcional** (p. ej. "Gestión de Leads y Consultas, UC-03 a UC-10"), genera las historias de esa área siguiendo todo lo anterior y, al final del lote, su fragmento de matriz de trazabilidad. No empieces hasta que te indique el área (o responde "Listo, indícame el área" si no se especifica).
 
 **Prompt 3:**
 
-## MODO
+#MODO
 Tarea **mecánica**. La extracción la hace un script determinista ya escrito (`scripts/extract_backlog.py`). **No deliberes y NO leas las historias en tu contexto.** Ejecuta el script, valida la salida y reporta.
 
-## PASOS
+#PASOS
 
-### 1. Ejecuta el extractor
+##1. Ejecuta el extractor
 ```bash
 python3 scripts/extract_backlog.py
 ```
 El script lee `user-stories/US-*.md`, extrae los campos, construye el grafo (fan-out transitivo, ciclos, profundidad) y escribe `user-stories/_analisis.json`. Imprime un resumen y devuelve código de salida 1 si hay ciclos o dependencias rotas.
 
-### 2. Valida (sin leer las historias completas)
+##2. Valida (sin leer las historias completas)
 Mira el resumen impreso y el campo `grafo.anomalias_extraccion` del JSON:
 - **Pocas o cero anomalías** → has terminado.
 - **Muchas anomalías** (p. ej. >5 historias sin Prioridad, o `area` casi siempre vacía) → la plantilla difiere de lo que asume el regex. Solo entonces: abre **UNA** historia de muestra (`Read` de un único fichero) para ver el formato real de las etiquetas, **edita el regex en `scripts/extract_backlog.py`** (es un fichero real, edítalo directamente) y vuelve a ejecutar el script. No abras más de una historia.
 
-### 3. Reporta en el chat (breve)
+##3. Reporta en el chat (breve)
 - Nº de historias, ciclos (o "ninguno"), dependencias rotas, huérfanos, profundidad máxima, nº de anomalías y las 5 de mayor fan-out.
 - Comprueba y comenta si `US-000A` está entre las de mayor fan-out (debería: toda pantalla autenticada cuelga de ella).
 - **No vuelques el JSON completo**; ya está en `user-stories/_analisis.json`.
 
-## NOTAS
+#NOTAS
 - Requiere `python3` (solo librería estándar, sin instalaciones).
 - `user-stories/_analisis.json` es el único insumo de `/ordenar-backlog`.
 - Si quieres usarlo como verificación en CI/pre-commit más adelante: el script sale con código 1 cuando el grafo no está limpio.
 
 **Prompt 4:**
-## ROL
+#ROL
 Eres arquitecto de software senior. Esta es la **segunda pasada**. Recibes el fichero compacto `user-stories/_analisis.json` (de `/analizar-backlog`) y produces el **backlog ordenado**. NO relees las 47 historias: todo lo que necesitas está en `_analisis.json`.
 
 **Alcance estricto:** ordenas y clasificas; **NO** asignas sprints ni estimas capacidad de equipo (eso es de un paso posterior).
 
-## ENTRADA
+#ENTRADA
 - **Lee** `user-stories/_analisis.json`. Si no existe o es JSON inválido, **detente** e indica al usuario que ejecute primero `/analizar-backlog`.
 - Si `grafo.ciclos` no está vacío, **detente** y repórtalo: no se puede ordenar topológicamente con ciclos.
 
-## EFICIENCIA
+#EFICIENCIA
 El grafo ya viene **calculado de forma determinista** por el script de la pasada 1: `fan_out`, `ciclos`, `huerfanos`, `dependencias_rotas` y `profundidad_max` son fiables. **No los recalcules ni deliberes sobre ellos.** Trabajas sobre datos compactos (un JSON pequeño), así que no necesitas razonamiento intensivo: dedica tu juicio solo a lo que requiere criterio (clasificar capa, ordenar, estimar talla).
 
-## PRINCIPIO RECTOR: ORDEN DE CONSTRUCCIÓN ≠ ORDEN DE PANTALLA
+#PRINCIPIO RECTOR: ORDEN DE CONSTRUCCIÓN ≠ ORDEN DE PANTALLA
 Que una pantalla sea la primera que ve el usuario (p. ej. el **calendario**, home tras login) NO implica que se construya primero. El orden lo manda el **grafo de dependencias**.
 - El **armazón de navegación / app shell** (US-000A) es infraestructura compartida → `Fundacional`/temprano.
 - El **contenido con datos** de una vista de lectura (calendario que pinta reservas, listados, widgets) depende de que esas entidades existan → se ordena según dependencias, normalmente más tarde. No la marques temprana solo por ser la primera pantalla.
 
-## PASOS
+#PASOS
 1. **Orden topológico (restricción dura e inviolable):** ninguna historia puede ir antes que cualquiera de sus `depende_de`. Reconstruye la adyacencia desde `depende_de`.
 2. **Clasificar `tipo`:**
    - `Fundacional`: scaffolding, app shell / navegación, autenticación, y operaciones con **alto fan_out** o **concurrencia_critica** (bloqueo atómico de fecha, motor de tarifas, infraestructura de email, máquina de estados).
@@ -936,7 +898,7 @@ Que una pantalla sea la primera que ve el usuario (p. ej. el **calendario**, hom
 5. **Validar:** todas las historias ordenadas; ninguna precede a su dependencia; reporta `historias_ordenadas: X/N`, `profundidad_max`, `historias_fundacionales: K`.
 6. **Escribe** `user-stories/_backlog.json` con el esquema de abajo. Tras escribirlo, imprime en el chat solo el resumen de validación (no vuelques el JSON entero).
 
-## ESQUEMA DE `_backlog.json`
+#ESQUEMA DE `_backlog.json`
 ```json
 {
   "meta": {
@@ -970,7 +932,7 @@ Que una pantalla sea la primera que ve el usuario (p. ej. el **calendario**, hom
 }
 ```
 
-## RESTRICCIONES
+#RESTRICCIONES
 - `backlog` ordenado por `orden` (1..N) = orden de ejecución del paso 3.
 - `id` admite sufijos no numéricos (`US-000A`): trátalos como texto.
 - No violar el orden topológico por criticidad ni por orden de pantalla.

@@ -26,16 +26,15 @@ Slotify es una plataforma SaaS de gestión integral para espacios boutique de ev
 
 > Puede ser pública o privada, en cuyo caso deberás compartir los accesos de manera segura. Puedes enviarlos a [alvaro@lidr.co](mailto:alvaro@lidr.co) usando algún servicio como [onetimesecret](https://onetimesecret.com/).
 
+-- No aplica en esta 1a entrega --
+
 ### 0.5. URL o archivo comprimido del repositorio
 
-> Puedes tenerlo alojado en público o en privado, en cuyo caso deberás compartir los accesos de manera segura. Puedes enviarlos a [alvaro@lidr.co](mailto:alvaro@lidr.co) usando algún servicio como [onetimesecret](https://onetimesecret.com/). También puedes compartir por correo un archivo zip con el contenido
-
+https://github.com/rvila89/slotify
 
 ---
 
 ## 1. Descripción general del producto
-
-> Describe en detalle los siguientes aspectos del producto:
 
 ### **1.1. Objetivo:**
 
@@ -120,10 +119,12 @@ Arquitectura multi-tenant desde el origen: cada tenant corresponde a un espacio.
 
 ### **1.3. Diseño y experiencia de usuario:**
 
-> Proporciona imágenes y/o videotutorial mostrando la experiencia del usuario desde que aterriza en la aplicación, pasando por todas las funcionalidades principales.
+📸 [Consultar capturas de pantalla de las funcionalidades principales de Slotify](./screenshots)
 
 ### **1.4. Instrucciones de instalación:**
 > Documenta de manera precisa las instrucciones para instalar y poner en marcha el proyecto en local (librerías, backend, frontend, servidor, base de datos, migraciones y semillas de datos, etc.)
+
+-- No aplica en esta 1a entrega --
 
 ---
 
@@ -475,13 +476,19 @@ Esta estructura obedece al patrón **Arquitectura Hexagonal (Ports & Adapters)**
 
 > Detalla la infraestructura del proyecto, incluyendo un diagrama en el formato que creas conveniente, y explica el proceso de despliegue que se sigue
 
+-- No aplica en esta 1a entrega --
+
 ### **2.5. Seguridad**
 
 > Enumera y describe las prácticas de seguridad principales que se han implementado en el proyecto, añadiendo ejemplos si procede
 
+-- No aplica en esta 1a entrega --
+
 ### **2.6. Tests**
 
 > Describe brevemente algunos de los tests realizados
+
+-- No aplica en esta 1a entrega --
 
 ---
 
@@ -1195,6 +1202,8 @@ Registro de auditoría de todas las acciones relevantes del sistema. Inmutable: 
 
 > Si tu backend se comunica a través de API, describe los endpoints principales (máximo 3) en formato OpenAPI. Opcionalmente puedes añadir un ejemplo de petición y de respuesta para mayor claridad
 
+-- No aplica en esta 1a entrega --
+
 ---
 
 ## 5. Historias de Usuario
@@ -1203,31 +1212,335 @@ Registro de auditoría de todas las acciones relevantes del sistema. Inmutable: 
 
 **Historia de Usuario 1**
 
+---
+id: US-003
+estado: backlog
+branch: null
+pr: null
+---
+
+# 🧾 Historia de Usuario: Alta de consulta exploratoria sin fecha de evento
+
+## 🆔 Metadatos
+- ID: US-003
+- Área funcional: Gestión de Leads y Consultas
+- Módulo: M1 — Reserva (entidad central)
+- Prioridad: Crítica
+- Alcance MVP: ✅ Implementado
+- Estado: Borrador
+- Owner: PM
+
+## 🎯 Historia
+**Como** Gestor
+**Quiero** dar de alta un nuevo lead sin fecha de evento confirmada
+**Para** registrar el contacto en el sistema como fuente única de verdad y enviar automáticamente una respuesta inicial al cliente, eliminando la dispersión en Gmail/WhatsApp/Sheets
+
+## 🧠 Contexto de Negocio
+- Caso(s) de uso: UC-03
+- Entidades implicadas: RESERVA, CLIENTE, COMUNICACION, AUDIT_LOG, TENANT_SETTINGS
+- Dolor(es) que resuelve: D1 (fuente única de verdad), D2 (visibilidad del pipeline), D9 (automatización de respuesta inicial)
+- Automatización relacionada: A1 (Lead entra → crear consulta 2.a + email respuesta E1)
+- Email relacionado: E1 — auto-envío si campos suficientes sin comentarios; borrador para revisión del gestor si hay comentarios
+- Reglas de negocio:
+  - Campos obligatorios: nombre, apellidos, email, teléfono, canal_entrada
+  - Sin `fecha_evento` → sub-estado inicial 2.a
+  - El campo `comentarios` determina el comportamiento de E1: si ausente → auto-envío inmediato; si presente → borrador para que el gestor lo revise y confirme
+  - La consulta es una **fase de la RESERVA**, no una entidad separada. Se crea una única entidad RESERVA con estado = 'consulta' y sub_estado = '2a'
+  - En sub-estado 2.a no se genera ni asigna entrada en FECHA_BLOQUEADA
+  - Se almacena `canal_entrada` para atribución de leads (KPI §7.4); no afecta al flujo ni al comportamiento de E1
+  - Campos opcionales (nº invitados, horas, tipo evento) se almacenan si el gestor los introduce; en ausencia de fecha no permiten calcular tarifa exacta
+- Supuestos: Toda entrada de lead es alta manual del gestor en MVP, independientemente del canal de origen. Se crea entidad CLIENTE si no existe para este tenant con ese email
+- Dependencias: US-001 (Iniciar Sesión — sesión activa requerida). Sin dependencia de bloqueo de fecha ni de cola
+- Notas de alcance: La detección automática de cliente recurrente y la vinculación vía `consulta_vinculo` (§4.3 SlotifyGeneralSpecs) son 📐 Solo diseñado en MVP. Esta historia no implementa esa lógica; el gestor puede detectar la recurrencia visualmente si existe pero no hay automatización ni vínculo en BD en MVP
+
+## ✅ Criterios de Aceptación (BDD)
+
+### 🎯 Happy Path — sin fecha, sin comentarios
+- **Dado** que el Gestor está autenticado y accede al formulario "Nueva consulta"
+  **Cuando** introduce nombre, apellidos, email, teléfono y canal_entrada (sin fecha ni comentarios) y confirma el alta
+  **Entonces** el sistema crea una entidad RESERVA con estado = 'consulta', sub_estado = '2a', `ttl_expiracion` = NULL, y no genera ninguna entrada en FECHA_BLOQUEADA
+
+- **Dado** que la RESERVA se ha creado en 2.a sin comentarios
+  **Cuando** el sistema procesa el alta
+  **Entonces** el email E1 se envía automáticamente al email del cliente sin intervención adicional del gestor, y se registra una fila en COMUNICACION con codigo_email = 'E1', estado = 'enviado'
+
+- **Dado** que el alta y el envío de E1 se han completado
+  **Cuando** el sistema finaliza la operación
+  **Entonces** se registra una entrada en AUDIT_LOG con accion = 'crear', entidad = 'RESERVA', usuario_id del gestor activo, y los datos de la nueva RESERVA en `datos_nuevos`
+
+### ⚠️ Flujos Alternativos y Edge Cases
+
+#### FA: Lead con comentarios — E1 queda en borrador
+- **Dado** que el gestor introduce los datos del lead con el campo `comentarios` relleno
+  **Cuando** confirma el alta
+  **Entonces** el sistema crea la RESERVA en 2.a y genera una fila en COMUNICACION con codigo_email = 'E1', estado = 'borrador', sin enviarlo al cliente
+- Comportamiento del sistema: el email NO se envía hasta que el gestor lo revise, edite si procede, y confirme el envío manualmente. El gestor recibe una alerta en UI indicando que tiene un borrador pendiente de revisar
+
+#### FA: Campos opcionales de tarifa presentes, sin fecha
+- **Dado** que el gestor introduce nº de invitados y horas junto con los campos obligatorios, pero sin fecha de evento
+  **Cuando** confirma el alta
+  **Entonces** el sistema crea la RESERVA en 2.a con los valores opcionales almacenados y E1 se prepara sin cálculo de tarifa exacta (sin fecha no se puede determinar la temporada via UC-16). El envío automático o manual de E1 viene predefinido por el punto anterior: Lead con comentarios - E1 queda en borrador.
+
+#### FA-03: Datos obligatorios incompletos
+- **Dado** que el gestor introduce el lead en el formulario con alguno de los campos obligatorios vacíos (nombre, apellidos, email, teléfono o canal_entrada)
+  **Cuando** intenta confirmar el alta
+  **Entonces** el sistema no crea ningún registro (RESERVA, CLIENTE, COMUNICACION) y muestra errores de validación sobre los campos incompletos
+- Comportamiento del sistema: validación en cliente (UI) y en servidor; idempotente si el gestor reintenta con los mismos datos inválidos
+
+#### FA: Email con formato inválido
+- **Dado** que el gestor introduce un email con formato inválido (sin '@', sin dominio, etc.)
+  **Cuando** intenta confirmar el alta
+  **Entonces** el sistema rechaza el formulario con un error de validación en el campo email sin crear ningún registro
+
+#### FA: `canal_entrada` con valor fuera del ENUM
+- **Dado** que la petición llega al servidor con un valor de `canal_entrada` no contemplado en el ENUM (web | email | whatsapp | instagram | telefono)
+  **Cuando** el sistema valida la solicitud
+  **Entonces** retorna error de validación sin crear ningún registro; la UI previene este caso con un selector de opciones
+
+### 🚫 Reglas de Validación
+- `nombre` y `apellidos`: no vacíos, máx 100 caracteres
+- `email`: formato válido (RFC 5322 básico), obligatorio
+- `telefono`: no vacío
+- `canal_entrada`: valor dentro del ENUM {web | email | whatsapp | instagram | telefono}
+- `fecha_evento`: ausente en este flujo. Si presente, debe ser ≥ hoy (flujo cubierto en US-004)
+- `sub_estado` = '2a' cuando `estado` = 'consulta' y `fecha_evento` es NULL
+- No se crea fila en FECHA_BLOQUEADA para sub-estado 2.a
+
+## 📊 Impacto de Negocio
+- Impacto esperado: Captura el 100% de leads exploratorios en una única fuente de verdad, eliminando el rastro disperso en Gmail, WhatsApp y hojas de cálculo. La respuesta automática (E1) reduce el tiempo de respuesta al cliente de horas a segundos en el caso estándar (D1, D2, D9)
+- Criterio de éxito: Tiempo de alta de lead ≤ 2 minutos; tasa de E1 auto-enviado sin intervención del gestor ≥ 70% de las altas sin comentarios
+
 **Historia de Usuario 2**
 
+---
+id: US-018
+estado: backlog
+branch: null
+pr: null
+---
+
+# 🧾 Historia de Usuario: Promoción Automática de la Primera Consulta en Cola
+
+## 🆔 Metadatos
+- ID: US-018
+- Área funcional: Gestión de Cola de Espera
+- Módulo: M3
+- Prioridad: Crítica
+- Alcance MVP: ✅ Implementado
+- Estado: Borrador
+- Owner: PM
+
+## 🎯 Historia
+**Como** Sistema  
+**Cuando se cumple** que una consulta bloqueante ha transitado a sub_estado `2.x` (TTL agotado) y existen `RESERVA` en sub_estado `2.d` para la fecha liberada  
+**Ejecuto** la promoción atómica de la primera consulta en cola (`posicion_cola = 1`) al sub_estado `2.b`, transfiriendo la titularidad de `FECHA_BLOQUEADA` y reordenando el resto de la cola  
+**Para** garantizar que la fecha quede inmediatamente protegida por el siguiente candidato FIFO sin ventana de carrera, sin fecha huérfana y sin pérdida de posición
+
+## 🧠 Contexto de Negocio
+- Caso(s) de uso: UC-12 (flujo automático, encadenado desde UC-09)
+- Entidades implicadas: `RESERVA`, `FECHA_BLOQUEADA`, `AUDIT_LOG`
+- Dolor(es) que resuelve: D4 (doble bloqueo / fecha sin protección tras expiración), D13 (pérdida de lead en cola por inacción del sistema)
+- Automatización relacionada: barrido periódico de TTL (mismo job cron que dispara US-012; la promoción se encadena inmediatamente tras cada expiración)
+- Email relacionado: ninguno — el email de notificación al cliente promovido es `📐 Solo diseñado`, fuera del MVP (ver Notas de alcance)
+- Reglas de negocio:
+  - La promoción es FIFO estricta: siempre se promueve la `RESERVA` con `posicion_cola = 1`
+  - La `RESERVA` promovida pasa a `sub_estado = '2.b'`, `posicion_cola → NULL`, `consulta_bloqueante_id → NULL`, `ttl_expiracion → now() + tenant_settings.ttl_consulta_dias`
+  - `FECHA_BLOQUEADA.reserva_id` se actualiza al id de la consulta promovida
+  - `FECHA_BLOQUEADA.ttl_expiracion` se renueva a `now() + tenant_settings.ttl_consulta_dias`
+  - `FECHA_BLOQUEADA.tipo_bloqueo` permanece `'blando'`
+  - El resto de la cola decrementa `posicion_cola` en 1 y actualiza `consulta_bloqueante_id` al id de la nueva bloqueante
+  - Toda la operación ocurre en una única transacción con `SELECT ... FOR UPDATE` sobre `FECHA_BLOQUEADA`
+  - Se crea registro en `AUDIT_LOG` por cada `RESERVA` modificada (acción `'transicion'`)
+- Supuestos: el barrido periódico es idempotente; si la fecha ya fue promovida por otra instancia del job, la segunda ejecución no produce efecto
+- Dependencias: US-012 (expiración que establece el sub_estado `2.x` en la bloqueante y dispara este mecanismo)
+- Notas de alcance: el email "¡La fecha está disponible!" al cliente promovido (UC-12 paso 8) es `📐 Solo diseñado` — no se implementa en MVP. Solo la mecánica de promoción y reordenación está en scope.
+
+## ✅ Criterios de Aceptación (BDD)
+
+### 🎯 Happy Path
+- **Dado** que R1 (sub_estado `2.b`, `ttl_expiracion` < now()) acaba de transitarse a `2.x` por el barrido de TTL (US-012), y existen R2 (`sub_estado = '2.d'`, `posicion_cola = 1`, `consulta_bloqueante_id = R1.id`) y R3 (`sub_estado = '2.d'`, `posicion_cola = 2`, `consulta_bloqueante_id = R1.id`)  
+  **Cuando** el barrido encadena la ejecución de la promoción automática  
+  **Entonces**:
+  - R2: `sub_estado → '2.b'`, `posicion_cola → NULL`, `consulta_bloqueante_id → NULL`, `ttl_expiracion → now() + 3 días`
+  - R3: `posicion_cola → 1`, `consulta_bloqueante_id → R2.id`
+  - `FECHA_BLOQUEADA`: `reserva_id → R2.id`, `ttl_expiracion → now() + 3 días`, `tipo_bloqueo = 'blando'`
+  - `AUDIT_LOG`: entrada para R2 (acción `'transicion'`, datos_anteriores `{sub_estado: '2.d'}`, datos_nuevos `{sub_estado: '2.b', origen: 'promocion_automatica'}`)
+  - La operación es completamente atómica: no existe ningún instante en que `FECHA_BLOQUEADA.reserva_id` apunte a R1 (ya en `2.x`) sin apuntar a la nueva bloqueante
+
+### ⚠️ Flujos Alternativos y Edge Cases
+
+#### FA-01: Cola de un único elemento
+- **Dado** que R1 expira y solo existe R2 en cola (`posicion_cola = 1`)  
+  **Cuando** el barrido ejecuta la promoción  
+  **Entonces** R2 → `2.b`, `posicion_cola → NULL`, `consulta_bloqueante_id → NULL`; `FECHA_BLOQUEADA` actualizado con `reserva_id = R2.id`; la cola queda vacía; `AUDIT_LOG` registra la transición de R2
+
+#### FA-02: Sin cola tras expiración
+- **Dado** que R1 expira y no existe ninguna `RESERVA` con `consulta_bloqueante_id = R1.id`  
+  **Cuando** el barrido detecta la situación  
+  **Entonces** no se ejecuta ninguna promoción; `FECHA_BLOQUEADA` se elimina (la fecha queda disponible); `AUDIT_LOG` registra la liberación de la fecha; el sistema no entra en error
+
+#### FA-03: Cola con más de dos elementos
+- **Dado** que R1 expira y existen R2 (`posicion_cola = 1`), R3 (`posicion_cola = 2`), R4 (`posicion_cola = 3`)  
+  **Cuando** se ejecuta la promoción  
+  **Entonces** R2 → `2.b` (nueva bloqueante); R3: `posicion_cola → 1`, `consulta_bloqueante_id → R2.id`; R4: `posicion_cola → 2`, `consulta_bloqueante_id → R2.id`; `FECHA_BLOQUEADA.reserva_id → R2.id`
+
+#### FA-04: Barrido ejecutado cuando la promoción ya fue realizada (idempotencia)
+- **Dado** que una instancia del job ya promovió R2 y `FECHA_BLOQUEADA.reserva_id` ya es R2.id  
+  **Cuando** una segunda instancia del job intenta procesar el mismo tenant/fecha  
+  **Entonces** el sistema detecta que no hay bloqueante expirada pendiente de promotar y no realiza ningún cambio; sin error, sin duplicación
+
+### 🔒 Concurrencia / Race Conditions
+
+#### Race condition: dos instancias del job ejecutándose simultáneamente
+- **Dado** que dos instancias del barrido se ejecutan concurrentemente sobre el mismo tenant y la misma fecha con R1 expirada  
+  **Cuando** ambas intentan adquirir `SELECT ... FOR UPDATE` sobre la fila de `FECHA_BLOQUEADA`  
+  **Entonces** exactamente una transacción adquiere el lock y completa la promoción de R2 a `2.b`; la segunda queda bloqueada hasta que la primera confirma (`COMMIT`) y entonces detecta que `FECHA_BLOQUEADA.reserva_id` ya no es R1 (o R1 ya está en `2.x` sin candidatos pendientes) y aborta sin realizar cambios; el resultado final es exactamente una promoción de R2; no existe doble bloqueo ni doble actualización de `posicion_cola`
+
+#### Race condition: barrido automático vs. promoción manual simultánea (US-019)
+- **Dado** que el barrido automático y el Gestor (US-019) inician simultáneamente una promoción sobre la misma fecha con R1 expirada  
+  **Cuando** ambas transacciones intentan adquirir `SELECT ... FOR UPDATE` sobre `FECHA_BLOQUEADA`  
+  **Entonces** la primera en adquirir el lock completa su promoción; la segunda, al obtener el lock, detecta el estado ya actualizado y aborta sin inconsistencia; si es la acción del Gestor la que falla, recibe un mensaje de error ("La cola ya fue actualizada automáticamente")
+
+### 🚫 Reglas de Validación
+- El mecanismo solo se ejecuta si la `RESERVA` que acaba de expirar tenía `sub_estado = '2.b'`, `'2.c'` o `'2.v'` antes de la expiración (es la bloqueante); no aplica a consultas en `2.d`
+- El `ttl_expiracion` nuevo de R2 se calcula como `now() + tenant_settings.ttl_consulta_dias` (configurable por tenant, default 3 días)
+- Si la `posicion_cola` del conjunto en cola no es contigua (anomalía de datos), el sistema registra la inconsistencia en `AUDIT_LOG` y aborta la transacción sin promover; no aplica corrección silenciosa
+- La operación completa (expiración de R1 + promoción de R2 + reordenación) debe ser indivisible; no hay estado observable intermedio entre los dos estados
+
+## 📊 Impacto de Negocio
+- Impacto esperado: ningún lead en cola pierde su oportunidad por inacción del sistema; la fecha siempre queda protegida si hay candidatos FIFO en espera, sin intervención manual del Gestor
+- Criterio de éxito: 0 casos en que una `FECHA_BLOQUEADA` quede con `reserva_id` apuntando a una `RESERVA` en estado terminal mientras existan candidatos en `2.d`; latencia de promoción ≤ intervalo de ejecución del job cron
+
 **Historia de Usuario 3**
+
+---
+id: US-044
+estado: backlog
+branch: null
+pr: null
+---
+
+# 🧾 Historia de Usuario: Visualizar Dashboard Operativo
+
+## 🆔 Metadatos
+- ID: US-044
+- Área funcional: Dashboard
+- Módulo: M10
+- Prioridad: Alta
+- Alcance MVP: ✅ Implementado
+- Estado: Borrador
+- Owner: PM
+
+## 🎯 Historia
+**Como** Gestor
+**Quiero** visualizar el dashboard operativo con el estado actual de todas las reservas agrupado en widgets temáticos
+**Para** tener visibilidad inmediata del pipeline, los pendientes urgentes, los sub-procesos críticos y las visitas próximas sin tener que navegar ficha a ficha
+
+## 🧠 Contexto de Negocio
+- Caso(s) de uso: UC-34
+- Entidades implicadas: `RESERVA`, `FECHA_BLOQUEADA`, `PRESUPUESTO`, `FACTURA`, `PAGO`, `FICHA_OPERATIVA`
+- Dolor(es) que resuelve: D7 (sin dashboards — decisiones por intuición sin datos), D2 (cero visibilidad del pipeline — imposible priorizar follow-ups), D11 (sin recordatorios estructurados — pagos atrasados y TTLs próximos no se detectan a tiempo)
+- Automatización relacionada: ninguna directa (vista de lectura agregada; las automatizaciones A-xx que alimentan los datos están cubiertas en sus historias respectivas)
+- Email relacionado: ninguno
+- Reglas de negocio:
+  - El dashboard muestra los 7 widgets definidos en §7.1 de SlotifyGeneralSpecs: **Hoy y mañana**, **Pipeline**, **Sub-procesos críticos**, **Pendientes**, **Consultas en cola**, **Visitas programadas**, **Próximos 30 días**.
+  - Todos los datos corresponden exclusivamente al tenant del gestor autenticado (`tenant_id` tomado del JWT en cada consulta).
+  - Cada item de cualquier widget enlaza a la ficha de la `RESERVA` correspondiente.
+  - El widget "Próximos 30 días" usa el mismo código de colores que el Calendario (US-039): gris = consulta activa, ámbar = pre_reserva, verde = reserva_confirmada/evento_en_curso/post_evento, azul = reserva_completada, rojo = reserva_cancelada.
+  - Solo se muestran reservas con `activo = true`.
+  - El dashboard es una vista de lectura pura: no produce ninguna mutación de datos.
+- Supuestos: la pantalla de Dashboard es la pantalla de inicio por defecto tras el login (alineado con UC-01 flujo básico paso 6 y la estructura de navegación de §1.4 use-cases.md).
+- Dependencias: US-001 (sesión activa con `tenant_id` en JWT). Los datos mostrados en los widgets son generados por el resto de historias (US-003 a US-043), pero la vista puede desarrollarse en paralelo con datos de prueba.
+- Notas de alcance:
+  - **Dashboard financiero + KPIs avanzados (§7.2 SlotifyGeneralSpecs)** — `📐 Solo diseñado`. Fuera de este MVP. No se incluyen widgets de ingresos, ocupación, ticket medio, ratio de conversión, estacionalidad, tasa de demanda saturada, cobros pendientes financieros ni comparativas interanuales.
+  - **Histórico de reservas (§7.3 SlotifyGeneralSpecs)** — cubierto por UC-32/US-042 (búsqueda y filtrado) y UC-33/US-043 (exportación CSV). No se duplica aquí.
+  - **Filtro "clientes recurrentes"** mencionado en §7.3 — `📐 Solo diseñado`. La detección automática de leads recurrentes (`consulta_vinculo`) no está en el MVP.
+
+## ✅ Criterios de Aceptación (BDD)
+
+### 🎯 Happy Path
+
+- **Dado** que el gestor está autenticado en el sistema
+  **Cuando** navega al Dashboard (opción "Dashboard" del menú lateral)
+  **Entonces** el sistema renderiza los 7 widgets de §7.1 con datos actualizados del tenant: Hoy y mañana, Pipeline, Sub-procesos críticos, Pendientes, Consultas en cola, Visitas programadas, Próximos 30 días.
+
+- **Dado** que existen reservas con `fecha_evento` igual a hoy o mañana en estados `reserva_confirmada` o `evento_en_curso`
+  **Cuando** el gestor visualiza el widget **"Hoy y mañana"**
+  **Entonces** aparecen dichas reservas con nombre del cliente, tipo de evento, estado actual y hora de inicio, ordenadas por `fecha_evento` ascendente.
+
+- **Dado** que existen consultas en sub-estados `2a`, `2b`, `2c`, `2d`, `2v`, reservas en `pre_reserva` y en `reserva_confirmada`
+  **Cuando** el gestor visualiza el widget **"Pipeline"**
+  **Entonces** el widget muestra el recuento de reservas agrupado por `estado`/`sub_estado` con etiquetas legibles (p. ej. "Exploratoria", "Con fecha", "Pendiente invitados", "En cola", "Visita programada", "Pre-reserva", "Confirmada").
+
+- **Dado** que existen reservas en `reserva_confirmada` con alguno de los sub-procesos atrasados: `pre_evento_status ≠ cerrado` con fecha del evento próxima, `liquidacion_status ≠ cobrada`, o `fianza_status ≠ cobrada`
+  **Cuando** el gestor visualiza el widget **"Sub-procesos críticos"**
+  **Entonces** aparecen esas reservas con indicador visual del sub-proceso pendiente (pre-evento / liquidación / fianza) y la fecha del evento para facilitar la priorización.
+
+- **Dado** que existen presupuestos con `estado = 'enviado'` sin respuesta, TTLs con `ttl_expiracion` dentro de las próximas 24 horas, o facturas con `estado = 'enviada'` sin pago registrado con fecha de vencimiento superada
+  **Cuando** el gestor visualiza el widget **"Pendientes"**
+  **Entonces** el widget lista cada acción pendiente con descripción de la acción requerida y enlace directo a la reserva correspondiente.
+
+- **Dado** que existen reservas con `sub_estado = '2d'`
+  **Cuando** el gestor visualiza el widget **"Consultas en cola"**
+  **Entonces** aparecen agrupadas por `fecha_evento` con el `posicion_cola` de cada consulta, el nombre del cliente y el tiempo acumulado en cola (calculado desde `fecha_creacion` del registro).
+
+- **Dado** que existen reservas con `sub_estado = '2v'` y `visita_programada_fecha` futura
+  **Cuando** el gestor visualiza el widget **"Visitas programadas"**
+  **Entonces** se listan ordenadas por `visita_programada_fecha` ascendente con nombre del cliente y fecha/hora de la visita.
+
+- **Dado** que existen reservas con `fecha_evento` dentro del rango `[hoy, hoy + 30 días]`
+  **Cuando** el gestor visualiza el widget **"Próximos 30 días"**
+  **Entonces** se muestra un mini-calendario donde cada fecha aparece coloreada según el estado de la reserva que la ocupa, usando el mismo código cromático que el Calendario completo (US-039).
+
+### ⚠️ Flujos Alternativos y Edge Cases
+
+#### FA-01 / Widget sin datos (estado vacío)
+- **Dado** que no existen reservas que satisfagan los criterios de un widget concreto (p. ej. ningún evento hoy ni mañana, ninguna consulta en cola)
+  **Cuando** el gestor visualiza ese widget
+  **Entonces** el widget se renderiza con un mensaje de estado vacío descriptivo (p. ej. "No hay eventos hoy ni mañana") sin errores de interfaz, y el resto de widgets muestran sus datos con normalidad.
+- Comportamiento del sistema: cada widget gestiona su propio estado vacío de forma independiente; la carga de un widget no bloquea ni afecta a los demás.
+
+#### FA-02 / Navegación a ficha desde widget
+- **Dado** que el gestor visualiza un ítem en cualquier widget (p. ej. una reserva en "Sub-procesos críticos")
+  **Cuando** hace clic sobre ese ítem
+  **Entonces** el sistema navega a la ficha de detalle de esa `RESERVA`, y al volver (botón atrás del navegador) recupera el dashboard en la posición de scroll anterior.
+- Comportamiento del sistema: enlace directo a la ficha; la navegación de retorno es gestionada por el historial del navegador.
+
+#### FA-03 / Navegación al Calendario completo desde "Próximos 30 días"
+- **Dado** que el gestor hace clic sobre una fecha del mini-calendario "Próximos 30 días"
+  **Cuando** esa fecha tiene al menos una reserva asociada
+  **Entonces** el sistema navega al Calendario completo (UC-29/US-039) con esa fecha resaltada o seleccionada.
+- Comportamiento del sistema: el mini-calendario actúa como punto de entrada al módulo Calendario; no duplica la lógica de disponibilidad.
+
+#### FA-04 / Aislamiento multi-tenant
+- **Dado** que el gestor del tenant X está autenticado
+  **Cuando** el sistema construye las consultas de todos los widgets del dashboard
+  **Entonces** todas las queries incluyen `WHERE tenant_id = :tenantId` (extraído del payload JWT), y ningún dato del tenant Y aparece en ningún widget.
+- Comportamiento del sistema: `tenant_id` inyectado en capa de repositorio para cada consulta; no gestionable por el usuario.
+
+### 🔒 Concurrencia / Race Conditions
+No aplica. El dashboard es una vista de lectura pura sobre `RESERVA` y entidades relacionadas. No produce mutaciones de datos ni bloqueos. Las consultas de múltiples widgets pueden ejecutarse en paralelo de forma segura sin riesgo de race condition.
+
+### 🚫 Reglas de Validación
+- Solo el gestor autenticado puede acceder al dashboard de su tenant (`tenant_id` verificado en cada query).
+- Los recuentos del widget "Pipeline" incluyen únicamente reservas con `activo = true`.
+- El widget "Próximos 30 días" cubre `fecha_evento BETWEEN today AND today + 30 days` (inclusive).
+- El dashboard **no expone** datos financieros del tenant ni `CLIENTE.iban_devolucion` (cubiertos en §7.2, fuera del MVP).
+- El dashboard es de solo lectura: no permite modificar ningún dato directamente desde los widgets; toda acción requiere navegar a la ficha de reserva.
+
+## 📊 Impacto de Negocio
+- Impacto esperado: el gestor pasa de gestionar por intuición con Gmail, Sheets y WhatsApp dispersos (D7) a tener visibilidad completa del estado del negocio en una pantalla unificada; reduce el tiempo de localización de acciones urgentes (TTLs, pagos pendientes, visitas del día, sub-procesos atrasados) de aproximadamente 15 minutos a segundos.
+- Criterio de éxito: el gestor puede identificar todas las acciones urgentes del día directamente desde el dashboard sin abrir ninguna ficha individual; objetivo operativo: cero acciones vencidas (pagos no detectados, TTLs expirados sin gestión) en días con actividad de reservas, medible por ausencia de reservas con `ttl_expiracion < now` en estado activo que no aparezcan en el widget "Pendientes".
 
 ---
 
 ## 6. Tickets de Trabajo
 
-> Documenta 3 de los tickets de trabajo principales del desarrollo, uno de backend, uno de frontend, y uno de bases de datos. Da todo el detalle requerido para desarrollar la tarea de inicio a fin teniendo en cuenta las buenas prácticas al respecto. 
-
-**Ticket 1**
-
-**Ticket 2**
-
-**Ticket 3**
+-- Voy a utilizar metodologia SDD por lo que mi intención es definir tareas atomicas en cada spec de cada historia de usuario --
 
 ---
 
 ## 7. Pull Requests
 
-> Documenta 3 de las Pull Requests realizadas durante la ejecución del proyecto
-
-**Pull Request 1**
-
-**Pull Request 2**
-
-**Pull Request 3**
+-- No aplica en esta 1a entrega --
 
