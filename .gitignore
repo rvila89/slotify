@@ -1,2 +1,32 @@
 .DS_Store
 .worktrees/
+
+# Dependencias
+node_modules/
+
+# Builds
+dist/
+build/
+*.tsbuildinfo
+
+# Turbo
+.turbo/
+
+# Tests
+coverage/
+
+# Entorno (secretos — nunca versionar; ver .env.example)
+.env
+.env.local
+.env.*.local
+
+# Prisma cliente generado
+apps/api/node_modules/.prisma/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor
+*.swp

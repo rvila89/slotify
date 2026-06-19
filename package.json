@@ -1,0 +1,23 @@
+{
+  "name": "slotify",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.8.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "test": "turbo test",
+    "test:e2e": "turbo test:e2e",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "db:migrate": "pnpm --filter @slotify/api exec prisma migrate dev",
+    "db:seed": "pnpm --filter @slotify/api exec prisma db seed",
+    "generate-client": "pnpm --filter @slotify/web run generate-client"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0"
+  }
+}
