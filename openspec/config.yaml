@@ -1,0 +1,58 @@
+# Configuración de OpenSpec — Slotify
+# Fuente de verdad de los pasos obligatorios de cada change.
+# Consistente con docs/openspec-tasks-mandatory-steps.md.
+
+project: slotify
+language: es
+
+branching:
+  # Step 0 obligatorio: crear branch ANTES de cualquier cambio.
+  pattern: "feature/{change-name}"
+  base: master
+
+changes:
+  dir: openspec/changes
+  artifacts:
+    - proposal.md      # qué cambia y por qué (trazable a US y UC)
+    - tasks.md         # pasos en orden, con los obligatorios de abajo
+    - design.md        # opcional, solo decisiones técnicas no triviales
+  reports_dir: "openspec/changes/{change-name}/reports"
+
+specs:
+  dir: openspec/specs
+
+# Pasos obligatorios que TODO tasks.md debe incluir, en orden.
+# El agente DEBE ejecutar las pruebas él mismo; nunca delegar al usuario.
+mandatory_steps:
+  - id: step-0
+    title: "Crear feature branch"
+    required: true
+    first: true
+  - id: tdd-first
+    title: "Tests primero (concurrencia del bloqueo, máquina de estados, tarifas)"
+    required: true
+  - id: step-N
+    title: "Revisar y actualizar tests unitarios existentes"
+    required: true
+  - id: step-N+1
+    title: "Ejecutar unit tests + verificar estado BD + report"
+    required: true
+    agent_must_execute: true
+    report: "YYYY-MM-DD-step-N+1-unit-test-and-db-verification.md"
+  - id: step-N+2
+    title: "Pruebas manuales de endpoints con curl (restaurar BD)"
+    required: true
+    agent_must_execute: true
+    report: "YYYY-MM-DD-step-N+2-curl-endpoint-tests.md"
+  - id: step-N+3
+    title: "E2E con Playwright MCP (si hay cambios de frontend)"
+    required: false
+    agent_must_execute: true
+    report: "YYYY-MM-DD-step-N+3-e2e-playwright.md"
+  - id: step-N+4
+    title: "Actualizar documentación técnica"
+    required: true
+
+quality_gates:
+  pre_commit: ["pnpm lint", "pnpm typecheck", "pnpm test"]
+  contract_validation: ["spectral lint docs/api-spec.yml"]

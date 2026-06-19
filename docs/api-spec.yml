@@ -1,0 +1,1517 @@
+openapi: 3.0.0
+info:
+  title: Slotify API
+  description: |
+    API REST de **Slotify**, la plataforma SaaS de gestión integral para espacios
+    boutique de eventos privados (masías, fincas, villas).
+
+    La reserva es el agregado raíz: recorre toda la máquina de estados, desde los
+    sub-estados de consulta (2.a–2.z) hasta `reserva_completada`. El bloqueo atómico
+    de fecha se garantiza con la restricción `UNIQUE(tenant_id, fecha)` en PostgreSQL
+    y transacciones `SELECT ... FOR UPDATE`.
+
+    La API sigue arquitectura hexagonal + DDD sobre NestJS, es multi-tenant (RLS) y
+    expone este contrato OpenAPI como fuente de verdad para generar el cliente HTTP
+    type-safe del frontend.
+
+    ## Convenciones
+    - Lenguaje ubicuo del dominio en español (reservas, presupuestos, fianza…).
+    - Autenticación JWT Bearer (access token de vida corta) + refresh token en cookie httpOnly.
+    - Identificadores en formato UUID.
+    - [F2-01] Importes monetarios como `string` decimal de 2 decimales (Decimal(10,2)), NUNCA coma flotante,
+      para evitar errores de redondeo en facturación; porcentajes como `string` Decimal(4,2).
+    - Todas las operaciones están aisladas por tenant (derivado del JWT, no del path).
+
+    ## Salud / documentación
+    - [DECISIÓN F1-03] `GET /api/health` y `GET /api/docs` son endpoints operativos/infra (US-000) y
+      quedan FUERA de este contrato de negocio a propósito. Confirma si prefieres documentarlos aquí.
+
+  version: 1.1.0
+  contact:
+    name: Equipo Slotify
+  license:
+    name: UNLICENSED
+
+servers:
+  # [DECISIÓN F5-06] Dominios no respaldados por ninguna fuente; confirma las URLs reales antes de publicar.
+  - url: http://localhost:3000/api
+    description: Servidor de desarrollo (backend NestJS)
+  - url: https://api.slotify.app/api
+    description: Servidor de producción
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+    description: Autenticación y sesión (UC-01, UC-02)
+  - name: Reservas
+    description: Ciclo de vida de la reserva y transiciones de estado (UC-03 a UC-10, UC-23 a UC-28)
+  - name: Cola
+    description: Cola de espera de fechas bloqueadas (UC-11 a UC-13)
+  - name: Presupuestos
+    description: Pre-reserva, tarifas y presupuestos (UC-14 a UC-16)
+  - name: Confirmacion
+    description: Confirmación de reserva, pagos, facturas y condiciones particulares (UC-17 a UC-19)
+  - name: Subprocesos
+    description: Sub-procesos paralelos pre-evento, liquidación y fianza (UC-20 a UC-22, UC-26, UC-27)
+  - name: Facturas
+    description: Emisión de facturas y registro de pagos (UC-18, UC-21)
+  - name: FichaOperativa
+    description: Briefing operativo del evento (UC-20, UC-24)
+  - name: Calendario
+    description: Disponibilidad, bloqueo y liberación de fechas (UC-29 a UC-31)
+  - name: Clientes
+    description: Datos de contacto y fiscales de clientes (atributo de la reserva, no entidad de navegación)
+  - name: Historico
+    description: Búsqueda y exportación del histórico (UC-32, UC-33)
+  - name: Dashboard
+    description: KPIs operativos y financieros (UC-34)
+  - name: Comunicaciones
+    description: Envío y log de emails E1–E8 y manuales (UC-35, UC-36)
+  - name: Documentos
+    description: Subida y descarga de documentos polimórficos (UC-19, UC-24)
+  - name: Cron
+    description: Endpoint protegido de barrido periódico (TTLs, cola, recordatorios)
+
+paths:
+  # ============================ AUTH ============================
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Iniciar sesión (UC-01)
+      description: Valida credenciales y devuelve un access token JWT. El refresh token se entrega en una cookie httpOnly.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Autenticación correcta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Renovar access token
+      description: Usa el refresh token de la cookie httpOnly para emitir un nuevo access token.
+      # [F3-01] La autenticación de este endpoint es la cookie de refresh, no el bearer.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Nuevo access token emitido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Cerrar sesión (UC-02)
+      description: |
+        Invalida el refresh token y limpia la cookie de sesión.
+        [F1-09] Se autentica con la cookie de refresh (no con el access token), para permitir
+        el logout aunque el access token ya haya expirado (US-002).
+      security:
+        - cookieAuth: []
+      responses:
+        '204':
+          description: Sesión cerrada
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Usuario autenticado
+      description: '[F1-08] Soporte de restauración de sesión del shell (US-000A/US-001).'
+      responses:
+        '200':
+          description: Datos del usuario en sesión
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Usuario'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================ RESERVAS ============================
+  /reservas:
+    get:
+      tags: [Reservas]
+      summary: Listar reservas (pipeline)
+      description: Lista paginada de reservas del tenant con filtros por estado, sub-estado, fecha y canal.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - in: query
+          name: estado
+          schema: { $ref: '#/components/schemas/EstadoReserva' }
+        - in: query
+          name: subEstado
+          schema: { $ref: '#/components/schemas/SubEstadoConsulta' }
+        - in: query
+          name: fechaDesde
+          schema: { type: string, format: date }
+        - in: query
+          name: fechaHasta
+          schema: { type: string, format: date }
+        - in: query
+          name: search
+          schema: { type: string }
+          description: Búsqueda por código, nombre de cliente o notas
+      responses:
+        '200':
+          description: Reservas recuperadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Reservas]
+      summary: Dar de alta un nuevo lead/consulta (UC-03)
+      description: Crea una reserva en estado `consulta`. Sub-estado `2.a` (sin fecha) o `2.b` (con fecha, dispara bloqueo blando).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReservaRequest'
+      responses:
+        '201':
+          description: Reserva creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reserva'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /reservas/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [Reservas]
+      summary: Detalle de reserva
+      responses:
+        '200':
+          description: Reserva recuperada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaDetalle'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Reservas]
+      summary: Actualizar datos de la reserva
+      description: |
+        Actualización parcial de los campos editables (invitados, duración, tipo de evento, notas…).
+        No cambia el estado. [F1-07] El nº de invitados (US-007) y datos núcleo del lead; la fecha de
+        evento NO se asigna aquí sino vía /transiciones (ver [F1-01]).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateReservaRequest'
+      responses:
+        '200':
+          description: Reserva actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reserva'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reservas/{id}/transiciones:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Reservas]
+      summary: Ejecutar una transición de estado (UC-04, UC-06, UC-10, UC-23, UC-25, UC-28)
+      description: |
+        Aplica una transición de la máquina de estados de la reserva. El backend valida la
+        transición contra la tabla declarativa de transiciones y sus guardas. Cubre, entre otras:
+        2.a→2.b (asignar fecha), 2.b→2.c (pendiente invitados), →2.z (descartar por cliente),
+        iniciar evento, finalizar evento y archivar.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransicionRequest'
+      responses:
+        '200':
+          description: Transición aplicada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reserva'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: Transición no permitida o guarda no satisfecha
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /reservas/{id}/extender-bloqueo:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Reservas]
+      summary: Extender plazo de bloqueo (UC-05)
+      description: Amplía el `ttl_expiracion` del bloqueo blando vigente según la política del tenant.
+      responses:
+        '200':
+          description: Bloqueo extendido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reserva'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reservas/{id}/visita:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Reservas]
+      summary: Programar visita al espacio (UC-07)
+      description: Transiciona la consulta a sub-estado `2.v` y fija fecha/hora de visita.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProgramarVisitaRequest'
+      responses:
+        '200':
+          description: Visita programada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+        '400':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      tags: [Reservas]
+      summary: Registrar resultado de visita (UC-08)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResultadoVisitaRequest'
+      responses:
+        '200':
+          description: Resultado registrado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+
+  # ============================ COLA ============================
+  /reservas/{id}/cola:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [Cola]
+      summary: Visualizar cola de espera de la fecha de una reserva bloqueante (UC-11)
+      responses:
+        '200':
+          description: Cola FIFO ordenada por posición
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ColaItem' }
+
+  /reservas/{id}/promover:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Cola]
+      summary: Promover consulta de la cola (UC-12)
+      description: Promueve la primera consulta en cola (2.d→2.b) cuando la bloqueante se libera. Encadenamiento automático.
+      responses:
+        '200':
+          description: Consulta promovida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /reservas/{id}/salir-cola:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Cola]
+      summary: Salir voluntariamente de la cola (UC-13)
+      responses:
+        '200':
+          description: Reserva retirada de la cola
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+
+  # ============================ PRESUPUESTOS / TARIFAS ============================
+  /tarifas/calcular:
+    post:
+      tags: [Presupuestos]
+      summary: Calcular tarifa según configuración (UC-16)
+      description: Motor de tarifas. Calcula el precio a partir de temporada (derivada de la fecha), duración, nº de invitados y extras.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalculoTarifaRequest'
+      responses:
+        '200':
+          description: Tarifa calculada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalculoTarifaResponse'
+        '422':
+          description: Sin tarifa aplicable (p. ej. >50 invitados = "a consultar")
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # [DECISIÓN F2-04] Catálogo de extras: necesario para resolver extraId/extraIds desde el frontend.
+  # Confirma si en MVP el catálogo se expone por API o se siembra/hardcodea.
+  /extras:
+    get:
+      tags: [Presupuestos]
+      summary: Listar catálogo de extras del tenant
+      responses:
+        '200':
+          description: Catálogo de extras configurables
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Extra' }
+
+  /reservas/{id}/presupuestos:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [Presupuestos]
+      summary: Listar versiones de presupuesto de la reserva
+      responses:
+        '200':
+          description: Presupuestos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Presupuesto' }
+    post:
+      tags: [Presupuestos]
+      summary: Generar presupuesto y activar pre-reserva (UC-14)
+      description: Crea una nueva versión de presupuesto (PDF), congela la tarifa y transiciona la reserva a `pre_reserva` (bloqueo firme/7 días).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePresupuestoRequest'
+      responses:
+        '201':
+          description: Presupuesto generado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Presupuesto' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /presupuestos/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/IdGenerico' }
+    patch:
+      tags: [Presupuestos]
+      summary: Editar y enviar presupuesto (UC-15)
+      description: Edita líneas/descuento y, opcionalmente, marca el presupuesto como `enviado` (dispara email E-presupuesto).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePresupuestoRequest'
+      responses:
+        '200':
+          description: Presupuesto actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Presupuesto' }
+
+  # ============================ EXTRAS DE RESERVA ============================
+  # [DECISIÓN F1-05] Extras como recurso de primera clase. Justificación: origen=anadido_post_confirmacion
+  # implica añadir extras tras la confirmación (van a la liquidación). Confirma o intégralo en presupuesto/liquidación.
+  /reservas/{id}/extras:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [Presupuestos]
+      summary: Listar extras de la reserva
+      responses:
+        '200':
+          description: Extras de la reserva
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ReservaExtra' }
+    post:
+      tags: [Presupuestos]
+      summary: Añadir extra a la reserva (UC-14, UC-21)
+      description: Añade una línea de extra con precio congelado. `origen` indica si viene del presupuesto o se añade tras la confirmación.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReservaExtraRequest'
+      responses:
+        '201':
+          description: Extra añadido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReservaExtra' }
+
+  # ============================ CONFIRMACIÓN / PAGOS / FACTURAS ============================
+  /reservas/{id}/pagos:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Confirmacion]
+      summary: Confirmar pago de señal / registrar cobro (UC-17, UC-21, UC-22)
+      description: Registra un `Pago` conciliado contra una factura. El pago de señal transiciona la reserva a `reserva_confirmada` (bloqueo firme).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePagoRequest'
+      responses:
+        '201':
+          description: Pago registrado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pago' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reservas/{id}/facturas:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [Facturas]
+      summary: Listar facturas de la reserva
+      responses:
+        '200':
+          description: Facturas
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Factura' }
+    post:
+      tags: [Facturas]
+      summary: Generar factura (UC-18, UC-21)
+      description: Emite una factura en estado `borrador` (`senal`, `liquidacion`, `fianza` o `complementaria`). La liquidación arrastra los `ReservaExtra` con `factura_id` nulo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFacturaRequest'
+      responses:
+        '201':
+          description: Factura generada (borrador)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Factura' }
+
+  # [DECISIÓN F1-02] Acción de aprobar/enviar factura (US-028). Cierra la laguna "SIN ENDPOINT".
+  # Confirma este enfoque (acción dedicada) frente a un PATCH /facturas/{id} con cambio de estado.
+  /reservas/{id}/facturas/{facturaId}/enviar:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+      - in: path
+        name: facturaId
+        required: true
+        schema: { type: string, format: uuid }
+        description: ID de la factura
+    post:
+      tags: [Facturas]
+      summary: Aprobar y enviar factura (UC-28)
+      description: |
+        Transiciona la factura `borrador → enviada`, asigna número de factura y dispara el email E4.
+        Para la liquidación, su envío es prerequisito del cobro y arrastra el efecto sobre `fianza_status`.
+      responses:
+        '200':
+          description: Factura aprobada y enviada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Factura' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: La factura no está en estado `borrador`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /reservas/{id}/condiciones-particulares:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Confirmacion]
+      summary: Gestionar condiciones particulares (UC-19)
+      description: Marca el envío o la firma de las condiciones particulares y asocia el documento firmado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CondicionesParticularesRequest'
+      responses:
+        '200':
+          description: Estado de condiciones actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+
+  # ============================ SUB-PROCESOS ============================
+  /reservas/{id}/subprocesos:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    patch:
+      tags: [Subprocesos]
+      summary: Gestionar sub-procesos paralelos (UC-20, UC-21, UC-22)
+      description: Avanza el estado de los sub-procesos `pre_evento`, `liquidacion` y/o `fianza`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubprocesosRequest'
+      responses:
+        '200':
+          description: Sub-procesos actualizados
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+
+  # [DECISIÓN F1-06] ELIMINADO `POST /reservas/{id}/fianza/solicitar-iban`.
+  # Motivo: la solicitud de IBAN (E5) se dispara AUTOMÁTICAMENTE al entrar en post_evento (US-034/035),
+  # no es una acción manual del gestor. El gestor solo REGISTRA el IBAN vía PATCH /clientes/{id} (US-035),
+  # y E8 confirma la recepción. Restaura este endpoint solo si confirmas que existe una solicitud manual.
+
+  /reservas/{id}/fianza/devolver:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Subprocesos]
+      summary: Procesar devolución de fianza (UC-27)
+      description: Registra la devolución total o parcial (retención por desperfectos) de la fianza.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevolucionFianzaRequest'
+      responses:
+        '200':
+          description: Devolución procesada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+
+  # ============================ FICHA OPERATIVA ============================
+  /reservas/{id}/ficha-operativa:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [FichaOperativa]
+      summary: Consultar ficha operativa del evento (UC-24)
+      responses:
+        '200':
+          description: Ficha operativa
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FichaOperativa' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [FichaOperativa]
+      summary: Crear/actualizar ficha operativa (UC-20, UC-24)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertFichaOperativaRequest'
+      responses:
+        '200':
+          description: Ficha guardada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FichaOperativa' }
+
+  # ============================ CALENDARIO ============================
+  /calendario:
+    get:
+      tags: [Calendario]
+      summary: Consultar calendario y disponibilidad (UC-29)
+      description: Devuelve reservas y fechas bloqueadas del tenant en un rango, para las vistas mensual/semanal.
+      parameters:
+        - in: query
+          name: desde
+          required: true
+          schema: { type: string, format: date }
+        - in: query
+          name: hasta
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Disponibilidad del rango
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CalendarioItem' }
+
+  /fechas-bloqueadas:
+    post:
+      tags: [Calendario]
+      summary: Bloquear fecha (UC-30)
+      description: |
+        Operación crítica. Crea un `FechaBloqueada` dentro de una transacción con
+        `SELECT ... FOR UPDATE`. La restricción `UNIQUE(tenant_id, fecha)` garantiza
+        que dos peticiones concurrentes para la misma fecha resulten en un éxito y un 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BloquearFechaRequest'
+      responses:
+        '201':
+          description: Fecha bloqueada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FechaBloqueada' }
+        '409':
+          description: La fecha ya está bloqueada (doble reserva evitada)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /fechas-bloqueadas/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/IdGenerico' }
+    delete:
+      tags: [Calendario]
+      summary: Liberar fecha (UC-31)
+      description: Libera la fecha y dispara la promoción de la cola de espera si la hay.
+      responses:
+        '204':
+          description: Fecha liberada
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================ CLIENTES ============================
+  # [DECISIÓN F1-04] ELIMINADOS `GET /clientes` (listado/búsqueda) y `POST /clientes`.
+  # Motivo: violan la piedra angular "la reserva es la entidad central; el cliente es un atributo,
+  # no un punto de navegación tipo CRM" (er-diagram §3.4). El cliente se crea EMBEBIDO en el alta de
+  # reserva (CreateReservaRequest.cliente, US-003/004). Se conservan GET/PATCH /clientes/{id} como soporte
+  # (lectura de datos fiscales en US-014, registro de IBAN en US-035). Restaura el listado solo si confirmas
+  # que necesitas un selector de clientes recurrentes (sería ya una funcionalidad cliente-céntrica).
+  /clientes/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/IdGenerico' }
+    get:
+      tags: [Clientes]
+      summary: Detalle de cliente (soporte, US-014)
+      responses:
+        '200':
+          description: Cliente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cliente' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Clientes]
+      summary: Actualizar datos fiscales / IBAN del cliente (US-035)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateClienteRequest'
+      responses:
+        '200':
+          description: Cliente actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cliente' }
+
+  # ============================ HISTÓRICO ============================
+  /historico/reservas:
+    get:
+      tags: [Historico]
+      summary: Buscar en histórico (UC-32)
+      description: Búsqueda full-text sobre reservas archivadas (código, cliente, notas).
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Resultados del histórico
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaListResponse'
+
+  /historico/exportar:
+    get:
+      tags: [Historico]
+      summary: Exportar reservas (UC-33)
+      description: Exporta el histórico filtrado a CSV.
+      parameters:
+        - in: query
+          name: fechaDesde
+          schema: { type: string, format: date }
+        - in: query
+          name: fechaHasta
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Fichero CSV
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+
+  # ============================ DASHBOARD ============================
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Visualizar dashboard operativo (UC-34)
+      description: Devuelve KPIs operativos (ocupación, conversión, pipeline) y financieros (ingresos, cobros pendientes).
+      responses:
+        '200':
+          description: KPIs del dashboard
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardResponse' }
+
+  # ============================ COMUNICACIONES ============================
+  /reservas/{id}/comunicaciones:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [Comunicaciones]
+      summary: Log de comunicaciones de la reserva
+      responses:
+        '200':
+          description: Comunicaciones
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Comunicacion' }
+    post:
+      tags: [Comunicaciones]
+      summary: Enviar email manual o automático (UC-35, UC-36)
+      description: Crea y envía (o guarda como borrador para revisión, UC-36) un email vinculado a la reserva.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateComunicacionRequest'
+      responses:
+        '201':
+          description: Comunicación creada/enviada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Comunicacion' }
+
+  # ============================ DOCUMENTOS ============================
+  /documentos:
+    post:
+      tags: [Documentos]
+      summary: Subir documento (UC-19, UC-24)
+      description: Sube un documento polimórfico (DNI, cláusula, condiciones, justificante de pago, etc.) al storage y registra sus metadatos.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                tipo:
+                  $ref: '#/components/schemas/TipoDocumento'
+                reservaId:
+                  type: string
+                  format: uuid
+              required: [file, tipo]
+      responses:
+        '201':
+          description: Documento subido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Documento' }
+        '400':
+          description: Tipo de fichero no válido o demasiado grande (>10MB)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # ============================ CRON ============================
+  /cron/barrido:
+    post:
+      tags: [Cron]
+      summary: Barrido periódico de TTLs, cola y recordatorios
+      description: |
+        Endpoint protegido (token de servicio) invocado por el cron. Es idempotente:
+        barre reservas con `ttl_expiracion` vencido, las expira (2.b→2.x), libera la fecha,
+        promueve la cola y dispara recordatorios automáticos. No depende del reloj exacto.
+      # [DECISIÓN granularidad] El parámetro `tarea` permite invocar/testear cada barrido por separado,
+      # imprescindible para aislar tests de concurrencia (US-012/018/026/031/037). Confirma este enfoque
+      # frente a un único barrido monolítico.
+      parameters:
+        - in: query
+          name: tarea
+          schema:
+            type: string
+            enum: [expiracion, cola, fichas, eventos, archivado, recordatorios, all]
+            default: all
+          description: Barrido concreto a ejecutar (por defecto todos)
+      security:
+        - cronToken: []
+      responses:
+        '200':
+          description: Barrido ejecutado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BarridoResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token JWT de vida corta. `tenant_id` y `rol` van firmados en el payload.
+    cookieAuth:
+      # [F3-01] Modela explícitamente el refresh token en cookie httpOnly+Secure+SameSite (architecture §2.8).
+      type: apiKey
+      in: cookie
+      name: refresh_token
+      description: Refresh token en cookie httpOnly+Secure+SameSite. Inaccesible desde JavaScript (anti-XSS).
+    cronToken:
+      # [DECISIÓN F5-05] Nombre de cabecera no respaldado por fuente. Confirma el mecanismo de auth
+      # service-to-service (p. ej. secreto fuerte en variable de entorno).
+      type: apiKey
+      in: header
+      name: X-Cron-Token
+      description: Token de servicio para el endpoint de barrido del cron.
+
+  parameters:
+    Page:
+      in: query
+      name: page
+      schema: { type: integer, minimum: 1, default: 1 }
+      description: Número de página
+    Limit:
+      # [DECISIÓN F5-04] default=20 y maximum=100 son convención, no fuente. Confirma con el PO.
+      in: query
+      name: limit
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      description: Elementos por página
+    IdReserva:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+      description: ID de la reserva
+    IdGenerico:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+      description: Identificador del recurso
+
+  responses:
+    # [DECISIÓN F5-02] Mapeo HTTP ratificado: 409 = conflicto/concurrencia (violación UNIQUE determinista),
+    # 422 = transición/guarda inválida. Documentar como decisión en la spec.
+    Unauthorized:
+      description: No autenticado o token inválido
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Recurso no encontrado en el tenant
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ValidationError:
+      description: Error de validación de entrada
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Conflicto de estado o de concurrencia (p. ej. fecha ya bloqueada)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+    # -------- Tipos monetarios [F2-01] --------
+    Importe:
+      type: string
+      pattern: '^-?\d+\.\d{2}$'
+      example: '1234.56'
+      description: Importe monetario en EUR, Decimal(10,2) serializado como string para evitar coma flotante.
+    Porcentaje:
+      type: string
+      pattern: '^\d+\.\d{2}$'
+      example: '21.00'
+      description: Porcentaje, Decimal(4,2) serializado como string.
+
+    # -------- Enums --------
+    EstadoReserva:
+      type: string
+      enum: [consulta, pre_reserva, reserva_confirmada, evento_en_curso, post_evento, reserva_completada, reserva_cancelada]
+    SubEstadoConsulta:
+      type: string
+      enum: ['2a', '2b', '2c', '2d', '2v', '2x', '2y', '2z']
+    CanalEntrada:
+      type: string
+      enum: [web, email, whatsapp, instagram, telefono]
+    DuracionHoras:
+      type: integer
+      enum: [4, 8, 12]
+    TipoEvento:
+      type: string
+      enum: [boda, corporativo, privado, otro]
+    Temporada:
+      type: string
+      enum: [alta, media, baja]
+    TipoBloqueo:
+      type: string
+      enum: [blando, firme]
+    OrigenExtra:
+      type: string
+      enum: [presupuesto, anadido_post_confirmacion]
+    TipoFactura:
+      type: string
+      enum: [senal, liquidacion, fianza, complementaria]
+    EstadoPresupuesto:
+      type: string
+      enum: [borrador, enviado, aceptado, rechazado]
+    EstadoFactura:
+      type: string
+      enum: [borrador, enviada, cobrada]
+    FianzaStatus:
+      type: string
+      enum: [pendiente, recibo_enviado, cobrada, devuelta, retenida_parcial]
+    PreEventoStatus:
+      type: string
+      enum: [pendiente, en_curso, cerrado]
+    LiquidacionStatus:
+      type: string
+      enum: [pendiente, facturada, cobrada]
+    TipoDocumento:
+      type: string
+      enum: [dni_anverso, dni_reverso, clausula_responsabilidad, condiciones_particulares, justificante_pago, presupuesto, factura, otro]
+    CodigoEmail:
+      type: string
+      enum: [E1, E2, E3, E4, E5, E6, E7, E8, manual]
+
+    # -------- Auth --------
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+    LoginResponse:
+      type: object
+      required: [accessToken, usuario]
+      properties:
+        accessToken: { type: string, description: JWT de vida corta (~15 min) }
+        usuario: { $ref: '#/components/schemas/Usuario' }
+    Usuario:
+      type: object
+      properties:
+        idUsuario: { type: string, format: uuid }
+        email: { type: string, format: email }
+        nombre: { type: string }
+        apellidos: { type: string, nullable: true }
+        rol: { type: string, enum: [gestor, admin, operario] }
+
+    # -------- Reserva --------
+    Reserva:
+      type: object
+      properties:
+        idReserva: { type: string, format: uuid }
+        codigo: { type: string, example: 'SLO-2026-0001' }
+        clienteId: { type: string, format: uuid }
+        estado: { $ref: '#/components/schemas/EstadoReserva' }
+        subEstado: { $ref: '#/components/schemas/SubEstadoConsulta' }
+        canalEntrada: { $ref: '#/components/schemas/CanalEntrada' }
+        fechaEvento: { type: string, format: date, nullable: true }
+        duracionHoras: { allOf: [{ $ref: '#/components/schemas/DuracionHoras' }], nullable: true }
+        tipoEvento: { allOf: [{ $ref: '#/components/schemas/TipoEvento' }], nullable: true }
+        numAdultosNinosMayores4: { type: integer, nullable: true }
+        numNinosMenores4: { type: integer, nullable: true }
+        numInvitadosFinal: { type: integer, nullable: true }
+        importeTotal: { allOf: [{ $ref: '#/components/schemas/Importe' }], nullable: true }
+        importeSenal: { allOf: [{ $ref: '#/components/schemas/Importe' }], nullable: true }
+        importeLiquidacion: { allOf: [{ $ref: '#/components/schemas/Importe' }], nullable: true }
+        ttlExpiracion: { type: string, format: date-time, nullable: true }
+        # [F2-02] Campos del ER que el recurso de lectura omitía (visita US-008/009, fianza US-030/036, cond. part. US-024)
+        visitaProgramadaFecha: { type: string, format: date, nullable: true }
+        visitaProgramadaHora: { type: string, nullable: true, example: '17:30' }
+        visitaRealizada: { type: boolean, nullable: true }
+        fianzaEur: { allOf: [{ $ref: '#/components/schemas/Importe' }], nullable: true }
+        fianzaCobradaFecha: { type: string, format: date, nullable: true }
+        fianzaDevueltaFecha: { type: string, format: date, nullable: true }
+        fianzaDevueltaEur: { allOf: [{ $ref: '#/components/schemas/Importe' }], nullable: true }
+        condPartFirmadas: { type: boolean, nullable: true }
+        condPartFechaEnvio: { type: string, format: date-time, nullable: true }
+        condPartFechaFirma: { type: string, format: date-time, nullable: true }
+        preEventoStatus: { $ref: '#/components/schemas/PreEventoStatus' }
+        liquidacionStatus: { $ref: '#/components/schemas/LiquidacionStatus' }
+        fianzaStatus: { $ref: '#/components/schemas/FianzaStatus' }
+        posicionCola: { type: integer, nullable: true }
+        consultaBloqueanteId: { type: string, format: uuid, nullable: true }
+        notas: { type: string, nullable: true }
+        fechaCreacion: { type: string, format: date-time }
+      required: [idReserva, codigo, clienteId, estado, canalEntrada]
+    ReservaDetalle:
+      allOf:
+        - $ref: '#/components/schemas/Reserva'
+        - type: object
+          properties:
+            cliente: { $ref: '#/components/schemas/Cliente' }
+            extras:
+              type: array
+              items: { $ref: '#/components/schemas/ReservaExtra' }
+            presupuestos:
+              type: array
+              items: { $ref: '#/components/schemas/Presupuesto' }
+            facturas:
+              type: array
+              items: { $ref: '#/components/schemas/Factura' }
+    ReservaListResponse:
+      type: object
+      required: [data, metadata]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Reserva' }
+        metadata: { $ref: '#/components/schemas/PaginationMetadata' }
+    CreateReservaRequest:
+      type: object
+      required: [canalEntrada, cliente]
+      properties:
+        canalEntrada: { $ref: '#/components/schemas/CanalEntrada' }
+        fechaEvento: { type: string, format: date, nullable: true, description: 'Si se envía, se crea en sub-estado 2.b con bloqueo blando' }
+        tipoEvento: { $ref: '#/components/schemas/TipoEvento' }
+        duracionHoras: { $ref: '#/components/schemas/DuracionHoras' }
+        numAdultosNinosMayores4: { type: integer }
+        numNinosMenores4: { type: integer }
+        notas: { type: string }
+        cliente: { $ref: '#/components/schemas/CreateClienteRequest' }
+    UpdateReservaRequest:
+      type: object
+      properties:
+        tipoEvento: { $ref: '#/components/schemas/TipoEvento' }
+        duracionHoras: { $ref: '#/components/schemas/DuracionHoras' }
+        numAdultosNinosMayores4: { type: integer }
+        numNinosMenores4: { type: integer }
+        numInvitadosFinal: { type: integer }
+        notas: { type: string }
+    TransicionRequest:
+      type: object
+      required: [estadoDestino]
+      properties:
+        estadoDestino: { $ref: '#/components/schemas/EstadoReserva' }
+        subEstadoDestino: { $ref: '#/components/schemas/SubEstadoConsulta' }
+        # [DECISIÓN F1-01] Campo añadido para que la transición 2.a→2.b (US-005) pueda asignar la fecha
+        # y disparar el bloqueo atómico. Confirma este enfoque frente a un endpoint dedicado de asignación.
+        fechaEvento:
+          type: string
+          format: date
+          nullable: true
+          description: 'Obligatorio en la transición 2.a→2.b (US-005): asigna la fecha y dispara el bloqueo atómico.'
+        motivo: { type: string, description: 'Obligatorio en cancelaciones/descartes' }
+    ProgramarVisitaRequest:
+      type: object
+      required: [visitaFecha, visitaHora]
+      properties:
+        visitaFecha: { type: string, format: date }
+        visitaHora: { type: string, example: '17:30' }
+    ResultadoVisitaRequest:
+      type: object
+      required: [visitaRealizada]
+      properties:
+        visitaRealizada: { type: boolean }
+        notas: { type: string }
+
+    # -------- Cola --------
+    ColaItem:
+      type: object
+      properties:
+        idReserva: { type: string, format: uuid }
+        codigo: { type: string }
+        posicionCola: { type: integer }
+        clienteNombre: { type: string }
+
+    # -------- Cliente --------
+    Cliente:
+      type: object
+      properties:
+        idCliente: { type: string, format: uuid }
+        nombre: { type: string }
+        apellidos: { type: string, nullable: true }
+        email: { type: string, format: email, nullable: true }
+        telefono: { type: string, nullable: true }
+        dniNif: { type: string, nullable: true }
+        direccion: { type: string, nullable: true }
+        codigoPostal: { type: string, nullable: true }
+        poblacion: { type: string, nullable: true }
+        provincia: { type: string, nullable: true }
+        ibanDevolucion: { type: string, nullable: true }
+      required: [idCliente, nombre]
+    CreateClienteRequest:
+      type: object
+      required: [nombre]
+      properties:
+        nombre: { type: string }
+        apellidos: { type: string }
+        email: { type: string, format: email }
+        telefono: { type: string }
+        dniNif: { type: string }
+        direccion: { type: string }
+        codigoPostal: { type: string }
+        poblacion: { type: string }
+        provincia: { type: string }
+    UpdateClienteRequest:
+      allOf:
+        - $ref: '#/components/schemas/CreateClienteRequest'
+        - type: object
+          properties:
+            ibanDevolucion: { type: string }
+
+    # -------- Catálogo de extras [F2-04] --------
+    Extra:
+      type: object
+      properties:
+        idExtra: { type: string, format: uuid }
+        nombre: { type: string }
+        descripcion: { type: string, nullable: true }
+        precioUnitario: { $ref: '#/components/schemas/Importe' }
+        activo: { type: boolean }
+
+    # -------- Tarifa / Presupuesto / Extra de reserva --------
+    CalculoTarifaRequest:
+      type: object
+      required: [fechaEvento, duracionHoras, numInvitados]
+      properties:
+        fechaEvento: { type: string, format: date }
+        duracionHoras: { $ref: '#/components/schemas/DuracionHoras' }
+        numInvitados: { type: integer }
+        extraIds:
+          type: array
+          items: { type: string, format: uuid }
+    CalculoTarifaResponse:
+      type: object
+      properties:
+        temporada: { $ref: '#/components/schemas/Temporada' }
+        baseImponible: { $ref: '#/components/schemas/Importe' }
+        ivaPorcentaje: { $ref: '#/components/schemas/Porcentaje' }
+        ivaImporte: { $ref: '#/components/schemas/Importe' }
+        total: { $ref: '#/components/schemas/Importe' }
+        lineas:
+          type: array
+          items:
+            type: object
+            properties:
+              concepto: { type: string }
+              importe: { $ref: '#/components/schemas/Importe' }
+    Presupuesto:
+      type: object
+      properties:
+        idPresupuesto: { type: string, format: uuid }
+        reservaId: { type: string, format: uuid }
+        version: { type: integer }
+        baseImponible: { $ref: '#/components/schemas/Importe' }
+        ivaPorcentaje: { $ref: '#/components/schemas/Porcentaje' }
+        ivaImporte: { $ref: '#/components/schemas/Importe' }
+        total: { $ref: '#/components/schemas/Importe' }
+        descuentoEur: { allOf: [{ $ref: '#/components/schemas/Importe' }], nullable: true }
+        descuentoMotivo: { type: string, nullable: true }
+        pdfUrl: { type: string, nullable: true }
+        estado: { $ref: '#/components/schemas/EstadoPresupuesto' }
+        fechaEnvio: { type: string, format: date-time, nullable: true }
+    CreatePresupuestoRequest:
+      type: object
+      properties:
+        descuentoEur: { $ref: '#/components/schemas/Importe' }
+        descuentoMotivo: { type: string }
+        extras:
+          type: array
+          items: { $ref: '#/components/schemas/CreateReservaExtraRequest' }
+    UpdatePresupuestoRequest:
+      type: object
+      properties:
+        descuentoEur: { $ref: '#/components/schemas/Importe' }
+        descuentoMotivo: { type: string }
+        enviar: { type: boolean, description: 'Si true, marca como enviado y dispara el email' }
+    ReservaExtra:
+      type: object
+      properties:
+        idReservaExtra: { type: string, format: uuid }
+        reservaId: { type: string, format: uuid }
+        extraId: { type: string, format: uuid, nullable: true }
+        facturaId: { type: string, format: uuid, nullable: true }
+        conceptoLibre: { type: string, nullable: true }
+        origen: { $ref: '#/components/schemas/OrigenExtra' }
+        cantidad: { type: integer }
+        precioUnitario: { $ref: '#/components/schemas/Importe' }
+        subtotal: { $ref: '#/components/schemas/Importe' }
+    CreateReservaExtraRequest:
+      type: object
+      required: [cantidad, origen]
+      properties:
+        extraId: { type: string, format: uuid, nullable: true }
+        conceptoLibre: { type: string, description: 'Para extras fuera de catálogo' }
+        cantidad: { type: integer, minimum: 1 }
+        origen: { $ref: '#/components/schemas/OrigenExtra' }
+        precioUnitario: { allOf: [{ $ref: '#/components/schemas/Importe' }], description: 'Obligatorio si extraId es nulo' }
+
+    # -------- Factura / Pago --------
+    Factura:
+      type: object
+      properties:
+        idFactura: { type: string, format: uuid }
+        reservaId: { type: string, format: uuid }
+        numeroFactura: { type: string, example: 'F-2026-0001', nullable: true, description: 'Asignado al enviar (borrador no tiene número)' }
+        tipo: { $ref: '#/components/schemas/TipoFactura' }
+        baseImponible: { $ref: '#/components/schemas/Importe' }
+        ivaPorcentaje: { $ref: '#/components/schemas/Porcentaje' }
+        ivaImporte: { $ref: '#/components/schemas/Importe' }
+        total: { $ref: '#/components/schemas/Importe' }
+        concepto: { type: string, nullable: true }
+        pdfUrl: { type: string, nullable: true }
+        estado: { $ref: '#/components/schemas/EstadoFactura' }
+        fechaEmision: { type: string, format: date-time, nullable: true }
+    CreateFacturaRequest:
+      type: object
+      required: [tipo]
+      properties:
+        tipo: { $ref: '#/components/schemas/TipoFactura' }
+        concepto: { type: string }
+    Pago:
+      type: object
+      properties:
+        idPago: { type: string, format: uuid }
+        facturaId: { type: string, format: uuid }
+        importe: { $ref: '#/components/schemas/Importe' }
+        fechaCobro: { type: string, format: date }
+        justificanteDocId: { type: string, format: uuid, nullable: true }
+    CreatePagoRequest:
+      type: object
+      required: [facturaId, importe, fechaCobro]
+      properties:
+        facturaId: { type: string, format: uuid }
+        importe: { $ref: '#/components/schemas/Importe' }
+        fechaCobro: { type: string, format: date }
+        justificanteDocId: { type: string, format: uuid, nullable: true }
+
+    # -------- Condiciones / Sub-procesos / Fianza --------
+    CondicionesParticularesRequest:
+      type: object
+      required: [accion]
+      properties:
+        accion: { type: string, enum: [enviar, marcar_firmadas] }
+        documentoId: { type: string, format: uuid, description: 'Documento firmado, en marcar_firmadas' }
+    SubprocesosRequest:
+      type: object
+      properties:
+        preEventoStatus: { $ref: '#/components/schemas/PreEventoStatus' }
+        liquidacionStatus: { $ref: '#/components/schemas/LiquidacionStatus' }
+        fianzaStatus: { $ref: '#/components/schemas/FianzaStatus' }
+    DevolucionFianzaRequest:
+      type: object
+      required: [importeDevuelto]
+      properties:
+        importeDevuelto: { allOf: [{ $ref: '#/components/schemas/Importe' }], description: 'Menor que fianza_eur si hay retención parcial' }
+        motivoRetencion: { type: string }
+
+    # -------- Ficha operativa --------
+    FichaOperativa:
+      type: object
+      properties:
+        idFicha: { type: string, format: uuid }
+        reservaId: { type: string, format: uuid }
+        numInvitadosConfirmado: { type: integer, nullable: true }
+        menuSeleccionado: { type: string, nullable: true }
+        timingDetallado: { type: string, nullable: true }
+        contactoEventoNombre: { type: string, nullable: true }
+        contactoEventoTelefono: { type: string, nullable: true }
+        notasOperativas: { type: string, nullable: true }
+        briefingEquipo: { type: string, nullable: true }
+        fichaCerrada: { type: boolean }
+    UpsertFichaOperativaRequest:
+      type: object
+      properties:
+        numInvitadosConfirmado: { type: integer }
+        menuSeleccionado: { type: string }
+        timingDetallado: { type: string }
+        contactoEventoNombre: { type: string }
+        contactoEventoTelefono: { type: string }
+        notasOperativas: { type: string }
+        briefingEquipo: { type: string }
+        fichaCerrada: { type: boolean }
+
+    # -------- Calendario --------
+    CalendarioItem:
+      type: object
+      properties:
+        fecha: { type: string, format: date }
+        reservaId: { type: string, format: uuid, nullable: true }
+        codigo: { type: string, nullable: true }
+        estado: { $ref: '#/components/schemas/EstadoReserva' }
+        tipoBloqueo: { allOf: [{ $ref: '#/components/schemas/TipoBloqueo' }], nullable: true }
+    FechaBloqueada:
+      type: object
+      properties:
+        idBloqueo: { type: string, format: uuid }
+        fecha: { type: string, format: date }
+        reservaId: { type: string, format: uuid }
+        tipoBloqueo: { $ref: '#/components/schemas/TipoBloqueo' }
+        ttlExpiracion: { type: string, format: date-time, nullable: true }
+    BloquearFechaRequest:
+      type: object
+      required: [fecha, reservaId, tipoBloqueo]
+      properties:
+        fecha: { type: string, format: date }
+        reservaId: { type: string, format: uuid }
+        tipoBloqueo: { $ref: '#/components/schemas/TipoBloqueo' }
+
+    # -------- Comunicaciones --------
+    Comunicacion:
+      type: object
+      properties:
+        idComunicacion: { type: string, format: uuid }
+        reservaId: { type: string, format: uuid, nullable: true }
+        clienteId: { type: string, format: uuid }
+        codigoEmail: { $ref: '#/components/schemas/CodigoEmail' }
+        asunto: { type: string }
+        destinatarioEmail: { type: string, format: email }
+        estado: { type: string, enum: [borrador, enviado, fallido] }
+        fechaEnvio: { type: string, format: date-time, nullable: true }
+    CreateComunicacionRequest:
+      type: object
+      required: [codigoEmail, destinatarioEmail, asunto]
+      properties:
+        codigoEmail: { $ref: '#/components/schemas/CodigoEmail' }
+        destinatarioEmail: { type: string, format: email }
+        asunto: { type: string }
+        cuerpo: { type: string }
+        guardarComoBorrador: { type: boolean, description: 'UC-36: guarda para revisión antes de enviar' }
+
+    # -------- Documento --------
+    Documento:
+      type: object
+      properties:
+        idDocumento: { type: string, format: uuid }
+        reservaId: { type: string, format: uuid, nullable: true }
+        tipo: { $ref: '#/components/schemas/TipoDocumento' }
+        nombreArchivo: { type: string }
+        url: { type: string }
+        mimeType: { type: string }
+        tamanoBytes: { type: integer, nullable: true }
+
+    # -------- Dashboard --------
+    DashboardResponse:
+      type: object
+      properties:
+        ocupacionMesActual: { type: number, format: double, description: '% de fechas ocupadas (métrica de display)' }
+        tasaConversion: { type: number, format: double, description: 'consultas → reservas confirmadas (métrica de display)' }
+        pipelineActivo: { type: integer, description: 'reservas en consulta + pre_reserva' }
+        ingresosMes: { $ref: '#/components/schemas/Importe' }
+        cobrosPendientes: { $ref: '#/components/schemas/Importe' }
+        ticketMedio: { $ref: '#/components/schemas/Importe' }
+
+    # -------- Cron --------
+    BarridoResponse:
+      type: object
+      properties:
+        reservasExpiradas: { type: integer }
+        fechasLiberadas: { type: integer }
+        consultasPromovidas: { type: integer }
+        recordatoriosEnviados: { type: integer }
+
+    # -------- Comunes --------
+    PaginationMetadata:
+      # [DECISIÓN F5-03] Forma del envoltorio de paginación no respaldada por fuente; ratificada como convención.
+      type: object
+      required: [total, page, limit, totalPages]
+      properties:
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+        totalPages: { type: integer }
+    ErrorResponse:
+      # [DECISIÓN F5-01] Envoltorio de error = convención de NestJS (exception filter). Ratificado; documentar en spec.
+      type: object
+      required: [statusCode, message]
+      properties:
+        statusCode: { type: integer, example: 409 }
+        message:
+          oneOf:
+            - type: string
+            - type: array
+              items: { type: string }
+          description: Mensaje(s) de error (formato de excepción de NestJS)
+        error: { type: string, example: 'Conflict' }

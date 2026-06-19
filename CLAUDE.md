@@ -77,3 +77,44 @@ Patrón **estado en fila + barrido periódico**: campo `ttl_expiracion` + cron q
 - [er-diagram.md](docs/er-diagram.md) — Modelo de datos y decisiones de modelado
 - [use-cases.md](docs/use-cases.md) — 36 casos de uso del MVP
 - [c4-diagrams.md](docs/c4-diagrams.md) — Diagramas C4 (Context, Container, Component)
+
+---
+
+## Harness de agentes (SDD + TDD)
+
+El desarrollo se hace con un harness de subagentes especializados. **No cargues `docs/` entero**: usa la skill `slotify-context` como router y deja que cada agente cargue solo su slice.
+
+| Para… | Invoca el agente | Carga skills |
+|-------|------------------|--------------|
+| Coordinar una US de principio a fin | `harness-orchestrator` | `slotify-context`, `openspec-workflow` |
+| Abrir/archivar un change OpenSpec | `spec-author` | `openspec-propose`, `openspec-archive`, `us-traceability` |
+| Evolucionar/auditar el contrato OpenAPI, generar SDK | `contract-engineer` | `openapi-governance`, `contract-sync`, `sdk-codegen` |
+| Escribir tests primero (RED) | `tdd-engineer` | `tdd-core`, `concurrency-locking`, `state-machine` |
+| Implementar backend NestJS/Prisma | `backend-developer` | `hexagonal-ddd`, `atomic-date-lock`, `multi-tenancy-rls`, `async-jobs` |
+| Implementar frontend (con Figma MCP) | `frontend-developer` | `figma-design-consume`, `frontend-feature`, `shadcn-tailwind`, `tanstack-forms` |
+| Ejecutar QA (unit/curl/Playwright + reports) | `qa-verifier` | `qa-mandatory-steps`, `db-state-verify` |
+| Revisar el diff contra guardrails | `code-reviewer` | `review-checklist`, `architecture-guardrails` |
+| Sincronizar documentación | `docs-keeper` | `doc-sync` |
+
+## Flujo de trabajo diario
+
+`SDD → Contrato → TDD-RED → Implementación (back ∥ front) → QA → Review → Docs → Archive/PR`
+
+- **Gates duros y secuenciales**: SDD → contrato → TDD-RED. No se implementa sin tests rojos.
+- El contrato OpenAPI + SDK generado es la frontera que permite a back y front avanzar en paralelo.
+- **El cliente HTTP del frontend se genera, nunca se edita a mano** (dueño: `contract-engineer`).
+- La spec vive en `openspec/changes/<change>/`; el estado en `tasks.md` (`[ ]/[x]`) y `reports/`.
+
+## Hooks que se aplican (no son sugerencias)
+
+Configurados en `.claude/settings.json` (`scripts/hooks/`):
+- **TDD**: bloquea implementar lógica crítica sin test hermano (`require-tests-first`).
+- **Hexagonal**: bloquea imports de framework/infra en `domain/` (`no-infra-in-domain`).
+- **Bloqueo atómico**: bloquea Redis/Redlock/locks distribuidos (`no-distributed-lock`).
+- **Contrato**: bloquea editar el cliente generado a mano (`protect-generated-client`); valida `api-spec.yml` al editarlo (`validate-openapi`).
+
+## Workflows / comandos
+
+- `/analizar-backlog` + `/ordenar-backlog` — regeneran el grafo y el orden del backlog.
+- `/audit-open-api` — auditoría puntual del contrato.
+- "Implementa la siguiente US" → `harness-orchestrator`.

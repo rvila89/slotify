@@ -953,7 +953,85 @@ Voy a utilizar metodologia SDD por lo que mi intención es definir tareas atomic
 
 ---
 
-### 7. Pull Requests
+### 7. Desarrollo
+
+**Prompt 1:**
+Diseña un plan completo de Harness Engineering para desarrollar Slotify usando Claude Code con metodología combinada TDD (Test-Driven Development) y SDD (Spec-Driven Development).
+
+Contexto del proyecto:
+
+Toda la documentación, especificaciones, arquitectura, decisiones técnicas y contexto funcional se encuentra en la carpeta docs/.
+Existe una propuesta inicial de agentes en .claude/agents, pero debes evaluarla críticamente y no asumir que es correcta.
+Puedes modificar, eliminar, fusionar o crear agentes nuevos según las necesidades reales del proyecto.
+El agente Frontend debe incorporar explícitamente el uso del MCP de Figma para consumir diseños, componentes, flujos y especificaciones visuales.
+El contrato OpenAPI ya existe, pero también hay documentación de auditoría y mejoras pendientes. Considera agentes especializados para gobierno de contratos, evolución de APIs, validación OpenAPI, generación de SDKs y sincronización backend/frontend.
+Existe una propuesta inicial de agentes en .claude/agents, pero debes evaluarla críticamente y no asumir que es correcta.
+Puedes modificar, eliminar, fusionar o crear agentes nuevos según las necesidades reales del proyecto.
+El agente Frontend debe incorporar explícitamente el uso del MCP de Figma para consumir diseños, componentes, flujos y especificaciones visuales.
+El contrato OpenAPI ya existe, pero también hay documentación de auditoría y mejoras pendientes. Considera agentes especializados para gobierno de contratos, evolución de APIs, validación OpenAPI, generación de SDKs y sincronización backend/frontend.
+
+Objetivo:
+Diseñar un harness de Claude Code de nivel producción que permita desarrollar Slotify de forma escalable, consistente y altamente automatizada.
+
+Analiza:
+
+La documentación completa del proyecto.
+La arquitectura actual.
+Los agentes existentes.
+Las necesidades reales del flujo TDD + SDD.
+Los puntos de integración entre frontend, backend, OpenAPI, testing y documentación.
+
+Entrega:
+
+Arquitectura completa del harness.
+Mapa de agentes recomendado.
+Agentes a conservar.
+Agentes a eliminar.
+Agentes nuevos propuestos.
+Responsabilidades de cada agente.
+Herramientas, MCPs y permisos de cada agente.
+Flujo completo SDD → TDD → Implementación → QA → Documentación.
+Organización recomendada para .claude/agents.
+Organización recomendada para .claude/skills.
+Hooks recomendados para garantizar cumplimiento TDD.
+Hooks recomendados para validar contratos OpenAPI.
+Hooks recomendados para evitar desviaciones arquitectónicas.
+Estrategia de paralelización de agentes.
+Estrategia de context engineering.
+Estrategia de memoria y transferencia de contexto entre agentes.
+
+Inspírate en patrones exitosos observados en:
+
+Claude Code Subagents.
+Spec-Driven Development.
+Agentic Coding Workflows.
+Context-Grounded Agents.
+TDD Orchestrators.
+Contract-First API Development.
+
+Prioriza:
+
+Calidad de código.
+Cumplimiento estricto de TDD.
+Cumplimiento estricto de SDD.
+Contratos API como fuente de verdad.
+Automatización.
+Escalabilidad.
+Bajo consumo de contexto.
+Alta reutilización de skills.
+Separación clara de responsabilidades.
+
+Finalmente, genera la estructura final propuesta para:
+
+.claude/agents
+.claude/skills
+CLAUDE.md
+Hooks
+Workflows operativos diarios
+
+Justifica cada decisión arquitectónica y explica por qué mejora el desarrollo de Slotify frente a la propuesta actual.
+
+### 8. Pull Requests
 
 **Prompt 1:**
 
