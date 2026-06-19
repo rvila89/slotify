@@ -1,0 +1,246 @@
+digraph HarnessSlotify {
+  rankdir=TB;
+  bgcolor="#0f1115";
+  fontname="Helvetica";
+  labelloc="t";
+  fontcolor="#ffffff";
+  fontsize=30;
+  label=<<B>Slotify — Arnés de desarrollo de una User Story (SDD &#8594; TDD &#8594; Impl &#8594; QA &#8594; Review &#8594; Docs &#8594; Archive)</B><BR/><FONT POINT-SIZE="16" COLOR="#9aa4b2">⏸ = parada de revisión humana obligatoria &#160;&#160;•&#160;&#160; 🔒 = hook bloqueante (no-bypass) &#160;&#160;•&#160;&#160; ∥ = ejecución en paralelo</FONT>>;
+  nodesep=0.45;
+  ranksep=0.55;
+  splines=spline;
+  node [fontname="Helvetica", shape=plaintext];
+  edge [color="#7d8794", penwidth=2.0, arrowsize=0.9, fontname="Helvetica", fontcolor="#c7ccd4", fontsize=12];
+
+  /* ===================== FLUJO PRINCIPAL ===================== */
+
+  start [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#1f6feb" STYLE="rounded">
+      <TR><TD><FONT COLOR="#ffffff" POINT-SIZE="15"><B>  ▶  Implementa la siguiente US  </B></FONT></TD></TR>
+    </TABLE>>];
+
+  sel [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#161b22" COLOR="#30363d" STYLE="rounded" CELLPADDING="7">
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#f0f6fc" POINT-SIZE="14"><B>0 · Selección de US</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa657" POINT-SIZE="12">agente: harness-orchestrator</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#7ee787" POINT-SIZE="11">skills: slotify-context · openspec-workflow</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="10">lee user-stories/_backlog.json (deps + criticidad)</FONT></TD></TR>
+    </TABLE>>];
+
+  sdd [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#161b22" STYLE="rounded" CELLPADDING="7">
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#f0f6fc" POINT-SIZE="14"><B>1 · SDD — abrir change OpenSpec</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa657" POINT-SIZE="12">agente: spec-author</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#7ee787" POINT-SIZE="11">skills: openspec-propose · slotify-domain · us-traceability</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="10">Step 0 = feature branch · proposal.md · spec-delta · tasks.md · design.md</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="10">openspec validate --strict</FONT></TD></TR>
+    </TABLE>>];
+
+  gate1 [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#3d2d00" COLOR="#bb8009" STYLE="rounded" CELLPADDING="8">
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#f2cc60" POINT-SIZE="14"><B>⏸ GATE 1 · Revisión humana de artefactos</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#e3b341" POINT-SIZE="11">config: mandatory_steps → review-gate-sdd (human_review)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#d9c89a" POINT-SIZE="10">El flujo SE DETIENE: aprobar proposal + spec-delta + design</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#d9c89a" POINT-SIZE="10">ANTES de implementar. No avanza sin OK explícito.</FONT></TD></TR>
+    </TABLE>>];
+
+  contrato [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#161b22" STYLE="rounded" CELLPADDING="7">
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#f0f6fc" POINT-SIZE="14"><B>2 · Contrato (si la US toca API)</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa657" POINT-SIZE="12">agente: contract-engineer</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#7ee787" POINT-SIZE="11">skills: openapi-governance · contract-sync · sdk-codegen</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="10">evoluciona docs/api-spec.yml · valida · regenera SDK · congela contrato</FONT></TD></TR>
+    </TABLE>>];
+
+  tdd [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#161b22" STYLE="rounded" CELLPADDING="7">
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#f0f6fc" POINT-SIZE="14"><B>3 · TDD-RED — tests primero</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa657" POINT-SIZE="12">agente: tdd-engineer</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#7ee787" POINT-SIZE="11">skills: tdd-core · concurrency-locking · state-machine</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="10">tests del bloqueo atómico / máquina de estados / tarifas → DEBEN fallar</FONT></TD></TR>
+    </TABLE>>];
+
+  impl [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#161b22" STYLE="rounded" CELLPADDING="7">
+      <TR><TD ALIGN="LEFT" COLSPAN="2"><FONT COLOR="#f0f6fc" POINT-SIZE="14"><B>4 · Implementación &#160;(back ∥ front)</B></FONT></TD></TR>
+      <TR>
+        <TD ALIGN="LEFT" BGCOLOR="#0d2818" CELLPADDING="6">
+          <FONT COLOR="#ffa657" POINT-SIZE="12"><B>backend-developer</B></FONT><BR ALIGN="LEFT"/>
+          <FONT COLOR="#7ee787" POINT-SIZE="10">hexagonal-ddd · atomic-date-lock</FONT><BR ALIGN="LEFT"/>
+          <FONT COLOR="#7ee787" POINT-SIZE="10">multi-tenancy-rls · async-jobs</FONT><BR ALIGN="LEFT"/>
+        </TD>
+        <TD ALIGN="LEFT" BGCOLOR="#0d1a28" CELLPADDING="6">
+          <FONT COLOR="#ffa657" POINT-SIZE="12"><B>frontend-developer</B></FONT><BR ALIGN="LEFT"/>
+          <FONT COLOR="#7ee787" POINT-SIZE="10">figma-design-consume · frontend-feature</FONT><BR ALIGN="LEFT"/>
+          <FONT COLOR="#7ee787" POINT-SIZE="10">shadcn-tailwind · tanstack-forms</FONT><BR ALIGN="LEFT"/>
+        </TD>
+      </TR>
+      <TR><TD ALIGN="LEFT" COLSPAN="2"><FONT COLOR="#9aa4b2" POINT-SIZE="10">implementan hasta poner los tests en VERDE · el SDK generado es la frontera</FONT></TD></TR>
+    </TABLE>>];
+
+  qa [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#161b22" STYLE="rounded" CELLPADDING="7">
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#f0f6fc" POINT-SIZE="14"><B>5 · QA (el agente ejecuta, nunca delega)</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa657" POINT-SIZE="12">agente: qa-verifier</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#7ee787" POINT-SIZE="11">skills: qa-mandatory-steps · db-state-verify</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="10">N+1 unit + estado BD · N+2 curl · N+3 Playwright E2E → reports/</FONT></TD></TR>
+    </TABLE>>];
+
+  review [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#2d1538" COLOR="#a371f7" STYLE="rounded" CELLPADDING="8">
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#d2a8ff" POINT-SIZE="14"><B>6 · Code Review — GATE DURO (obligatorio)</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa657" POINT-SIZE="12">agente: code-reviewer</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#7ee787" POINT-SIZE="11">skills: review-checklist · architecture-guardrails</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#d9c89a" POINT-SIZE="10">informe → reports/...-code-review.md · línea `Veredicto: APTO / NO APTO`</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#ff7b72" POINT-SIZE="10">NO APTO o Bloqueante → vuelve a Implementación</FONT></TD></TR>
+    </TABLE>>];
+
+  docs [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#161b22" STYLE="rounded" CELLPADDING="7">
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#f0f6fc" POINT-SIZE="14"><B>7 · Docs</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa657" POINT-SIZE="12">agente: docs-keeper</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#7ee787" POINT-SIZE="11">skills: doc-sync · slotify-domain</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="10">sincroniza docs/ (data-model · er-diagram · api-spec · standards)</FONT></TD></TR>
+    </TABLE>>];
+
+  gate2 [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#3d2d00" COLOR="#bb8009" STYLE="rounded" CELLPADDING="8">
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#f2cc60" POINT-SIZE="14"><B>⏸ GATE 2 · Revisión humana final</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#e3b341" POINT-SIZE="11">config: mandatory_steps → review-gate-final (human_review)</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#d9c89a" POINT-SIZE="10">SE DETIENE: code-review APTO + validación manual → OK humano</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#d9c89a" POINT-SIZE="10">ANTES de archive / PR</FONT></TD></TR>
+    </TABLE>>];
+
+  archive [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#161b22" STYLE="rounded" CELLPADDING="7">
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#f0f6fc" POINT-SIZE="14"><B>8 · Archive + PR</B></FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa657" POINT-SIZE="12">agente: spec-author</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#7ee787" POINT-SIZE="11">skills: openspec-archive · openspec-sync-specs</FONT></TD></TR>
+      <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="10">openspec archive &#8594; promueve openspec/specs/ · abre PR</FONT></TD></TR>
+    </TABLE>>];
+
+  done [label=<
+    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" BGCOLOR="#238636" STYLE="rounded">
+      <TR><TD><FONT COLOR="#ffffff" POINT-SIZE="15"><B>  ✔  US completada · PR a master  </B></FONT></TD></TR>
+    </TABLE>>];
+
+  start -> sel -> sdd -> gate1 -> contrato -> tdd -> impl -> qa -> review -> docs -> gate2 -> archive -> done;
+  review -> impl [label="  NO APTO / Bloqueante  ", color="#ff7b72", fontcolor="#ff7b72", style=dashed, constraint=false];
+
+  /* ===================== HOOKS (enforcement) ===================== */
+
+  subgraph cluster_hooks {
+    label=<<B>🔒 HOOKS — enforcement determinista (.claude/settings.json &#8594; scripts/hooks/)</B>>;
+    fontcolor="#ff7b72";
+    fontsize=15;
+    color="#5a1e1e";
+    style="rounded";
+    bgcolor="#1a1012";
+    margin=12;
+
+    h_tdd [label=<
+      <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" BGCOLOR="#2b1416" STYLE="rounded">
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa198" POINT-SIZE="11"><B>require-tests-first</B></FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#d9a8a4" POINT-SIZE="9">PreToolUse · Edit|Write</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="9">bloquea impl. de lógica crítica sin test hermano</FONT></TD></TR>
+      </TABLE>>];
+
+    h_hex [label=<
+      <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" BGCOLOR="#2b1416" STYLE="rounded">
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa198" POINT-SIZE="11"><B>no-infra-in-domain</B></FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#d9a8a4" POINT-SIZE="9">PreToolUse · Edit|Write</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="9">domain/ no importa @nestjs/@prisma/infra</FONT></TD></TR>
+      </TABLE>>];
+
+    h_lock [label=<
+      <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" BGCOLOR="#2b1416" STYLE="rounded">
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa198" POINT-SIZE="11"><B>no-distributed-lock</B></FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#d9a8a4" POINT-SIZE="9">PreToolUse · Edit|Write</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="9">prohíbe Redis/Redlock · solo UNIQUE+SELECT FOR UPDATE</FONT></TD></TR>
+      </TABLE>>];
+
+    h_client [label=<
+      <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" BGCOLOR="#2b1416" STYLE="rounded">
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa198" POINT-SIZE="11"><B>protect-generated-client</B></FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#d9a8a4" POINT-SIZE="9">PreToolUse · Edit|Write</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="9">apps/web/src/api-client/ no se edita a mano</FONT></TD></TR>
+      </TABLE>>];
+
+    h_openapi [label=<
+      <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" BGCOLOR="#2b1416" STYLE="rounded">
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#ffa198" POINT-SIZE="11"><B>validate-openapi</B></FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#d9a8a4" POINT-SIZE="9">PostToolUse · Edit|Write</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="9">valida docs/api-spec.yml al editarlo</FONT></TD></TR>
+      </TABLE>>];
+
+    h_review [label=<
+      <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" BGCOLOR="#3a1530" STYLE="rounded">
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#f2c6ff" POINT-SIZE="11"><B>require-code-review &#160;★ NUEVO</B></FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#d9a8d4" POINT-SIZE="9">PreToolUse · Bash</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="9">bloquea `openspec archive` y `gh pr create|merge`</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#9aa4b2" POINT-SIZE="9">sin informe `Veredicto: APTO`</FONT></TD></TR>
+      </TABLE>>];
+
+    h_tdd -> h_hex -> h_lock -> h_client -> h_openapi -> h_review [style=invis];
+  }
+
+  /* hooks → fases que guardan (dashed) */
+  edge [style=dashed, color="#a3434b", penwidth=1.3, arrowsize=0.7, constraint=false];
+  h_tdd -> tdd;
+  h_hex -> impl;
+  h_lock -> impl;
+  h_client -> impl;
+  h_openapi -> contrato;
+  h_review -> archive [color="#a371f7"];
+
+  /* ===================== PANEL: config / quality gates ===================== */
+
+  subgraph cluster_cfg {
+    label=<<B>openspec/config.yaml — fuente de verdad</B>>;
+    fontcolor="#79c0ff";
+    fontsize=15;
+    color="#1f3a5f";
+    style="rounded";
+    bgcolor="#0d1828";
+    margin=12;
+
+    cfg [shape=plaintext label=<
+      <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4">
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#79c0ff" POINT-SIZE="12"><B>mandatory_steps (en orden)</B></FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#c9d1d9" POINT-SIZE="10">step-0 → <FONT COLOR="#f2cc60">review-gate-sdd ⏸</FONT> → tdd-first →</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#c9d1d9" POINT-SIZE="10">step-N → step-N+1 → step-N+2 → step-N+3 →</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#c9d1d9" POINT-SIZE="10">step-N+4 → <FONT COLOR="#d2a8ff">code-review 🔒</FONT> →</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#c9d1d9" POINT-SIZE="10"><FONT COLOR="#f2cc60">review-gate-final ⏸</FONT> → archive</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#79c0ff" POINT-SIZE="12"><B>&#160;</B></FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#79c0ff" POINT-SIZE="12"><B>quality_gates</B></FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#c9d1d9" POINT-SIZE="10">pre_commit: pnpm lint · typecheck · test</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#c9d1d9" POINT-SIZE="10">contract_validation: spectral lint api-spec.yml</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#c9d1d9" POINT-SIZE="10">pre_archive: code-review APTO + OK humano</FONT></TD></TR>
+      </TABLE>>];
+  }
+
+  /* ===================== PANEL: memoria / bus de estado ===================== */
+
+  subgraph cluster_state {
+    label=<<B>Memoria en disco — bus de estado entre agentes</B>>;
+    fontcolor="#7ee787";
+    fontsize=15;
+    color="#1e4620";
+    style="rounded";
+    bgcolor="#0d1f12";
+    margin=12;
+
+    state [shape=plaintext label=<
+      <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4">
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#c9d1d9" POINT-SIZE="10">user-stories/_backlog.json &#8594; siguiente US</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#c9d1d9" POINT-SIZE="10">openspec/changes/&lt;change&gt;/proposal.md · design.md</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#c9d1d9" POINT-SIZE="10">openspec/changes/&lt;change&gt;/tasks.md  ([ ] / [x])</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#c9d1d9" POINT-SIZE="10">openspec/changes/&lt;change&gt;/reports/*.md (QA + code-review)</FONT></TD></TR>
+        <TR><TD ALIGN="LEFT"><FONT COLOR="#c9d1d9" POINT-SIZE="10">docs/api-spec.yml · apps/web/src/api-client/ (SDK)</FONT></TD></TR>
+      </TABLE>>];
+  }
+
+  /* anclar paneles laterales al flujo sin distorsionar el rank */
+  edge [style=invis, constraint=false];
+  cfg -> state;
+}
