@@ -989,7 +989,37 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 
 ## FASE 7: DESARROLLO
  
-**Estado**: ⏳ **PENDIENTE**
+### 7.1 Diseño del Harness de Desarrollo con Claude Code
+
+**Objetivo**: Diseñar la infraestructura de agentes IA que guiará todo el desarrollo de Slotify
+
+Antes de escribir una sola línea de código, se tomó la decisión de invertir tiempo en diseñar el **arnés de ingeniería** que orquestaría el desarrollo asistido por IA. La premisa era clara: si íbamos a construir Slotify con Claude Code como copiloto principal, necesitábamos una arquitectura de agentes sólida, no una colección de prompts ad hoc.
+
+#### Planteamiento
+
+El proyecto ya contaba con una propuesta inicial de agentes en `.claude/agents`, pero ésta no había sido diseñada con visión crítica ni con conocimiento profundo del proyecto. El riesgo era evidente: agentes con responsabilidades solapadas, sin estrategia de contexto, sin hooks de guardia y sin integración real con el flujo SDD → TDD que se quería seguir.
+
+La decisión fue **partir de cero conceptualmente**: analizar la documentación completa del proyecto, la arquitectura técnica, el contrato OpenAPI existente y las necesidades reales del flujo de desarrollo, para diseñar un harness de nivel producción.
+
+#### Qué se quería diseñar
+
+El harness debía cubrir cinco dimensiones críticas:
+
+1. **Mapa de agentes**: Qué agentes conservar, cuáles eliminar, cuáles crear nuevos. Con énfasis especial en un agente Frontend que integrara el MCP de Figma para consumir diseños directamente, y agentes especializados en gobierno del contrato OpenAPI (validación, evolución, generación de SDKs y sincronización backend/frontend).
+
+2. **Flujo completo de trabajo**: Desde la especificación (SDD) hasta la entrega documentada, pasando por los tests (TDD), la implementación y el QA. El contrato OpenAPI como fuente de verdad inamovible.
+
+3. **Hooks de guardia**: Mecanismos automáticos que impidieran desviaciones del TDD, violaciones del contrato API o derivas arquitectónicas. El objetivo era que el propio entorno de desarrollo rechazara código que no cumpliera los estándares definidos.
+
+4. **Estrategia de contexto**: Cómo minimizar el consumo de tokens entre agentes, cómo transferir memoria entre sesiones y cómo evitar que los agentes perdieran el hilo del proyecto en conversaciones largas.
+
+5. **Estructura operativa**: La organización final de `.claude/agents`, `.claude/skills`, `CLAUDE.md` y los workflows diarios que el equipo (yo) seguiría durante el desarrollo.
+
+#### Herramienta utilizada
+
+El prompt fue ejecutado en **Claude Projects** (Claude Opus 4.5), pasándole como contexto toda la documentación técnica del proyecto disponible en `docs/`.
+
+*(Esta sección se completará con los resultados del harness una vez ejecutado el prompt)*
 
 ### 7.1 Scaffolding del proyecto
 
