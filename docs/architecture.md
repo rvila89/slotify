@@ -2,8 +2,6 @@
 
 > **Documento**: Diseño de Arquitectura
 > **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados
-> **Versión**: 3.2
-> **Fecha**: 25/05/2026
 > **Fuente**: EspecificacionFuncional.md · er-diagram.md · use-cases.md
 
 ---

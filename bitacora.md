@@ -1,9 +1,8 @@
 # BITÁCORA DE DESARROLLO — SLOTIFY
 > Proyecto de Trabajo Final de Máster  
 > Plataforma SaaS de gestión integral para espacios de eventos privados  
-> Autor: Roger Vila  
-> Fecha inicio: Enero 2025  
-> Última actualización: 4 de junio de 2026
+> Autor: Roger Vila
+> Última actualización: 11 de junio de 2026
 
 ---
 
@@ -13,14 +12,13 @@
 2. [Fase 1: Discovery y Planificación](#fase-1-discovery-y-planificación)
 3. [Fase 2: Diseño de Artefactos](#fase-2-diseño-de-artefactos)
 4. [Fase 3: Historias de Usuario y Backlog](#fase-3-historias-de-usuario-y-backlog)
-5. [Fase 4: Planificación de Sprints](#fase-4-planificación-de-sprints)
-6. [Fase 5: Diseño UX/UI](#fase-5-diseño-uxui)
+5. [Fase 4: Diseño UX/UI](#fase-4-diseño-uxui)
+6. [Fase 5: Planificación de Sprints](#fase-5-planificación-de-sprints)
 7. [Fase 6: Modelo de Datos](#fase-6-modelo-de-datos)
 8. [Fase 7: Desarrollo](#fase-7-desarrollo)
 9. [Fase 8: Testing](#fase-8-testing)
-10. [Métricas y KPIs del proyecto](#métricas-y-kpis-del-proyecto)
-11. [Lecciones aprendidas](#lecciones-aprendidas)
-12. [Próximos pasos](#próximos-pasos)
+10. [Lecciones aprendidas](#lecciones-aprendidas)
+11. [Próximos pasos](#próximos-pasos)
 
 ---
 
@@ -31,19 +29,18 @@
 - **Descriptor de marca**: Plataforma de gestión para espacios de eventos
 - **Tipología**: Plataforma SaaS B2B multi-tenant
 - **Cliente piloto**: Masia l'Encís (Alt Penedès)
-- **Equipo gestor del espacio**: 4 personas sin perfil técnico
 - **Metodología de desarrollo**: SDD (Spec-Driven Development) + TDD (Test-Driven Development) asistido por IA
 
 ### Cronograma del TFM
 | Hito | Fecha límite | Estado |
 |------|--------------|--------|
-| Documentación técnica completa | 12/06/2026 | 🔄 En progreso |
+| Documentación técnica completa | 12/06/2026 | ✅ Entregado |
 | Código funcional MVP | 10/07/2026 | ⏳ Pendiente |
 | Entrega final TFM | 29/07/2026 | ⏳ Pendiente |
 
 ### Herramientas y asistentes IA utilizados
 - **Claude Projects** (Claude Opus / Sonnet) — Especificación funcional, arquitectura, refinamiento iterativo
-- **GitHub Copilot** (Claude Sonnet 4.5) — Desarrollo asistido en VS Code
+- **GitHub Copilot** — Desarrollo asistido en VS Code
 - **ChatGPT** (Custom GPT: AI Mega-Prompt Generator) — Generación de system prompts
 - **Perplexity** — Validación de mercado y benchmarking competitivo
 - **Diagrams GPT** — Generación de diagramas de arquitectura
@@ -52,7 +49,7 @@
 
 ## FASE 1: DISCOVERY Y PLANIFICACIÓN
 
-### 1.1 Sesión de Discovery con Claude Web
+### 1.1 Sesión de Discovery con Claude Desktop
  
 **Objetivo**: Validar viabilidad de la idea y definir alcance del MVP
 
@@ -112,7 +109,7 @@ La gestión integral de **eventos privados de pequeño formato SIN pernoctación
 #### Puntos de dolor documentados
 **Contexto del negocio**: Hace poco más de un año, mi familia y yo iniciamos Masia l'Encís, un espacio de más de 500 m² entre viñedos y olivos en el Alt Penedès, dedicado a celebraciones y eventos privados.
 
-**Situación actual**: La gestión se realiza entre 4 personas sin perfil técnico mediante herramientas dispersas: Gmail, Google Sheets, Google Drive y WhatsApp.
+**Situación actual**: La gestión se realiza entre 4 personas mediante herramientas dispersas: Gmail, Google Sheets, Google Drive y WhatsApp.
 
 **Crecimiento**: El proyecto ha tenido un crecimiento superior al esperado, lo que ha expuesto las limitaciones del modelo de gestión actual.
 
@@ -271,7 +268,7 @@ Estrategia **"opinado por fuera, configurable por dentro"**:
 
 #### Decisiones técnicas y arquitectónicas clave
 
-##### Estrategia "opinado por fuera, configurable por dentro"
+#### Estrategia "opinado por fuera, configurable por dentro"
 
 **Decisión de mayor calado**: El producto se construye con un único flujo operativo visible (Masia l'Encís), pero internamente todo lo configurable se modela como configuración por tenant desde el día 1:
 - Máquina de estados
@@ -286,7 +283,7 @@ Estrategia **"opinado por fuera, configurable por dentro"**:
 
 **Riesgo aceptado**: Clientes con operativa radicalmente distinta a Masia l'Encís quedan fuera del MVP/V1.
 
-##### Decisiones arquitectónicas no negociables
+#### Decisiones arquitectónicas no negociables
 
 Fijadas desde el día 1 para sostener la estrategia anterior:
 
@@ -330,7 +327,7 @@ Fijadas desde el día 1 para sostener la estrategia anterior:
     - No como tabla aparte
     - Mantiene cohesión y simplifica queries
 
-##### Decisiones funcionales
+#### Decisiones funcionales
 A nivel funcional, las decisiones tomadas en esta fase reconfiguran cómo se entiende el negocio en el producto. La primera y más estructural es que **la reserva es la entidad central, no el cliente**: la mayoría de clientes en eventos privados no son recurrentes, por lo que el activo informacional clave es el histórico de reservas, no una visión cliente-céntrica al estilo CRM. El cliente queda como un atributo de la reserva.
 
 El flujo financiero queda fijado en **pre-pago: 40% de señal en la confirmación y 60% de liquidación antes del evento** (deadline T-1d), descartando explícitamente el modelo de cobro post-evento. Asimismo, se ha decidido que el **pre-evento y la liquidación corran en paralelo** desde la confirmación de la reserva, no en secuencia, reflejando cómo trabaja realmente una masía: definir los detalles del evento y cobrar son procesos ortogonales que deben poder avanzar a su ritmo. El día del evento solo se ejecuta si ambos sub-procesos están cerrados.
@@ -341,7 +338,7 @@ Se ha discutido y resuelto cómo gestionar dos casos de uso reales y frecuentes 
 
 Para soportar estos dos casos, se han incorporado nuevos estados terminales en el sub-estado consulta: `2.x consulta_expirada`, `2.y consulta_descartada_por_cola` y `2.z consulta_descartada_por_cliente`. Esta distinción es relevante porque permite analíticamente entender por qué se pierde cada lead y no distorsiona el funnel de conversión.
 
-##### Decisiones alcance del MVP
+#### Decisiones alcance del MVP
 
 El alcance del MVP TFM incluye el proceso completo end-to-end de una reserva, los sub-procesos paralelos pre-evento + liquidación, y la cola de espera con toda su mecánica. Es un alcance ambicioso pero asumido conscientemente por tres razones:
 
@@ -357,13 +354,13 @@ Después de iterar con el asistente para obtener una especificación funcional v
 
 ---
 
-# SYSTEM ROLE:
+### SYSTEM ROLE:
 
 Eres un Product Manager senior especializado en plataformas SaaS B2B para gestión integral de espacios de eventos privados de pequeño y mediano formato (masías, fincas, jardines, villas, salones boutique y espacios familiares).
 
 Actualmente acompañas el desarrollo de **Slotify**, plataforma SaaS multi-tenant cuyo caso piloto es **Masia l'Encís**. El proyecto se desarrolla como Trabajo Final de Máster con deadlines: documentación técnica 12/06/2026, código funcional 10/07/2026, entrega final 29/07/2026. El desarrollo se realiza con metodologías **SDD (Spec-Driven Development) + TDD (Test-Driven Development) asistido por IA** en todas las fases del SDLC.
 
-## FUENTE DE CONOCIMIENTO
+### FUENTE DE CONOCIMIENTO
 
 La especificación funcional completa de Slotify está adjunta al proyecto como `EspecificacionFuncional.md`. Esa especificación es la **fuente de verdad** del producto. Antes de responder cualquier pregunta funcional, arquitectónica o de alcance, consúltala.
 
@@ -375,7 +372,7 @@ Reglas de uso de la spec:
 - Si la spec **no cubre** un caso, dilo explícitamente antes de proponer.
 - No inventes comportamientos no documentados como si estuvieran en la spec.
 
-## TU FUNCIÓN
+### TU FUNCIÓN
 
 Actúas como:
 - Product Manager
@@ -393,7 +390,7 @@ Tu prioridad es diseñar producto SaaS:
 - centrado en reducir errores humanos,
 - y capaz de sustituir procesos dispersos realizados actualmente con Gmail, Google Sheets, Google Drive y WhatsApp.
 
-## MODELO MENTAL OBLIGATORIO DE SLOTIFY
+### MODELO MENTAL OBLIGATORIO DE SLOTIFY
 
 Estas son piedras angulares del producto. Cualquier diseño debe respetarlas:
 
@@ -406,7 +403,7 @@ Estas son piedras angulares del producto. Cualquier diseño debe respetarlas:
 - **Consultas son entidades inmutables.** Las reaperturas crean entidad nueva vinculada vía `consulta_vinculo`. Nunca propongas "reabrir" una consulta terminal.
 - **Estrategia "opinado por fuera, configurable por dentro"**: un único flujo visible al usuario, pero TTLs, porcentajes, plantillas y máquina de estados como configuración por tenant desde el día 1.
 
-## CÓMO DEBES RESPONDER
+### CÓMO DEBES RESPONDER
 
 Siempre debes:
 - pensar en términos de workflows reales de negocio,
@@ -437,7 +434,7 @@ Debes estructurar tus respuestas como documentación profesional de producto pre
 - equipos operativos,
 - e inversores SaaS.
 
-## ESTILO
+### ESTILO
 
 Tu estilo debe ser:
 - estratégico,
@@ -455,7 +452,7 @@ Reglas de tono no negociables:
 
 Nunca respondas con ideas vagas. Toda recomendación debe estar adaptada específicamente a Slotify y al sector de gestión de espacios para eventos privados.
 
-## RIESGOS CRÍTICOS VIVOS DEL PROYECTO
+### RIESGOS CRÍTICOS VIVOS DEL PROYECTO
 
 Mantén estos riesgos presentes en cualquier diseño o recomendación:
 
@@ -497,7 +494,7 @@ Mantén estos riesgos presentes en cualquier diseño o recomendación:
    - `prompts.md`: Registro de prompts principales ejecutados en cada fase
    - `readme.md`: Descripción general del proyecto, stack, y cómo ejecutarlo
 
-**Herramienta principal**: GitHub Copilot (modelo Claude Sonnet 4.5) en VS Code como asistente de desarrollo
+**Herramienta principal**: GitHub Copilot (modelo Claude Sonnet 4.6) en VS Code como asistente de desarrollo
 
 **Prompt utilizado**: Ver [prompts.md](prompts.md#prompt-2-setup-proyecto)
 
@@ -518,7 +515,7 @@ Mantén estos riesgos presentes en cualquier diseño o recomendación:
 
 ### 2.1 Casos de uso (Use Cases)
 
-**Herramienta**: GitHub Copilot (Claude Sonnet 4.5) en VS Code  
+**Herramienta**: GitHub Copilot (Claude Sonnet 4.6) en VS Code  
 **Prompt base**: Ver [prompts.md](prompts.md#prompt-3-generacion-use-cases)
 
 **Contexto adjunto al prompt**:
@@ -770,7 +767,7 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 
 ### 3.1 Generación de historias de usuario
 
-**Herramienta**: GitHub Copilot (Claude Sonnet 4.5)  
+**Herramienta**: GitHub Copilot (Claude Sonnet 4.6)  
 **Prompt base**: Ver [prompts.md](prompts.md#prompt-8-generacion-user-stories)
 
 **Estrategia adoptada**: Generación **por área funcional** para evitar problemas de contexto
@@ -963,7 +960,7 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 
 **Estado**: 🔄 **EN PROGRESO**
 
-### 4.1 Definición de sprints
+### 5.1 Definición de sprints
 
 **Pendiente de documentar**:
 - Distribución de user stories por sprints
@@ -975,8 +972,7 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 ---
 
 ## FASE 6: MODELO DE DATOS
-
-**Fecha**: Semana 1 de mayo 2025  
+ 
 **Estado**: ⏳ **PENDIENTE**
 
 ### 6.1 Implementación del schema de Prisma
@@ -992,8 +988,7 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 ---
 
 ## FASE 7: DESARROLLO
-
-**Fecha**: Mayo-junio 2025  
+ 
 **Estado**: ⏳ **PENDIENTE**
 
 ### 7.1 Scaffolding del proyecto
@@ -1008,7 +1003,6 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 
 ## FASE 8: TESTING
 
-**Fecha**: Mayo-junio 2025  
 **Estado**: ⏳ **PENDIENTE**
 
 ### 8.1 Tests de bloqueo atómico de fecha
