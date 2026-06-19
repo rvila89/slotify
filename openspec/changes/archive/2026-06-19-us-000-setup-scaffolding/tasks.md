@@ -76,4 +76,4 @@ El agente ejecuta las pruebas; nunca se delegan al usuario.
 ## Cierre
 
 - [x] C.1 `openspec validate us-000-setup-scaffolding --strict` OK.
-- [ ] C.2 `openspec archive us-000-setup-scaffolding`; actualizar `openspec/specs/`; abrir PR.
+- [x] C.2 `openspec archive us-000-setup-scaffolding`; actualizar `openspec/specs/`; abrir PR.
