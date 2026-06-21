@@ -1,352 +1,351 @@
 ---
-description: Enforce mandatory steps from openspec/config.yaml when creating tasks.md artifacts and ensure agent executes all manual tests
+description: Obliga a incluir los pasos obligatorios de openspec/config.yaml al crear o actualizar artefactos tasks.md, y asegura que el agente ejecuta él mismo todas las pruebas manuales (nunca delega en el usuario).
 alwaysApply: true
 ---
 
-# OpenSpec Tasks: Mandatory Steps Enforcement
+# OpenSpec Tasks: pasos obligatorios
 
-When creating or updating `tasks.md` artifacts in OpenSpec changes, you MUST:
+Esta guía es la cara legible para agentes de la **fuente de verdad**
+`openspec/config.yaml`. Define qué pasos obligatorios debe incluir todo `tasks.md`
+de un change de OpenSpec, en qué orden, y cómo se integran en el flujo del arnés.
 
-## 1. Read openspec/config.yaml First
+> **Regla de oro**: el agente DEBE ejecutar las pruebas él mismo. **Nunca delega
+> los tests, los curl ni el E2E en el usuario.**
 
-**BEFORE** creating or updating any `tasks.md` file, you MUST read `openspec/config.yaml` to understand:
-- Backend and frontend-specific mandatory steps
-- Branch naming conventions
-- Task structure requirements
-- Testing and documentation requirements
+---
 
-## 2. Mandatory Steps
+## 0. Antes de crear o actualizar un `tasks.md`: lee `openspec/config.yaml`
 
-All implementation tasks MUST include these steps in the correct order:
+**ANTES** de crear o actualizar cualquier `tasks.md`, lee `openspec/config.yaml`
+para conocer:
 
-### Step 0: Create Feature Branch (MUST BE FIRST)
-- **Location**: Must be the very first step (Step 0)
-- **Branch naming**: `feature/[ticket-id]` or `feature/[change-name]`
-- **Action**: Create and switch to feature branch before any code changes
+- Los `mandatory_steps` (11 pasos) y su orden.
+- La convención de branch: `branching.pattern: feature/{change-name}` desde
+  `branching.base: master`.
+- La carpeta de reports: `changes.reports_dir: openspec/changes/{change-name}/reports`.
+- Los `quality_gates` (pre_commit, contract_validation, pre_archive).
+- Los flags `human_review: true` (gates de parada humana) y
+  `agent_must_execute: true` (pasos que el agente ejecuta sí o sí).
 
-### Mandatory Steps (Must Be Included):
-- **Step N**: Review and Update Existing Unit Tests (MANDATORY)
-- **Step N+1**: Run Unit Tests and Verify Database State (MANDATORY)
-- **Step N+2**: Manual Endpoint Testing with curl (MANDATORY) - **AGENT MUST EXECUTE**
-- **Step N+3**: E2E Testing with Playwright MCP (MANDATORY if applicable) - **AGENT MUST EXECUTE**
-- **Step N+4**: Update Technical Documentation (MANDATORY)
+Si esta guía y `openspec/config.yaml` discreparan, **manda `config.yaml`**.
 
-## 3. Manual Testing Requirements - CRITICAL: Agent Must Execute
+---
 
-**IMPORTANT**: The coding agent (AI) MUST perform all manual testing steps itself. **NEVER delegate testing to the user**. These tests must be executed by the agent to mark tasks as completed in `tasks.md`.
+## 1. Los 11 pasos obligatorios (en orden)
 
-### Step N+1: Run Unit Tests and Verify Database State (MANDATORY)
+Estos son los pasos de `config.yaml`. El flujo del arnés es:
 
-**Agent Responsibility**: The coding agent MUST execute unit tests, validate database integrity before/after execution, and produce a test report artifact in the change spec folder. This is NOT optional and cannot be delegated to the user.
+`SDD → ⏸ review-gate-sdd → contrato → TDD-RED → impl (back ∥ front) → QA → code-review → docs → ⏸ review-gate-final → archive/PR`
 
-**Implementation Steps** (Agent must perform):
-1. **Prepare Test Environment**:
-   - Ensure required services are available (database, cache, dependencies)
-   - Capture pre-test database state relevant to the change (counts, key records, checksums, or snapshots)
-   - Document the exact test command(s) that will be executed
+| # | id (`config.yaml`) | Qué es | Flags | Actor |
+|---|--------------------|--------|-------|-------|
+| 0 | `step-0` | Crear feature branch `feature/{change-name}` desde `master` (PRIMER paso) | `first: true` | `spec-author` |
+| 1 | `review-gate-sdd` | ⏸ **GATE humano**: aprobar `proposal` + spec-delta + `design` ANTES de implementar | `human_review: true` | humano |
+| 2 | `tdd-first` | Tests primero (concurrencia del bloqueo, máquina de estados, tarifas) | — | `tdd-engineer` |
+| 3 | `step-N` | Revisar y actualizar tests unitarios existentes | — | `backend-developer` / `frontend-developer` |
+| 4 | `step-N+1` | Ejecutar unit tests + verificar estado BD + report | `agent_must_execute: true` | `qa-verifier` |
+| 5 | `step-N+2` | Pruebas manuales de endpoints con curl (restaurar BD) + report | `agent_must_execute: true` | `qa-verifier` |
+| 6 | `step-N+3` | E2E con Playwright MCP (si hay cambios de frontend) + report | `agent_must_execute: true`, `required: false` | `qa-verifier` |
+| 7 | `step-N+4` | Actualizar documentación técnica | — | `docs-keeper` |
+| 8 | `code-review` | Code review del diff contra guardrails (informe con `Veredicto: APTO/NO APTO`) | `agent_must_execute: true` | `code-reviewer` |
+| 9 | `review-gate-final` | ⏸ **GATE humano**: aprobar (code-review APTO + validación manual) ANTES de archive/PR | `human_review: true` | humano |
+| 10 | `archive` | Archivar change + abrir PR (solo tras gate final y code-review APTO) | — | `spec-author` |
 
-2. **Run Targeted Unit Tests First**:
-   - Execute focused tests for the modified module(s) and related behavior
-   - Confirm failures are resolved and no new regressions appear in targeted scope
-   - Capture command output summary (passed/failed/skipped)
+### Step 0: crear feature branch (DEBE SER EL PRIMERO)
 
-3. **Run Broader Unit Test Suite**:
-   - Execute the project/unit suite required by `openspec/config.yaml` (or justified subset if configured)
-   - Record total test counts, failures, runtime, and any flaky behavior observed
+- **Ubicación**: primer paso del `tasks.md`.
+- **Nombre**: `feature/{change-name}` (p. ej. `feature/us-001-crear-reserva`).
+- **Base**: `master`.
+- **Acción**: crear y cambiar a la branch antes de cualquier cambio de código.
 
-4. **Verify Post-Test Database State**:
-   - Re-check the same database indicators captured before tests
-   - Confirm no unintended mutations remain after tests complete
-   - If any mutation occurred, restore state and document the restoration
+---
 
-5. **Create Unit Test Verification Report in Spec Folder**:
-   - Save report under the current change folder in `specs/<change-name>/reports/`
-   - Use this filename pattern: `YYYY-MM-DD-step-N+1-unit-test-and-db-verification.md`
-   - Include executed commands, summarized results, database pre/post comparison, and cleanup actions
+## 2. Pruebas manuales — CRÍTICO: el agente DEBE ejecutarlas
 
-6. **Mark Task as Completed**: Only after unit tests pass (or approved exceptions are documented), database state is verified/restored, and the report file is created, mark Step N+1 as completed in `tasks.md`.
+**IMPORTANTE**: el agente de código (IA) DEBE realizar él mismo todos los pasos de
+prueba manual. **Nunca los delega en el usuario.** Solo tras ejecutarlos y crear el
+report correspondiente puede marcar la tarea como completada (`[x]`) en `tasks.md`.
 
-**Report Template** (store in `specs/<change-name>/reports/`):
+Los reports se guardan SIEMPRE en
+`openspec/changes/<change-name>/reports/` con el patrón de filename que indica
+`config.yaml`.
+
+### `step-N+1`: ejecutar unit tests y verificar estado de la BD
+
+**Responsabilidad del agente**: ejecutar los unit tests, validar la integridad de
+la BD antes/después y producir un report. No es opcional ni delegable.
+
+**Pasos** (ejecuta el agente):
+
+1. **Preparar el entorno**: levantar servicios necesarios (BD, dependencias),
+   capturar el estado previo de la BD relevante al change (counts, registros
+   clave, checksums o snapshots), documentar los comandos exactos a ejecutar.
+2. **Tests dirigidos primero**: ejecutar los tests del/los módulo(s) modificados;
+   confirmar que se resuelven los fallos y que no hay regresiones en ese alcance.
+3. **Suite más amplia**: ejecutar la suite requerida por `config.yaml`
+   (`quality_gates.pre_commit` incluye `pnpm test`) o un subconjunto justificado;
+   registrar totales, fallos, runtime y cualquier flaky.
+4. **Verificar estado posterior de la BD**: revisar los mismos indicadores; si hubo
+   mutación no deseada, restaurar el estado y documentar la restauración.
+5. **Crear report**: en `openspec/changes/<change-name>/reports/` con el filename
+   `YYYY-MM-DD-step-N+1-unit-test-and-db-verification.md`.
+6. **Marcar completado**: solo tras tests en verde (o excepciones documentadas y
+   aprobadas), BD verificada/restaurada y report creado.
+
+**Plantilla del report**:
+
 ```markdown
-# Step N+1 Report - Unit Tests and Database Verification
+# Step N+1 — Unit tests y verificación de BD
 
-- Date: YYYY-MM-DD
+- Fecha: DD/MM/AAAA
 - Change: <change-name>
-- Agent: <agent-name>
+- Agente: <nombre-del-agente>
 
-## Commands Executed
-- `<command 1>`
-- `<command 2>`
+## Comandos ejecutados
+- `<comando 1>`
+- `<comando 2>`
 
-## Unit Test Results
-- Targeted tests: X passed, Y failed, Z skipped
-- Full/required suite: X passed, Y failed, Z skipped
-- Runtime: <duration>
-- Notes: <flaky tests, retries, exceptions>
+## Resultados de unit tests
+- Tests dirigidos: X passed, Y failed, Z skipped
+- Suite requerida: X passed, Y failed, Z skipped
+- Runtime: <duración>
+- Notas: <flaky, reintentos, excepciones>
 
-## Database State Verification
-- Pre-test baseline:
-  - <metric/table/check>: <value>
-- Post-test validation:
-  - <metric/table/check>: <value>
-- State restored: Yes/No
-- Restoration actions (if any): <actions>
+## Verificación de estado de BD
+- Baseline previo:
+  - <métrica/tabla/check>: <valor>
+- Validación posterior:
+  - <métrica/tabla/check>: <valor>
+- Estado restaurado: Sí/No
+- Acciones de restauración (si las hubo): <acciones>
 
-## Outcome
-- Step N+1 status: PASS/FAIL
-- Blocking issues: <none or list>
+## Resultado
+- Estado de step-N+1: PASS/FAIL
+- Bloqueantes: <ninguno o lista>
 ```
 
-**Dependencies**:
-- Test runner and project test dependencies installed
-- Database access for state verification/restoration
-- Permission to create report files in `specs/<change-name>/reports/`
+### `step-N+2`: pruebas manuales de endpoints con curl
 
-**Notes**:
-- **The agent MUST execute tests itself** - never ask the user to run tests
-- This step is mandatory even when code changes look small
-- Report naming must follow the required pattern for traceability
-- **Task completion in tasks.md can only be marked after report creation**
+**Responsabilidad del agente**: ejecutar todos los curl y verificar las respuestas.
+No es opcional ni delegable. Report:
+`YYYY-MM-DD-step-N+2-curl-endpoint-tests.md`.
 
-### Step N+2: Manual Endpoint Testing with curl (MANDATORY)
+**Pasos** (ejecuta el agente):
 
-**Agent Responsibility**: The coding agent MUST execute all curl commands and verify responses. This is NOT optional and cannot be delegated to the user.
+1. **Preparar entorno**: levantar el backend si hace falta, verificar la conexión a
+   BD y anotar el estado de la BD (si se prueban operaciones CREATE/UPDATE/DELETE).
+2. **GET** (si los hay): `curl -X GET [url] [headers]`; verificar status y cuerpo.
+3. **POST** (CREATE): `curl -X POST [url] -H "Content-Type: application/json" -d '[body]'`;
+   verificar status (201/400/422…) y recurso creado. **Restaurar BD**: borrar el
+   registro creado.
+4. **PUT/PATCH** (UPDATE): verificar status y recurso actualizado. **Restaurar BD**:
+   revertir el registro a sus valores originales.
+5. **DELETE**: verificar status (200/204/404…) y borrado. **Restaurar BD**: recrear
+   el registro con sus valores originales.
+6. **Casos de error**: datos inválidos (validación), recursos inexistentes (404),
+   acceso no autorizado (si aplica); verificar que el formato de error coincide con
+   el contrato OpenAPI.
+7. **Marcar completado**: solo tras pasar todos los curl y restaurar la BD,
+   documentando comandos y respuestas en el report.
 
-**Implementation Steps** (Agent must perform):
-1. **Prepare Test Environment**:
-   - Ensure the backend server is running (start if needed)
-   - Verify database connection is active
-   - Note the current database state (if testing CREATE/UPDATE/DELETE endpoints)
+**Notas**:
+- Obligatorio para todo endpoint nuevo.
+- Toda operación CREATE/UPDATE/DELETE debe dejar la BD en su estado previo.
+- No saltarse las pruebas manuales aunque los unit tests pasen.
 
-2. **Test GET Endpoints** (if any):
-   - Create curl command to test GET endpoint
-   - Execute curl command: `curl -X GET [endpoint-url] [headers]`
-   - Verify response status code (200, 404, etc.)
-   - Verify response body structure and content
-   - Document the curl command and response in the task completion
+### `step-N+3`: E2E con Playwright MCP (si hay cambios de frontend)
 
-3. **Test POST Endpoints** (CREATE operations):
-   - Create curl command with request body: `curl -X POST [endpoint-url] -H "Content-Type: application/json" -d '[json-body]'`
-   - Execute curl command and capture response
-   - Verify response status code (201, 400, 422, etc.)
-   - Verify response body contains created resource
-   - **Restore Database State**: After testing, delete the created record to restore database to original state
-   - Document the curl command, response, and cleanup action
+**Responsabilidad del agente**: ejecutar el E2E con las tools de Playwright MCP.
+`required: false` en `config.yaml` (solo aplica con frontend), pero `agent_must_execute: true`
+cuando aplica. Report: `YYYY-MM-DD-step-N+3-e2e-playwright.md`.
 
-4. **Test PUT/PATCH Endpoints** (UPDATE operations):
-   - Create curl command with updated data: `curl -X PUT [endpoint-url] -H "Content-Type: application/json" -d '[json-body]'`
-   - Execute curl command and capture response
-   - Verify response status code (200, 404, 400, etc.)
-   - Verify response body contains updated resource
-   - **Restore Database State**: After testing, revert the updated record to its original values to restore database state
-   - Document the curl command, response, and cleanup action
+**Cuándo aplica**: cambios de frontend que afectan flujos de usuario, integración
+front↔back, o features que requieren interacción de navegador.
 
-5. **Test DELETE Endpoints**:
-   - Create curl command: `curl -X DELETE [endpoint-url]`
-   - Execute curl command and capture response
-   - Verify response status code (200, 204, 404, etc.)
-   - Verify deletion was successful
-   - **Restore Database State**: After testing, recreate the deleted record with original values to restore database state
-   - Document the curl command, response, and cleanup action
+**Pasos** (ejecuta el agente):
 
-6. **Test Error Cases**:
-   - Test with invalid data (validation errors)
-   - Test with non-existent resources (404 errors)
-   - Test with unauthorized access (if applicable)
-   - Verify error response format matches API specification
+1. **Preparar entorno**: levantar frontend y backend, BD en estado conocido,
+   comprobar las tools de Playwright MCP disponibles.
+2. **Navegar**: `browser_navigate` a la URL; esperar carga; `browser_snapshot` del
+   estado inicial.
+3. **Ejecutar flujos de usuario**: `browser_click`, `browser_type`/`browser_fill`,
+   `browser_snapshot`, `browser_wait`; verificar el resultado esperado en cada paso.
+4. **Casos de error**: validación de formularios, mensajes de error, recuperación.
+5. **Verificar persistencia**: tras crear/actualizar desde la UI, confirmar que
+   persiste y que la BD coincide con la UI.
+6. **Restaurar entorno**: limpiar datos de prueba, restaurar la BD, cerrar sesiones
+   de navegador.
+7. **Marcar completado**: solo tras pasar el E2E y restaurar el entorno.
 
-7. **Mark Task as Completed**: Only after all curl tests pass and database state is restored, mark the task as completed in `tasks.md`
+**Notas**:
+- Usar esperas incrementales (1-3 s) con snapshots, en vez de esperas largas.
+- Restaurar siempre la BD tras tests que la modifican.
 
-**Dependencies**:
-- Backend server running (agent must start if needed)
-- Database access for state restoration
-- curl command-line tool
+---
 
-**Notes**:
-- This step is MANDATORY for all new endpoints
-- **The agent MUST execute all curl commands itself** - never ask the user to run tests
-- All CREATE/UPDATE/DELETE operations must restore database to original state after testing
-- Document all curl commands and responses for future reference in a report in the spec folder with proper naming
-- Verify that database state matches pre-test state after cleanup
-- Do not skip manual testing even if unit tests pass
-- **Task completion in tasks.md can only be marked after successful execution of all curl tests**
+## 3. Checklist de verificación del `tasks.md`
 
-### Step N+3: E2E Testing with Playwright MCP (MANDATORY if applicable)
+Antes de finalizar cualquier `tasks.md`, verifica:
 
-**Agent Responsibility**: The coding agent MUST execute all E2E tests using Playwright MCP tools. This is NOT optional and cannot be delegated to the user.
+- [ ] `step-0` (crear feature branch) es el PRIMER paso, con nombre `feature/{change-name}`.
+- [ ] Están todos los `mandatory_steps` de `config.yaml`, en orden.
+- [ ] Los pasos están numerados secuencialmente y marcados `(OBLIGATORIO)`.
+- [ ] El gate `review-gate-sdd` aparece tras SDD y antes de implementar.
+- [ ] `step-N+1`/`N+2`/`N+3` indican ruta y filename del report en
+      `openspec/changes/<change-name>/reports/`.
+- [ ] Los pasos manuales indican explícitamente "EL AGENTE DEBE EJECUTARLO".
+- [ ] Las tareas incluyen restauración del estado de BD.
+- [ ] El paso E2E (`step-N+3`) está si hay cambios de frontend.
+- [ ] El paso `code-review` produce informe con `Veredicto: APTO`.
+- [ ] El gate `review-gate-final` aparece antes de `archive`/PR.
 
-**When This Applies**:
-- Frontend changes that affect user workflows
-- Integration between frontend and backend endpoints
-- User-facing features that require browser interaction
+---
 
-**Implementation Steps** (Agent must perform):
-1. **Prepare Test Environment**:
-   - Ensure both frontend and backend servers are running (start if needed)
-   - Verify database is in a known state
-   - Check available Playwright MCP tools using MCP file system
+## 4. Cuándo aplica esta guía
 
-2. **Navigate to Application**:
-   - Use Playwright MCP `browser_navigate` to open the application URL
-   - Wait for page to load completely
-   - Take a snapshot to verify initial state
+Aplica al:
 
-3. **Execute User Workflows**:
-   - Use Playwright MCP tools to interact with the UI:
-     - `browser_click` for button clicks and navigation
-     - `browser_type` or `browser_fill` for form inputs
-     - `browser_snapshot` to verify state changes
-     - `browser_wait` for async operations
-   - Test the complete user workflow from start to finish
-   - Verify expected outcomes at each step
+- Crear `tasks.md` con la skill `openspec-propose` o el agente `spec-author`.
+- Continuar/actualizar un `tasks.md` existente.
+- Cualquier creación de tareas que implique cambios de backend o frontend.
+- Implementar tareas con la skill `openspec-apply` (el agente DEBE ejecutar las
+  pruebas manuales).
 
-4. **Test Error Scenarios**:
-   - Test form validation errors
-   - Test error messages display correctly
-   - Test error recovery flows
+El `harness-orchestrator` coordina el ciclo completo delegando en estos agentes y skills.
 
-5. **Verify Data Persistence**:
-   - After creating/updating data through UI, verify it persists correctly
-   - Check database state matches UI state
-   - Verify data appears correctly in lists/details views
+---
 
-6. **Restore Test Environment**:
-   - Clean up any test data created during E2E tests
-   - Restore database to original state
-   - Close browser sessions
-
-7. **Mark Task as Completed**: Only after all E2E tests pass and environment is restored, mark the task as completed in `tasks.md`
-
-**Dependencies**:
-- Frontend server running (agent must start if needed)
-- Backend server running (agent must start if needed)
-- Playwright MCP tools available
-- Database access for verification and cleanup
-
-**Notes**:
-- **The agent MUST execute all E2E tests itself** - never ask the user to run tests
-- Use incremental waits (1-3 seconds) with snapshot checks rather than long waits
-- Always restore database state after tests that modify data
-- Document test scenarios and outcomes in a report in the spec folder with proper naming
-- **Task completion in tasks.md can only be marked after successful execution of all E2E tests**
-
-## 4. Verification Checklist
-
-Before finalizing any `tasks.md` file, verify:
-- [ ] Step 0 (Create Feature Branch) is the FIRST step
-- [ ] All mandatory steps from config.yaml are included
-- [ ] Steps are numbered sequentially
-- [ ] Mandatory steps are clearly marked with "(MANDATORY)" label
-- [ ] Branch naming follows the convention: `feature/[name]-backend`
-- [ ] Step N+1 includes report path and naming convention in `specs/<change-name>/reports/`
-- [ ] Manual testing steps explicitly state "AGENT MUST EXECUTE"
-- [ ] Tasks include database state restoration steps
-- [ ] E2E testing step is included if frontend changes are involved
-
-## 5. When This Applies
-
-This rule applies when:
-- Creating `tasks.md` via `/opsx:ff` (fast-forward) or `openspec-ff-change` skill
-- Creating `tasks.md` via `/opsx:continue` (continue change) or `openspec-continue-change` skill
-- Updating existing `tasks.md` files
-- Any task creation that involves backend changes
-- Implementing tasks from `tasks.md` via `/opsx:apply` or `openspec-apply-change` skill - the agent must execute manual tests
-
-## 6. Example Structure
+## 5. Ejemplo de estructura de `tasks.md`
 
 ```markdown
-## 0. Setup: Create Feature Branch (MANDATORY - FIRST STEP)
+## 0. Setup: crear feature branch (OBLIGATORIO — PRIMER PASO)
+- [ ] 0.1 Crear branch `feature/us-001-crear-reserva` desde `master`
+- [ ] 0.2 Verificar la branch creada y la branch actual
 
-- [ ] 0.1 Create feature branch `feature/update-position-backend` from main/master branch
-- [ ] 0.2 Verify branch creation and current branch status
+## 1. ⏸ Gate revisión humana SDD (OBLIGATORIO — review-gate-sdd)
+- [ ] 1.1 Presentar al humano proposal + spec-delta + design y ESPERAR su OK explícito
 
-## 1. Backend: Validator Tests (TDD)
+## 2. Tests primero — TDD RED (OBLIGATORIO — tdd-first)
+- [ ] 2.1 Escribir tests de concurrencia / máquina de estados / tarifas (en rojo)
+
+## 3. Backend: revisar y actualizar tests unitarios existentes (OBLIGATORIO — step-N)
 ...
 
-## 8. Backend: Review and Update Existing Unit Tests (MANDATORY)
+## 4. QA: unit tests + verificación de BD (OBLIGATORIO — step-N+1 — EL AGENTE DEBE EJECUTARLO)
+- [ ] 4.1 Capturar baseline de BD de las entidades impactadas
+- [ ] 4.2 Ejecutar tests dirigidos de los módulos cambiados
+- [ ] 4.3 Ejecutar la suite requerida (`pnpm test`)
+- [ ] 4.4 Verificar estado posterior de BD y restaurar si hace falta
+- [ ] 4.5 Crear report `openspec/changes/<change-name>/reports/YYYY-MM-DD-step-N+1-unit-test-and-db-verification.md`
+- [ ] 4.6 Marcar completado solo tras tests en verde y report creado
+
+## 5. QA: pruebas manuales con curl (OBLIGATORIO — step-N+2 — EL AGENTE DEBE EJECUTARLO)
+- [ ] 5.1 Levantar el backend
+- [ ] 5.2 Probar GET con curl y verificar respuestas
+- [ ] 5.3 Probar POST con curl, verificar creación y restaurar BD
+- [ ] 5.4 Probar PUT/PATCH con curl, verificar y restaurar BD
+- [ ] 5.5 Probar DELETE con curl, verificar y restaurar BD
+- [ ] 5.6 Probar casos de error (validación, 404, …)
+- [ ] 5.7 Crear report `…/reports/YYYY-MM-DD-step-N+2-curl-endpoint-tests.md`
+
+## 6. QA: E2E con Playwright MCP (OBLIGATORIO si hay frontend — step-N+3 — EL AGENTE DEBE EJECUTARLO)
+- [ ] 6.1 Levantar frontend y backend
+- [ ] 6.2 Navegar con `browser_navigate`
+- [ ] 6.3 Ejecutar el flujo completo de usuario con las tools de Playwright MCP
+- [ ] 6.4 Probar escenarios de error y validación
+- [ ] 6.5 Verificar persistencia y estado de la UI
+- [ ] 6.6 Restaurar entorno y estado de BD
+- [ ] 6.7 Crear report `…/reports/YYYY-MM-DD-step-N+3-e2e-playwright.md`
+
+## 7. Docs: actualizar documentación técnica (OBLIGATORIO — step-N+4)
 ...
 
-## 9. Backend: Run Unit Tests and Verify Database State (MANDATORY)
-- [ ] 9.1 Capture pre-test database baseline for impacted entities
-- [ ] 9.2 Run targeted unit tests for changed modules
-- [ ] 9.3 Run required broader unit test suite from config
-- [ ] 9.4 Verify post-test database state and restore if needed
-- [ ] 9.5 Create report `specs/<change-name>/reports/YYYY-MM-DD-step-N+1-unit-test-and-db-verification.md`
-- [ ] 9.6 Mark step complete only after tests pass and report exists
+## 8. Code review (OBLIGATORIO — code-review — EL AGENTE DEBE EJECUTARLO)
+- [ ] 8.1 Ejecutar `code-reviewer` sobre el diff
+- [ ] 8.2 Dejar informe `…/reports/YYYY-MM-DD-step-review-code-review.md` con `Veredicto: APTO`
 
-## 10. Backend: Manual Endpoint Testing with curl (MANDATORY - AGENT MUST EXECUTE)
-- [ ] 10.1 Ensure backend server is running
-- [ ] 10.2 Test GET endpoints with curl and verify responses
-- [ ] 10.3 Test POST endpoints with curl, verify creation, then restore database state
-- [ ] 10.4 Test PUT/PATCH endpoints with curl, verify updates, then restore database state
-- [ ] 10.5 Test DELETE endpoints with curl, verify deletion, then restore database state
-- [ ] 10.6 Test error cases (validation errors, 404, etc.)
-- [ ] 10.7 Document all curl commands and responses
-- [ ] 10.8 Verify database state matches pre-test state
+## 9. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final)
+- [ ] 9.1 Tras code-review APTO + validación manual, ESPERAR el OK humano
 
-## 11. Frontend: E2E Testing with Playwright MCP (MANDATORY if applicable - AGENT MUST EXECUTE)
-- [ ] 11.1 Ensure frontend and backend servers are running
-- [ ] 11.2 Navigate to application using Playwright MCP browser_navigate
-- [ ] 11.3 Execute complete user workflow using Playwright MCP tools
-- [ ] 11.4 Test error scenarios and validation
-- [ ] 11.5 Verify data persistence and UI state
-- [ ] 11.6 Restore test environment and database state
-- [ ] 11.7 Document test scenarios and outcomes
-
-## 16. Update Technical Documentation (MANDATORY)
-...
+## 10. Archivar change + abrir PR (OBLIGATORIO — archive)
+- [ ] 10.1 `openspec archive <change>` y abrir PR (solo tras gate final y APTO)
 ```
 
-## 7. Agent Execution Requirements
+---
 
-**CRITICAL**: When implementing tasks from `tasks.md` (via `openspec-apply-change` skill or `/opsx:apply` command), the coding agent MUST:
+## 6. Requisitos de ejecución del agente
 
-1. **Execute All Manual Tests**: Never ask the user to run curl commands or E2E tests. The agent must:
-   - Start servers if needed (backend, frontend)
-   - Execute all curl commands for endpoint testing
-   - Execute all E2E tests using Playwright MCP tools
-   - Verify all responses and outcomes
-   - Restore database state after tests
+Al implementar tareas de `tasks.md` (skill `openspec-apply`), el agente DEBE:
 
-2. **Mark Tasks as Completed**: Tasks can ONLY be marked as completed (`[x]`) in `tasks.md` AFTER:
-   - The agent has successfully executed all required tests
-   - All test results have been verified
-   - Database state has been restored (for CREATE/UPDATE/DELETE operations)
-   - All test outcomes have been documented
+1. **Ejecutar todas las pruebas manuales**: levantar servidores, ejecutar curl,
+   ejecutar E2E con Playwright MCP, verificar respuestas y restaurar la BD.
+2. **Marcar `[x]` solo tras**: ejecutar los tests con éxito, verificar resultados,
+   restaurar la BD (para CREATE/UPDATE/DELETE) y documentar el resultado en el report.
+3. **Nunca delegar**: no pedir al usuario que ejecute curl, pruebe endpoints o corra
+   el E2E; no marcar tareas sin ejecutar; no saltarse pasos manuales.
+4. **Documentar la ejecución**: comandos curl, respuestas, escenarios E2E, acciones
+   de restauración de BD y cualquier incidencia con su resolución.
 
-3. **Never Delegate Testing**: The agent must never:
-   - Ask the user to run curl commands
-   - Ask the user to test endpoints manually
-   - Ask the user to run E2E tests
-   - Mark tasks as completed without executing tests
-   - Skip manual testing steps
+---
 
-4. **Document Test Execution**: The agent must document:
-   - All curl commands executed
-   - All responses received
-   - All E2E test scenarios executed
-   - Database state restoration actions
-   - Any issues encountered and resolutions
+## 7. Gates de revisión humana
 
-## Gate de revisión humana de artefactos (tras SDD)
+### Gate tras SDD (`review-gate-sdd`)
 
-Después de crear el change (proposal + spec-delta + design) y **antes de implementar** (contrato/TDD/impl), el flujo **se detiene** para revisión humana.
+Tras crear el change (`proposal` + spec-delta + `design`) y **antes de implementar**
+(contrato/TDD/impl), el flujo **se detiene**.
 
-- **Posición**: justo después de Step 0 (branch), antes de `tdd-first`. En `openspec/config.yaml` es el paso `review-gate-sdd` (`human_review: true`).
-- **Responsabilidad del agente**: presentar al humano un resumen de `proposal.md`, el spec-delta y `design.md`, y **esperar su OK explícito**. No avanzar por defecto, ni aunque la US parezca trivial o el usuario haya dicho "continúa" de forma genérica.
-- **Por qué**: es el momento barato de corregir alcance/diseño. Una vez implementado y archivado, cambiarlo exige un nuevo change.
+- **Posición**: justo después de `step-0` (branch), antes de `tdd-first`.
+- **Responsabilidad del agente**: presentar un resumen de `proposal.md`, el
+  spec-delta y `design.md`, y **esperar el OK explícito** del humano. No avanzar por
+  defecto, ni aunque la US parezca trivial o el usuario haya dicho "continúa".
+- **Por qué**: es el momento barato de corregir alcance/diseño; una vez implementado
+  y archivado, cambiarlo exige un nuevo change.
 
-## Code Review obligatorio + Gate final (antes de archive/PR)
+### Code review obligatorio + gate final (`review-gate-final`)
 
-Antes de cerrar el change, el `code-reviewer` es **obligatorio** y hay un segundo gate de revisión humana.
+Antes de cerrar el change, el `code-reviewer` es **obligatorio** y hay un segundo
+gate humano.
 
-- **Paso `code-review`** (`openspec/config.yaml`, `agent_must_execute: true`): el agente `code-reviewer` revisa el diff contra los guardrails y deja un informe en `openspec/changes/<change>/reports/YYYY-MM-DD-step-review-code-review.md`.
-  - **Convención del veredicto**: el informe DEBE incluir una línea literal `Veredicto: APTO` o `Veredicto: NO APTO`. Si es NO APTO o hay Bloqueantes, se vuelve a implementación y se repite.
-- **Paso `review-gate-final`** (`human_review: true`): tras un code-review APTO y la validación manual, el flujo **se detiene** para el OK humano antes de `openspec archive`/PR.
-- **Enforcement (no-bypass)**: el hook `scripts/hooks/require-code-review.py` (PreToolUse sobre Bash) **bloquea** `openspec archive` y `gh pr create|merge` si no existe un informe `*code-review*.md` con `Veredicto: APTO` en `reports/` del change. Ver `quality_gates.pre_archive` en `openspec/config.yaml`.
+- **Paso `code-review`** (`agent_must_execute: true`): el `code-reviewer` revisa el
+  diff contra los guardrails y deja un informe en
+  `openspec/changes/<change>/reports/YYYY-MM-DD-step-review-code-review.md`.
+  - **Convención del veredicto**: el informe DEBE incluir la línea literal
+    `Veredicto: APTO` o `Veredicto: NO APTO`. Si es NO APTO o hay bloqueantes, se
+    vuelve a implementación y se repite.
+- **Paso `review-gate-final`** (`human_review: true`): tras un code-review APTO y la
+  validación manual, el flujo **se detiene** para el OK humano antes de
+  `openspec archive`/PR.
 
-## Failure to Follow
+---
 
-If you create tasks without following these mandatory steps, the user will need to manually fix the tasks.md file. Always read `openspec/config.yaml` first and ensure all mandatory steps are included.
+## 8. Enforcement por hooks (no son sugerencias)
 
-**If you implement tasks without executing manual tests yourself, you are violating this rule. The agent must execute all tests to mark tasks as completed.**
+Configurados en `.claude/settings.json` (`scripts/hooks/`):
+
+- **`require-code-review.py`** (PreToolUse sobre Bash): **bloquea** `openspec archive`
+  y `gh pr create|merge` si no existe un informe `*code-review*.md` con
+  `Veredicto: APTO` en `openspec/changes/<change>/reports/`. La regex que lee es
+  `Veredicto:\s*(NO\s+APTO|APTO)`. Para desbloquear: ejecutar el `code-reviewer` y
+  dejar el informe con `Veredicto: APTO`. Ver `quality_gates.pre_archive` en
+  `config.yaml`.
+- **`require-tests-first.py`**: bloquea implementar lógica crítica (`domain/`,
+  `application/`, `*.use-case.ts`, `*.entity.ts`, `maquina-estados.ts`) sin su test
+  hermano (`.spec.ts`/`.test.ts`). Para desbloquear: escribir primero el test (RED).
+- **`no-infra-in-domain.py`**: bloquea imports de framework/infra en `domain/`.
+- **`no-distributed-lock.py`**: bloquea Redis/Redlock/locks distribuidos (el bloqueo
+  de fecha es atómico vía PostgreSQL + Prisma).
+- **`protect-generated-client.py`**: bloquea editar a mano el cliente generado.
+- **`validate-openapi.py`**: valida el contrato al editar `docs/api-spec.yml`.
+
+---
+
+## 9. Si no se siguen estos pasos
+
+Si creas un `tasks.md` sin estos pasos obligatorios, el usuario tendrá que
+corregirlo a mano. Lee siempre `openspec/config.yaml` primero e incluye todos los
+pasos.
+
+**Si implementas tareas sin ejecutar tú mismo las pruebas manuales, estás violando
+esta regla. El agente DEBE ejecutar todas las pruebas para marcar las tareas como
+completadas.**
