@@ -377,8 +377,13 @@ paths:
   /tarifas/calcular:
     post:
       tags: [Presupuestos]
-      summary: Calcular tarifa según configuración (UC-16)
-      description: Motor de tarifas. Calcula el precio a partir de temporada (derivada de la fecha), duración, nº de invitados y extras.
+      summary: Calcular tarifa según configuración (UC-16 / US-016)
+      description: >-
+        Motor de tarifa (US-016, lectura pura, multi-tenant por JWT). Determina la temporada del mes
+        de `fecha_evento`, busca la TARIFA vigente por temporada x duración x tramo de invitados y suma
+        los extras del catálogo del tenant. Devuelve el esquema canónico D-1. Con
+        `num_adultos_ninos_mayores4 > 50` responde 200 con `tarifa_a_consultar: true` e importes `null`
+        (precio manual), SIN error.
       requestBody:
         required: true
         content:
@@ -387,16 +392,31 @@ paths:
               $ref: '#/components/schemas/CalculoTarifaRequest'
       responses:
         '200':
-          description: Tarifa calculada
+          description: 'Tarifa calculada (caso normal) o tarifa a consultar (>50 invitados): mismo esquema canónico.'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CalculoTarifaResponse'
-        '422':
-          description: Sin tarifa aplicable (p. ej. >50 invitados = "a consultar")
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: 'EXTRA_NO_ENCONTRADO: un extra no existe, está inactivo o no es visible en el tenant (RLS).'
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              schema: { $ref: '#/components/schemas/CalculoTarifaExtraNoEncontradoError' }
+        '422':
+          description: >-
+            Configuración incompleta del tarifario: `TARIFA_NO_CONFIGURADA` (sin TARIFA vigente para una
+            combinación válida con <= 50 invitados) o `TEMPORADA_NO_CONFIGURADA` (mes sin mapear en
+            TEMPORADA_CALENDARIO).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/CalculoTarifaTarifaNoConfiguradaError'
+                  - $ref: '#/components/schemas/CalculoTarifaTemporadaNoConfiguradaError'
 
   # [DECISIÓN F2-04] Catálogo de extras: necesario para resolver extraId/extraIds desde el frontend.
   # Confirma si en MVP el catálogo se expone por API o se siembra/hardcodea.
@@ -1252,31 +1272,112 @@ components:
         activo: { type: boolean }
 
     # -------- Tarifa / Presupuesto / Extra de reserva --------
+    # [US-016 / D-1] Esquema canónico del motor de tarifa (calculo-tarifa).
+    # Nombres de campo en snake_case por decisión de diseño D-1 ya aprobada por el gate humano
+    # (design.md §D-1): el contrato DEBE usar este esquema tal cual. Los tests TDD y los DTOs
+    # backend (@nestjs/swagger) se alinean con estos nombres exactos.
+    CalculoTarifaExtraInput:
+      # Un extra solicitado al motor: referencia al catálogo del tenant + cantidad.
+      type: object
+      required: [extra_id, cantidad]
+      properties:
+        extra_id: { type: string, format: uuid, description: 'ID del EXTRA del catálogo del tenant.' }
+        cantidad: { type: integer, minimum: 1, description: 'Unidades del extra (>= 1).' }
     CalculoTarifaRequest:
+      # Input del motor (US-016 §Reglas de Validación). num_ninos_menores4 NO es input del motor.
       type: object
-      required: [fechaEvento, duracionHoras, numInvitados]
+      required: [fecha_evento, duracion_horas, num_adultos_ninos_mayores4]
       properties:
-        fechaEvento: { type: string, format: date }
-        duracionHoras: { $ref: '#/components/schemas/DuracionHoras' }
-        numInvitados: { type: integer }
-        extraIds:
+        fecha_evento:
+          type: string
+          format: date
+          description: 'Fecha del evento (YYYY-MM-DD). No nula, no pasada al momento de la llamada.'
+        duracion_horas: { $ref: '#/components/schemas/DuracionHoras' }
+        num_adultos_ninos_mayores4:
+          type: integer
+          minimum: 0
+          description: 'Adultos + niños mayores de 4 años. Los menores de 4 (num_ninos_menores4) no cuentan ni se pasan.'
+        extras:
           type: array
-          items: { type: string, format: uuid }
+          default: []
+          description: 'Extras a sumar. Puede ser []. Solo se evalúan en el caso normal (no en tarifa_a_consultar).'
+          items: { $ref: '#/components/schemas/CalculoTarifaExtraInput' }
     CalculoTarifaResponse:
+      # Esquema de salida canónico unificado (D-1): válido para el caso normal y para tarifa_a_consultar.
+      # temporada y tarifa_a_consultar SIEMPRE presentes; los otros cuatro son null si tarifa_a_consultar=true.
+      # Importes como number (EUR ya redondeados a céntimos, IVA 21% incluido en precio_tarifa_eur) por D-1/D-4;
+      # NO se usa el wrapper Importe (string) aquí: es la salida del motor, no una columna Decimal de BD.
       type: object
+      required: [temporada, tarifa_a_consultar, precio_tarifa_eur, extras_total_eur, total_eur, tarifa_id]
       properties:
-        temporada: { $ref: '#/components/schemas/Temporada' }
-        baseImponible: { $ref: '#/components/schemas/Importe' }
-        ivaPorcentaje: { $ref: '#/components/schemas/Porcentaje' }
-        ivaImporte: { $ref: '#/components/schemas/Importe' }
-        total: { $ref: '#/components/schemas/Importe' }
-        lineas:
-          type: array
-          items:
-            type: object
-            properties:
-              concepto: { type: string }
-              importe: { $ref: '#/components/schemas/Importe' }
+        temporada:
+          allOf: [{ $ref: '#/components/schemas/Temporada' }]
+          description: 'Temporada resuelta para el mes de fecha_evento. SIEMPRE presente (también en a_consultar).'
+        tarifa_a_consultar:
+          type: boolean
+          description: 'true cuando num_adultos_ninos_mayores4 > 50 (tramo +51 sin tarifa): precio manual. SIEMPRE presente.'
+        precio_tarifa_eur:
+          type: number
+          nullable: true
+          description: 'Precio de la TARIFA en EUR (IVA 21% incluido). null si tarifa_a_consultar=true.'
+        extras_total_eur:
+          type: number
+          nullable: true
+          description: 'Suma de subtotales de extras (precio_eur x cantidad). null si tarifa_a_consultar=true.'
+        total_eur:
+          type: number
+          nullable: true
+          description: 'precio_tarifa_eur + extras_total_eur. null si tarifa_a_consultar=true.'
+        tarifa_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: 'ID de la fila TARIFA usada. null si tarifa_a_consultar=true.'
+    # -------- Errores de dominio del motor de tarifa (US-016 D-3) --------
+    # Reutilizan el envelope NestJS (ErrorResponse) y añaden `codigo` (error de dominio) + `detalle` diagnóstico.
+    CalculoTarifaTarifaNoConfiguradaError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo, detalle]
+          properties:
+            codigo: { type: string, enum: [TARIFA_NO_CONFIGURADA] }
+            detalle:
+              type: object
+              required: [temporada, duracion_horas, num_invitados]
+              properties:
+                temporada: { $ref: '#/components/schemas/Temporada' }
+                duracion_horas: { $ref: '#/components/schemas/DuracionHoras' }
+                num_invitados: { type: integer }
+              description: 'Parámetros de búsqueda sin fila de TARIFA vigente (tarifario incompleto, num_invitados <= 50).'
+    CalculoTarifaExtraNoEncontradoError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo, detalle]
+          properties:
+            codigo: { type: string, enum: [EXTRA_NO_ENCONTRADO] }
+            detalle:
+              type: object
+              required: [extra_id, motivo]
+              properties:
+                extra_id: { type: string, format: uuid }
+                motivo:
+                  type: string
+                  enum: [inexistente, inactivo]
+                  description: 'Motivo. El extra de otro tenant (RLS) se reporta como `inexistente` para no filtrar su existencia.'
+    CalculoTarifaTemporadaNoConfiguradaError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo, detalle]
+          properties:
+            codigo: { type: string, enum: [TEMPORADA_NO_CONFIGURADA] }
+            detalle:
+              type: object
+              required: [mes]
+              properties:
+                mes: { type: integer, minimum: 1, maximum: 12, description: 'Mes (1-12) sin fila en TEMPORADA_CALENDARIO del tenant.' }
     Presupuesto:
       type: object
       properties:
