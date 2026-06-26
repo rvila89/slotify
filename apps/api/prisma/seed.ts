@@ -72,19 +72,19 @@ const PRECIOS: Record<Temporada, number[][]> = {
 
 async function main(): Promise<void> {
   // --- Tenant ---
+  const tenantData = {
+    nombre: "Masia l'Encís",
+    emailContacto: 'info@masialencis.com',
+    telefono: '+34 620 76 10 51',
+    direccion: 'Avinguda del Castell, 08731, Sant Martí Sarroca (Barcelona)',
+    nif: 'B10874287',
+    capacidadMaxima: 50,
+    activo: true,
+  };
   await prisma.tenant.upsert({
     where: { idTenant: TENANT_ID },
-    update: {},
-    create: {
-      idTenant: TENANT_ID,
-      nombre: "Masia l'Encís",
-      emailContacto: 'hola@masialencis.com',
-      telefono: '+34 600 000 000',
-      direccion: "Camí de l'Encís, s/n, Girona",
-      nif: 'B00000000',
-      capacidadMaxima: 150,
-      activo: true,
-    },
+    update: tenantData,
+    create: { idTenant: TENANT_ID, ...tenantData },
   });
 
   // --- TenantSettings ---
@@ -104,19 +104,19 @@ async function main(): Promise<void> {
 
   // --- Usuario gestor (argon2) ---
   const passwordHash = await argon2.hash('Slotify2026!');
+  const usuarioData = {
+    tenantId: TENANT_ID,
+    email: 'info@masialencis.com',
+    passwordHash,
+    nombre: 'Roger',
+    apellidos: 'Vilà',
+    rol: Rol.gestor,
+    activo: true,
+  };
   await prisma.usuario.upsert({
     where: { idUsuario: USUARIO_ID },
-    update: {},
-    create: {
-      idUsuario: USUARIO_ID,
-      tenantId: TENANT_ID,
-      email: 'gestor@masiallencis.com',
-      passwordHash,
-      nombre: 'Gestor',
-      apellidos: "Masia l'Encís",
-      rol: Rol.gestor,
-      activo: true,
-    },
+    update: usuarioData,
+    create: { idUsuario: USUARIO_ID, ...usuarioData },
   });
 
   // --- TemporadaCalendario (12 filas: una por mes) ---
