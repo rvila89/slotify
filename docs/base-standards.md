@@ -47,7 +47,7 @@ Para directrices detalladas por área, consulta:
 
 ## 4. Skills del proyecto
 
-- Las skills viven en `ai-specs/skills`.
+- Las skills viven en `.claude/skills`.
 - Cuando una petición encaje con una skill, carga y sigue el `SKILL.md` correspondiente automáticamente antes de continuar.
 - Carga también los ficheros referenciados por la skill (por ejemplo `references/*.md`) cuando la skill lo requiera.
 
@@ -60,17 +60,9 @@ Aplica a:
 - `openspec-ff-change`
 - `openspec-continue-change`
 
-Antes de iniciar cualquiera de estos flujos, verifica que la sesión usa Opus razonamiento alto. Si no es así, **autocorrige** añadiendo `"model": "claude-opus-4-7"` a `.claude/settings.json` (usa la skill `update-config` o edita directamente) y continúa — no te detengas a preguntar al usuario. Haz lo mismo para volver a Sonnet medio en cualquier otro paso.
+Antes de iniciar cualquiera de estos flujos, verifica que la sesión usa Opus razonamiento alto. Si no es así, **autocorrige** añadiendo `"model": "claude-opus-4-8"` a `.claude/settings.json` y continúa — no te detengas a preguntar al usuario. Haz lo mismo para volver a Sonnet medio en cualquier otro paso.
 
-## 6. Integridad de symlinks y portabilidad multi-agente
-
-- **Fuente canónica**: mantén los artefactos reutilizables en `ai-specs` como fuente canónica. Las rutas específicas de agente (`.claude`, `.cursor`) deben referenciarlos mediante symlinks cuando sea posible.
-- **Seguridad al actualizar**: siempre que se renombre, mueva o cambie el sufijo de un fichero, verifica y actualiza todos los symlinks que lo apuntan antes de dar el cambio por terminado.
-- **Enlazado de nuevos artefactos**: al crear un artefacto que requiera exposición multi-agente (nuevos agentes o skills en `ai-specs`), crea los symlinks correspondientes desde las rutas de referencia esperadas.
-- **Revisión de personalización externa**: si se introduce personalización fuera de `ai-specs`, evalúa si debe moverse a `ai-specs` y reemplazarse por symlinks desde las ubicaciones originales.
-- **Puerta de finalización**: un cambio está incompleto si deja symlinks rotos, destinos obsoletos o artefactos canónicos duplicados entre carpetas de agente.
-
-## 7. Actualización obligatoria de artefactos OpenSpec para cambios post-apply
+## 6. Actualización obligatoria de artefactos OpenSpec para cambios post-apply
 
 Cuando aparezca una nueva petición de fix/cambio después de `opsx:apply` (o `/apply`) y antes de `opsx:archive` (o `/archive`), los agentes deben tratarla **primero como una actualización de spec**, no como un "arréglalo rápido" informal. Es el principio central de OpenSpec: la documentación es la fuente de verdad.
 

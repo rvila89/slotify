@@ -7,7 +7,6 @@ alwaysApply: true
 
 ## Introducción
 La **documentación técnica** abarca toda la documentación relativa al proyecto: modelo de datos, README, especificación de la API, diagramas y demás documentos `.md` que describen cómo está estructurado, cómo se ejecuta y cómo opera Slotify.
-Las **AI specs** son los documentos que explican a los Agentes IA cómo comportarse, documentar, planificar y codificar: incluyen acuerdos de equipo, estándares y convenciones.
 
 ## Reglas generales de idioma
 - **ESCRIBE SIEMPRE EN ESPAÑOL** toda la documentación, incluidos comentarios y explicaciones dentro de los ficheros. Aplica tanto a documentación nueva como a la actualización de la existente, y también a la documentación dentro del código (comentarios, explicaciones de funciones o campos).

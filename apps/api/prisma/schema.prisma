@@ -1,0 +1,567 @@
+// Schema Prisma — Slotify MVP
+// Fuente canónica: docs/er-diagram.md (v2.1) + docs/data-model.md (v1.0)
+// Convenciones: modelos PascalCase ES + @@map snake_case; campos snake_case vía @map.
+// Regla 1: todas las PK son UUID. Regla 2: tenant_id en toda tabla de negocio.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum EstadoReserva {
+  consulta
+  pre_reserva
+  reserva_confirmada
+  evento_en_curso
+  post_evento
+  reserva_completada
+  reserva_cancelada
+}
+
+enum SubEstadoConsulta {
+  s2a // exploratoria
+  s2b // con fecha
+  s2c // pendiente invitados
+  s2d // en cola
+  s2v // visita programada
+  s2x // expirada (terminal)
+  s2y // descartada por cola (terminal)
+  s2z // descartada por cliente (terminal)
+}
+
+enum TipoBloqueo {
+  blando
+  firme
+}
+
+enum Rol {
+  gestor
+  admin
+  operario
+}
+
+enum CanalEntrada {
+  web
+  email
+  whatsapp
+  instagram
+  telefono
+}
+
+enum DuracionHoras {
+  h4  @map("4")
+  h8  @map("8")
+  h12 @map("12")
+}
+
+enum TipoEvento {
+  boda
+  corporativo
+  privado
+  otro
+}
+
+enum PreEventoStatus {
+  pendiente
+  en_curso
+  cerrado
+}
+
+enum LiquidacionStatus {
+  pendiente
+  facturada
+  cobrada
+}
+
+enum FianzaStatus {
+  pendiente
+  recibo_enviado
+  cobrada
+  devuelta
+  retenida_parcial
+}
+
+enum Temporada {
+  alta
+  media
+  baja
+}
+
+enum OrigenExtra {
+  presupuesto
+  anadido_post_confirmacion
+}
+
+enum EstadoPresupuesto {
+  borrador
+  enviado
+  aceptado
+  rechazado
+}
+
+enum TipoFactura {
+  senal
+  liquidacion
+  fianza
+  complementaria
+}
+
+enum EstadoFactura {
+  borrador
+  enviada
+  cobrada
+}
+
+enum TipoDocumento {
+  dni_anverso
+  dni_reverso
+  clausula_responsabilidad
+  condiciones_particulares
+  justificante_pago
+  presupuesto
+  factura
+  otro
+}
+
+enum CodigoEmail {
+  E1
+  E2
+  E3
+  E4
+  E5
+  E6
+  E7
+  E8
+  manual
+}
+
+enum EstadoComunicacion {
+  borrador
+  enviado
+  fallido
+}
+
+enum AccionAudit {
+  crear
+  actualizar
+  eliminar
+  transicion
+  login
+  logout
+}
+
+// ============================================================
+// NÚCLEO: TENANT, CONFIGURACIÓN, USUARIOS
+// ============================================================
+
+model Tenant {
+  idTenant         String   @id @default(uuid()) @map("id_tenant")
+  nombre           String
+  emailContacto    String   @map("email_contacto")
+  telefono         String?
+  direccion        String?
+  iban             String?
+  nif              String?
+  capacidadMaxima  Int?     @map("capacidad_maxima")
+  activo           Boolean  @default(true)
+  fechaCreacion    DateTime @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime @updatedAt @map("fecha_actualizacion")
+
+  settings        TenantSettings?
+  usuarios        Usuario[]
+  clientes        Cliente[]
+  reservas        Reserva[]
+  fechasBloqueadas FechaBloqueada[]
+  tarifas         Tarifa[]
+  temporadas      TemporadaCalendario[]
+  extras          Extra[]
+  facturas        Factura[]
+  documentos      Documento[]
+  comunicaciones  Comunicacion[]
+  auditLogs       AuditLog[]
+
+  @@map("tenant")
+}
+
+model TenantSettings {
+  idSettings             String   @id @default(uuid()) @map("id_settings")
+  tenantId               String   @unique @map("tenant_id")
+  pctSenal               Decimal  @map("pct_senal") @db.Decimal(4, 2)
+  fianzaDefaultEur       Decimal  @map("fianza_default_eur") @db.Decimal(10, 2)
+  ttlConsultaDias        Int      @map("ttl_consulta_dias")
+  ttlPrereservaDias      Int      @map("ttl_prereserva_dias")
+  maxDiasProgramarVisita Int      @map("max_dias_programar_visita")
+  idioma                 String   @default("es")
+  fechaActualizacion     DateTime @updatedAt @map("fecha_actualizacion")
+
+  tenant Tenant @relation(fields: [tenantId], references: [idTenant])
+
+  @@map("tenant_settings")
+}
+
+model Usuario {
+  idUsuario          String    @id @default(uuid()) @map("id_usuario")
+  tenantId           String    @map("tenant_id")
+  email              String    @unique
+  passwordHash       String    @map("password_hash")
+  nombre             String
+  apellidos          String?
+  rol                Rol       @default(gestor)
+  activo             Boolean   @default(true)
+  ultimoAcceso       DateTime? @map("ultimo_acceso")
+  fechaCreacion      DateTime  @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime  @updatedAt @map("fecha_actualizacion")
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [idTenant])
+  auditLogs AuditLog[]
+
+  @@map("usuario")
+}
+
+// ============================================================
+// CLIENTES
+// ============================================================
+
+model Cliente {
+  idCliente          String   @id @default(uuid()) @map("id_cliente")
+  tenantId           String   @map("tenant_id")
+  nombre             String
+  apellidos          String?
+  email              String?
+  telefono           String?
+  dniNif             String?  @map("dni_nif")
+  direccion          String?
+  codigoPostal       String?  @map("codigo_postal")
+  poblacion          String?
+  provincia          String?
+  ibanDevolucion     String?  @map("iban_devolucion")
+  activo             Boolean  @default(true)
+  fechaCreacion      DateTime @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime @updatedAt @map("fecha_actualizacion")
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [idTenant])
+  reservas       Reserva[]
+  comunicaciones Comunicacion[]
+
+  @@index([tenantId, email])
+  @@map("cliente")
+}
+
+// ============================================================
+// RESERVA (ENTIDAD CENTRAL ÚNICA)
+// ============================================================
+
+model Reserva {
+  idReserva               String             @id @default(uuid()) @map("id_reserva")
+  tenantId                String             @map("tenant_id")
+  clienteId               String             @map("cliente_id")
+  codigo                  String             @unique
+  estado                  EstadoReserva
+  subEstado               SubEstadoConsulta? @map("sub_estado")
+  canalEntrada            CanalEntrada       @map("canal_entrada")
+  fechaEvento             DateTime?          @map("fecha_evento") @db.Date
+  duracionHoras           DuracionHoras?     @map("duracion_horas")
+  tipoEvento              TipoEvento?        @map("tipo_evento")
+  numAdultosNinosMayores4 Int?               @map("num_adultos_ninos_mayores4")
+  numNinosMenores4        Int?               @map("num_ninos_menores4")
+  numInvitadosFinal       Int?               @map("num_invitados_final")
+  importeTotal            Decimal?           @map("importe_total") @db.Decimal(10, 2)
+  importeSenal            Decimal?           @map("importe_senal") @db.Decimal(10, 2)
+  importeLiquidacion      Decimal?           @map("importe_liquidacion") @db.Decimal(10, 2)
+  ttlExpiracion           DateTime?          @map("ttl_expiracion")
+  preEventoStatus         PreEventoStatus    @default(pendiente) @map("pre_evento_status")
+  liquidacionStatus       LiquidacionStatus  @default(pendiente) @map("liquidacion_status")
+  fianzaStatus            FianzaStatus       @default(pendiente) @map("fianza_status")
+  posicionCola            Int?               @map("posicion_cola")
+  consultaBloqueanteId    String?            @map("consulta_bloqueante_id")
+  visitaProgramadaFecha   DateTime?          @map("visita_programada_fecha") @db.Date
+  visitaProgramadaHora    String?            @map("visita_programada_hora")
+  visitaRealizada         Boolean            @default(false) @map("visita_realizada")
+  fianzaEur               Decimal?           @map("fianza_eur") @db.Decimal(10, 2)
+  fianzaCobradaFecha      DateTime?          @map("fianza_cobrada_fecha")
+  fianzaDevueltaFecha     DateTime?          @map("fianza_devuelta_fecha")
+  fianzaDevueltaEur       Decimal?           @map("fianza_devuelta_eur") @db.Decimal(10, 2)
+  condPartFirmadas        Boolean            @default(false) @map("cond_part_firmadas")
+  condPartEnviadasFecha   DateTime?          @map("cond_part_enviadas_fecha")
+  condPartFirmadasFecha   DateTime?          @map("cond_part_firmadas_fecha")
+  notas                   String?            @db.Text
+  activo                  Boolean            @default(true)
+  fechaCreacion           DateTime           @default(now()) @map("fecha_creacion")
+  fechaActualizacion      DateTime           @updatedAt @map("fecha_actualizacion")
+
+  tenant            Tenant           @relation(fields: [tenantId], references: [idTenant])
+  cliente           Cliente          @relation(fields: [clienteId], references: [idCliente])
+  consultaBloqueante Reserva?        @relation("ColaEspera", fields: [consultaBloqueanteId], references: [idReserva])
+  enCola            Reserva[]        @relation("ColaEspera")
+  fechaBloqueada    FechaBloqueada?
+  presupuestos      Presupuesto[]
+  reservaExtras     ReservaExtra[]
+  facturas          Factura[]
+  fichaOperativa    FichaOperativa?
+  documentos        Documento[]
+  comunicaciones    Comunicacion[]
+
+  @@index([tenantId, fechaEvento, estado])
+  @@index([tenantId, consultaBloqueanteId, posicionCola])
+  @@map("reserva")
+}
+
+// ============================================================
+// BLOQUEO ATÓMICO DE FECHAS — UNIQUE(tenant_id, fecha)
+// ============================================================
+
+model FechaBloqueada {
+  idBloqueo     String      @id @default(uuid()) @map("id_bloqueo")
+  tenantId      String      @map("tenant_id")
+  fecha         DateTime    @db.Date
+  reservaId     String      @unique @map("reserva_id")
+  tipoBloqueo   TipoBloqueo @map("tipo_bloqueo")
+  ttlExpiracion DateTime?   @map("ttl_expiracion")
+  fechaCreacion DateTime    @default(now()) @map("fecha_creacion")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [idTenant])
+  reserva Reserva @relation(fields: [reservaId], references: [idReserva])
+
+  @@unique([tenantId, fecha]) // GARANTÍA ATÓMICA ANTI-DOBLE-RESERVA
+  @@map("fecha_bloqueada")
+}
+
+// ============================================================
+// TARIFAS Y EXTRAS
+// ============================================================
+
+model Tarifa {
+  idTarifa           String    @id @default(uuid()) @map("id_tarifa")
+  tenantId           String    @map("tenant_id")
+  temporada          Temporada
+  duracionHoras      Int       @map("duracion_horas")
+  invitadosMin       Int       @map("invitados_min")
+  invitadosMax       Int       @map("invitados_max")
+  precioTotalEur     Decimal   @map("precio_total_eur") @db.Decimal(10, 2)
+  vigenteDesde       DateTime  @map("vigente_desde") @db.Date
+  vigenteHasta       DateTime? @map("vigente_hasta") @db.Date
+  activo             Boolean   @default(true)
+  fechaCreacion      DateTime  @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime  @updatedAt @map("fecha_actualizacion")
+
+  tenant Tenant @relation(fields: [tenantId], references: [idTenant])
+
+  @@map("tarifa")
+}
+
+model TemporadaCalendario {
+  idTemporadaCal String    @id @default(uuid()) @map("id_temporada_cal")
+  tenantId       String    @map("tenant_id")
+  temporada      Temporada
+  mes            Int
+
+  tenant Tenant @relation(fields: [tenantId], references: [idTenant])
+
+  @@map("temporada_calendario")
+}
+
+model Extra {
+  idExtra            String   @id @default(uuid()) @map("id_extra")
+  tenantId           String   @map("tenant_id")
+  nombre             String
+  descripcion        String?
+  precioEur          Decimal  @map("precio_eur") @db.Decimal(10, 2)
+  activo             Boolean  @default(true)
+  fechaCreacion      DateTime @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime @updatedAt @map("fecha_actualizacion")
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [idTenant])
+  reservaExtras ReservaExtra[]
+
+  @@map("extra")
+}
+
+model ReservaExtra {
+  idReservaExtra String      @id @default(uuid()) @map("id_reserva_extra")
+  reservaId      String      @map("reserva_id")
+  extraId        String?     @map("extra_id")
+  facturaId      String?     @map("factura_id")
+  conceptoLibre  String?     @map("concepto_libre")
+  origen         OrigenExtra
+  cantidad       Int
+  precioUnitario Decimal     @map("precio_unitario") @db.Decimal(10, 2)
+  subtotal       Decimal     @db.Decimal(10, 2)
+  fechaCreacion  DateTime    @default(now()) @map("fecha_creacion")
+
+  reserva Reserva  @relation(fields: [reservaId], references: [idReserva])
+  extra   Extra?   @relation(fields: [extraId], references: [idExtra])
+  factura Factura? @relation(fields: [facturaId], references: [idFactura])
+
+  @@map("reserva_extra")
+}
+
+// ============================================================
+// PRESUPUESTOS
+// ============================================================
+
+model Presupuesto {
+  idPresupuesto      String            @id @default(uuid()) @map("id_presupuesto")
+  reservaId          String            @map("reserva_id")
+  version            Int
+  baseImponible      Decimal           @map("base_imponible") @db.Decimal(10, 2)
+  ivaPorcentaje      Decimal           @map("iva_porcentaje") @db.Decimal(4, 2)
+  ivaImporte         Decimal           @map("iva_importe") @db.Decimal(10, 2)
+  total              Decimal           @db.Decimal(10, 2)
+  descuentoEur       Decimal?          @map("descuento_eur") @db.Decimal(10, 2)
+  descuentoMotivo    String?           @map("descuento_motivo")
+  tarifaCongelada    Boolean           @default(true) @map("tarifa_congelada")
+  pdfUrl             String?           @map("pdf_url")
+  estado             EstadoPresupuesto
+  fechaEnvio         DateTime?         @map("fecha_envio")
+  fechaCreacion      DateTime          @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime          @updatedAt @map("fecha_actualizacion")
+
+  reserva Reserva @relation(fields: [reservaId], references: [idReserva])
+
+  @@unique([reservaId, version])
+  @@map("presupuesto")
+}
+
+// ============================================================
+// FACTURAS Y PAGOS
+// ============================================================
+
+model Factura {
+  idFactura          String        @id @default(uuid()) @map("id_factura")
+  tenantId           String        @map("tenant_id")
+  reservaId          String        @map("reserva_id")
+  numeroFactura      String        @unique @map("numero_factura")
+  tipo               TipoFactura
+  baseImponible      Decimal       @map("base_imponible") @db.Decimal(10, 2)
+  ivaPorcentaje      Decimal       @map("iva_porcentaje") @db.Decimal(4, 2)
+  ivaImporte         Decimal       @map("iva_importe") @db.Decimal(10, 2)
+  total              Decimal       @db.Decimal(10, 2)
+  concepto           String?
+  pdfUrl             String?       @map("pdf_url")
+  estado             EstadoFactura
+  fechaEmision       DateTime?     @map("fecha_emision")
+  fechaCreacion      DateTime      @default(now()) @map("fecha_creacion")
+  fechaActualizacion DateTime      @updatedAt @map("fecha_actualizacion")
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [idTenant])
+  reserva       Reserva        @relation(fields: [reservaId], references: [idReserva])
+  reservaExtras ReservaExtra[]
+  pagos         Pago[]
+
+  @@map("factura")
+}
+
+model Pago {
+  idPago            String   @id @default(uuid()) @map("id_pago")
+  facturaId         String   @map("factura_id")
+  importe           Decimal  @db.Decimal(10, 2)
+  fechaCobro        DateTime @map("fecha_cobro") @db.Date
+  justificanteDocId String?  @map("justificante_doc_id")
+  fechaCreacion     DateTime @default(now()) @map("fecha_creacion")
+
+  factura      Factura    @relation(fields: [facturaId], references: [idFactura])
+  justificante Documento? @relation(fields: [justificanteDocId], references: [idDocumento])
+
+  @@map("pago")
+}
+
+// ============================================================
+// FICHA OPERATIVA
+// ============================================================
+
+model FichaOperativa {
+  idFicha                String    @id @default(uuid()) @map("id_ficha")
+  reservaId              String    @unique @map("reserva_id")
+  numInvitadosConfirmado Int?      @map("num_invitados_confirmado")
+  menuSeleccionado       String?   @map("menu_seleccionado") @db.Text
+  timingDetallado        String?   @map("timing_detallado") @db.Text
+  contactoEventoNombre   String?   @map("contacto_evento_nombre")
+  contactoEventoTelefono String?   @map("contacto_evento_telefono")
+  notasOperativas        String?   @map("notas_operativas") @db.Text
+  briefingEquipo         String?   @map("briefing_equipo") @db.Text
+  fichaCerrada           Boolean   @default(false) @map("ficha_cerrada")
+  fechaCierre            DateTime? @map("fecha_cierre")
+  fechaCreacion          DateTime  @default(now()) @map("fecha_creacion")
+  fechaActualizacion     DateTime  @updatedAt @map("fecha_actualizacion")
+
+  reserva Reserva @relation(fields: [reservaId], references: [idReserva])
+
+  @@map("ficha_operativa")
+}
+
+// ============================================================
+// DOCUMENTOS POLIMÓRFICOS
+// ============================================================
+
+model Documento {
+  idDocumento   String        @id @default(uuid()) @map("id_documento")
+  tenantId      String        @map("tenant_id")
+  reservaId     String?       @map("reserva_id")
+  tipo          TipoDocumento
+  nombreArchivo String        @map("nombre_archivo")
+  url           String
+  mimeType      String        @map("mime_type")
+  tamanoBytes   Int?          @map("tamano_bytes")
+  fechaCreacion DateTime      @default(now()) @map("fecha_creacion")
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [idTenant])
+  reserva Reserva? @relation(fields: [reservaId], references: [idReserva])
+  pagos   Pago[]
+
+  @@map("documento")
+}
+
+// ============================================================
+// COMUNICACIONES
+// ============================================================
+
+model Comunicacion {
+  idComunicacion    String             @id @default(uuid()) @map("id_comunicacion")
+  tenantId          String             @map("tenant_id")
+  reservaId         String?            @map("reserva_id")
+  clienteId         String             @map("cliente_id")
+  codigoEmail       CodigoEmail        @map("codigo_email")
+  asunto            String
+  cuerpo            String?            @db.Text
+  destinatarioEmail String             @map("destinatario_email")
+  estado            EstadoComunicacion
+  fechaEnvio        DateTime?          @map("fecha_envio")
+  fechaCreacion     DateTime           @default(now()) @map("fecha_creacion")
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [idTenant])
+  reserva Reserva? @relation(fields: [reservaId], references: [idReserva])
+  cliente Cliente  @relation(fields: [clienteId], references: [idCliente])
+
+  @@map("comunicacion")
+}
+
+// ============================================================
+// AUDIT LOG
+// ============================================================
+
+model AuditLog {
+  idAudit         String      @id @default(uuid()) @map("id_audit")
+  tenantId        String      @map("tenant_id")
+  usuarioId       String?     @map("usuario_id")
+  entidad         String
+  entidadId       String      @map("entidad_id")
+  accion          AccionAudit
+  datosAnteriores Json?       @map("datos_anteriores")
+  datosNuevos     Json?       @map("datos_nuevos")
+  ipAddress       String?     @map("ip_address")
+  userAgent       String?     @map("user_agent")
+  fechaCreacion   DateTime    @default(now()) @map("fecha_creacion")
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [idTenant])
+  usuario Usuario? @relation(fields: [usuarioId], references: [idUsuario])
+
+  @@map("audit_log")
+}

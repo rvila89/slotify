@@ -1,6 +1,8 @@
 # Guía de Desarrollo — Slotify
 
-Esta guía explica, paso a paso, cómo poner en marcha el entorno de desarrollo y ejecutar los tests de Slotify. La arquitectura de referencia está en [architecture.md](./architecture.md): un **monolito modular** en un único monorepo con dos aplicaciones (`apps/web` y `apps/api`) y una única base de datos PostgreSQL.
+> Para el setup inicial (prerrequisitos, pasos de arranque paso a paso, tabla de scripts y gate de calidad) consulta [getting-started.md](./getting-started.md). Esta guía documenta el flujo de trabajo diario, la estructura de módulos y las convenciones de testing.
+
+La arquitectura de referencia está en [architecture.md](./architecture.md): un **monolito modular** en un único monorepo con dos aplicaciones (`apps/web` y `apps/api`) y una única base de datos PostgreSQL.
 
 ## 🧱 Estructura del monorepo
 
@@ -78,35 +80,23 @@ VITE_API_URL=http://localhost:3000/api
 ### 3. Base de datos (PostgreSQL con Docker)
 
 ```bash
-# Arrancar PostgreSQL
-docker compose up -d
+# Arrancar solo el servicio de PostgreSQL
+docker compose up -d postgres
 
 # Verificar que está corriendo
 docker compose ps
 ```
 
-PostgreSQL quedará disponible en:
-- **Host**: `localhost`
-- **Puerto**: `5432`
-- **Base de datos**: `slotify`
-- **Usuario / Contraseña**: `slotify` / `slotify` (solo desarrollo)
+PostgreSQL 15 quedará disponible en `localhost:5432`. Base de datos: `slotify_dev` (según `DATABASE_URL` en `.env`).
 
-### 4. Backend (`apps/api`)
+### 4. Migraciones y seed (desde la raíz)
 
 ```bash
-cd apps/api
-
-# Generar el cliente Prisma
-pnpm prisma generate
-
 # Aplicar migraciones
-pnpm prisma migrate deploy        # o `pnpm prisma migrate dev` en desarrollo
+pnpm db:migrate
 
-# Sembrar datos iniciales (tenant + gestor único + tarifario base)
-pnpm prisma db seed
-
-# Arrancar el servidor de desarrollo (hot reload)
-pnpm start:dev
+# Sembrar datos iniciales (tenant Masia l'Encís, 12 temporadas, 45 tarifas, 2 extras, gestor)
+pnpm db:seed
 ```
 
 La API quedará disponible en `http://localhost:3000/api`.
@@ -114,16 +104,14 @@ La documentación OpenAPI/Swagger en `http://localhost:3000/api/docs`.
 
 > **Aprovisionamiento del gestor:** en el MVP hay un único gestor por tenant, creado por el *seed* (no hay UI de alta de usuarios). Ver [architecture.md §2.8](./architecture.md).
 
-### 5. Frontend (`apps/web`)
+### 5. Arrancar frontend y backend
 
 ```bash
-cd apps/web
+# Desde la raíz — arranca ambas apps en paralelo
+pnpm dev
 
 # (Opcional) regenerar el cliente HTTP type-safe desde el contrato OpenAPI
-pnpm generate:api
-
-# Arrancar el servidor de desarrollo
-pnpm dev
+pnpm generate-client
 ```
 
 La SPA quedará disponible en `http://localhost:5173`.
@@ -140,27 +128,26 @@ curl -X POST http://localhost:3000/api/cron/barrido -H "X-Cron-Token: <token-de-
 
 El orden TDD lo impone la arquitectura: **primero los tests de concurrencia del núcleo crítico** (bloqueo atómico, promoción de cola), antes que UI o CRUD.
 
-### Backend (`apps/api`)
+### Desde la raíz (recomendado)
 
 ```bash
-cd apps/api
-
-pnpm test                 # tests unitarios (Jest)
-pnpm test:watch           # modo watch
-pnpm test:cov             # cobertura
-pnpm test:e2e             # tests de integración/e2e (Supertest, base de datos de test)
+pnpm test                 # Jest (API) + Vitest (Web) + dependency-cruiser (arch)
+pnpm test:e2e             # Supertest con BD (API) + Playwright (Web)
 ```
 
-> Los tests de concurrencia del bloqueo de fecha usan transacciones simultáneas para verificar que la restricción `UNIQUE(tenant_id, fecha)` produce exactamente un éxito y un conflicto, sin ventana de carrera.
-
-### Frontend (`apps/web`)
+### Por workspace (para desarrollo focado)
 
 ```bash
-cd apps/web
+# Backend
+pnpm --filter @slotify/api test          # tests unitarios (Jest)
+pnpm --filter @slotify/api test:e2e      # Supertest con BD real
 
-pnpm test                 # tests unitarios/de componentes (Vitest + Testing Library)
-pnpm test:e2e             # tests end-to-end (Playwright)
+# Frontend
+pnpm --filter @slotify/web test          # Vitest + Testing Library
+pnpm --filter @slotify/web test:e2e      # Playwright
 ```
+
+> Los tests de concurrencia del bloqueo de fecha verifican que la restricción `UNIQUE(tenant_id, fecha)` produce exactamente un éxito y un `P2002`, sin ventana de carrera. Ver [getting-started.md §Gate de calidad](./getting-started.md).
 
 ## 🔁 Flujo de trabajo
 
