@@ -231,8 +231,16 @@ export class CalculadoraTarifaService {
     if (!(fechaEvento instanceof Date) || Number.isNaN(fechaEvento.getTime())) {
       throw new ValidacionTarifaError('fechaEvento', 'La fecha de evento es obligatoria y válida');
     }
-    if (fechaEvento.getTime() < this.deps.clock.ahora().getTime()) {
-      throw new ValidacionTarifaError('fechaEvento', 'La fecha de evento no puede ser pasada');
+    // La fecha del evento debe ser estrictamente futura: no se admiten
+    // reservas del mismo día (regla de negocio Masia l'Encís). Se compara por
+    // día natural en UTC para no depender de la hora del instante actual.
+    const inicioDiaUtc = (d: Date): number =>
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    if (inicioDiaUtc(fechaEvento) <= inicioDiaUtc(this.deps.clock.ahora())) {
+      throw new ValidacionTarifaError(
+        'fechaEvento',
+        'La fecha del evento debe ser futura (no se admite el mismo día)',
+      );
     }
     if (!DURACIONES_VALIDAS.includes(duracionHoras)) {
       throw new ValidacionTarifaError('duracionHoras', 'La duración debe ser 4, 8 o 12 horas');

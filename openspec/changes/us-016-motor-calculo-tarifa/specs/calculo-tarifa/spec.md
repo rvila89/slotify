@@ -130,8 +130,8 @@ el contrato OpenAPI. (Fuente: US-016 Paso 6, Paso 3, FA-01; decisión de diseño
   `total_eur` y `tarifa_id` a `null`, pero `temporada` presente
 
 ### Requirement: Validación de inputs del motor
-El motor SHALL (DEBE) validar los inputs antes de calcular: `fecha_evento` válida (no nula, no
-pasada al momento de la llamada); `duracion_horas ∈ {4,8,12}`; `num_adultos_ninos_mayores4 ≥ 0`;
+El motor SHALL (DEBE) validar los inputs antes de calcular: `fecha_evento` válida y estrictamente
+futura (no nula, no pasada y no el mismo día —comparación por día natural en UTC); `duracion_horas ∈ {4,8,12}`; `num_adultos_ninos_mayores4 ≥ 0`;
 y, por cada extra, `extra_id` no nulo y `cantidad ≥ 1`. Cualquier input fuera de estas reglas DEBE
 producir un error de validación de input (no un cálculo). (Fuente: US-016 §Reglas de Validación.)
 
@@ -149,8 +149,12 @@ producir un error de validación de input (no un cálculo). (Fuente: US-016 §Re
 - **THEN** lanza un error de validación de input
 
 #### Scenario: Fecha de evento inválida es rechazada
-- **WHEN** el motor recibe `fecha_evento` nula o una fecha pasada
+- **WHEN** el motor recibe `fecha_evento` nula, una fecha pasada o la del **mismo día** que `ahora`
 - **THEN** lanza un error de validación de input
+
+#### Scenario: Fecha del día siguiente es aceptada
+- **WHEN** el motor recibe `fecha_evento` correspondiente al día siguiente a `ahora`
+- **THEN** la validación de fecha pasa y el cálculo continúa con normalidad
 
 ### Requirement: Motor stateless, determinista y de lectura pura
 El motor SHALL (DEBE) ser stateless y determinista: los mismos inputs producen el mismo output dado

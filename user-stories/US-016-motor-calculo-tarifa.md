@@ -111,7 +111,7 @@ pr: null
 El motor de tarifa es una operación de **lectura pura** (sin escrituras a BD). No hay estado compartido mutable durante el cálculo. Las únicas escrituras ocurren en el flujo invocante (UC-14/US-014: inserción en PRESUPUESTO, actualización de FECHA_BLOQUEADA), donde sí aplican los tests de concurrencia definidos en US-014. No se requieren tests de race condition propios para este motor.
 
 ### 🚫 Reglas de Validación
-- `fecha_evento` debe ser una fecha válida (no nula, no pasada al momento de llamar al motor)
+- `fecha_evento` debe ser una fecha válida y **estrictamente futura**: no nula, no pasada y **no el mismo día** (no se admiten reservas para hoy; comparación por día natural en UTC)
 - `duracion_horas` ∈ {4, 8, 12}; cualquier otro valor → error de validación de input
 - `num_adultos_ninos_mayores4` ≥ 0; si = 0 y el motor no tiene tramo para 0 invitados → `TARIFA_NO_CONFIGURADA`
 - Cada `extra_id` en el array debe ser no nulo, pertenecer al tenant y estar activo

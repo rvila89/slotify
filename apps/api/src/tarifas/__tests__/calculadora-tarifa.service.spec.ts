@@ -631,6 +631,28 @@ describe('Validación de inputs del motor', () => {
       motor.calcular(inputBase({ fechaEvento: new Date('2020-01-01') }), TENANT),
     ).rejects.toBeInstanceOf(ValidacionTarifaError);
   });
+
+  it('debe_rechazar_fecha_de_evento_del_mismo_dia', async () => {
+    // Regla de negocio: no se admiten reservas el mismo día (la fecha debe ser
+    // estrictamente futura). Reloj a media tarde del 2026-06-26; evento ese día.
+    const { motor } = montarMotor({ clock: relojFijo('2026-06-26T14:00:00.000Z') });
+
+    await expect(
+      motor.calcular(inputBase({ fechaEvento: new Date('2026-06-26') }), TENANT),
+    ).rejects.toBeInstanceOf(ValidacionTarifaError);
+  });
+
+  it('debe_aceptar_fecha_de_evento_del_dia_siguiente', async () => {
+    // Frontera: el día siguiente al "ahora" sí es válido.
+    const { motor } = montarMotor({ clock: relojFijo('2026-06-26T14:00:00.000Z') });
+
+    const out = await motor.calcular(
+      inputBase({ fechaEvento: new Date('2026-06-27'), numAdultosNinosMayores4: 40 }),
+      TENANT,
+    );
+    expect(out.tarifaAConsultar).toBe(false);
+    expect(out.precioTarifaEur).toBeGreaterThan(0);
+  });
 });
 
 // ===========================================================================

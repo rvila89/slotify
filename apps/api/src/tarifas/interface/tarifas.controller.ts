@@ -79,7 +79,13 @@ export class TarifasController {
 
   private aHttp(error: unknown): HttpException {
     if (error instanceof ValidacionTarifaError) {
-      return new BadRequestException(error.message);
+      return new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        error: 'Bad Request',
+        message: error.message,
+        codigo: error.codigo,
+        detalle: { campo: error.campo },
+      });
     }
     if (error instanceof ExtraNoEncontradoError) {
       return new NotFoundException({
