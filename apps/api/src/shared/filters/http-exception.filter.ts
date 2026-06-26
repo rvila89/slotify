@@ -29,6 +29,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | string[] = 'Error interno del servidor';
     let error = 'Internal Server Error';
+    // Campos opcionales de errores de dominio (p. ej. motor de tarifa US-016):
+    // `codigo` (error de dominio) + `detalle` (diagnóstico). Solo se incluyen si
+    // la excepción los aporta; el resto de errores conservan el envelope estándar.
+    let codigo: string | undefined;
+    let detalle: unknown;
 
     if (exception instanceof HttpException) {
       statusCode = exception.getStatus();
@@ -36,9 +41,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
       if (typeof body === 'string') {
         message = body;
       } else if (typeof body === 'object' && body !== null) {
-        const b = body as { message?: string | string[]; error?: string };
+        const b = body as {
+          message?: string | string[];
+          error?: string;
+          codigo?: string;
+          detalle?: unknown;
+        };
         message = b.message ?? exception.message;
         error = b.error ?? error;
+        codigo = b.codigo;
+        detalle = b.detalle;
       }
     } else if (
       exception instanceof Prisma.PrismaClientKnownRequestError &&
@@ -56,6 +68,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       statusCode,
       message,
       error,
+      ...(codigo !== undefined ? { codigo } : {}),
+      ...(detalle !== undefined ? { detalle } : {}),
       path: request.url,
       timestamp: new Date().toISOString(),
     });
