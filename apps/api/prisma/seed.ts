@@ -30,25 +30,45 @@ const TEMPORADAS_POR_MES: Array<{ mes: number; temporada: Temporada }> = [
   { mes: 12, temporada: Temporada.baja },
 ];
 
-// Tramos de invitados (5 tramos; >50 = "a consultar")
+// Tramos de invitados con precio (5 tramos; +51 = "a consultar", sin tarifa:
+// US-016 devuelve "a consultar" cuando no hay tarifa que matchee).
 const TRAMOS_INVITADOS = [
-  { min: 1, max: 10 },
-  { min: 11, max: 20 },
-  { min: 21, max: 30 },
-  { min: 31, max: 50 },
-  { min: 51, max: 999 },
+  { min: 1, max: 20 },
+  { min: 21, max: 25 },
+  { min: 26, max: 30 },
+  { min: 31, max: 40 },
+  { min: 41, max: 50 },
 ];
 
 const DURACIONES = [4, 8, 12];
 
-// Multiplicadores de precio representativos
-const FACTOR_TEMPORADA: Record<Temporada, number> = {
-  [Temporada.alta]: 1.4,
-  [Temporada.media]: 1.15,
-  [Temporada.baja]: 1.0,
+// Tarifas reales del dossier oficial de Masia l'Encís (IVA incluido).
+// PRECIOS[temporada][idxTramo] = [precio 4h, precio 8h, precio 12h] en EUR.
+// El orden de los tramos coincide con TRAMOS_INVITADOS y el de las
+// columnas con DURACIONES.
+const PRECIOS: Record<Temporada, number[][]> = {
+  [Temporada.alta]: [
+    [360, 698, 1015],
+    [405, 785, 1142],
+    [465, 902, 1311],
+    [555, 1076, 1565],
+    [615, 1193, 1734],
+  ],
+  [Temporada.media]: [
+    [336, 651, 947],
+    [378, 733, 1065],
+    [434, 841, 1223],
+    [518, 1004, 1460],
+    [574, 1113, 1618],
+  ],
+  [Temporada.baja]: [
+    [312, 605, 879],
+    [351, 680, 989],
+    [403, 781, 1136],
+    [481, 933, 1356],
+    [533, 1034, 1503],
+  ],
 };
-const FACTOR_DURACION: Record<number, number> = { 4: 1.0, 8: 1.6, 12: 2.1 };
-const PRECIO_BASE_POR_TRAMO = [1200, 2000, 2800, 3800, 5000];
 
 async function main(): Promise<void> {
   // --- Tenant ---
@@ -58,7 +78,7 @@ async function main(): Promise<void> {
     create: {
       idTenant: TENANT_ID,
       nombre: "Masia l'Encís",
-      emailContacto: 'hola@masiallencis.com',
+      emailContacto: 'hola@masialencis.com',
       telefono: '+34 600 000 000',
       direccion: "Camí de l'Encís, s/n, Girona",
       nif: 'B00000000',
@@ -121,23 +141,19 @@ async function main(): Promise<void> {
   }> = [];
   const vigenteDesde = new Date('2026-01-01');
   for (const temporada of [Temporada.alta, Temporada.media, Temporada.baja]) {
-    for (const duracion of DURACIONES) {
-      TRAMOS_INVITADOS.forEach((tramo, idx) => {
-        const precio =
-          PRECIO_BASE_POR_TRAMO[idx] *
-          FACTOR_TEMPORADA[temporada] *
-          FACTOR_DURACION[duracion];
+    TRAMOS_INVITADOS.forEach((tramo, idxTramo) => {
+      DURACIONES.forEach((duracion, idxDuracion) => {
         tarifas.push({
           tenantId: TENANT_ID,
           temporada,
           duracionHoras: duracion,
           invitadosMin: tramo.min,
           invitadosMax: tramo.max,
-          precioTotalEur: Math.round(precio * 100) / 100,
+          precioTotalEur: PRECIOS[temporada][idxTramo][idxDuracion],
           vigenteDesde,
         });
       });
-    }
+    });
   }
   await prisma.tarifa.createMany({ data: tarifas });
 
