@@ -2067,7 +2067,7 @@ export interface components {
         CalculoTarifaRequest: {
             /**
              * Format: date
-             * @description Fecha del evento (YYYY-MM-DD). No nula, no pasada al momento de la llamada.
+             * @description Fecha del evento (YYYY-MM-DD). Debe ser estrictamente futura: no nula, no pasada y no el mismo día que la llamada (comparación por día natural UTC).
              */
             fecha_evento: string;
             duracion_horas: components["schemas"]["DuracionHoras"];

@@ -655,30 +655,29 @@ flowchart TD
 | **Nombre** | Calcular Tarifa según Configuración |
 | **Actor Principal** | Sistema |
 | **Actores Secundarios** | - |
-| **Descripción** | El sistema calcula automáticamente la tarifa aplicable según el tarifario configurado del tenant |
-| **Precondiciones** | - Fecha del evento conocida<br>- Duración (4/8/12 horas) conocida<br>- Nº de invitados conocido<br>- Tarifario del tenant configurado |
-| **Postcondiciones** | - Tarifa calculada<br>- Temporada identificada |
+| **Descripción** | El sistema calcula automáticamente la tarifa aplicable según el tarifario configurado del tenant. Motor de lectura pura, stateless y determinista (US-016). Invocado por UC-14 y UC-15. Endpoint: `POST /api/tarifas/calcular` |
+| **Precondiciones** | - `fecha_evento` estrictamente futura: no nula, no pasada y **no el mismo día** (comparación por día natural UTC)<br>- `duracion_horas` ∈ {4, 8, 12}<br>- `num_adultos_ninos_mayores4` ≥ 0 (niños ≤ 4 años no se pasan ni cuentan para el tramo)<br>- Tarifario del tenant configurado (`TARIFA` + `TEMPORADA_CALENDARIO`)<br>- Extras opcionales del catálogo del tenant (cada uno: `extra_id` no nulo y `cantidad` ≥ 1) |
+| **Postcondiciones** | - Esquema canónico D-1 devuelto: `{ temporada, tarifa_a_consultar, precio_tarifa_eur, extras_total_eur, total_eur, tarifa_id }`. Los cuatro campos monetarios/id son `null` cuando `tarifa_a_consultar=true` |
 | **Prioridad** | Crítica |
 | **Frecuencia** | Muy alta |
 
 **Flujo Básico:**
-1. El sistema recibe los parámetros: fecha, horas, nº invitados
-2. El sistema determina la temporada según el mes:
-   - Alta: mayo, junio, julio, agosto, septiembre
-   - Media: marzo, abril, octubre, noviembre
-   - Baja: diciembre, enero, febrero
-3. El sistema busca en la tabla de tarifas:
-   - Temporada coincide
-   - Duración_horas coincide
-   - nº invitados entre invitados_min e invitados_max
-   - Tarifa vigente en la fecha
-4. El sistema obtiene precio_total_eur
-5. El sistema suma los extras seleccionados
-6. El sistema devuelve el total (IVA 21% incluido)
+1. El sistema valida los inputs (ver precondiciones); rechaza con error 400 si alguno no cumple.
+2. El sistema determina la temporada consultando `TEMPORADA_CALENDARIO` del tenant para el mes de `fecha_evento`:
+   - Alta: meses 5, 6, 7, 8, 9 (mayo–septiembre)
+   - Media: meses 3, 4, 10, 11 (marzo, abril, octubre, noviembre)
+   - Baja: meses 12, 1, 2 (diciembre, enero, febrero)
+3. Si `num_adultos_ninos_mayores4 > 50` → el sistema devuelve `tarifa_a_consultar: true` con `temporada` resuelta y los cuatro campos restantes a `null` (200 sin error; fin del flujo). Los niños ≤ 4 años no son input y no modifican este cálculo.
+4. El sistema busca la fila `TARIFA` del tenant vigente en `fecha_evento` donde `temporada` coincide, `duracion_horas` coincide y `num_adultos_ninos_mayores4` está en el rango `invitados_min..invitados_max`. Los tramos del tarifario de Masia l'Encís son: **1-20, 21-25, 26-30, 31-40, 41-50**.
+5. El sistema suma los extras del catálogo del tenant: por cada `{ extra_id, cantidad }`, calcula `precio_eur × cantidad`; la suma es `extras_total_eur`.
+6. El sistema devuelve el esquema D-1: `precio_tarifa_eur` (IVA 21% incluido), `extras_total_eur`, `total_eur = precio_tarifa_eur + extras_total_eur`, `tarifa_id` y `tarifa_a_consultar: false`.
 
 **Flujos Alternativos:**
-- **FA-01**: Invitados > 50 → Devolver indicador "tarifa a consultar"
-- **FA-02**: No hay tarifa vigente → Error de configuración
+- **FA-01**: `num_adultos_ninos_mayores4 > 50` → Respuesta 200 con `tarifa_a_consultar: true`, `temporada` presente, importes (`precio_tarifa_eur`, `extras_total_eur`, `total_eur`) y `tarifa_id` a `null`. No es un error; habilita precio manual en el flujo invocante (UC-14/FA-02).
+- **FA-02**: No existe `TARIFA` vigente para la combinación válida (≤ 50 invitados) → Error 422 `TARIFA_NO_CONFIGURADA` con detalle `{ temporada, duracion_horas, num_invitados }`.
+- **FA-03**: El mes de `fecha_evento` no tiene fila en `TEMPORADA_CALENDARIO` del tenant → Error 422 `TEMPORADA_NO_CONFIGURADA` con detalle `{ mes }`.
+- **FA-04**: Un `extra_id` no existe, está inactivo (`activo=false`) o pertenece a otro tenant (RLS) → Error 404 `EXTRA_NO_ENCONTRADO` con detalle `{ extra_id, motivo }`.
+- **FA-05**: Cualquier input fuera de rango (ver precondiciones) → Error 400 de validación.
 
 ---
 
