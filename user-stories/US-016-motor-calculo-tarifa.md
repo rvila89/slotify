@@ -1,8 +1,8 @@
 ---
 id: US-016
 estado: backlog
-branch: null
-pr: null
+branch: feature/us-016-motor-calculo-tarifa
+pr: 11
 ---
 
 # 🧾 Historia de Usuario: Motor de Cálculo de Tarifa
@@ -49,16 +49,16 @@ pr: null
 
 ### 🎯 Happy Path
 
-- **Dado** que el tenant tiene `TARIFA` configurada con `temporada = 'alta'`, `duracion_horas = 8`, `invitados_min = 31`, `invitados_max = 50`, `precio_total_eur = 3.200`, vigente en 2026; y `TEMPORADA_CALENDARIO` mapea mes 9 (septiembre) → alta
+- **Dado** que el tenant tiene `TARIFA` configurada con `temporada = 'alta'`, `duracion_horas = 8`, `invitados_min = 31`, `invitados_max = 40`, `precio_total_eur = 1.076`, vigente en 2026; y `TEMPORADA_CALENDARIO` mapea mes 9 (septiembre) → alta
   **Cuando** el motor recibe `{ fecha_evento: '2026-09-15', duracion_horas: 8, num_adultos_ninos_mayores4: 40, extras: [] }`
-  **Entonces** retorna `{ temporada: 'alta', precio_tarifa_eur: 3200, extras_total_eur: 0, total_eur: 3200, tarifa_id: <uuid> }`
+  **Entonces** retorna `{ temporada: 'alta', precio_tarifa_eur: 1076, extras_total_eur: 0, total_eur: 1076, tarifa_id: <uuid> }`
 
 ### ⚠️ Flujos Alternativos y Edge Cases
 
 #### Con extras del catálogo
-- **Dado** la misma TARIFA del happy path, más `EXTRA 'barbacoa'` con `precio_eur = 250` y `EXTRA 'paellero'` con `precio_eur = 400`, ambos activos
+- **Dado** la misma TARIFA del happy path, más `EXTRA 'barbacoa'` con `precio_eur = 30` y `EXTRA 'paellero'` con `precio_eur = 30`, ambos activos
   **Cuando** el motor recibe `{ fecha_evento: '2026-09-15', duracion_horas: 8, num_adultos_ninos_mayores4: 40, extras: [{extra_id: barbacoa, cantidad: 1}, {extra_id: paellero, cantidad: 1}] }`
-  **Entonces** retorna `{ precio_tarifa_eur: 3200, extras_total_eur: 650, total_eur: 3850, tarifa_id: <uuid> }`
+  **Entonces** retorna `{ precio_tarifa_eur: 1076, extras_total_eur: 60, total_eur: 1136, tarifa_id: <uuid> }`
 
 #### Niños menores de 4 años — no cuentan para tarifa
 - **Dado** una reserva con `num_adultos_ninos_mayores4 = 30` y `num_ninos_menores4 = 10`
@@ -71,8 +71,8 @@ pr: null
   **Entonces** retorna `{ tarifa_a_consultar: true, precio_total_eur: null, extras_total_eur: null, total_eur: null }` sin lanzar error; el flujo invocante habilita precio manual
 
 #### FA-02: Tarifa no configurada (error de configuración)
-- **Dado** que el tenant no tiene ninguna `TARIFA` vigente con `temporada = 'alta'`, `duracion_horas = 12` y rango que incluya 45 invitados
-  **Cuando** el motor busca la tarifa para esos parámetros
+- **Dado** un tenant con el **tarifario incompleto** al que le falta la fila `temporada = 'alta'`, `duracion_horas = 12`, tramo `41-50` (el seed canónico de Masia l'Encís cubre las 45 combinaciones ≤50 invitados, por lo que este error solo se da ante una configuración incompleta)
+  **Cuando** el motor busca la tarifa para `num_adultos_ninos_mayores4 = 45`
   **Entonces** lanza `TARIFA_NO_CONFIGURADA` con detalle `{ temporada: 'alta', duracion_horas: 12, num_invitados: 45 }` para facilitar el diagnóstico al administrador
 
 #### Temporadas: frontera de mes
@@ -87,14 +87,15 @@ pr: null
   **Entonces** retorna `temporada = 'baja'`
 
 #### Duración: 4 horas vs 8 horas vs 12 horas
-- **Dado** que `TARIFA` tiene entradas distintas para duracion_horas=4, 8 y 12, todas para temporada=alta, invitados entre 21 y 30
-  **Cuando** el motor recibe `duracion_horas = 4`
-  **Entonces** retorna la tarifa específica de 4 horas; no la de 8 ni la de 12
+- **Dado** que `TARIFA` tiene entradas distintas para duracion_horas=4 (405€), 8 (785€) y 12 (1.142€), todas para temporada=alta, tramo de invitados `21-25`
+  **Cuando** el motor recibe `duracion_horas = 4` y `num_adultos_ninos_mayores4 = 22`
+  **Entonces** retorna la tarifa específica de 4 horas (405€); no la de 8 ni la de 12
 
 #### Tarifa versionada — vigencia de tarifa
-- **Dado** que existe `TARIFA_v1` con `vigente_desde = 2025-01-01`, `vigente_hasta = 2025-12-31`, `precio_total_eur = 3000`; y `TARIFA_v2` con `vigente_desde = 2026-01-01`, `vigente_hasta = null`, `precio_total_eur = 3200`; ambas para los mismos parámetros de temporada/duración/invitados
+> Nota: las cifras de este escenario son **ilustrativas del mecanismo de vigencia**; el seed actual solo provisiona la versión vigente (`vigente_desde = 2026-01-01`, `vigente_hasta = null`).
+- **Dado** que existe `TARIFA_v1` con `vigente_desde = 2025-01-01`, `vigente_hasta = 2025-12-31`, `precio_total_eur = 1.000`; y `TARIFA_v2` con `vigente_desde = 2026-01-01`, `vigente_hasta = null`, `precio_total_eur = 1.076`; ambas para los mismos parámetros de temporada/duración/invitados
   **Cuando** el motor recibe `fecha_evento = '2026-06-15'` (año 2026)
-  **Entonces** retorna `precio_total_eur = 3200` (TARIFA_v2, vigente en 2026)
+  **Entonces** retorna `precio_total_eur = 1.076` (TARIFA_v2, vigente en 2026)
 
 #### Extra inactivo — error
 - **Dado** que `EXTRA 'barbacoa'` tiene `activo = false`
@@ -110,7 +111,7 @@ pr: null
 El motor de tarifa es una operación de **lectura pura** (sin escrituras a BD). No hay estado compartido mutable durante el cálculo. Las únicas escrituras ocurren en el flujo invocante (UC-14/US-014: inserción en PRESUPUESTO, actualización de FECHA_BLOQUEADA), donde sí aplican los tests de concurrencia definidos en US-014. No se requieren tests de race condition propios para este motor.
 
 ### 🚫 Reglas de Validación
-- `fecha_evento` debe ser una fecha válida (no nula, no pasada al momento de llamar al motor)
+- `fecha_evento` debe ser una fecha válida y **estrictamente futura**: no nula, no pasada y **no el mismo día** (no se admiten reservas para hoy; comparación por día natural en UTC)
 - `duracion_horas` ∈ {4, 8, 12}; cualquier otro valor → error de validación de input
 - `num_adultos_ninos_mayores4` ≥ 0; si = 0 y el motor no tiene tramo para 0 invitados → `TARIFA_NO_CONFIGURADA`
 - Cada `extra_id` en el array debe ser no nulo, pertenecer al tenant y estar activo

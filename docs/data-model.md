@@ -202,7 +202,7 @@ Bloqueo atómico de fecha. La restricción `@@unique([tenant_id, fecha])` trasla
 **Restricción clave:** `@@unique([tenant_id, fecha])`. Toda mutación pasa por las funciones transaccionales `bloquearFecha()` / `liberarFecha()` (ver [backend-standards.md](./backend-standards.md)).
 
 ### 3.7 Tarifa
-Precios precalculados por temporada × duración × invitados (45 entradas: 3×3×5).
+Precios precalculados por temporada × duración × invitados (45 entradas: 3×3×5). El motor de cálculo (UC-16 / US-016) busca la fila vigente en `fecha_evento` por `(temporada, duracion_horas, invitados_min ≤ num_adultos_ninos_mayores4 ≤ invitados_max)`. Los niños ≤ 4 años no cuentan para el tramo. Grupos `> 50` invitados no tienen fila; el motor devuelve `tarifa_a_consultar: true` sin error. El campo de salida del motor se llama `precio_tarifa_eur` (no `precio_total_eur`) para distinguir la salida del motor de la columna de la entidad (ver `design.md §D-1`).
 
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
@@ -210,15 +210,15 @@ Precios precalculados por temporada × duración × invitados (45 entradas: 3×3
 | `tenant_id` | `String` | FK → `Tenant` |
 | `temporada` | `Temporada` | `alta \| media \| baja` |
 | `duracion_horas` | `Int` | 4, 8 o 12 |
-| `invitados_min` | `Int` | Mínimo del tramo |
-| `invitados_max` | `Int` | Máximo (>50 = "a consultar") |
-| `precio_total_eur` | `Decimal @db.Decimal(10,2)` | Con IVA incluido, `>= 0` |
+| `invitados_min` | `Int` | Mínimo del tramo. Tramos Masia l'Encís: **1, 21, 26, 31, 41** |
+| `invitados_max` | `Int` | Máximo del tramo. Tramos Masia l'Encís: **20, 25, 30, 40, 50** (>50 = "a consultar", sin fila) |
+| `precio_total_eur` | `Decimal @db.Decimal(10,2)` | Con IVA 21% incluido, `>= 0` |
 | `vigente_desde` | `DateTime @db.Date` | Versionado |
-| `vigente_hasta` | `DateTime? @db.Date` | Nulo = vigente |
+| `vigente_hasta` | `DateTime? @db.Date` | Nulo = vigente indefinidamente |
 | `activo` | `Boolean @default(true)` | |
 
 ### 3.8 TemporadaCalendario
-Mapeo de cada mes a su temporada para el cálculo de tarifas.
+Mapeo de cada mes a su temporada para el cálculo de tarifas. El motor (UC-16) consulta esta tabla para determinar la temporada de `fecha_evento`. Si un mes no tiene fila, el motor lanza `TEMPORADA_NO_CONFIGURADA`. El mapeo canónico de Masia l'Encís: Alta = {5,6,7,8,9}, Media = {3,4,10,11}, Baja = {12,1,2}.
 
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
@@ -415,7 +415,7 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 
 - **Multi-tenant:** toda consulta debe filtrar por `tenant_id` (reforzado por RLS). Una entidad nunca puede referenciar otra de un tenant distinto.
 - **Importes:** `Decimal(10,2)`, nunca `Float` (evita errores de redondeo en facturación). Porcentajes en `Decimal(4,2)`.
-- **Fechas de evento:** `fecha_evento >= hoy` al crear/transicionar (salvo histórico ya pasado).
+- **Fechas de evento:** `fecha_evento >= hoy` al crear/transicionar una `Reserva` (salvo histórico ya pasado). El motor de cálculo de tarifa (UC-16 / US-016) aplica una regla más estricta: `fecha_evento` debe ser **estrictamente futura** (no el mismo día, comparación por día natural UTC).
 - **IVA:** 21% por defecto; `iva_importe = round(base_imponible × iva_porcentaje / 100, 2)`; `total = base_imponible + iva_importe`.
 - **Señal/Liquidación:** `importe_senal = round(importe_total × pct_senal / 100, 2)`; `importe_liquidacion = importe_total − importe_senal`.
 - **Soft-delete:** las entidades con `activo` no se borran físicamente; se marcan `activo = false`.

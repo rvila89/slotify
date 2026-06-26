@@ -15,7 +15,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
 
-async function bootstrap(): Promise<void> {
+const bootstrap = async (): Promise<void> => {
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
   const config = app.get(ConfigService);
 
@@ -50,6 +50,6 @@ async function bootstrap(): Promise<void> {
 
   const puerto = config.get<number>('API_PORT') ?? 3000;
   await app.listen(puerto);
-}
+};
 
 void bootstrap();

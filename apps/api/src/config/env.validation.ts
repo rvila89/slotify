@@ -31,9 +31,9 @@ export type EntornoValidado = z.infer<typeof esquemaEntorno>;
  * Valida y normaliza las variables de entorno. Lanza un Error con mensaje
  * explícito si la configuración es inválida (corta el bootstrap).
  */
-export function validarEntorno(
+export const validarEntorno = (
   configuracion: Record<string, unknown>,
-): EntornoValidado {
+): EntornoValidado => {
   const resultado = esquemaEntorno.safeParse(configuracion);
   if (!resultado.success) {
     const detalles = resultado.error.issues
@@ -44,4 +44,4 @@ export function validarEntorno(
     );
   }
   return resultado.data;
-}
+};

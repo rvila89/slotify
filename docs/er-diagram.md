@@ -521,7 +521,7 @@ Registro de bloqueo atómico de fecha. La restricción `UNIQUE(tenant_id, fecha)
 | ttl_expiracion | TIMESTAMP | Expiración del bloqueo blando (nulo si firme) |
 
 ### 3.7 TARIFA
-Configuración de precios precalculados por temporada, duración e invitados (45 entradas: 3×3×5).
+Configuración de precios precalculados por temporada, duración e invitados (45 entradas: 3×3×5). El motor de cálculo (UC-16 / US-016) busca la fila vigente en `fecha_evento` por `(temporada, duracion_horas, invitados_min ≤ num_adultos_ninos_mayores4 ≤ invitados_max)`. Los grupos de más de 50 invitados no tienen fila; el motor responde con `tarifa_a_consultar: true`. Los tramos del tenant piloto (Masia l'Encís) son: **1-20, 21-25, 26-30, 31-40, 41-50**.
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
@@ -530,12 +530,12 @@ Configuración de precios precalculados por temporada, duración e invitados (45
 | temporada | ENUM | alta, media, baja |
 | duracion_horas | INT | 4, 8 o 12 |
 | invitados_min | INT | Mínimo de invitados del tramo |
-| invitados_max | INT | Máximo de invitados (>50 = "a consultar") |
-| precio_total_eur | DECIMAL(10,2) | Precio con IVA incluido |
+| invitados_max | INT | Máximo de invitados del tramo (>50 no tiene fila = "a consultar") |
+| precio_total_eur | DECIMAL(10,2) | Precio con IVA 21% incluido. El motor expone este valor como `precio_tarifa_eur` en el output (distinción de nombres: columna BD vs salida del motor, ver `design.md §D-1`) |
 | vigente_desde, vigente_hasta | DATE | Período de vigencia (versionado) |
 
 ### 3.8 TEMPORADA_CALENDARIO
-Mapeo de cada mes a su temporada para el cálculo de tarifas.
+Mapeo de cada mes a su temporada para el cálculo de tarifas. El mapeo canónico de Masia l'Encís: Alta = {5,6,7,8,9}, Media = {3,4,10,11}, Baja = {12,1,2}. Si un mes no tiene fila, el motor lanza `TEMPORADA_NO_CONFIGURADA`.
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|

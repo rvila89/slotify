@@ -649,8 +649,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Calcular tarifa según configuración (UC-16)
-         * @description Motor de tarifas. Calcula el precio a partir de temporada (derivada de la fecha), duración, nº de invitados y extras.
+         * Calcular tarifa según configuración (UC-16 / US-016)
+         * @description Motor de tarifa (US-016, lectura pura, multi-tenant por JWT). Determina la temporada del mes de `fecha_evento`, busca la TARIFA vigente por temporada x duración x tramo de invitados y suma los extras del catálogo del tenant. Devuelve el esquema canónico D-1. Con `num_adultos_ninos_mayores4 > 50` responde 200 con `tarifa_a_consultar: true` e importes `null` (precio manual), SIN error.
          */
         post: {
             parameters: {
@@ -665,7 +665,7 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description Tarifa calculada */
+                /** @description Tarifa calculada (caso normal) o tarifa a consultar (>50 invitados): mismo esquema canónico. */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -674,13 +674,24 @@ export interface paths {
                         "application/json": components["schemas"]["CalculoTarifaResponse"];
                     };
                 };
-                /** @description Sin tarifa aplicable (p. ej. >50 invitados = "a consultar") */
+                400: components["responses"]["ValidationError"];
+                401: components["responses"]["Unauthorized"];
+                /** @description EXTRA_NO_ENCONTRADO: un extra no existe, está inactivo o no es visible en el tenant (RLS). */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CalculoTarifaExtraNoEncontradoError"];
+                    };
+                };
+                /** @description Configuración incompleta del tarifario: `TARIFA_NO_CONFIGURADA` (sin TARIFA vigente para una combinación válida con <= 50 invitados) o `TEMPORADA_NO_CONFIGURADA` (mes sin mapear en TEMPORADA_CALENDARIO). */
                 422: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["CalculoTarifaTarifaNoConfiguradaError"] | components["schemas"]["CalculoTarifaTemporadaNoConfiguradaError"];
                     };
                 };
             };
@@ -2044,23 +2055,77 @@ export interface components {
             precioUnitario?: components["schemas"]["Importe"];
             activo?: boolean;
         };
+        CalculoTarifaExtraInput: {
+            /**
+             * Format: uuid
+             * @description ID del EXTRA del catálogo del tenant.
+             */
+            extra_id: string;
+            /** @description Unidades del extra (>= 1). */
+            cantidad: number;
+        };
         CalculoTarifaRequest: {
-            /** Format: date */
-            fechaEvento: string;
-            duracionHoras: components["schemas"]["DuracionHoras"];
-            numInvitados: number;
-            extraIds?: string[];
+            /**
+             * Format: date
+             * @description Fecha del evento (YYYY-MM-DD). Debe ser estrictamente futura: no nula, no pasada y no el mismo día que la llamada (comparación por día natural UTC).
+             */
+            fecha_evento: string;
+            duracion_horas: components["schemas"]["DuracionHoras"];
+            /** @description Adultos + niños mayores de 4 años. Los menores de 4 (num_ninos_menores4) no cuentan ni se pasan. */
+            num_adultos_ninos_mayores4: number;
+            /**
+             * @description Extras a sumar. Puede ser []. Solo se evalúan en el caso normal (no en tarifa_a_consultar).
+             * @default []
+             */
+            extras: components["schemas"]["CalculoTarifaExtraInput"][];
         };
         CalculoTarifaResponse: {
-            temporada?: components["schemas"]["Temporada"];
-            baseImponible?: components["schemas"]["Importe"];
-            ivaPorcentaje?: components["schemas"]["Porcentaje"];
-            ivaImporte?: components["schemas"]["Importe"];
-            total?: components["schemas"]["Importe"];
-            lineas?: {
-                concepto?: string;
-                importe?: components["schemas"]["Importe"];
-            }[];
+            /** @description Temporada resuelta para el mes de fecha_evento. SIEMPRE presente (también en a_consultar). */
+            temporada: components["schemas"]["Temporada"];
+            /** @description true cuando num_adultos_ninos_mayores4 > 50 (tramo +51 sin tarifa): precio manual. SIEMPRE presente. */
+            tarifa_a_consultar: boolean;
+            /** @description Precio de la TARIFA en EUR (IVA 21% incluido). null si tarifa_a_consultar=true. */
+            precio_tarifa_eur: number | null;
+            /** @description Suma de subtotales de extras (precio_eur x cantidad). null si tarifa_a_consultar=true. */
+            extras_total_eur: number | null;
+            /** @description precio_tarifa_eur + extras_total_eur. null si tarifa_a_consultar=true. */
+            total_eur: number | null;
+            /**
+             * Format: uuid
+             * @description ID de la fila TARIFA usada. null si tarifa_a_consultar=true.
+             */
+            tarifa_id: string | null;
+        };
+        CalculoTarifaTarifaNoConfiguradaError: components["schemas"]["ErrorResponse"] & {
+            /** @enum {string} */
+            codigo: "TARIFA_NO_CONFIGURADA";
+            /** @description Parámetros de búsqueda sin fila de TARIFA vigente (tarifario incompleto, num_invitados <= 50). */
+            detalle: {
+                temporada: components["schemas"]["Temporada"];
+                duracion_horas: components["schemas"]["DuracionHoras"];
+                num_invitados: number;
+            };
+        };
+        CalculoTarifaExtraNoEncontradoError: components["schemas"]["ErrorResponse"] & {
+            /** @enum {string} */
+            codigo: "EXTRA_NO_ENCONTRADO";
+            detalle: {
+                /** Format: uuid */
+                extra_id: string;
+                /**
+                 * @description Motivo. El extra de otro tenant (RLS) se reporta como `inexistente` para no filtrar su existencia.
+                 * @enum {string}
+                 */
+                motivo: "inexistente" | "inactivo";
+            };
+        };
+        CalculoTarifaTemporadaNoConfiguradaError: components["schemas"]["ErrorResponse"] & {
+            /** @enum {string} */
+            codigo: "TEMPORADA_NO_CONFIGURADA";
+            detalle: {
+                /** @description Mes (1-12) sin fila en TEMPORADA_CALENDARIO del tenant. */
+                mes: number;
+            };
         };
         Presupuesto: {
             /** Format: uuid */

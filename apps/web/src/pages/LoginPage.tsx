@@ -12,17 +12,17 @@ import { useState, type FormEvent } from 'react';
  * TanStack Query (useMutation) sobre el cliente API generado en `src/api-client/`.
  * Por ahora el handler es un stub.
  */
-export function LoginPage() {
+export const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     // STUB: la mutacion de login se conecta en Fase 6 / US de auth.
     // El access token resultante se guardara en estado React (memoria), no en
     // localStorage/sessionStorage (Regla 3).
     console.info('login submit (stub)', { email });
-  }
+  };
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
@@ -76,4 +76,4 @@ export function LoginPage() {
       </form>
     </main>
   );
-}
+};

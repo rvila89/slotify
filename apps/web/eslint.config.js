@@ -23,6 +23,10 @@ export default tseslint.config(
         'warn',
         { allowConstantExport: true },
       ],
+      // Convención oficial: arrow functions, no `function` declarativo
+      // (componentes, hooks, helpers). Ver CLAUDE.md §Convenciones de código.
+      'func-style': ['error', 'expression'],
+      'prefer-arrow-callback': 'error',
     },
   },
 );
