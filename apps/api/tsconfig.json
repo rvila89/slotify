@@ -19,7 +19,8 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": true,
     "resolveJsonModule": true,
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*", "prisma/**/*"],
   "exclude": ["node_modules", "dist"]
