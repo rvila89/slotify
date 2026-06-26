@@ -56,11 +56,15 @@ no produzcan doble fila. (Fuente: US-000 §Concurrencia, architecture §2.4, er-
 - **AND** la otra falla con violación de `UNIQUE(tenant_id, fecha)` (Prisma `P2002`)
 
 ### Requirement: Seed del tenant piloto Masia l'Encís
-`apps/api/prisma/seed.ts` SHALL (DEBE) provisionar el tenant **Masia l'Encís** con su
-`TENANT_SETTINGS` (`pct_senal=40`, `fianza_default_eur=500`, `ttl_consulta_dias=3`,
-`ttl_prereserva_dias=7`, `max_dias_programar_visita=7`), un `USUARIO` gestor
-(`gestor@masiallencis.com`, password argon2), 12 `TEMPORADA_CALENDARIO`, 45 `TARIFA`
-(`vigente_desde=2026-01-01`) y 2 `EXTRA` activos. (Fuente: US-000 §Seed.)
+`apps/api/prisma/seed.ts` SHALL (DEBE) provisionar el tenant **Masia l'Encís** con sus datos
+fiscales reales (`email_contacto=info@masialencis.com`, NIF `B10874287`, dirección de Sant
+Martí Sarroca, `capacidad_maxima=50`), su `TENANT_SETTINGS` (`pct_senal=40`,
+`fianza_default_eur=500`, `ttl_consulta_dias=3`, `ttl_prereserva_dias=7`,
+`max_dias_programar_visita=7`), un `USUARIO` gestor (`info@masialencis.com`, Roger Vilà,
+password argon2), 12 `TEMPORADA_CALENDARIO`, 45 `TARIFA` (`vigente_desde=2026-01-01`) y 2
+`EXTRA` activos. Las 45 tarifas DEBEN ser los importes reales del dossier oficial (IVA
+incluido) con tramos de invitados `1-20`, `21-25`, `26-30`, `31-40`, `41-50`; el tramo
+`+51` ("a consultar") NO genera fila. (Fuente: US-000 §Seed; dossier oficial Masia l'Encís.)
 
 #### Scenario: Seed crea los datos piloto
 - **WHEN** se ejecuta `pnpm db:seed` tras migrar
