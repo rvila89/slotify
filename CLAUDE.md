@@ -44,6 +44,14 @@ Toda mutación de bloqueo pasa por `bloquearFecha()` y `liberarFecha()`. **No im
 
 - Cliente HTTP del frontend generado desde el contrato OpenAPI del backend.
 - Preferir functional patterns en TypeScript.
+- **Arrow functions, nunca `function` declarativo.** Toda función nombrada
+  (helpers, factories, componentes React, hooks, handlers) se escribe como
+  expresión de flecha: `const f = () => {…}`, no `function f() {…}`. Las
+  funciones de dominio puras/inmutables siguen prefiriéndose. Regla **dura**,
+  no sugerencia: la imponen `func-style: ['error', 'expression']` y
+  `prefer-arrow-callback` en el ESLint de `apps/api` y `apps/web`; `pnpm lint`
+  falla si se viola. (Métodos de clase de NestJS quedan exentos por ser
+  métodos, no declaraciones de función.)
 
 ---
 

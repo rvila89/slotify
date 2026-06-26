@@ -36,7 +36,7 @@ let reservaB: string;
 let clienteId: string;
 
 /** Crea una reserva mínima válida (satisface los FK/NOT NULL del schema). */
-async function crearReservaMinima(codigo: string): Promise<string> {
+const crearReservaMinima = async (codigo: string): Promise<string> => {
   const reserva = await prisma.reserva.create({
     data: {
       tenantId: TENANT_ID,
@@ -47,10 +47,10 @@ async function crearReservaMinima(codigo: string): Promise<string> {
     },
   });
   return reserva.idReserva;
-}
+};
 
 /** Inserta un bloqueo firme de FECHA_DISPUTADA para una reserva dada. */
-function bloquearFecha(reservaId: string): Promise<unknown> {
+const bloquearFecha = (reservaId: string): Promise<unknown> => {
   return prisma.fechaBloqueada.create({
     data: {
       tenantId: TENANT_ID,
@@ -59,7 +59,7 @@ function bloquearFecha(reservaId: string): Promise<unknown> {
       tipoBloqueo: TipoBloqueo.firme,
     },
   });
-}
+};
 
 beforeAll(async () => {
   // Arrange global: estado limpio y reservas necesarias para los FK.
