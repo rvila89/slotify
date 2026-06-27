@@ -101,7 +101,15 @@ Es la decisión técnica más importante del MVP y la que más diverge de la arq
 
 **Por qué:** los locks distribuidos sólo son necesarios cuando varios procesos sin transacción común compiten por un recurso. El MVP tiene una única base de datos transaccional, por lo que la atomicidad ya está garantizada por el motor: dos transacciones concurrentes que intenten insertar la misma `(tenant_id, fecha)` resultan en una inserción exitosa y una violación de unicidad determinista, sin ventana de carrera. Introducir Redis añadiría un punto de fallo (incoherencia si el lock se concede pero la transacción falla) para resolver un problema inexistente. *Fuente: EspecificacionFuncional §10.2 #11, riesgo crítico #1; decisión de modelado ERD §FECHA_BLOQUEADA.*
 
-**Encapsulación:** toda mutación de bloqueo pasa por dos funciones transaccionales del dominio — `bloquearFecha()` y `liberarFecha()` — que sincronizan la fila de `FECHA_BLOQUEADA` y el estado de la reserva en la misma transacción. Toda la mecánica de cola (promoción, reordenación, encadenamiento) se construye sobre ellas. Esto centraliza el riesgo crítico en un punto único y testeable.
+**Encapsulación:** toda mutación de bloqueo pasa por dos funciones transaccionales del dominio — `bloquearFecha()` (UC-30 / US-040) y `liberarFecha()` (UC-31) — que sincronizan la fila de `FECHA_BLOQUEADA` y el estado de la reserva en la misma transacción. Toda la mecánica de cola (promoción, reordenación, encadenamiento) se construye sobre ellas. Esto centraliza el riesgo crítico en un punto único y testeable.
+
+**Mapa canónico fase → (tipo, TTL, modo):** `bloquearFecha()` deriva el tipo de bloqueo y el TTL a partir de la fase de la reserva usando una **tabla de datos declarativa** (no lógica dispersa), leyendo siempre los días de TTL de `TENANT_SETTINGS`. Las fases contempladas son `2.b`, `2.c` (extensión de TTL sin cambiar tipo), `2.v` (hasta día post-visita), `pre_reserva` y `reserva_confirmada` (upgrade a firme, sin TTL). El upgrade de blando a firme es un `UPDATE` del registro existente, nunca `DELETE+INSERT`.
+
+**Defensa en profundidad — check constraints en la BD (US-040, D-3):** además de las validaciones de dominio, el motor impone dos invariantes de coherencia sobre la tabla `fecha_bloqueada`: `chk_firme_sin_ttl` (`tipo_bloqueo = 'firme' ⟹ ttl_expiracion IS NULL`) y `chk_blando_con_ttl` (`tipo_bloqueo = 'blando' ⟹ ttl_expiracion IS NOT NULL`). Añadidos en una migración no destructiva (la `UNIQUE(tenant_id, fecha)` y la RLS ya existían desde US-000).
+
+**Errores de dominio tipados (en español):** `FECHA_YA_BLOQUEADA` (traducción del `P2002` de Prisma por índice de fecha), `FECHA_EN_PASADO` (validación previa a la transacción), `TENANT_MISMATCH`, `EXTENSION_SOBRE_BLOQUEO_FIRME` y `RESERVA_YA_TIENE_BLOQUEO` (por `reserva_id @unique`). El flujo invocante decide qué hacer ante cada error (p. ej. ofrecer cola ante `FECHA_YA_BLOQUEADA`).
+
+**Sin endpoint HTTP propio (D-7):** `bloquearFecha()` es infraestructura de dominio invocada por las transiciones de estado de la reserva (A1/A2/A6/A18). No se expone como endpoint directo porque el bloqueo debe ocurrir en la misma transacción que la transición de estado; un endpoint aislado rompería la atomicidad reserva↔bloqueo.
 
 ### 2.5 Procesos asíncronos sin infraestructura serverless
 
@@ -424,4 +432,4 @@ El MVP tiene tres piezas, pero solo dos cuestan: el **frontend SPA** se sirve co
 
 ---
 
-*Documento de arquitectura v3.2, 25/05/2026. Cambios respecto a v3.1: se cierra la autenticación (JWT access+refresh, §2.8) y se documentan los dos niveles de administración (plataforma vs tenant) y su colapso en el MVP a un único gestor. v3.1 separó monorepo de despliegue y adoptó la SPA en CDN aparte (opción 2). v3.0 invirtió el orden y añadió prompts y análisis de coste. v2.0 reclasificó la arquitectura AWS como objetivo de producción.*
+*Documento de arquitectura v3.3, 27/06/2026. Cambios respecto a v3.2: documenta en §2.4 la implementación de US-040 — mapa canónico fase→(tipo,TTL,modo) declarativo, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, errores de dominio tipados en español y decisión de no exponer endpoint HTTP (D-7). v3.2 cerró la autenticación (JWT access+refresh, §2.8) y los dos niveles de administración. v3.1 separó monorepo de despliegue. v3.0 invirtió el orden y añadió prompts y análisis de coste. v2.0 reclasificó la arquitectura AWS como objetivo de producción.*

@@ -187,19 +187,47 @@ Recorre toda la máquina de estados. Incluye campos de cola, visita, sub-proceso
 **Guarda de transición a `evento_en_curso`:** `pre_evento_status = cerrado AND liquidacion_status = cobrada AND fianza_status = cobrada`.
 
 ### 3.6 FechaBloqueada
-Bloqueo atómico de fecha. La restricción `@@unique([tenant_id, fecha])` traslada la garantía de no-doble-reserva al motor.
+Bloqueo atómico de fecha. La restricción `@@unique([tenant_id, fecha])` traslada la garantía de no-doble-reserva al motor de PostgreSQL. La operación `bloquearFecha()` (UC-30 / US-040) es la única función transaccional que muta esta entidad en los flujos de inserción, extensión y promoción.
 
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
 | `id_bloqueo` | `String @id @default(uuid())` | |
-| `tenant_id` | `String` | FK → `Tenant`. Parte de la restricción única |
+| `tenant_id` | `String` | FK → `Tenant`. Parte de la restricción única compuesta |
 | `fecha` | `DateTime @db.Date` | Parte de `@@unique([tenant_id, fecha])` |
-| `reserva_id` | `String` | FK → `Reserva` que mantiene el bloqueo |
-| `tipo_bloqueo` | `TipoBloqueo` | `blando` (con TTL) \| `firme` (sin TTL) |
-| `ttl_expiracion` | `DateTime?` | Nulo si `firme` |
+| `reserva_id` | `String @unique` | FK → `Reserva` que mantiene el bloqueo. `@unique` impone 1:1 reserva↔bloqueo: una reserva solo puede bloquear una fecha |
+| `tipo_bloqueo` | `TipoBloqueo` | `blando` (con TTL) \| `firme` (sin TTL, reserva confirmada). Coherencia impuesta por check constraints de la BD |
+| `ttl_expiracion` | `DateTime?` | `NULL` si `firme`; `NOT NULL` si `blando`. Impuesto en BD por `chk_firme_sin_ttl` y `chk_blando_con_ttl` |
 | `fecha_creacion` | `DateTime @default(now())` | |
 
-**Restricción clave:** `@@unique([tenant_id, fecha])`. Toda mutación pasa por las funciones transaccionales `bloquearFecha()` / `liberarFecha()` (ver [backend-standards.md](./backend-standards.md)).
+**Restricciones de integridad:**
+- `@@unique([tenant_id, fecha])` — garantía anti-doble-reserva en el motor: el segundo `INSERT` concurrente sobre la misma `(tenant_id, fecha)` recibe `P2002` con `ROLLBACK` automático, sin ventana de carrera.
+- `reserva_id @unique` — relación 1:1 reserva↔bloqueo: una reserva no puede bloquear dos fechas distintas; facilita el upgrade firme (UPDATE del registro existente, nunca DELETE+INSERT).
+- `chk_firme_sin_ttl` — check constraint en BD: `tipo_bloqueo = 'firme' ⟹ ttl_expiracion IS NULL` (migración US-040).
+- `chk_blando_con_ttl` — check constraint en BD: `tipo_bloqueo = 'blando' ⟹ ttl_expiracion IS NOT NULL` (migración US-040).
+
+Toda mutación pasa por `bloquearFecha()` (UC-30) o `liberarFecha()` (UC-31). Ver [backend-standards.md](./backend-standards.md).
+
+**Mapa canónico fase → (tipo, TTL, modo)** — implementado como tabla de datos declarativa en el servicio de dominio (no como lógica dispersa):
+
+| Fase | `tipo_bloqueo` | `ttl_expiracion` | modo |
+|---|---|---|---|
+| `2.b` | `blando` | `now() + TENANT_SETTINGS.ttl_consulta_dias` (3 d por defecto) | insert |
+| `2.c` | `blando` | `ttl_actual + TENANT_SETTINGS.ttl_consulta_dias` (extensión) | extend |
+| `2.v` | `blando` | `visita_programada_fecha + 1 día` | insert |
+| `pre_reserva` | `blando` | `now() + TENANT_SETTINGS.ttl_prereserva_dias` (7 d por defecto) | insert |
+| `reserva_confirmada` | `firme` | `NULL` | upgrade |
+
+Los días de TTL se leen siempre de `TENANT_SETTINGS` (nunca hardcodeados).
+
+**Errores de dominio** lanzados por `bloquearFecha()` (tipados, en español):
+
+| Código | Condición |
+|---|---|
+| `FECHA_YA_BLOQUEADA` | La `(tenant_id, fecha)` ya tiene bloqueo activo de otra `reserva_id`; traducción del `P2002` de Prisma por índice `(tenant_id, fecha)` |
+| `FECHA_EN_PASADO` | La fecha es anterior o igual al día actual; validación previa a la transacción, sin tocar la BD |
+| `TENANT_MISMATCH` | El `tenant_id` del bloqueo no coincide con el de la `Reserva` referenciada |
+| `EXTENSION_SOBRE_BLOQUEO_FIRME` | Intento de extender (modo `extend`) un bloqueo ya `firme`; la máquina de estados no admite degradar un bloqueo firme |
+| `RESERVA_YA_TIENE_BLOQUEO` | La reserva ya tiene un bloqueo de fecha asociado; traducción del `P2002` por índice `reserva_id @unique` |
 
 ### 3.7 Tarifa
 Precios precalculados por temporada × duración × invitados (45 entradas: 3×3×5). El motor de cálculo (UC-16 / US-016) busca la fila vigente en `fecha_evento` por `(temporada, duracion_horas, invitados_min ≤ num_adultos_ninos_mayores4 ≤ invitados_max)`. Los niños ≤ 4 años no cuentan para el tramo. Grupos `> 50` invitados no tienen fila; el motor devuelve `tarifa_a_consultar: true` sin error. El campo de salida del motor se llama `precio_tarifa_eur` (no `precio_total_eur`) para distinguir la salida del motor de la columna de la entidad (ver `design.md §D-1`).
@@ -423,4 +451,4 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 
 ---
 
-*Documento de modelo de datos v1.0 (04/06/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v2.1 MVP. Cualquier cambio en el modelo debe actualizarse en ambos documentos y en `schema.prisma`.*
+*Documento de modelo de datos v1.1 (27/06/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v2.2. Cualquier cambio en el modelo debe actualizarse en ambos documentos y en `schema.prisma`. v1.1: refleja US-040 — `reserva_id @unique` en `FechaBloqueada`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y errores de dominio de `bloquearFecha()`.*

@@ -23,15 +23,15 @@ export class PrismaService
 
   /**
    * Fija el `tenant_id` del contexto RLS para la transacción dada. Debe llamarse
-   * con el cliente transaccional (`tx`) dentro de un `$transaction`, ya que
-   * `SET LOCAL` solo aplica al ámbito de la transacción en curso.
+   * con el cliente transaccional (`tx`) dentro de un `$transaction`, ya que el
+   * ámbito LOCAL solo aplica a la transacción en curso. Usa
+   * `set_config(..., true)` (equivalente a `SET LOCAL`) con binding
+   * parametrizado vía `$executeRaw`, sin interpolar ni escapar el valor a mano.
    */
   async fijarTenant(
     tx: Prisma.TransactionClient,
     tenantId: string,
   ): Promise<void> {
-    await tx.$executeRawUnsafe(
-      `SET LOCAL app.tenant_id = '${tenantId.replace(/'/g, "''")}'`,
-    );
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
   }
 }
