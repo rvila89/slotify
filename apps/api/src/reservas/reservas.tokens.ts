@@ -8,3 +8,10 @@
 export const FECHA_BLOQUEADA_REPOSITORY_PORT = Symbol('FechaBloqueadaRepositoryPort');
 export const TENANT_SETTINGS_PORT = Symbol('TenantSettingsPort');
 export const CLOCK_PORT = Symbol('ClockPort');
+
+// US-041 — liberación de fecha
+export const FECHA_BLOQUEADA_LIBERACION_PORT = Symbol('FechaBloqueadaLiberacionPort');
+export const RESERVA_ESTADO_PORT = Symbol('ReservaEstadoPort');
+export const COLA_QUERY_PORT = Symbol('ColaQueryPort');
+export const PROMOCION_COLA_PORT = Symbol('PromocionColaPort');
+export const AUDIT_LOG_PORT = Symbol('AuditLogPort');

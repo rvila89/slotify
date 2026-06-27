@@ -509,7 +509,7 @@ Entidad central única. Recorre toda la máquina de estados, desde los sub-estad
 - `2z`: Descartada por cliente (terminal)
 
 ### 3.6 FECHA_BLOQUEADA
-Registro de bloqueo atómico de fecha. La restricción `UNIQUE(tenant_id, fecha)` garantiza la no-doble-reserva a nivel de motor de base de datos. La operación `bloquearFecha()` (UC-30 / US-040) es la única función transaccional que muta esta entidad.
+Registro de bloqueo atómico de fecha. La restricción `UNIQUE(tenant_id, fecha)` garantiza la no-doble-reserva a nivel de motor de base de datos. Dos operaciones transaccionales del dominio mutuan esta entidad: `bloquearFecha()` (UC-30 / US-040), que introduce o actualiza la fila, y `liberarFecha()` (UC-31 / US-041), que la elimina de forma atómica e idempotente.
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
@@ -535,6 +535,25 @@ Registro de bloqueo atómico de fecha. La restricción `UNIQUE(tenant_id, fecha)
 | `reserva_confirmada` | firme | NULL | upgrade |
 
 Los días de TTL se leen de `TENANT_SETTINGS`; nunca se hardcodean.
+
+**Operación `liberarFecha()` (UC-31 / US-041) — DELETE atómico e idempotente:**
+
+Ejecuta `DELETE FROM fecha_bloqueada WHERE tenant_id = T AND fecha = D` vía `$executeRaw` dentro de una transacción Prisma (`$transaction`) que fija el contexto RLS con `SET LOCAL app.tenant_id`. Las filas afectadas son la señal canónica:
+
+| rows-affected | Semántica | Consecuencia |
+|---|---|---|
+| `1` | Liberación efectiva | Registrar en `AUDIT_LOG` (causa) + evaluar/disparar `PromocionColaPort` si existe cola activa |
+| `0` | Idempotente (ya libre o nunca bloqueada) | Éxito silencioso sin excepción; registrar tentativa en `AUDIT_LOG`; no disparar promoción |
+
+**Guarda del bloqueo firme:** un `tipo_bloqueo = 'firme'` solo puede liberarse si la `RESERVA` referenciada está en `estado = 'reserva_cancelada'`. Validación de dominio previa al DELETE expresada como dato declarativo (máquina de estados como estructura de datos). Si la reserva no está cancelada: rechazo con error de dominio tipado, el bloqueo firme permanece intacto y el intento queda registrado en `AUDIT_LOG`.
+
+**Seam de promoción de cola (`PromocionColaPort`):** si el DELETE afectó 1 fila y existe cola activa (`RESERVA` con `sub_estado = '2d'` y `consulta_bloqueante_id` apuntando a la reserva liberada), se invoca el puerto `PromocionColaPort`. Exactamente-una-vez: de dos liberaciones concurrentes, exactamente un worker obtiene `rows = 1` y dispara la promoción; el otro obtiene `rows = 0` y no la dispara, eliminando la doble promoción. La implementación real (reordenación FIFO + email al lead promovido) se difiere a **US-018** (pendiente); hasta entonces el adaptador es un stub no-op auditado y la cola permanece en `2.d` (no se pierde ni se corrompe).
+
+**Liberación en lote:** `liberar-fechas-lote.service.ts` procesa N fechas expiradas, cada una en su propia transacción independiente; el fallo de una no bloquea ni revierte las demás; cada liberación exitosa dispara su `PromocionColaPort` si corresponde.
+
+**Sin endpoint HTTP propio (decisión D-7 / US-041):** el actor de UC-31 es el Sistema. La liberación es efecto de transiciones de estado (descarte, cancelación de reserva) y del cron de barrido de TTL, no una acción de usuario. Exponer un `DELETE /fechas-bloqueadas` aislado rompería la atomicidad reserva↔bloqueo.
+
+**Causas de liberación auditadas en `AUDIT_LOG`:** `TTL` (bloqueo blando expirado por el cron), `descarte` (cliente o gestor), `cancelacion` (reserva confirmada cancelada).
 
 ### 3.7 TARIFA
 Configuración de precios precalculados por temporada, duración e invitados (45 entradas: 3×3×5). El motor de cálculo (UC-16 / US-016) busca la fila vigente en `fecha_evento` por `(temporada, duracion_horas, invitados_min ≤ num_adultos_ninos_mayores4 ≤ invitados_max)`. Los grupos de más de 50 invitados no tienen fila; el motor responde con `tarifa_a_consultar: true`. Los tramos del tenant piloto (Masia l'Encís) son: **1-20, 21-25, 26-30, 31-40, 41-50**.
@@ -690,6 +709,8 @@ Registro de auditoría de todas las acciones sobre reservas y facturas.
 | datos_anteriores | JSON | Estado anterior |
 | datos_nuevos | JSON | Estado nuevo |
 
+**Registros generados por `liberarFecha()` (UC-31 / US-041):** toda liberación exitosa, tentativa idempotente (0 filas) e intento rechazado de bloqueo firme producen un registro con `accion = 'eliminar'`, `entidad = 'FECHA_BLOQUEADA'` y la causa de la operación (`TTL` / `descarte` / `cancelacion`) en `datos_nuevos`. Esto permite auditar el ciclo completo bloqueo→liberación de cada fecha por tenant.
+
 ---
 
 ## 4. Validaciones Aplicadas
@@ -731,8 +752,10 @@ La cola FIFO se modela con `posicion_cola` y `consulta_bloqueante_id` (auto-refe
 - Cuando la bloqueante avanza a 2.c o pre_reserva, la cola se vacía (todas a 2.y).
 - El encadenamiento de promociones es automático.
 
+**Disparo de promoción desde `liberarFecha()` (UC-31 / US-041):** la liberación de la fecha bloqueante invoca el puerto `PromocionColaPort` exactamente una vez cuando el DELETE afectó 1 fila y se detecta cola activa. La garantía de exactamente-una-vez se apoya en el rows-affected: solo el worker que eliminó la fila dispara la promoción, evitando la doble promoción ante liberaciones concurrentes. La implementación real de la promoción (reordenación FIFO + email al lead promovido) está diferida a **US-018** (pendiente); hasta entonces el adaptador es un stub no-op auditado. La cola permanece en `2.d` hasta que US-018 complete la promoción efectiva: no hay estado "fecha libre + cola huérfana" observable como definitivo.
+
 ### 5.3 Bloqueo atómico de fechas
-La entidad `FECHA_BLOQUEADA` con `UNIQUE(tenant_id, fecha)` traslada la garantía de no-doble-reserva al motor de base de datos: dos transacciones concurrentes sobre la misma fecha producen una inserción exitosa y una violación de unicidad determinista, sin ventana de carrera. Toda mutación de bloqueo (crear, extender TTL, promover a firme) pasa por la operación transaccional `bloquearFecha()` (UC-30 / US-040) dentro de una única transacción que usa `SELECT … FOR UPDATE` vía `prisma.$queryRaw`, sincronizando la fila de `FECHA_BLOQUEADA` y el estado de la `RESERVA`.
+La entidad `FECHA_BLOQUEADA` con `UNIQUE(tenant_id, fecha)` traslada la garantía de no-doble-reserva al motor de base de datos: dos transacciones concurrentes sobre la misma fecha producen una inserción exitosa y una violación de unicidad determinista, sin ventana de carrera. Toda mutación de bloqueo pasa por dos operaciones transaccionales del dominio: `bloquearFecha()` (UC-30 / US-040) para crear, extender TTL o promover a firme, y `liberarFecha()` (UC-31 / US-041) para eliminar la fila. `bloquearFecha()` usa `SELECT … FOR UPDATE` vía `prisma.$queryRaw` dentro de una transacción que sincroniza la fila de `FECHA_BLOQUEADA` y el estado de la `RESERVA`.
 
 El campo `reserva_id @unique` impone la relación 1:1 reserva↔bloqueo: una reserva no puede bloquear dos fechas. El upgrade de blando a firme al confirmar la reserva es un `UPDATE` del registro existente (nunca `DELETE+INSERT`) que fija `tipo_bloqueo = 'firme'` y `ttl_expiracion = NULL`.
 
@@ -741,7 +764,9 @@ El campo `reserva_id @unique` impone la relación 1:1 reserva↔bloqueo: una res
 - `chk_blando_con_ttl`: el motor rechaza cualquier fila con `tipo_bloqueo = 'blando'` y `ttl_expiracion` nulo.
 Estas invariantes son la última línea de defensa; el dominio las valida también en código antes de la transacción (errores `FECHA_EN_PASADO`, `TENANT_MISMATCH`, etc.).
 
-**Operación sin endpoint HTTP propio** (decisión D-7 de US-040): `bloquearFecha()` es infraestructura de dominio invocada por los flujos de transición de estado de `RESERVA` (A1/A2/A6/A18, US-004, US-014), nunca por un cliente HTTP directo. El bloqueo ocurre en la misma transacción que la transición de estado; exponerlo como endpoint aislado permitiría bloquear sin transicionar, dejando datos incoherentes.
+**`bloquearFecha()` sin endpoint HTTP propio** (decisión D-7 de US-040): invocada por los flujos de transición de estado de `RESERVA` (A1/A2/A6/A18, US-004, US-014), nunca por un cliente HTTP directo. El bloqueo ocurre en la misma transacción que la transición de estado; exponerlo como endpoint aislado permitiría bloquear sin transicionar, dejando datos incoherentes.
+
+**`liberarFecha()` — DELETE serializado (UC-31 / US-041):** elimina la fila `(tenant_id, fecha)` vía `$executeRaw` dentro de `$transaction` + `SET LOCAL app.tenant_id` (RLS). La señal canónica son las filas afectadas: `1` = liberación efectiva → registrar en `AUDIT_LOG` con causa (TTL/descarte/cancelacion) + invocar `PromocionColaPort` si hay cola activa; `0` = éxito silencioso idempotente (fecha ya libre o nunca bloqueada) → registrar tentativa en `AUDIT_LOG`, sin disparar promoción. La guarda del bloqueo firme valida en dominio que la `RESERVA` esté en `reserva_cancelada` antes del DELETE; si no, rechaza con error tipado y audita el intento. Sin endpoint HTTP propio (decisión D-7 / US-041): el actor es el Sistema, no un usuario. La liberación en lote procesa N fechas expiradas en transacciones independientes con fallo aislado. Ver §3.6 para la tabla detallada de semántica por rows-affected y §5.2 para la integración con la cola.
 
 ### 5.4 Sub-procesos paralelos
 Los tres sub-procesos (pre_evento, liquidacion, fianza) se modelan como atributos ENUM de RESERVA. La transición a `evento_en_curso` tiene como guarda `pre_evento_status = cerrado AND liquidacion_status = cobrada AND fianza_status = cobrada`.
@@ -754,4 +779,4 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 
 ---
 
-*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 2.2 (27/06/2026): refleja US-040 — `reserva_id @unique` en `FECHA_BLOQUEADA`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y decisión de no exponer endpoint HTTP propio (D-7). Versión 2.1: elimina la entidad de recurrencia (fuera del MVP) y desarrolla el modelo de extras (catálogo vs línea, congelación al añadir, extras tardíos vía `origen` y `factura_id`). Versión 2.0: incorpora las decisiones de modelado consensuadas tras el contraste entre especificación funcional, casos de uso y la primera versión del ERD.*
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 2.3 (27/06/2026): refleja US-041 — documenta `liberarFecha()` (UC-31): DELETE serializado con `$executeRaw` + RLS + rows-affected como primitiva exactamente-una-vez, idempotencia (0 filas = éxito silencioso), guarda firme (`reserva_cancelada`), seam `PromocionColaPort` (implementación diferida a US-018), liberación en lote con transacciones independientes, AUDIT_LOG con causa (TTL/descarte/cancelacion), y decisión D-7 (sin endpoint HTTP). Actualiza §3.6, §3.17, §5.2 y §5.3. Versión 2.2 (27/06/2026): refleja US-040 — `reserva_id @unique` en `FECHA_BLOQUEADA`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y decisión de no exponer endpoint HTTP propio (D-7). Versión 2.1: elimina la entidad de recurrencia (fuera del MVP) y desarrolla el modelo de extras (catálogo vs línea, congelación al añadir, extras tardíos vía `origen` y `factura_id`). Versión 2.0: incorpora las decisiones de modelado consensuadas tras el contraste entre especificación funcional, casos de uso y la primera versión del ERD.*

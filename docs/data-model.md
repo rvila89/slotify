@@ -187,7 +187,7 @@ Recorre toda la máquina de estados. Incluye campos de cola, visita, sub-proceso
 **Guarda de transición a `evento_en_curso`:** `pre_evento_status = cerrado AND liquidacion_status = cobrada AND fianza_status = cobrada`.
 
 ### 3.6 FechaBloqueada
-Bloqueo atómico de fecha. La restricción `@@unique([tenant_id, fecha])` traslada la garantía de no-doble-reserva al motor de PostgreSQL. La operación `bloquearFecha()` (UC-30 / US-040) es la única función transaccional que muta esta entidad en los flujos de inserción, extensión y promoción.
+Bloqueo atómico de fecha. La restricción `@@unique([tenant_id, fecha])` traslada la garantía de no-doble-reserva al motor de PostgreSQL. Dos operaciones transaccionales del dominio mutuan esta entidad: `bloquearFecha()` (UC-30 / US-040) en los flujos de inserción, extensión y promoción a firme, y `liberarFecha()` (UC-31 / US-041) que elimina la fila de forma atómica e idempotente.
 
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
@@ -205,7 +205,7 @@ Bloqueo atómico de fecha. La restricción `@@unique([tenant_id, fecha])` trasla
 - `chk_firme_sin_ttl` — check constraint en BD: `tipo_bloqueo = 'firme' ⟹ ttl_expiracion IS NULL` (migración US-040).
 - `chk_blando_con_ttl` — check constraint en BD: `tipo_bloqueo = 'blando' ⟹ ttl_expiracion IS NOT NULL` (migración US-040).
 
-Toda mutación pasa por `bloquearFecha()` (UC-30) o `liberarFecha()` (UC-31). Ver [backend-standards.md](./backend-standards.md).
+Toda mutación pasa por `bloquearFecha()` (UC-30 / US-040) o `liberarFecha()` (UC-31 / US-041). Ver [backend-standards.md](./backend-standards.md) y [er-diagram.md §3.6](./er-diagram.md) para la semántica completa de liberación (rows-affected, guarda firme, `PromocionColaPort`, liberación en lote).
 
 **Mapa canónico fase → (tipo, TTL, modo)** — implementado como tabla de datos declarativa en el servicio de dominio (no como lógica dispersa):
 
@@ -228,6 +228,14 @@ Los días de TTL se leen siempre de `TENANT_SETTINGS` (nunca hardcodeados).
 | `TENANT_MISMATCH` | El `tenant_id` del bloqueo no coincide con el de la `Reserva` referenciada |
 | `EXTENSION_SOBRE_BLOQUEO_FIRME` | Intento de extender (modo `extend`) un bloqueo ya `firme`; la máquina de estados no admite degradar un bloqueo firme |
 | `RESERVA_YA_TIENE_BLOQUEO` | La reserva ya tiene un bloqueo de fecha asociado; traducción del `P2002` por índice `reserva_id @unique` |
+
+**Errores de dominio** lanzados por `liberarFecha()` (tipados, en español):
+
+| Código | Condición |
+|---|---|
+| `LIBERACION_FIRME_SIN_CANCELACION` | Intento de liberar un bloqueo `firme` cuya `Reserva` no está en `reserva_cancelada`; validación previa al DELETE; el bloqueo firme permanece intacto |
+
+**Semántica de `liberarFecha()` (UC-31 / US-041):** DELETE vía `$executeRaw` dentro de `$transaction` + RLS (`SET LOCAL app.tenant_id`). `rows = 1` → éxito efectivo + `AUDIT_LOG` + evaluar `PromocionColaPort`. `rows = 0` → éxito silencioso idempotente + `AUDIT_LOG` tentativa. La operación no muta `estado`/`sub_estado` de la `Reserva` (responsabilidad del flujo invocante). Sin endpoint HTTP propio (D-7 / US-041). Ver [er-diagram.md §3.6](./er-diagram.md) para la semántica completa.
 
 ### 3.7 Tarifa
 Precios precalculados por temporada × duración × invitados (45 entradas: 3×3×5). El motor de cálculo (UC-16 / US-016) busca la fila vigente en `fecha_evento` por `(temporada, duracion_horas, invitados_min ≤ num_adultos_ninos_mayores4 ≤ invitados_max)`. Los niños ≤ 4 años no cuentan para el tramo. Grupos `> 50` invitados no tienen fila; el motor devuelve `tarifa_a_consultar: true` sin error. El campo de salida del motor se llama `precio_tarifa_eur` (no `precio_total_eur`) para distinguir la salida del motor de la columna de la entidad (ver `design.md §D-1`).
@@ -388,21 +396,23 @@ Log de emails enviados (E1–E8 + manuales).
 | `fecha_creacion` | `DateTime @default(now())` | |
 
 ### 3.17 AuditLog
-Registro de auditoría de las acciones sobre reservas y facturas.
+Registro de auditoría de las acciones sobre reservas, facturas y bloqueos de fecha.
 
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
 | `id_audit` | `String @id @default(uuid())` | |
 | `tenant_id` | `String` | FK → `Tenant` |
-| `usuario_id` | `String?` | FK → `Usuario` |
+| `usuario_id` | `String?` | FK → `Usuario`; nulo en operaciones del Sistema (p. ej. barrido de TTL) |
 | `entidad` | `String` | Nombre de la entidad afectada |
 | `entidad_id` | `String` | ID de la entidad afectada |
 | `accion` | `AccionAudit` | `crear \| actualizar \| eliminar \| transicion \| login \| logout` |
 | `datos_anteriores` | `Json?` | |
-| `datos_nuevos` | `Json?` | |
+| `datos_nuevos` | `Json?` | Incluye la causa cuando `accion = 'eliminar'` y `entidad = 'FECHA_BLOQUEADA'` |
 | `ip_address` | `String?` | |
 | `user_agent` | `String?` | |
 | `fecha_creacion` | `DateTime @default(now())` | |
+
+**Uso por `liberarFecha()` (UC-31 / US-041):** produce registros con `accion = 'eliminar'`, `entidad = 'FECHA_BLOQUEADA'` en tres escenarios: liberación exitosa (causa: `TTL`/`descarte`/`cancelacion` en `datos_nuevos`), tentativa idempotente (`rows = 0`, causa en `datos_nuevos`) e intento rechazado de bloqueo firme (error `LIBERACION_FIRME_SIN_CANCELACION`, `usuario_id` del solicitante si aplica).
 
 ---
 
@@ -451,4 +461,4 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 
 ---
 
-*Documento de modelo de datos v1.1 (27/06/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v2.2. Cualquier cambio en el modelo debe actualizarse en ambos documentos y en `schema.prisma`. v1.1: refleja US-040 — `reserva_id @unique` en `FechaBloqueada`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y errores de dominio de `bloquearFecha()`.*
+*Documento de modelo de datos v1.2 (27/06/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v2.3. Cualquier cambio en el modelo debe actualizarse en ambos documentos y en `schema.prisma`. v1.2: refleja US-041 — `liberarFecha()` (UC-31): error `LIBERACION_FIRME_SIN_CANCELACION`, semántica rows-affected, seam `PromocionColaPort` (diferido a US-018), sin endpoint HTTP (D-7), y registros de auditoría con causa en `AuditLog`. v1.1: refleja US-040 — `reserva_id @unique` en `FechaBloqueada`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y errores de dominio de `bloquearFecha()`.*
