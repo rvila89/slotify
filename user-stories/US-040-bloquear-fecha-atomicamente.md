@@ -1,8 +1,8 @@
 ---
 id: US-040
-estado: backlog
-branch: null
-pr: null
+estado: en_revision
+branch: feature/us-040-bloquear-fecha-atomicamente
+pr: 12
 ---
 
 # 🧾 Historia de Usuario: Bloquear Fecha Atómicamente
