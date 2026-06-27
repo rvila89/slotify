@@ -1,7 +1,7 @@
 ---
 id: US-000A
-estado: backlog
-branch: null
+estado: en-implementacion
+branch: feature/us-000A-app-shell
 pr: null
 ---
 
