@@ -1,8 +1,8 @@
 ---
 id: US-000A
-estado: backlog
-branch: null
-pr: null
+estado: en-revision
+branch: feature/us-000A-app-shell
+pr: 13
 ---
 
 # 🧾 Historia de Usuario: App Shell y Esqueleto de Navegación
