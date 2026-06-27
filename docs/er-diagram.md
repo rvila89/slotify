@@ -189,9 +189,9 @@ erDiagram
         uuid id_bloqueo PK
         uuid tenant_id FK
         date fecha "UNIQUE(tenant_id, fecha)"
-        uuid reserva_id FK
+        uuid reserva_id FK "UNIQUE — 1:1 reserva-bloqueo"
         enum tipo_bloqueo "blando | firme"
-        timestamp ttl_expiracion
+        timestamp ttl_expiracion "NULL si firme; NOT NULL si blando (chk constraints)"
         timestamp fecha_creacion
     }
 
@@ -509,16 +509,32 @@ Entidad central única. Recorre toda la máquina de estados, desde los sub-estad
 - `2z`: Descartada por cliente (terminal)
 
 ### 3.6 FECHA_BLOQUEADA
-Registro de bloqueo atómico de fecha. La restricción `UNIQUE(tenant_id, fecha)` garantiza la no-doble-reserva a nivel de motor de base de datos.
+Registro de bloqueo atómico de fecha. La restricción `UNIQUE(tenant_id, fecha)` garantiza la no-doble-reserva a nivel de motor de base de datos. La operación `bloquearFecha()` (UC-30 / US-040) es la única función transaccional que muta esta entidad.
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
 | id_bloqueo | UUID PK | Identificador único |
 | tenant_id | UUID FK | Tenant propietario |
-| fecha | DATE | Fecha bloqueada. Restricción compuesta UNIQUE(tenant_id, fecha) |
-| reserva_id | UUID FK | Reserva que mantiene el bloqueo |
-| tipo_bloqueo | ENUM | "blando" (con TTL) o "firme" (sin TTL, reserva confirmada) |
-| ttl_expiracion | TIMESTAMP | Expiración del bloqueo blando (nulo si firme) |
+| fecha | DATE | Fecha bloqueada. Restricción compuesta `UNIQUE(tenant_id, fecha)` |
+| reserva_id | UUID FK UK | Reserva que mantiene el bloqueo. `UNIQUE`: relación 1:1 reserva↔bloqueo; una reserva no puede bloquear dos fechas distintas |
+| tipo_bloqueo | ENUM | `blando` (con TTL, bloqueo temporal) \| `firme` (sin TTL, reserva confirmada) |
+| ttl_expiracion | TIMESTAMP | `NULL` si `firme`; `NOT NULL` si `blando`. Impuesto por check constraints `chk_firme_sin_ttl` y `chk_blando_con_ttl` |
+
+**Check constraints añadidos en US-040 (migración no destructiva):**
+- `chk_firme_sin_ttl`: `tipo_bloqueo <> 'firme' OR ttl_expiracion IS NULL`
+- `chk_blando_con_ttl`: `tipo_bloqueo <> 'blando' OR ttl_expiracion IS NOT NULL`
+
+**Mapa canónico fase → (tipo_bloqueo, ttl_expiracion, modo):**
+
+| Fase | tipo_bloqueo | ttl_expiracion | modo |
+|------|---|---|---|
+| `2.b` | blando | `now() + ttl_consulta_dias` (3 d) | insert |
+| `2.c` | blando | `ttl_actual + ttl_consulta_dias` (extensión) | extend |
+| `2.v` | blando | `visita_programada_fecha + 1 día` | insert |
+| `pre_reserva` | blando | `now() + ttl_prereserva_dias` (7 d) | insert |
+| `reserva_confirmada` | firme | NULL | upgrade |
+
+Los días de TTL se leen de `TENANT_SETTINGS`; nunca se hardcodean.
 
 ### 3.7 TARIFA
 Configuración de precios precalculados por temporada, duración e invitados (45 entradas: 3×3×5). El motor de cálculo (UC-16 / US-016) busca la fila vigente en `fecha_evento` por `(temporada, duracion_horas, invitados_min ≤ num_adultos_ninos_mayores4 ≤ invitados_max)`. Los grupos de más de 50 invitados no tienen fila; el motor responde con `tarifa_a_consultar: true`. Los tramos del tenant piloto (Masia l'Encís) son: **1-20, 21-25, 26-30, 31-40, 41-50**.
@@ -716,7 +732,16 @@ La cola FIFO se modela con `posicion_cola` y `consulta_bloqueante_id` (auto-refe
 - El encadenamiento de promociones es automático.
 
 ### 5.3 Bloqueo atómico de fechas
-La entidad `FECHA_BLOQUEADA` con `UNIQUE(tenant_id, fecha)` traslada la garantía de no-doble-reserva al motor de base de datos: dos transacciones concurrentes sobre la misma fecha producen una inserción exitosa y una violación de unicidad determinista, sin ventana de carrera. Toda mutación de bloqueo (crear, liberar, promover) debe pasar por una función transaccional única que sincronice la fila de `FECHA_BLOQUEADA` con el estado de la `RESERVA` en la misma transacción, usando `SELECT ... FOR UPDATE` donde proceda. Tipos: "blando" (con TTL: 3 días en consulta, 7 en pre-reserva) y "firme" (sin TTL, reserva confirmada).
+La entidad `FECHA_BLOQUEADA` con `UNIQUE(tenant_id, fecha)` traslada la garantía de no-doble-reserva al motor de base de datos: dos transacciones concurrentes sobre la misma fecha producen una inserción exitosa y una violación de unicidad determinista, sin ventana de carrera. Toda mutación de bloqueo (crear, extender TTL, promover a firme) pasa por la operación transaccional `bloquearFecha()` (UC-30 / US-040) dentro de una única transacción que usa `SELECT … FOR UPDATE` vía `prisma.$queryRaw`, sincronizando la fila de `FECHA_BLOQUEADA` y el estado de la `RESERVA`.
+
+El campo `reserva_id @unique` impone la relación 1:1 reserva↔bloqueo: una reserva no puede bloquear dos fechas. El upgrade de blando a firme al confirmar la reserva es un `UPDATE` del registro existente (nunca `DELETE+INSERT`) que fija `tipo_bloqueo = 'firme'` y `ttl_expiracion = NULL`.
+
+**Defensa en profundidad mediante check constraints** (añadidos en US-040, migración no destructiva):
+- `chk_firme_sin_ttl`: el motor rechaza cualquier fila con `tipo_bloqueo = 'firme'` y `ttl_expiracion` no nulo.
+- `chk_blando_con_ttl`: el motor rechaza cualquier fila con `tipo_bloqueo = 'blando'` y `ttl_expiracion` nulo.
+Estas invariantes son la última línea de defensa; el dominio las valida también en código antes de la transacción (errores `FECHA_EN_PASADO`, `TENANT_MISMATCH`, etc.).
+
+**Operación sin endpoint HTTP propio** (decisión D-7 de US-040): `bloquearFecha()` es infraestructura de dominio invocada por los flujos de transición de estado de `RESERVA` (A1/A2/A6/A18, US-004, US-014), nunca por un cliente HTTP directo. El bloqueo ocurre en la misma transacción que la transición de estado; exponerlo como endpoint aislado permitiría bloquear sin transicionar, dejando datos incoherentes.
 
 ### 5.4 Sub-procesos paralelos
 Los tres sub-procesos (pre_evento, liquidacion, fianza) se modelan como atributos ENUM de RESERVA. La transición a `evento_en_curso` tiene como guarda `pre_evento_status = cerrado AND liquidacion_status = cobrada AND fianza_status = cobrada`.
@@ -729,4 +754,4 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 
 ---
 
-*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 2.1: elimina la entidad de recurrencia (fuera del MVP) y desarrolla el modelo de extras (catálogo vs línea, congelación al añadir, extras tardíos vía `origen` y `factura_id`). Versión 2.0: incorpora las decisiones de modelado consensuadas tras el contraste entre especificación funcional, casos de uso y la primera versión del ERD.*
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 2.2 (27/06/2026): refleja US-040 — `reserva_id @unique` en `FECHA_BLOQUEADA`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y decisión de no exponer endpoint HTTP propio (D-7). Versión 2.1: elimina la entidad de recurrencia (fuera del MVP) y desarrolla el modelo de extras (catálogo vs línea, congelación al añadir, extras tardíos vía `origen` y `factura_id`). Versión 2.0: incorpora las decisiones de modelado consensuadas tras el contraste entre especificación funcional, casos de uso y la primera versión del ERD.*
