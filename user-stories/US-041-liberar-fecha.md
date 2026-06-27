@@ -2,7 +2,7 @@
 id: US-041
 estado: in_progress
 branch: feature/us-041-liberar-fecha
-pr: null
+pr: "#14 https://github.com/rvila89/slotify/pull/14"
 ---
 
 # 🧾 Historia de Usuario: Liberar Bloqueo de Fecha
