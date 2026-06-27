@@ -23,6 +23,11 @@ import {
   ReservaYaTieneBloqueoError,
   TipoBloqueoDominio,
 } from '../domain/bloquear-fecha.service';
+import {
+  BloqueoActual,
+  FechaBloqueadaLiberacionPort,
+  ResultadoLiberacionFila,
+} from '../domain/liberar-fecha.service';
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -38,8 +43,74 @@ interface FilaBloqueada {
 }
 
 @Injectable()
-export class FechaBloqueadaPrismaAdapter implements FechaBloqueadaRepositoryPort {
+export class FechaBloqueadaPrismaAdapter
+  implements FechaBloqueadaRepositoryPort, FechaBloqueadaLiberacionPort
+{
   constructor(private readonly prisma: ClientePrisma) {}
+
+  /**
+   * Lee el bloqueo vigente de `(tenant_id, fecha)` para resolver la guarda firme
+   * (US-041 §D-5). Lectura pura dentro de su propia transacción con contexto RLS;
+   * `null` si no hay bloqueo.
+   */
+  async consultarBloqueo(params: {
+    tenantId: string;
+    fecha: Date;
+  }): Promise<BloqueoActual | null> {
+    const { tenantId, fecha } = params;
+    const fechaIso = this.formatearFecha(fecha);
+    return this.prisma.$transaction(async (tx) => {
+      await this.fijarTenant(tx, tenantId);
+      const filas = await tx.$queryRaw<FilaBloqueada[]>(Prisma.sql`
+        SELECT id_bloqueo, reserva_id, tipo_bloqueo, ttl_expiracion
+        FROM fecha_bloqueada
+        WHERE tenant_id = ${tenantId} AND fecha = ${fechaIso}::date
+      `);
+      if (filas.length === 0) {
+        return null;
+      }
+      return {
+        reservaId: filas[0].reserva_id,
+        tipoBloqueo: filas[0].tipo_bloqueo as TipoBloqueoDominio,
+      };
+    });
+  }
+
+  /**
+   * Liberación atómica de `(tenant_id, fecha)` (US-041 §D-1, §D-4). Dentro de un
+   * `$transaction`: fija el contexto RLS, serializa la fila con `SELECT … FOR
+   * UPDATE` (capturando `reserva_id`/`tipo_bloqueo` antes de borrarla) y ejecuta el
+   * `DELETE` devolviendo rows-affected como primitiva. Ante dos liberaciones
+   * concurrentes, el motor serializa: una obtiene 1 fila, la otra 0 (idempotencia).
+   * El bloqueo es EXCLUSIVAMENTE de base de datos (guardrail atomic-date-lock).
+   */
+  async liberar(params: {
+    tenantId: string;
+    fecha: Date;
+  }): Promise<ResultadoLiberacionFila> {
+    const { tenantId, fecha } = params;
+    const fechaIso = this.formatearFecha(fecha);
+    return this.prisma.$transaction(async (tx) => {
+      await this.fijarTenant(tx, tenantId);
+      const filas = await tx.$queryRaw<FilaBloqueada[]>(Prisma.sql`
+        SELECT id_bloqueo, reserva_id, tipo_bloqueo, ttl_expiracion
+        FROM fecha_bloqueada
+        WHERE tenant_id = ${tenantId} AND fecha = ${fechaIso}::date
+        FOR UPDATE
+      `);
+      const fila = filas.length > 0 ? filas[0] : null;
+      const filasAfectadas = await tx.$executeRaw(Prisma.sql`
+        DELETE FROM fecha_bloqueada
+        WHERE tenant_id = ${tenantId} AND fecha = ${fechaIso}::date
+      `);
+      const eliminada = filasAfectadas > 0 && fila !== null;
+      return {
+        filasAfectadas,
+        reservaIdLiberada: eliminada ? fila.reserva_id : null,
+        tipoBloqueo: eliminada ? (fila.tipo_bloqueo as TipoBloqueoDominio) : null,
+      };
+    });
+  }
 
   async bloquear(params: {
     tenantId: string;

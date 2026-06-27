@@ -1,7 +1,7 @@
 ---
 id: US-041
-estado: backlog
-branch: null
+estado: in_progress
+branch: feature/us-041-liberar-fecha
 pr: null
 ---
 

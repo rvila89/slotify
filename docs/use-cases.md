@@ -1200,20 +1200,36 @@ flowchart TD
 | **Nombre** | Liberar Fecha |
 | **Actor Principal** | Sistema |
 | **Actores Secundarios** | - |
-| **Descripción** | El sistema libera el bloqueo de una fecha cuando expira el TTL o se cancela la consulta/reserva |
-| **Precondiciones** | - Fecha tiene bloqueo activo |
-| **Postcondiciones** | - Fecha disponible<br>- Si había cola, promoción ejecutada |
+| **Descripción** | El sistema elimina atómicamente el bloqueo de una fecha cuando expira el TTL, el cliente descarta la consulta, o se cancela una reserva confirmada. Complemento de UC-30. Implementado por `liberarFecha()` (US-041). |
+| **Precondiciones** | - Existe fila en `FECHA_BLOQUEADA` para `(tenant_id, fecha)` o la operación es idempotente (0 filas es éxito)<br>- Si `tipo_bloqueo = 'firme'`: la `RESERVA` referenciada debe estar en `reserva_cancelada` |
+| **Postcondiciones** | - La fila `(tenant_id, fecha)` ya no existe en `FECHA_BLOQUEADA`<br>- Si había cola activa (`sub_estado = '2d'`), se ha invocado `PromocionColaPort` (promoción efectiva diferida a US-018; la cola permanece en `2.d` hasta que US-018 complete)<br>- Acción registrada en `AUDIT_LOG` con causa |
 | **Prioridad** | Crítica |
 | **Frecuencia** | Alta |
+| **Sin endpoint HTTP propio (D-7 / US-041)** | El actor es el Sistema; la liberación es efecto de transiciones de estado y del cron de barrido, no una acción de usuario. No se añade ningún endpoint a `api-spec.yml`. |
+
+**Causas de liberación:**
+- **TTL agotado** — bloqueo blando (`tipo_bloqueo = 'blando'`) con `ttl_expiracion < now()`; lanzado por el cron de barrido (US de jobs / US-012).
+- **Descarte por cliente o gestor** — la consulta/pre-reserva pasa a estado terminal (`2.z`, `2.x`); lanzado por US-013, US-011.
+- **Cancelación de reserva confirmada** — la reserva pasa a `reserva_cancelada`; lanzado por el flujo de cancelación.
 
 **Flujo Básico:**
-1. El sistema detecta liberación necesaria (TTL expirado, cancelación, descarte)
-2. El sistema inicia transacción
-3. El sistema elimina el bloqueo
-4. El sistema verifica si hay cola para esta fecha
-5. Si hay cola: ejecutar UC-12 (promoción)
-6. El sistema confirma la transacción
-7. El sistema registra la liberación
+1. El sistema invoca `liberarFecha({ tenantId, fecha, causa })`.
+2. Si `tipo_bloqueo = 'firme'`: el sistema verifica en dominio que la `RESERVA` esté en `reserva_cancelada`; si no, rechaza con `LIBERACION_FIRME_SIN_CANCELACION`, audita el intento y termina.
+3. El sistema inicia transacción Prisma con RLS (`SET LOCAL app.tenant_id` vía `set_config`).
+4. El sistema ejecuta `DELETE FROM fecha_bloqueada WHERE tenant_id = T AND fecha = D` vía `$executeRaw` y obtiene el número de filas afectadas.
+5. El sistema confirma la transacción.
+6. Si `rows = 1` (liberación efectiva): el sistema registra en `AUDIT_LOG` (`accion = 'eliminar'`, `entidad = 'FECHA_BLOQUEADA'`, causa en `datos_nuevos`); si existe cola activa (`RESERVA` con `sub_estado = '2d'` y `consulta_bloqueante_id` → reserva liberada), invoca `PromocionColaPort`.
+7. Si `rows = 0` (idempotente — fecha ya libre o nunca bloqueada): el sistema registra tentativa en `AUDIT_LOG` y termina sin error ni promoción.
+
+**Flujos Alternativos:**
+- **FA-01: Intento de liberar bloqueo firme con reserva activa** → rechazado en paso 2; bloqueo firme intacto; intento auditado.
+- **FA-02: Fecha sin bloqueo activo (idempotencia)** → `rows = 0`; éxito silencioso; tentativa registrada en `AUDIT_LOG`; no se dispara promoción. Los retries del cron no generan errores.
+- **FA-03: Liberación en lote** → N fechas expiradas procesadas, cada una en su propia transacción independiente; el fallo de una no bloquea ni revierte las demás; cada liberación exitosa dispara su `PromocionColaPort` si corresponde.
+
+**Exactamente-una-vez ante liberaciones concurrentes:**
+Si dos workers liberan la misma `(tenant_id, fecha)` simultáneamente, el motor garantiza que exactamente uno obtiene `rows = 1` (y dispara la promoción) y el otro obtiene `rows = 0` (éxito silencioso sin promoción). No hay doble promoción.
+
+**Deuda documentada (US-018):** la promoción efectiva de cola (reordenación FIFO + email al lead promovido) está diferida a US-018. Hasta entonces, `PromocionColaPort` se resuelve con un adaptador stub no-op auditado. La cola permanece en `2.d`; no hay estado "fecha libre + cola huérfana" observable como definitivo.
 
 ---
 
