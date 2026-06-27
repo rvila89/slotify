@@ -137,12 +137,12 @@ y verificar. **El agente ejecuta las pruebas; nunca se delegan al usuario.**
 
 ## 11. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final — PARADA) — humano
 
-- [ ] 11.1 Tras code-review APTO + validación manual, presentar el resumen y **ESPERAR el OK
+- [x] 11.1 Tras code-review APTO + validación manual, presentar el resumen y **ESPERAR el OK
       humano** antes de archivar/PR.
 
 ## 12. Archivar change + abrir PR (OBLIGATORIO — archive) — `spec-author`
 
-- [ ] 12.1 `openspec validate us-041-liberar-fecha --strict` OK (revalidar antes de archivar).
-- [ ] 12.2 `openspec archive us-041-liberar-fecha`; actualizar `openspec/specs/bloqueo-fecha/`;
+- [x] 12.1 `openspec validate us-041-liberar-fecha --strict` OK (revalidar antes de archivar).
+- [x] 12.2 `openspec archive us-041-liberar-fecha`; actualizar `openspec/specs/bloqueo-fecha/`;
       abrir PR (solo tras gate final y code-review `Veredicto: APTO` — el hook
       `require-code-review` lo exige).
