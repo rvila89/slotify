@@ -37,11 +37,15 @@ def report_verdict(change_dir):
                 text = fh.read()
         except OSError:
             continue
-        # Busca la línea de veredicto. "NO APTO" se comprueba primero para
-        # evitar el falso positivo de que la cadena "NO APTO" contiene "APTO".
-        m = re.search(r"Veredicto:\s*(NO\s+APTO|APTO)", text, re.IGNORECASE)
-        if m:
-            return "NO APTO" if m.group(1).upper().startswith("NO") else "APTO"
+        # Busca la línea de veredicto. En revisiones con varias pasadas
+        # (p. ej. NO APTO inicial → fix → APTO) el veredicto autoritativo es el
+        # ÚLTIMO, así que tomamos la última coincidencia, no la primera.
+        # "NO APTO" se distingue de "APTO" comprobando el prefijo del grupo
+        # capturado (la cadena "NO APTO" contiene "APTO").
+        matches = re.findall(r"Veredicto:\s*(NO\s+APTO|APTO)", text, re.IGNORECASE)
+        if matches:
+            last = matches[-1]
+            return "NO APTO" if last.upper().startswith("NO") else "APTO"
     return "" if found_report else None  # "" = informe presente pero sin línea de veredicto
 
 
