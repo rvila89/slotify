@@ -15,3 +15,6 @@ export const RESERVA_ESTADO_PORT = Symbol('ReservaEstadoPort');
 export const COLA_QUERY_PORT = Symbol('ColaQueryPort');
 export const PROMOCION_COLA_PORT = Symbol('PromocionColaPort');
 export const AUDIT_LOG_PORT = Symbol('AuditLogPort');
+
+// US-003 — alta de consulta exploratoria
+export const UNIDAD_DE_TRABAJO_PORT = Symbol('UnidadDeTrabajoPort');

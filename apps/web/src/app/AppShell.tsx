@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Link, Outlet } from 'react-router-dom';
 import { Bell, Menu, Plus } from 'lucide-react';
 import { SidebarContent } from './SidebarContent';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -66,13 +66,14 @@ export const AppShell = () => {
             >
               <Bell aria-hidden className="h-5 w-5" />
             </button>
-            <button
-              type="button"
+            <Link
+              to="/reservas/nueva"
+              aria-label="Nueva Reserva"
               className="flex items-center gap-2 rounded-full bg-brand-primary px-4 py-2.5 font-body text-sm font-medium text-brand-foreground transition-opacity hover:opacity-90 sm:px-6"
             >
               <Plus aria-hidden className="h-4 w-4" />
               <span className="hidden sm:inline">Nueva Reserva</span>
-            </button>
+            </Link>
           </div>
         </header>
 

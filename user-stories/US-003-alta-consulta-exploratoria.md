@@ -1,7 +1,7 @@
 ---
 id: US-003
-estado: backlog
-branch: null
+estado: done
+branch: feature/us-003-alta-consulta-exploratoria
 pr: null
 ---
 
@@ -13,7 +13,7 @@ pr: null
 - Módulo: M1 — Reserva (entidad central)
 - Prioridad: Crítica
 - Alcance MVP: ✅ Implementado
-- Estado: Borrador
+- Estado: Hecho
 - Owner: PM
 
 ## 🎯 Historia

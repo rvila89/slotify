@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginPage } from './pages/LoginPage';
 import { RequireAuth } from './app/RequireAuth';
 import { AppShell } from './app/AppShell';
+import { NuevaConsultaPage } from './reservas/NuevaConsultaPage';
 import { SectionPlaceholder } from './app/SectionPlaceholder';
 import { NotFound } from './app/NotFound';
 import { InterceptorRegistrar } from './auth/InterceptorRegistrar';
@@ -38,6 +39,7 @@ const App = () => (
         <Route path="/" element={<Navigate to="/calendario" replace />} />
         <Route path="/calendario" element={<SectionPlaceholder nombre="Calendario" />} />
         <Route path="/reservas" element={<SectionPlaceholder nombre="Reservas" />} />
+        <Route path="/reservas/nueva" element={<NuevaConsultaPage />} />
         <Route path="/metricas" element={<SectionPlaceholder nombre="Métricas" />} />
         <Route path="*" element={<NotFound />} />
       </Route>

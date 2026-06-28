@@ -155,7 +155,7 @@ Barra superior persistente con elementos de acceso rápido:
 | **Actores Secundarios** | Sistema |
 | **Descripción** | El gestor introduce manualmente los datos de un potencial cliente (lead) proveniente de cualquier canal (formulario web, email, WhatsApp, Instagram, teléfono) |
 | **Precondiciones** | - El gestor está autenticado<br>- Datos mínimos del lead disponibles (nombre, email, teléfono) |
-| **Postcondiciones** | - Se crea una consulta en el sub-estado correspondiente (2.a, 2.b o 2.d)<br>- Si aplica, la fecha queda bloqueada<br>- Se envía email de respuesta inicial (E1) |
+| **Postcondiciones** | - Se crea una consulta en el sub-estado correspondiente (2.a, 2.b o 2.d)<br>- Si aplica, la fecha queda bloqueada<br>- Se genera un registro `COMUNICACION` con código E1: sin comentarios → `estado='enviado'` y el email se despacha vía `EnviarEmailPort`; con comentarios → `estado='borrador'` sin envío, la UI alerta al gestor del borrador pendiente |
 | **Prioridad** | Crítica |
 | **Frecuencia** | Muy alta (múltiples veces al día) |
 

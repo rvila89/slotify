@@ -194,7 +194,12 @@ paths:
     post:
       tags: [Reservas]
       summary: Dar de alta un nuevo lead/consulta (UC-03)
-      description: Crea una reserva en estado `consulta`. Sub-estado `2.a` (sin fecha) o `2.b` (con fecha, dispara bloqueo blando).
+      description: |
+        Crea una reserva en estado `consulta`. Sin `fechaEvento` (US-003, alta exploratoria) la
+        reserva nace en sub-estado `2a` con `ttlExpiracion = null` y SIN crear `FechaBloqueada`;
+        con `fechaEvento` nace en `2b` (US-004/005, dispara el bloqueo blando atómico).
+        El CLIENTE se crea/reutiliza de forma idempotente por `(tenant_id, email)`. El campo
+        `comentarios` decide el flujo del email E1 (ver su descripción en `CreateReservaRequest`).
       requestBody:
         required: true
         content:
@@ -203,12 +208,17 @@ paths:
               $ref: '#/components/schemas/CreateReservaRequest'
       responses:
         '201':
-          description: Reserva creada
+          description: |
+            Reserva creada. En el alta exploratoria sin fecha (US-003) el recurso devuelto tiene
+            `estado = 'consulta'`, `subEstado = '2a'` y `ttlExpiracion = null`.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Reserva'
         '400':
+          # Validación de entrada (class-validator → exception filter de NestJS). El cuerpo es
+          # ErrorResponse con `message` como array de strings (un mensaje por campo afectado:
+          # obligatorios faltantes, email mal formado, canalEntrada fuera del enum…).
           $ref: '#/components/responses/ValidationError'
         '409':
           $ref: '#/components/responses/Conflict'
@@ -1197,6 +1207,17 @@ components:
         numAdultosNinosMayores4: { type: integer }
         numNinosMenores4: { type: integer }
         notas: { type: string }
+        comentarios:
+          type: string
+          maxLength: 2000
+          description: >-
+            [US-003] Comentarios libres del gestor sobre el lead en el momento del alta. Su
+            PRESENCIA/AUSENCIA decide el flujo del email E1 (respuesta inicial automática):
+            SIN `comentarios` (omitido o vacío) → la COMUNICACION E1 se persiste con
+            `estado='enviado'` y se dispara el auto-envío de la respuesta inicial;
+            CON `comentarios` → la COMUNICACION E1 se persiste con `estado='borrador'`, NO se
+            envía, y la UI alerta al gestor de un borrador pendiente de revisión. Es distinto de
+            `notas` (anotaciones internas que NO afectan al envío de E1).
         cliente: { $ref: '#/components/schemas/CreateClienteRequest' }
     UpdateReservaRequest:
       type: object
@@ -1260,24 +1281,45 @@ components:
         ibanDevolucion: { type: string, nullable: true }
       required: [idCliente, nombre]
     CreateClienteRequest:
+      # [US-003] Datos de contacto mínimos del lead, embebidos en el alta de reserva.
+      # nombre, apellidos, email y telefono son OBLIGATORIOS (canal_entrada va en CreateReservaRequest).
       type: object
-      required: [nombre]
+      required: [nombre, apellidos, email, telefono]
       properties:
-        nombre: { type: string }
-        apellidos: { type: string }
-        email: { type: string, format: email }
-        telefono: { type: string }
+        nombre: { type: string, minLength: 1, maxLength: 100, description: 'Obligatorio, no vacío, máx 100.' }
+        apellidos: { type: string, minLength: 1, maxLength: 100, description: 'Obligatorio, no vacío, máx 100.' }
+        email:
+          type: string
+          format: email
+          # RFC 5322 básico (forma local@dominio.tld, sin espacios). Validación dura adicional al format.
+          pattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+          maxLength: 254
+          description: 'Obligatorio. Formato email RFC 5322 básico. Idempotencia de CLIENTE por (tenant_id, email).'
+        telefono: { type: string, minLength: 1, description: 'Obligatorio, no vacío.' }
         dniNif: { type: string }
         direccion: { type: string }
         codigoPostal: { type: string }
         poblacion: { type: string }
         provincia: { type: string }
     UpdateClienteRequest:
-      allOf:
-        - $ref: '#/components/schemas/CreateClienteRequest'
-        - type: object
-          properties:
-            ibanDevolucion: { type: string }
+      # PATCH parcial (US-035): todos los campos opcionales (p. ej. registrar solo el IBAN).
+      # NO hereda los `required` de CreateClienteRequest a propósito.
+      type: object
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 100 }
+        apellidos: { type: string, minLength: 1, maxLength: 100 }
+        email:
+          type: string
+          format: email
+          pattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+          maxLength: 254
+        telefono: { type: string, minLength: 1 }
+        dniNif: { type: string }
+        direccion: { type: string }
+        codigoPostal: { type: string }
+        poblacion: { type: string }
+        provincia: { type: string }
+        ibanDevolucion: { type: string }
 
     # -------- Catálogo de extras [F2-04] --------
     Extra:
