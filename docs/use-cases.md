@@ -128,16 +128,24 @@ Barra superior persistente con elementos de acceso rápido:
 | **Nombre** | Cerrar Sesión |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor cierra su sesión activa de forma segura |
-| **Precondiciones** | - El gestor tiene una sesión activa |
-| **Postcondiciones** | - La cookie del refresh token queda limpiada; el access token caduca en ~15 min por su vida corta natural<br>- El gestor es redirigido al login<br>**Nota:** con la estrategia de refresh stateless actual (DT-AUTH-01 en [architecture.md §2.9](./architecture.md)), el logout es best-effort: un refresh token ya emitido no se invalida en BD. La invalidación real queda diferida al sprint que adopte el refresh stateful. |
+| **Descripción** | El gestor cierra su sesión activa de forma segura desde el botón "Cerrar sesión" ubicado en el pie del sidebar (escritorio) o en el drawer de navegación móvil (`<lg`) |
+| **Precondiciones** | - El gestor tiene una sesión activa (o ninguna, en el caso del doble logout — ver FA-01) |
+| **Postcondiciones** | - La cookie del refresh token queda limpiada en el dispositivo actual; el access token se elimina de la memoria de la SPA y caduca en ~15 min por su vida corta natural<br>- Se registra el evento `logout` en `AUDIT_LOG` con `entidad = 'Usuario'`, `entidad_id = usuario_id`, `usuario_id` y `tenant_id` del refresh token — **solo cuando el token identifica a un usuario válido** (si el token es ausente/expirado/inválido, no se audita)<br>- El gestor es redirigido a `/login`<br>**Nota:** con la estrategia de refresh stateless (DT-AUTH-01 en [architecture.md §2.9](./architecture.md)), el logout es best-effort: limpia la cookie del dispositivo actual pero no invalida criptográficamente el refresh token en el servidor. US-002 ratificó este enfoque (auditoría + idempotencia) y dejó la invalidación stateful real (modelo `SesionRefresh` / denylist) como deuda post-MVP. |
 | **Prioridad** | Alta |
 | **Frecuencia** | Diaria |
 
 **Flujo Básico:**
-1. El gestor selecciona la opción "Cerrar sesión"
-2. El sistema invoca `POST /auth/logout` (204), limpia la cookie del refresh token y elimina el access token de la memoria de la SPA
-3. El sistema redirige a la página de login
+1. El gestor selecciona la opción "Cerrar sesión" en el pie del sidebar o en el drawer de navegación
+2. El frontend llama a `POST /auth/logout` mediante el SDK generado
+3. El sistema identifica al usuario desde el refresh token de la cookie `httpOnly`
+4. El sistema registra el evento `logout` en `AUDIT_LOG` (`entidad = 'Usuario'`, `entidad_id = usuario_id`)
+5. El sistema limpia la cookie del refresh token y responde 200/204
+6. El frontend elimina el access token y la sesión de la memoria de la SPA
+7. El frontend redirige al formulario de login en `/login`
+
+**Flujos Alternativos:**
+- **FA-01** (sesión ya inválida — doble logout): refresh token expirado, invalidado o ausente → el sistema responde 200/204 idempotentemente, **no registra `AUDIT_LOG`** (no hay usuario identificable) y limpia cualquier cookie presente. Nunca devuelve 401.
+- **FA-02** (error de red): la llamada a `POST /auth/logout` falla sin respuesta del servidor → el frontend **limpia igualmente** el access token y la sesión de memoria, redirige a `/login` y muestra un aviso persistente de "modo degradado" (el refresh token en cookie caducará por TTL ~7 días; el usuario queda sin acceso efectivo en el cliente).
 
 ---
 
