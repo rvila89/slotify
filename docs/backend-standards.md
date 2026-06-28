@@ -87,7 +87,7 @@ Módulos alineados con los componentes de [c4-diagrams.md](./c4-diagrams.md) (no
 | `clientes` | Datos de contacto y fiscales | UC-03, UC-14 |
 | `presupuestos` | Motor de tarifas + generación/versionado de PDF | UC-14 a UC-16 |
 | `facturacion` | Facturas (señal, liquidación, fianza, complementaria), pagos, fianza | UC-17, UC-18, UC-21, UC-22, UC-26, UC-27 |
-| `comunicaciones` | Puerto `EnviarEmailPort` (domain) + adaptador stub (infra, US-003); plantillas E1–E8 y emails manuales, log | UC-03, UC-35, UC-36 |
+| `comunicaciones` | Motor `DespacharEmailService` (application) + puertos `EnviarEmailPort` y `CatalogoPlantillasPort` (domain) + adaptadores `ResendEmailAdapter`/`FakeEmailAdapter` (infra, US-045) + catálogo de plantillas (infra); idempotencia por índice UNIQUE parcial `(reserva_id, codigo_email) WHERE reserva_id IS NOT NULL`; trazabilidad en `COMUNICACION` y `AUDIT_LOG`. E1 activa; E2–E8 diseñadas/inactivas (cableado diferido). Ver [architecture.md §2.10](./architecture.md) | UC-03, UC-35, UC-36 |
 | `ficha-operativa` | Briefing operativo del evento | UC-20, UC-24 |
 | `dashboards` | KPIs operativos y financieros, exports | UC-32, UC-33, UC-34 |
 | `configuracion` | Tarifario, plantillas, TTLs, festivos por tenant | Transversal |
@@ -329,4 +329,4 @@ describe('BloquearFechaUseCase', () => {
 
 ---
 
-*Este documento es la base para mantener calidad y consistencia en el backend de Slotify. Consistente con [architecture.md](./architecture.md), [data-model.md](./data-model.md), [api-spec.yml](./api-spec.yml) y [c4-diagrams.md](./c4-diagrams.md).*
+*Este documento es la base para mantener calidad y consistencia en el backend de Slotify. Consistente con [architecture.md](./architecture.md), [data-model.md](./data-model.md), [api-spec.yml](./api-spec.yml) y [c4-diagrams.md](./c4-diagrams.md). Actualizado en US-045 (28/06/2026): tabla de módulos — fila `comunicaciones` refleja el motor hexagonal `DespacharEmailService`, adaptadores Resend+Fake, catálogo de plantillas, idempotencia UNIQUE parcial y referencia a §2.10 de architecture.md.*

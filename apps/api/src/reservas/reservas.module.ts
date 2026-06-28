@@ -8,8 +8,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../shared/prisma/prisma.module';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { ComunicacionesModule } from '../comunicaciones/comunicaciones.module';
-import { ENVIAR_EMAIL_PORT } from '../comunicaciones/comunicaciones.tokens';
-import type { EnviarEmailPort } from '../comunicaciones/domain/enviar-email.port';
+import { DespacharEmailService } from '../comunicaciones/application/despachar-email.service';
 import {
   BloquearFechaService,
   ClockPort,
@@ -62,12 +61,12 @@ import {
     },
     {
       provide: AltaConsultaUseCase,
-      inject: [UNIDAD_DE_TRABAJO_PORT, ENVIAR_EMAIL_PORT, CLOCK_PORT],
+      inject: [UNIDAD_DE_TRABAJO_PORT, DespacharEmailService, CLOCK_PORT],
       useFactory: (
         unidadDeTrabajo: UnidadDeTrabajoPort,
-        enviarEmail: EnviarEmailPort,
+        finalizarEnvio: DespacharEmailService,
         clock: ClockPort,
-      ) => new AltaConsultaUseCase({ unidadDeTrabajo, enviarEmail, clock }),
+      ) => new AltaConsultaUseCase({ unidadDeTrabajo, finalizarEnvio, clock }),
     },
     {
       provide: FECHA_BLOQUEADA_REPOSITORY_PORT,

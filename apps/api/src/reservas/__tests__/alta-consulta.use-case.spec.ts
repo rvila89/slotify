@@ -47,9 +47,10 @@ import {
   type ComunicacionRepositoryPort,
   type ComunicacionParaAlta,
   type ClockPort,
+  type FinalizarEnvioEmailPort,
+  type FinalizarEnvioEmailResultado,
 } from '../application/alta-consulta.use-case';
 import type { AuditLogPort } from '../../shared/audit/audit-log.port';
-import type { EnviarEmailPort } from '../../comunicaciones/domain/enviar-email.port';
 
 // ---------------------------------------------------------------------------
 // Datos canónicos (alineados con apps/api/prisma/seed.ts — Masia l'Encís)
@@ -70,7 +71,7 @@ type ClientesFake = ClienteRepositoryPort & {
 type ReservasFake = ReservaRepositoryPort & { crear: jest.Mock };
 type ComunicacionesFake = ComunicacionRepositoryPort & { crear: jest.Mock };
 type AuditFake = AuditLogPort & { registrar: jest.Mock };
-type EmailFake = EnviarEmailPort & { enviar: jest.Mock };
+type FinalizarFake = FinalizarEnvioEmailPort & { finalizarEnvio: jest.Mock };
 type UowFake = UnidadDeTrabajoPort & { ejecutar: jest.Mock };
 
 interface ReposFake extends RepositoriosAltaConsulta {
@@ -170,7 +171,16 @@ const crearUowFake = (repos: ReposFake): UowFake => ({
   ),
 });
 
-const crearEmailFake = (): EmailFake => ({ enviar: jest.fn(async () => undefined) });
+/**
+ * Doble del motor de email (`DespacharEmailService.finalizarEnvio`): por defecto el
+ * proveedor acepta → `enviado` + `fecha_envio`. Configurable para simular `fallido`.
+ */
+const crearFinalizarFake = (
+  resultado: FinalizarEnvioEmailResultado = {
+    estado: 'enviado',
+    fechaEnvio: new Date('2026-06-28T10:00:00.000Z'),
+  },
+): FinalizarFake => ({ finalizarEnvio: jest.fn(async () => resultado) });
 
 const relojFijo = (iso = '2026-06-28T10:00:00.000Z'): ClockPort => ({
   ahora: () => new Date(iso),
@@ -179,15 +189,15 @@ const relojFijo = (iso = '2026-06-28T10:00:00.000Z'): ClockPort => ({
 const montar = (opts?: {
   repos?: ReposFake;
   uow?: UowFake;
-  enviarEmail?: EmailFake;
+  finalizarEnvio?: FinalizarFake;
   clock?: ClockPort;
 }) => {
   const repos = opts?.repos ?? crearReposFake();
   const uow = opts?.uow ?? crearUowFake(repos);
-  const enviarEmail = opts?.enviarEmail ?? crearEmailFake();
+  const finalizarEnvio = opts?.finalizarEnvio ?? crearFinalizarFake();
   const clock = opts?.clock ?? relojFijo();
-  const deps: AltaConsultaDeps = { unidadDeTrabajo: uow, enviarEmail, clock };
-  return { useCase: new AltaConsultaUseCase(deps), repos, uow, enviarEmail, clock };
+  const deps: AltaConsultaDeps = { unidadDeTrabajo: uow, finalizarEnvio, clock };
+  return { useCase: new AltaConsultaUseCase(deps), repos, uow, finalizarEnvio, clock };
 };
 
 const comandoBase = (
@@ -300,57 +310,101 @@ describe('AltaConsultaUseCase — crea el agregado en una única transacción (3
 // ===========================================================================
 
 describe('AltaConsultaUseCase — E1 según comentarios (3.3)', () => {
-  it('debe_persistir_la_comunicacion_E1_en_enviado_y_disparar_el_envio_cuando_no_hay_comentarios', async () => {
-    const { useCase, repos, enviarEmail } = montar();
+  it('debe_crear_E1_en_borrador_dentro_de_la_tx_y_promoverla_a_enviado_via_el_motor_cuando_no_hay_comentarios', async () => {
+    const { useCase, repos, finalizarEnvio } = montar();
 
-    await useCase.ejecutar(comandoBase()); // sin `comentarios`
+    const out = await useCase.ejecutar(comandoBase()); // sin `comentarios`
 
+    // Invariante: la fila NACE en `borrador` (estado NO final, sin fecha) DENTRO de
+    // la transacción, preservando la atomicidad con la reserva (US-003).
     const args = repos.comunicaciones.crear.mock.calls[0][0];
     expect(args.codigoEmail).toBe('E1');
-    expect(args.estado).toBe('enviado');
+    expect(args.estado).toBe('borrador');
     expect(args.destinatarioEmail).toBe(EMAIL);
-    expect(args.fechaEnvio).toBeInstanceOf(Date);
-    // Auto-envío sin intervención del gestor: el puerto de email se invoca.
-    expect(enviarEmail.enviar).toHaveBeenCalledTimes(1);
-    expect(enviarEmail.enviar).toHaveBeenCalledWith(
-      expect.objectContaining({ destinatario: EMAIL, codigoEmail: 'E1' }),
+    expect(args.fechaEnvio).toBeNull();
+    // Auto-envío: se DELEGA en el motor (decisión 6), que envía y promueve la fila.
+    expect(finalizarEnvio.finalizarEnvio).toHaveBeenCalledTimes(1);
+    expect(finalizarEnvio.finalizarEnvio).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinatario: EMAIL,
+        codigoEmail: 'E1',
+        reservaId: 'res-1',
+        idComunicacion: 'com-1',
+      }),
     );
+    // Estado OBSERVABLE final tras el éxito del envío: enviado + fecha_envio.
+    expect(out.comunicacion.estado).toBe('enviado');
+    expect(out.comunicacion.fechaEnvio).toBeInstanceOf(Date);
   });
 
-  it('debe_persistir_la_comunicacion_E1_en_borrador_y_NO_enviar_cuando_hay_comentarios', async () => {
-    const { useCase, repos, enviarEmail } = montar();
+  it('debe_dejar_la_comunicacion_E1_en_borrador_y_NO_delegar_el_envio_cuando_hay_comentarios', async () => {
+    const { useCase, repos, finalizarEnvio } = montar();
 
-    await useCase.ejecutar(comandoBase({ comentarios: 'Llamar el lunes, lead caliente' }));
+    const out = await useCase.ejecutar(comandoBase({ comentarios: 'Llamar el lunes, lead caliente' }));
 
     const args = repos.comunicaciones.crear.mock.calls[0][0];
     expect(args.codigoEmail).toBe('E1');
     expect(args.estado).toBe('borrador');
-    // Borrador pendiente de revisión: el puerto de email NO se invoca.
-    expect(enviarEmail.enviar).not.toHaveBeenCalled();
+    // Borrador pendiente de revisión: el motor NO se invoca y la fila se queda así.
+    expect(finalizarEnvio.finalizarEnvio).not.toHaveBeenCalled();
+    expect(out.comunicacion.estado).toBe('borrador');
+    expect(out.comunicacion.fechaEnvio).toBeNull();
   });
 
   it('debe_tratar_comentarios_vacios_o_en_blanco_como_ausentes_y_auto_enviar', async () => {
     // El contrato define la PRESENCIA de comentarios; cadena vacía/espacios = ausente.
-    const { useCase, repos, enviarEmail } = montar();
+    const { useCase, finalizarEnvio } = montar();
 
-    await useCase.ejecutar(comandoBase({ comentarios: '   ' }));
+    const out = await useCase.ejecutar(comandoBase({ comentarios: '   ' }));
 
-    expect(repos.comunicaciones.crear.mock.calls[0][0].estado).toBe('enviado');
-    expect(enviarEmail.enviar).toHaveBeenCalledTimes(1);
+    expect(finalizarEnvio.finalizarEnvio).toHaveBeenCalledTimes(1);
+    expect(out.comunicacion.estado).toBe('enviado');
   });
 
   it('no_debe_enviar_el_email_dentro_de_la_transaccion_sino_despues_del_commit', async () => {
     // El envío E1 es un efecto POST-COMMIT: solo corre tras resolver la unidad de
     // trabajo (no debe quedar acoplado al rollback de la transacción).
-    const { useCase, uow, enviarEmail } = montar();
+    const { useCase, uow, finalizarEnvio } = montar();
 
     await useCase.ejecutar(comandoBase());
 
     expect(uow.ejecutar).toHaveBeenCalledTimes(1);
-    expect(enviarEmail.enviar).toHaveBeenCalledTimes(1);
+    expect(finalizarEnvio.finalizarEnvio).toHaveBeenCalledTimes(1);
     const ordenUow = uow.ejecutar.mock.invocationCallOrder[0];
-    const ordenEmail = enviarEmail.enviar.mock.invocationCallOrder[0];
+    const ordenEmail = finalizarEnvio.finalizarEnvio.mock.invocationCallOrder[0];
     expect(ordenEmail).toBeGreaterThan(ordenUow);
+  });
+});
+
+// ===========================================================================
+// 3.3bis — Fallo del proveedor en el alta (E1 fallido): la COMUNICACION queda
+//           `fallido` sin fecha, el alta NO se tumba (responde 201) — B1.
+// ===========================================================================
+
+describe('AltaConsultaUseCase — fallo del proveedor en el alta (E1 fallido)', () => {
+  it('debe_dejar_E1_en_fallido_sin_fecha_y_NO_tumbar_el_alta_cuando_el_proveedor_falla', async () => {
+    // El motor (finalizarEnvio) centraliza el camino de fallo: marca `fallido` +
+    // AUDIT_LOG (verificado en el spec del motor) y NO propaga excepción. El alta ya
+    // está commiteada → el caso de uso resuelve igualmente (HTTP 201 en el controller).
+    const finalizarEnvio = crearFinalizarFake({ estado: 'fallido', fechaEnvio: null });
+    const { useCase, repos } = montar({ finalizarEnvio });
+
+    const out = await useCase.ejecutar(comandoBase()); // sin comentarios
+
+    // La fila se creó (dentro de la tx) en `borrador`; el motor la promovió a fallido.
+    expect(repos.comunicaciones.crear.mock.calls[0][0].estado).toBe('borrador');
+    expect(finalizarEnvio.finalizarEnvio).toHaveBeenCalledTimes(1);
+    expect(out.comunicacion.estado).toBe('fallido');
+    expect(out.comunicacion.fechaEnvio).toBeNull();
+    // La reserva se devuelve igualmente (el fallo de email no aborta el alta).
+    expect(out.reserva.idReserva).toBe('res-1');
+  });
+
+  it('no_debe_rechazar_el_alta_por_un_fallo_de_email_resuelve_siempre', async () => {
+    const finalizarEnvio = crearFinalizarFake({ estado: 'fallido', fechaEnvio: null });
+    const { useCase } = montar({ finalizarEnvio });
+
+    await expect(useCase.ejecutar(comandoBase())).resolves.toBeDefined();
   });
 });
 
@@ -431,13 +485,13 @@ describe('AltaConsultaUseCase — auditoría del alta (3.5)', () => {
 
 describe('AltaConsultaUseCase — validación sin efectos colaterales (3.6)', () => {
   const esperarRechazoSinEfectos = async (comando: AltaConsultaComando) => {
-    const { useCase, uow, enviarEmail } = montar();
+    const { useCase, uow, finalizarEnvio } = montar();
 
     await expect(useCase.ejecutar(comando)).rejects.toBeInstanceOf(AltaConsultaValidacionError);
 
     // Validación PREVIA a abrir la transacción: nada se escribe, nada se envía.
     expect(uow.ejecutar).not.toHaveBeenCalled();
-    expect(enviarEmail.enviar).not.toHaveBeenCalled();
+    expect(finalizarEnvio.finalizarEnvio).not.toHaveBeenCalled();
   };
 
   it('debe_rechazar_cuando_el_nombre_esta_vacio', async () => {
@@ -508,14 +562,14 @@ describe('AltaConsultaUseCase — atomicidad transaccional (3.7)', () => {
 
   it('no_debe_disparar_el_envio_E1_si_la_transaccion_falla_rollback_total', async () => {
     // Si algo falla DENTRO de la unidad de trabajo, el commit no ocurre y el
-    // efecto post-commit (envío E1) NO debe ejecutarse: no hay envío "huérfano".
+    // efecto post-commit (delegación al motor) NO debe ejecutarse: no hay envío "huérfano".
     const repos = crearReposFake(null);
     repos.comunicaciones.crear.mockRejectedValueOnce(new Error('fallo al persistir E1'));
-    const { useCase, enviarEmail } = montar({ repos });
+    const { useCase, finalizarEnvio } = montar({ repos });
 
     await useCase.ejecutar(comandoBase()).catch(() => undefined);
 
-    expect(enviarEmail.enviar).not.toHaveBeenCalled();
+    expect(finalizarEnvio.finalizarEnvio).not.toHaveBeenCalled();
   });
 
   it('no_debe_continuar_con_la_comunicacion_ni_la_auditoria_si_falla_la_creacion_del_cliente', async () => {

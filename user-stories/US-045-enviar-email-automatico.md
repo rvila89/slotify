@@ -1,7 +1,7 @@
 ---
 id: US-045
-estado: backlog
-branch: null
+estado: done
+branch: feature/us-045-motor-email-automatico
 pr: null
 ---
 
@@ -13,7 +13,7 @@ pr: null
 - Módulo: M10
 - Prioridad: Crítica
 - Alcance MVP: ✅ Implementado
-- Estado: Borrador
+- Estado: Done
 - Owner: PM
 
 ## 🎯 Historia

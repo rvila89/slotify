@@ -686,16 +686,30 @@ Archivos adjuntos polimórficos. Discriminador `tipo`. Referenciable desde reser
 | mime_type | VARCHAR(50) | Tipo MIME |
 
 ### 3.16 COMUNICACION
-Log de emails enviados (E1–E8 + manuales).
+Log de emails del ciclo de vida de la reserva (E1–E8) y emails manuales. El motor hexagonal `DespacharEmailService` (US-045) es el único responsable de registrar y actualizar estas entradas para los emails automáticos.
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
 | id_comunicacion | UUID PK | Identificador único |
+| tenant_id | UUID FK | Tenant propietario |
 | cliente_id | UUID FK | Destinatario |
-| reserva_id | UUID FK | Reserva relacionada (nullable) |
+| reserva_id | UUID FK | Reserva relacionada (nullable — emails `manual` sin reserva, UC-36) |
 | codigo_email | ENUM | E1–E8, manual |
 | asunto | VARCHAR(255) | Asunto del email |
-| estado | ENUM | borrador, enviado, fallido |
+| cuerpo | TEXT | Cuerpo HTML del email (nullable) |
+| destinatario_email | VARCHAR(255) | Email del destinatario |
+| estado | ENUM | `borrador` \| `enviado` \| `fallido` |
+| fecha_envio | TIMESTAMP | No nulo solo si `estado = 'enviado'`; nulo en `borrador` y `fallido` |
+| fecha_creacion | TIMESTAMP | `DEFAULT now()` |
+
+**Idempotencia (US-045 — migración `20260628120000_us045_comunicacion_idempotencia_indice`):** índice UNIQUE parcial `(reserva_id, codigo_email) WHERE reserva_id IS NOT NULL`. Una sola entrada por `(reserva, codigo_email)`; emails `manual` sin reserva no aplican el constraint. El motor consulta la existencia antes de insertar; el índice es la red de seguridad ante carreras.
+
+**Estados y flujo del motor:**
+- `borrador`: la `COMUNICACION` se crea siempre dentro de la `$transaction` del trigger (E1 en el alta, otros en sus US); el envío ocurre post-commit.
+- `enviado` + `fecha_envio`: el proveedor aceptó el envío.
+- `fallido` (sin `fecha_envio`): el proveedor rechazó el envío; se registra en `AUDIT_LOG`; sin reintento en MVP.
+
+**Cobertura de emails E1–E8:** E1 activa (trigger cableado en US-003/004+US-045). E2–E8 diseñadas/inactivas en el catálogo; su trigger se cablea en la US correspondiente: E2→US-014, E3→US-021/022/023, E4→US-027/028, E5→US-034, E6→US-008, E7→US-009, E8→US-035. Ver [architecture.md §2.9 DT-EMAIL-02 y §2.10](./architecture.md).
 
 ### 3.17 AUDIT_LOG
 Registro de auditoría de todas las acciones sobre reservas, facturas y autenticación.
@@ -741,6 +755,7 @@ Registro de auditoría de todas las acciones sobre reservas, facturas y autentic
 | `(tenant_id, consulta_bloqueante_id, posicion_cola)` en RESERVA | Promociones y reordenación de cola |
 | `(tenant_id, email)` en CLIENTE | Búsqueda de cliente (y futura recurrencia) |
 | Full-text en RESERVA (nombre, código, observaciones) | Histórico consultable |
+| `UNIQUE PARTIAL (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL` en COMUNICACION | Idempotencia del motor de email (US-045): una `COMUNICACION` por `(reserva, codigo_email)`; emails `manual` sin reserva no aplican el constraint. Migración `20260628120000_us045_comunicacion_idempotencia_indice`. |
 
 ---
 
@@ -783,5 +798,4 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 
 ---
 
-*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 2.5 (28/06/2026): refleja los fixes finales de US-003: actualiza §3.5 — campo `codigo` con nota de generación retry-on-conflict y red de seguridad UNIQUE → 409; consistente con `data-model.md` v1.4 y DT-CODIGO-01 RESUELTA. Versión 2.4 (28/06/2026): refleja US-003 — alta de consulta exploratoria (UC-03): añade nota de persistencia del mapeo `SubEstadoConsulta` dominio `'2a'` ↔ Prisma `s2a` (prefijo `s`; detalle de infrastructure, sin cambio de modelo ni migración). Actualiza §3.5. Versión 2.3 (27/06/2026): refleja US-041 — documenta `liberarFecha()` (UC-31): DELETE serializado con `$executeRaw` + RLS + rows-affected como primitiva exactamente-una-vez, idempotencia (0 filas = éxito silencioso), guarda firme (`reserva_cancelada`), seam `PromocionColaPort` (implementación diferida a US-018), liberación en lote con transacciones independientes, AUDIT_LOG con causa (TTL/descarte/cancelacion), y decisión D-7 (sin endpoint HTTP). Actualiza §3.6, §3.17, §5.2 y §5.3. Versión 2.2 (27/06/2026): refleja US-040 — `reserva_id @unique` en `FECHA_BLOQUEADA`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y decisión de no exponer endpoint HTTP propio (D-7). Versión 2.1: elimina la entidad de recurrencia (fuera del MVP) y desarrolla el modelo de extras (catálogo vs línea, congelación al añadir, extras tardíos vía `origen` y `factura_id`). Versión 2.0: incorpora las decisiones de modelado consensuadas tras el contraste entre especificación funcional, casos de uso y la primera versión del ERD.*
-*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 2.4 (28/06/2026): refleja US-002 — actualiza §3.17 AUDIT_LOG: descripción ampliada a "reservas, facturas y autenticación"; documenta la convención de registros `login`/`logout` (`entidad = 'Usuario'`, `entidad_id = usuario_id`), la condicionalidad del `logout` (solo cuando el token identifica usuario; doble logout silencioso) y la no-revocación activa del access token. Versión 2.3 (27/06/2026): refleja US-041 — documenta `liberarFecha()` (UC-31): DELETE serializado con `$executeRaw` + RLS + rows-affected como primitiva exactamente-una-vez, idempotencia (0 filas = éxito silencioso), guarda firme (`reserva_cancelada`), seam `PromocionColaPort` (implementación diferida a US-018), liberación en lote con transacciones independientes, AUDIT_LOG con causa (TTL/descarte/cancelacion), y decisión D-7 (sin endpoint HTTP). Actualiza §3.6, §3.17, §5.2 y §5.3. Versión 2.2 (27/06/2026): refleja US-040 — `reserva_id @unique` en `FECHA_BLOQUEADA`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y decisión de no exponer endpoint HTTP propio (D-7). Versión 2.1: elimina la entidad de recurrencia (fuera del MVP) y desarrolla el modelo de extras (catálogo vs línea, congelación al añadir, extras tardíos vía `origen` y `factura_id`). Versión 2.0: incorpora las decisiones de modelado consensuadas tras el contraste entre especificación funcional, casos de uso y la primera versión del ERD.*
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 2.6 (28/06/2026): refleja US-045 — motor de email automático (UC-35): actualiza §3.16 COMUNICACION (descripción del motor, campos completos con `tenant_id`/`cuerpo`/`destinatario_email`/`fecha_envio`, reglas de estado, idempotencia con índice UNIQUE parcial `(reserva_id, codigo_email) WHERE reserva_id IS NOT NULL` y migración `20260628120000_us045_comunicacion_idempotencia_indice`, cobertura E1–E8 con mapa E→US); añade índice en §4.1. Sin entidades nuevas ni columnas nuevas (el modelo `COMUNICACION` ya estaba completo; solo se añade el índice). Versión 2.5 (28/06/2026): refleja los fixes finales de US-003: actualiza §3.5 — campo `codigo` con nota de generación retry-on-conflict y red de seguridad UNIQUE → 409; consistente con `data-model.md` v1.4 y DT-CODIGO-01 RESUELTA. Versión 2.4 (28/06/2026): refleja US-003 — añade nota de persistencia del mapeo `SubEstadoConsulta`. Versión 2.3 (27/06/2026): refleja US-041 — documenta `liberarFecha()` (UC-31). Versión 2.2 (27/06/2026): refleja US-040 — `reserva_id @unique` en `FECHA_BLOQUEADA`, check constraints. Versión 2.1: elimina la entidad de recurrencia y desarrolla el modelo de extras. Versión 2.0: incorpora las decisiones de modelado consensuadas.*

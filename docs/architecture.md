@@ -87,7 +87,7 @@ graph TB
 | **BBDD** | PostgreSQL (gestionada) | Sostiene bloqueo atómico, RLS multi-tenant y búsqueda full-text del histórico |
 | **Auth** | JWT (access en memoria + refresh en cookie httpOnly), NestJS + Passport | Access token de vida corta en memoria; refresh token en cookie httpOnly a salvo de XSS. Tenant y rol en el payload firmado. Ver §2.8 |
 | **Jobs** | Cron simple → endpoint de barrido | TTLs como campo `ttl_expiracion` + barrido periódico; robusto e idempotente |
-| **Email** | Proveedor ágil (Resend/Postmark); puerto de dominio `EnviarEmailPort` (`comunicaciones/domain/`) activo desde US-003 | 8 emails del flujo principal; SPF/DKIM/DMARC desde el día 1. En US-003 el transporte se resuelve con un adaptador stub no-op (`comunicaciones/infrastructure/enviar-email.stub.adapter.ts`); el transporte real (Resend/Postmark) se enchufa en US-045 sin tocar el dominio |
+| **Email** | Resend SDK (`ResendEmailAdapter`) + `FakeEmailAdapter` en test/CI/dev; motor `DespacharEmailService` (`comunicaciones/application/`) + puerto `EnviarEmailPort` (`comunicaciones/domain/`); catálogo de plantillas en `comunicaciones/infrastructure/plantillas/` | Motor hexagonal reutilizable (US-045): selecciona plantilla → sustituye variables → resuelve adjuntos → envía por el puerto → registra en `COMUNICACION` + `AUDIT_LOG`. `FakeEmailAdapter` forzado en test/CI/dev (cero envíos reales); `ResendEmailAdapter` en producción. Configuración validada con zod: `EMAIL_TRANSPORT` (`resend`\|`fake`), `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_SANDBOX`; en producción se exige `EMAIL_TRANSPORT=resend`. E1 activa; E2–E8 diseñadas/inactivas (cableado diferido a cada US). |
 | **PDF** | Plantillas HTML + Puppeteer (o react-pdf) | Generación server-side; plantillas editables (presupuestos/facturas borrador) |
 | **Storage** | El del hosting (p. ej. Supabase Storage) | Menos integración que un proveedor de objetos aparte |
 | **Hosting** | Railway (recomendado) o Render free + Postgres gestionada | Ver análisis de coste en §5 |
@@ -196,8 +196,80 @@ Esta sección registra las decisiones tomadas conscientemente como deuda en US-0
 | DT-AUTH-02 | **Multi-device FA-03 diferido.** Las sesiones en múltiples dispositivos coexisten en silencio; no existe flujo interactivo ("continuar / cerrar sesión anterior"). El flujo completo requiere registro de sesiones activas, que depende de DT-AUTH-01 (refresh stateful). | Decisión §4 del change US-001 (`proposal.md`) | Cuando se adopte el refresh stateful |
 | DT-AUTH-03 | **Throttler en memoria por proceso.** `LoginThrottleGuard` usa un `Map` en memoria del proceso: los contadores no se comparten entre instancias y se reinician al rearrancar el proceso. Aceptado para el MVP de instancia única (Railway). Antes de cualquier despliegue multi-instancia debe migrarse a una solución compartida (Redis, BD o `@nestjs/throttler` con store distribuido). | Decisión §3 del change US-001; nota de escalabilidad del code-review | Antes de despliegue multi-instancia |
 | DT-AUTH-04 | **SDK del frontend genera `.d.ts` en lugar de `.ts`.** La configuración actual de `resolve.extensions` incluye `.d.ts`, lo que hace que el cliente generado sea un archivo de tipos, no un módulo importable directamente. Requiere workaround en el build del frontend. La corrección pasa por ajustar la config de codegen del `contract-engineer`. | Nota de codegen del code-review | Próxima iteración de codegen del `contract-engineer` |
-| DT-EMAIL-01 | **Adaptador de email stub (no-op).** `EnviarEmailPort` definido en `comunicaciones/domain/` e implementado por `EnviarEmailStubAdapter` en `comunicaciones/infrastructure/`: registra la intención de envío pero no hace red. La `COMUNICACION` E1 se persiste con el `estado` correcto (`enviado`/`borrador`), que es el observable del BDD de US-003. El transporte real (Resend/Postmark, plantillas E1–E8, reintentos, webhooks) queda pendiente. | Decisión design.md §1 de US-003: no construir infra de email antes de US-045; el puerto estable permite cambiar solo el adaptador | US-045 (infra de email automático E1–E8) |
+| DT-EMAIL-01 | **Adaptador de email stub (no-op) — RESUELTA.** El `EnviarEmailStubAdapter` se sustituye en US-045 por `ResendEmailAdapter` (producción) y `FakeEmailAdapter` (test/CI/dev, forzado). El motor `DespacharEmailService` centraliza render + envío + actualización de estado. `AltaConsultaUseCase` delega el envío post-commit en `DespacharEmailService.finalizarEnvio`: la `COMUNICACION` E1 nace en `borrador` dentro de la `$transaction` del alta y el motor la promueve a `enviado`+`fecha_envio` (éxito) o a `fallido`+AUDIT_LOG (fallo del proveedor), sin reintento y sin tumbar el HTTP 201. Regresión cero sobre US-003/004 (contrato del puerto `EnviarEmailPort` intacto, campos nuevos solo opcionales). | US-045 (28/06/2026). Cierre: motor hexagonal + Resend + FakeEmailAdapter en test/CI + cableado real de E1. | RESUELTA — US-045 (28/06/2026) |
+| DT-EMAIL-02 | **Cableado de triggers E2–E8 diferido a sus US.** El catálogo de plantillas declara E2–E8 como entradas diseñadas/inactivas (variables, adjuntos y metadatos declarados, sin render activo) pero sin trigger cableado. Mapa de deuda: E2→US-014 (`pre_reserva` + PDF presupuesto), E3→US-021/022/023 (`reserva_confirmada` + factura señal), E4→US-027/028 (liquidación facturada), E5→US-034 (`post_evento` con `fianza_eur > 0`), E6→US-008 (sub-estado `2.v` visita), E7→US-009 (resultado visita "interesado" → `2.b`), E8→US-035 (`iban_devolucion` registrado). Adjuntos PDF reales (presupuesto/factura/documento) y cron de recordatorios también diferidos. Envío manual de borradores: US-046. | Decisión de alcance del Gate SDD de US-045: el cableado de E2–E8 requiere triggers, PDFs y estados de US aún no implementadas; construirlos ahora sería spec especulativa. El motor ya está listo para recibirlos sin rediseño. | Cada US de trigger listada en la columna anterior + US-046 |
+| Bj3 | **Default inseguro de `EMAIL_SANDBOX` — RESUELTA.** Antes, si `EMAIL_SANDBOX` no estaba seteada, el sistema podía enviar emails reales (unset → `false`). Ahora el default es SEGURO con doble barrera: (1) validación zod en `env.validation.ts` — unset → `undefined !== 'false'` → `true` (sandbox activo); (2) cableado en `comunicaciones.module.ts` — trata como envío real solo el `false`/`'false'` explícito. Con `sandbox=true`, `resend.email.adapter.ts` reescribe el destinatario a `delivered@resend.dev`. El opt-in al envío real exige `EMAIL_SANDBOX=false` explícito en el entorno; cualquier otro valor, incluido unset, mantiene el sandbox activo. Cobertura: 3 tests nuevos en `env.validation.spec.ts` (unset→true, 'true'→true, 'false'→false). | Code-review de US-045, segunda pasada (29/06/2026). Detectada como deuda operativa de seguridad (baja→operativa). | RESUELTA — US-045 fix Bj3 (29/06/2026) |
 | DT-CODIGO-01 | **Generación de `codigo` no atómica (count+1) — RESUELTA.** La implementación inicial generaba el correlativo `YY-NNNN` con `count(*)+1` dentro de la transacción: dos altas concurrentes podían leer el mismo recuento y colisionar en el índice `reserva_codigo_key`. Resuelto con **retry-on-conflict** en `UnidadDeTrabajoPrismaAdapter.ejecutar()` (hasta 3 reintentos): ante `P2002` sobre `reserva_codigo_key`, el adaptador reabre la `$transaction` y reintenta; el siguiente intento re-lee el `count` con el ganador ya confirmado. El índice UNIQUE permanece como red de seguridad final. Conexo: el controlador ya no enmascara errores como 500; cualquier `P2002` no capturado por el caso de uso se propaga al `HttpExceptionFilter` global → 409. | Code-review de US-003 (señalado como tolerable para MVP; corregido en los fixes finales de US-003) | RESUELTA — US-003 fixes finales (28/06/2026) |
+
+### 2.10 Módulo M10 Comunicaciones: motor de email automático (US-045)
+
+El módulo `comunicaciones` implementa un **motor de email hexagonal reutilizable** que sirve a todos los triggers del ciclo de vida de la reserva (E1–E8). Solo **E1** está cableado en US-045; E2–E8 se activarán en sus US respectivas (ver DT-EMAIL-02 en §2.9).
+
+#### Arquitectura interna del módulo
+
+```
+apps/api/src/comunicaciones/
+  domain/
+    enviar-email.port.ts            Puerto de envío (interfaz pura — sin NestJS ni Resend)
+    catalogo-plantillas.port.ts     Puerto del catálogo de plantillas
+    comunicacion-duplicada.error.ts Error tipado de idempotencia
+  application/
+    despachar-email.service.ts      Motor principal: render → envío → actualización estado
+  infrastructure/
+    resend.email.adapter.ts         Adaptador real (Resend SDK, solo producción)
+    fake.email.adapter.ts           Adaptador en memoria (test/CI/dev — sin red)
+    comunicacion.prisma.repository.ts  Repositorio con RLS (buscarPorReservaYCodigo, actualizarEstado)
+    plantillas/                     Catálogo tipado en código: E1 activa, E2–E8 diseñadas/inactivas
+  comunicaciones.module.ts          Re-binding ENVIAR_EMAIL_PORT por useFactory según EMAIL_TRANSPORT
+```
+
+**Regla de dependencia:** `domain` no importa `infrastructure` ni SDK de Resend. Cambiar de Resend a Postmark = nuevo adaptador sin tocar dominio ni aplicación.
+
+#### Flujo del motor (`DespacharEmailService`)
+
+El método `finalizarEnvio(comunicacionId)` / `enviarYFinalizar(trigger)` orquesta:
+
+1. Seleccionar plantilla por `codigo_email` + idioma (`TENANT_SETTINGS.idioma`, default `es`; fallback a `es` con AUDIT_LOG si falta la plantilla en el idioma del tenant).
+2. Sustituir variables con datos de `RESERVA` y `CLIENTE`. Si un campo requerido es nulo: no envía, no crea `COMUNICACION` con `estado='enviado'`, registra en AUDIT_LOG.
+3. Resolver adjuntos por referencia (`pdf_url` de `FACTURA`/`DOCUMENTO`/`PRESUPUESTO`); si el adjunto declarado no está disponible: no envía, registra error.
+4. Invocar el puerto `EnviarEmailPort.enviar(...)`.
+5. Actualizar `COMUNICACION`:
+   - Éxito del proveedor → `estado='enviado'` + `fecha_envio = now()`.
+   - Fallo del proveedor → `estado='fallido'` sin `fecha_envio` + AUDIT_LOG. Sin reintento en MVP.
+6. El camino de éxito y fallo queda **centralizado** en el motor; el use-case invocante (p. ej. `AltaConsultaUseCase`) no contiene lógica de manejo de fallo de proveedor.
+
+#### Integración con el alta de consulta (E1 real, cierre DT-EMAIL-01)
+
+`AltaConsultaUseCase` (US-003/004) funciona así tras US-045:
+
+- **Dentro de la `$transaction`:** crea `RESERVA`, `CLIENTE` y `COMUNICACION` E1 con `estado='borrador'` (estado no final, sin `fecha_envio`). La transacción garantiza que la `COMUNICACION` nace siempre, incluso si el envío falla después.
+- **Post-commit (sin comentarios):** delega en `DespacharEmailService.finalizarEnvio` → promueve a `enviado` + `fecha_envio`.
+- **Post-commit (con comentarios):** no llama al motor; la `COMUNICACION` permanece en `borrador` hasta revisión manual (UC-36 / US-046).
+- **Si el proveedor falla:** motor actualiza a `fallido` + AUDIT_LOG; la respuesta HTTP es **201** igualmente (fallo de email no revierte la reserva).
+
+#### Catálogo de plantillas e i18n
+
+- **Ubicación:** `comunicaciones/infrastructure/plantillas/` — registro de infraestructura tipado en código (arrow functions; sin motor de plantillas externo).
+- **Contrato del puerto `CatalogoPlantillasPort`:** `seleccionar(codigoEmail, idioma) → { asunto, render(variables): { cuerpoHtml, cuerpoTexto } }`.
+- **E1:** activa con render real en `es` (MVP). Variables: `CLIENTE.nombre`, `RESERVA.codigo`, `TENANT.nombre`, `RESERVA.fecha_evento`.
+- **E2–E8:** declaradas como diseñadas/inactivas (metadatos + variables requeridas + adjuntos documentados; sin render activo; sin trigger cableado).
+- **i18n:** fallback a `es` si el tenant usa otro idioma no disponible; se registra en AUDIT_LOG.
+
+#### Variables de entorno (validadas con zod en `config/env.validation.ts`)
+
+| Variable | Tipo | Reglas |
+|---|---|---|
+| `EMAIL_TRANSPORT` | `resend` \| `fake` | Default `fake`; **en producción se exige `resend`** |
+| `RESEND_API_KEY` | string | Requerida solo si `EMAIL_TRANSPORT=resend` (validación condicional con `superRefine`) |
+| `EMAIL_FROM` | string | Remitente verificado (`no-reply@<dominio>`); requerido si `EMAIL_TRANSPORT=resend` |
+| `EMAIL_SANDBOX` | boolean | **Default SEGURO: unset → sandbox activo** (no se envían correos reales). Solo `EMAIL_SANDBOX=false` explícito habilita el envío real. Si `true` o ausente, el adaptador real reescribe el destinatario a `delivered@resend.dev` (Resend test address) |
+
+#### Idempotencia y migración de BD
+
+El motor garantiza **una `COMUNICACION` por `(reserva_id, codigo_email)`** con dos mecanismos complementarios:
+
+1. **Consulta previa en transacción:** `buscarPorReservaYCodigo(reservaId, codigoEmail)` antes de insertar; si existe, no duplica.
+2. **Red de seguridad en BD:** índice UNIQUE parcial `comunicacion (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL` (migración `20260628120000_us045_comunicacion_idempotencia_indice`). Parcial porque `reserva_id` es nullable (emails `manual` sin reserva no aplican el constraint). Ante violación del UNIQUE, el motor traduce el error a `ComunicacionDuplicadaError` (no a 500).
 
 ---
 
@@ -468,5 +540,4 @@ El MVP tiene tres piezas, pero solo dos cuestan: el **frontend SPA** se sirve co
 
 ---
 
-*Documento de arquitectura v3.7, 28/06/2026. Cambios respecto a v3.6: añade DT-CODIGO-01 en §2.9 (deuda resuelta: generación atómica del `codigo` correlativo con retry-on-conflict en `UnidadDeTrabajoPrismaAdapter`; 409 propagado vía `HttpExceptionFilter` global para toda colisión UNIQUE, incluido `reserva_codigo_key`; controlador ya no enmascara errores como 500). v3.6: refleja US-003 — alta de consulta exploratoria (UC-03): actualiza §2.3 (fila Email) para documentar `EnviarEmailPort` en `comunicaciones/domain/` con adaptador stub activo desde US-003 y transporte real diferido a US-045; añade DT-EMAIL-01 en §2.9 (adaptador stub no-op, diferido a US-045). v3.5: actualiza §2.8 con la implementación real de US-001 (módulo auth hexagonal — domain/application/infrastructure/interface; puertos consolidados en application/; argon2; anti-enumeration 401 genérico uniforme sin auditar fallos; throttler self-contained en memoria 5/60s sin `@nestjs/throttler`; `AuditLogPort` compartido en `shared/audit/`; cookie refresh con atributos condicionales prod/dev); añade §2.9 con la tabla de deuda técnica registrada (DT-AUTH-01 refresh stateless, DT-AUTH-02 multi-device diferido, DT-AUTH-03 throttler por proceso, DT-AUTH-04 codegen .d.ts). v3.4 documentó US-041 en §2.4 (`liberarFecha()`). v3.3 documentó US-040 en §2.4: mapa canónico fase→(tipo,TTL,modo) declarativo, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, errores de dominio tipados en español y decisión D-7. v3.2 cerró el diseño de autenticación (JWT access+refresh, §2.8) y los dos niveles de administración. v3.1 separó monorepo de despliegue. v3.0 invirtió el orden y añadió prompts y análisis de coste. v2.0 reclasificó la arquitectura AWS como objetivo de producción.*
-*Documento de arquitectura v3.6, 28/06/2026. Cambios respecto a v3.5: refleja US-002 en §2.8 — marca la implementación como "US-001 y US-002 completadas"; documenta `POST /auth/logout` con comportamiento final (`@Public()`, cookie opcional, idempotente, auditoría condicional con `AUDIT_LOG accion=logout`, no-anonimato, acceso 200/204 siempre sin 401); añade bloque "Cierre de sesión en el shell" (US-002: botón en pie del sidebar/drawer `<lg`, modo degradado ante error de red); actualiza DT-AUTH-01 en §2.9 reflejando que US-002 ratificó el enfoque stateless/best-effort y la invalidación real queda diferida post-MVP. v3.5 actualizó §2.8 con la implementación real de US-001 y añadió §2.9 con la tabla de deuda técnica. v3.4 documentó US-041 en §2.4 (`liberarFecha()`). v3.3 documentó US-040 en §2.4. v3.2 cerró el diseño de autenticación (JWT access+refresh, §2.8) y los dos niveles de administración. v3.1 separó monorepo de despliegue. v3.0 invirtió el orden y añadió prompts y análisis de coste. v2.0 reclasificó la arquitectura AWS como objetivo de producción.*
+*Documento de arquitectura v3.9, 29/06/2026. Cambios respecto a v3.8: endurecimiento del default de `EMAIL_SANDBOX` (Bj3 resuelta): unset → sandbox activo; solo `EMAIL_SANDBOX=false` explícito habilita el envío real; actualiza fila `EMAIL_SANDBOX` en la tabla de variables de §2.10 con el default seguro y la dirección de prueba `delivered@resend.dev`; añade Bj3 como RESUELTA en §2.9 con descripción del cierre (doble barrera: zod env-validation + wiring de módulo; 3 tests nuevos). v3.8: refleja US-045 — motor de email automático M10 Comunicaciones (UC-35): actualiza §2.3 (fila Email) con motor hexagonal `DespacharEmailService`, adaptadores `ResendEmailAdapter`/`FakeEmailAdapter`, catálogo de plantillas y variables de entorno (`EMAIL_TRANSPORT`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_SANDBOX`); marca DT-EMAIL-01 como RESUELTA en §2.9 con descripción del cierre (cableado E1 real, regresión cero US-003/004); añade DT-EMAIL-02 en §2.9 (deuda de cableado E2–E8 con mapa E→US: E2→US-014, E3→US-021/022/023, E4→US-027/028, E5→US-034, E6→US-008, E7→US-009, E8→US-035; adjuntos PDF, recordatorios y envío manual US-046 diferidos); añade §2.10 (módulo M10 Comunicaciones: arquitectura interna, flujo del motor, integración E1, catálogo+i18n, variables de entorno, idempotencia + migración índice UNIQUE parcial `20260628120000_us045_comunicacion_idempotencia_indice`). v3.7: añade DT-CODIGO-01 en §2.9 (deuda resuelta: generación atómica del `codigo` correlativo con retry-on-conflict en `UnidadDeTrabajoPrismaAdapter`; 409 propagado vía `HttpExceptionFilter` global para toda colisión UNIQUE, incluido `reserva_codigo_key`; controlador ya no enmascara errores como 500). v3.6: refleja US-003 — alta de consulta exploratoria (UC-03): actualiza §2.3 (fila Email) para documentar `EnviarEmailPort` en `comunicaciones/domain/` con adaptador stub activo desde US-003 y transporte real diferido a US-045; añade DT-EMAIL-01 en §2.9 (adaptador stub no-op, diferido a US-045). v3.5: actualiza §2.8 con la implementación real de US-001 (módulo auth hexagonal — domain/application/infrastructure/interface; puertos consolidados en application/; argon2; anti-enumeration 401 genérico uniforme sin auditar fallos; throttler self-contained en memoria 5/60s sin `@nestjs/throttler`; `AuditLogPort` compartido en `shared/audit/`; cookie refresh con atributos condicionales prod/dev); añade §2.9 con la tabla de deuda técnica registrada (DT-AUTH-01 refresh stateless, DT-AUTH-02 multi-device diferido, DT-AUTH-03 throttler por proceso, DT-AUTH-04 codegen .d.ts). v3.4 documentó US-041 en §2.4 (`liberarFecha()`). v3.3 documentó US-040 en §2.4: mapa canónico fase→(tipo,TTL,modo) declarativo, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, errores de dominio tipados en español y decisión D-7. v3.2 cerró el diseño de autenticación (JWT access+refresh, §2.8) y los dos niveles de administración. v3.1 separó monorepo de despliegue. v3.0 invirtió el orden y añadió prompts y análisis de coste. v2.0 reclasificó la arquitectura AWS como objetivo de producción.*
