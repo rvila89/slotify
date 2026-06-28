@@ -110,6 +110,35 @@ export class CreateReservaRequestDto {
   cliente!: CreateClienteRequestDto;
 }
 
+/**
+ * Tarifa estimada decorativa que viaja en E1 (US-004 §D-4). Subconjunto del
+ * `CalculoTarifaResponse` del contrato; ausente/null cuando no se pudo calcular.
+ */
+export class TarifaEstimadaResponseDto {
+  @ApiPropertyOptional({ type: String })
+  temporada?: string;
+
+  @ApiProperty({ type: Boolean })
+  tarifaAConsultar!: boolean;
+
+  @ApiProperty({ type: Number, nullable: true })
+  precioTarifaEur!: number | null;
+
+  @ApiPropertyOptional({ type: Number, nullable: true })
+  extrasTotalEur?: number | null;
+
+  @ApiProperty({ type: Number, nullable: true })
+  totalEur!: number | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  tarifaId?: string | null;
+}
+
+/**
+ * Respuesta del alta (`POST /reservas`). Alineada con `CreateReservaResponse` del
+ * contrato: la RESERVA creada más los campos transitorios del sub-estado resultante
+ * del alta con fecha (US-004), todos opcionales (ausentes en el alta sin fecha).
+ */
 export class ReservaResponseDto {
   @ApiProperty({ format: 'uuid' })
   idReserva!: string;
@@ -123,12 +152,33 @@ export class ReservaResponseDto {
   @ApiProperty({ enum: ['consulta'] })
   estado!: string;
 
-  @ApiProperty({ enum: ['2a'], nullable: true })
+  @ApiProperty({ enum: ['2a', '2b', '2d'], nullable: true })
   subEstado!: string | null;
 
   @ApiProperty({ enum: CANALES })
   canalEntrada!: string;
 
+  @ApiPropertyOptional({ type: String, format: 'date', nullable: true })
+  fechaEvento?: string | null;
+
   @ApiProperty({ type: String, format: 'date-time', nullable: true })
   ttlExpiracion!: string | null;
+
+  @ApiPropertyOptional({ type: Number, nullable: true })
+  posicionCola?: number | null;
+
+  @ApiPropertyOptional({ type: String, format: 'uuid', nullable: true })
+  consultaBloqueanteId?: string | null;
+
+  @ApiPropertyOptional({ enum: ['blando', 'firme'], nullable: true })
+  tipoBloqueo?: string | null;
+
+  @ApiPropertyOptional({ type: Boolean, nullable: true })
+  fechaDisponible?: boolean | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  avisoDisponibilidad?: string | null;
+
+  @ApiPropertyOptional({ type: TarifaEstimadaResponseDto, nullable: true })
+  tarifaEstimada?: TarifaEstimadaResponseDto | null;
 }

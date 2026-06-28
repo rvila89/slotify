@@ -112,6 +112,13 @@ export class FechaBloqueadaPrismaAdapter
     });
   }
 
+  /**
+   * Operación de bloqueo de US-040 (contrato público, sin cambios): abre SU PROPIA
+   * `$transaction` con contexto RLS, delega el núcleo atómico en `bloquearEnTx` y
+   * traduce el `P2002` a los errores de dominio (`FechaYaBloqueadaError` /
+   * `ReservaYaTieneBloqueoError`). El comportamiento observable de US-040 es
+   * idéntico al de antes de extraer `bloquearEnTx` (regresión cero).
+   */
   async bloquear(params: {
     tenantId: string;
     fecha: Date;
@@ -122,24 +129,45 @@ export class FechaBloqueadaPrismaAdapter
     try {
       return await this.prisma.$transaction(async (tx) => {
         await this.fijarTenant(tx, tenantId);
-
-        // Serializa la fila objetivo (puede no existir todavía). Si dos
-        // transacciones pasan el SELECT, el INSERT lo resuelve el UNIQUE.
-        const existente = await this.seleccionarParaActualizar(tx, tenantId, fecha);
-
-        switch (plan.modo) {
-          case 'insert':
-            return this.insertar(tx, tenantId, fecha, reservaId, plan);
-          case 'upgrade':
-            return this.aplicarUpgrade(tx, tenantId, fecha, reservaId, existente);
-          case 'extend':
-            return this.aplicarExtension(tx, tenantId, fecha, reservaId, plan, existente);
-          default:
-            throw new Error(`Modo de bloqueo no soportado: ${String(plan.modo)}`);
-        }
+        return this.bloquearEnTx(tx, { tenantId, fecha, reservaId, plan });
       });
     } catch (error) {
       throw this.traducirError(error, tenantId, fecha, reservaId);
+    }
+  }
+
+  /**
+   * NÚCLEO atómico del bloqueo, ejecutado DENTRO de una transacción ya abierta y con
+   * el contexto RLS ya fijado (US-004 §D-2). Serializa la fila objetivo con `SELECT
+   * … FOR UPDATE` y aplica el insert/extend/upgrade del plan. NO traduce el `P2002`:
+   * deja propagar el error crudo para que la unidad de trabajo del alta lo reconozca
+   * como colisión reintentable (UNIQUE `(tenant_id, fecha)`) y re-derive a `2.d`. La
+   * traducción a errores de dominio la hace el wrapper público `bloquear()`.
+   */
+  async bloquearEnTx(
+    tx: Prisma.TransactionClient,
+    params: {
+      tenantId: string;
+      fecha: Date;
+      reservaId: string;
+      plan: PlanBloqueo;
+    },
+  ): Promise<FechaBloqueadaResultado> {
+    const { tenantId, fecha, reservaId, plan } = params;
+
+    // Serializa la fila objetivo (puede no existir todavía). Si dos
+    // transacciones pasan el SELECT, el INSERT lo resuelve el UNIQUE.
+    const existente = await this.seleccionarParaActualizar(tx, tenantId, fecha);
+
+    switch (plan.modo) {
+      case 'insert':
+        return this.insertar(tx, tenantId, fecha, reservaId, plan);
+      case 'upgrade':
+        return this.aplicarUpgrade(tx, tenantId, fecha, reservaId, existente);
+      case 'extend':
+        return this.aplicarExtension(tx, tenantId, fecha, reservaId, plan, existente);
+      default:
+        throw new Error(`Modo de bloqueo no soportado: ${String(plan.modo)}`);
     }
   }
 

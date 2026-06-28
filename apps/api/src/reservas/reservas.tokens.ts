@@ -18,3 +18,6 @@ export const AUDIT_LOG_PORT = Symbol('AuditLogPort');
 
 // US-003 — alta de consulta exploratoria
 export const UNIDAD_DE_TRABAJO_PORT = Symbol('UnidadDeTrabajoPort');
+
+// US-004 — alta de consulta con fecha (tarifa estimada de E1)
+export const TARIFA_ESTIMADA_PORT = Symbol('TarifaEstimadaPort');

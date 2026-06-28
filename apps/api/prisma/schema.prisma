@@ -311,6 +311,9 @@ model Reserva {
 
   @@index([tenantId, fechaEvento, estado])
   @@index([tenantId, consultaBloqueanteId, posicionCola])
+  // US-004 §D-8: índice UNIQUE PARCIAL `reserva_cola_posicion_key` sobre
+  // (tenant_id, consulta_bloqueante_id, posicion_cola) WHERE posicion_cola IS NOT NULL,
+  // creado por migración SQL cruda (Prisma no soporta índices parciales en el schema).
   @@map("reserva")
 }
 

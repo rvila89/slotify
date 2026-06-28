@@ -46,6 +46,9 @@ export class AltaConsultaController {
       tenantId: usuario.tenantId,
       usuarioId: usuario.sub,
       canalEntrada: dto.canalEntrada,
+      ...(dto.fechaEvento !== undefined
+        ? { fechaEvento: new Date(dto.fechaEvento) }
+        : {}),
       ...(dto.comentarios !== undefined ? { comentarios: dto.comentarios } : {}),
       ...(dto.tipoEvento !== undefined ? { tipoEvento: dto.tipoEvento } : {}),
       ...(dto.duracionHoras !== undefined ? { duracionHoras: dto.duracionHoras } : {}),
@@ -73,7 +76,7 @@ export class AltaConsultaController {
   }
 
   private aResponse(resultado: AltaConsultaResultado): ReservaResponseDto {
-    const { reserva } = resultado;
+    const { reserva, tarifaEstimada } = resultado;
     return {
       idReserva: reserva.idReserva,
       codigo: reserva.codigo,
@@ -81,7 +84,24 @@ export class AltaConsultaController {
       estado: reserva.estado,
       subEstado: reserva.subEstado,
       canalEntrada: reserva.canalEntrada,
-      ttlExpiracion: reserva.ttlExpiracion,
+      ttlExpiracion: reserva.ttlExpiracion ? reserva.ttlExpiracion.toISOString() : null,
+      posicionCola: reserva.posicionCola ?? null,
+      consultaBloqueanteId: reserva.consultaBloqueanteId ?? null,
+      tipoBloqueo: resultado.tipoBloqueo ?? null,
+      fechaDisponible: resultado.fechaDisponible ?? null,
+      avisoDisponibilidad: resultado.avisoDisponibilidad ?? null,
+      tarifaEstimada: tarifaEstimada
+        ? {
+            ...(tarifaEstimada.temporada !== undefined
+              ? { temporada: tarifaEstimada.temporada }
+              : {}),
+            tarifaAConsultar: tarifaEstimada.tarifaAConsultar,
+            precioTarifaEur: tarifaEstimada.precioTarifaEur,
+            extrasTotalEur: tarifaEstimada.extrasTotalEur ?? null,
+            totalEur: tarifaEstimada.totalEur,
+            tarifaId: tarifaEstimada.tarifaId ?? null,
+          }
+        : null,
     };
   }
 

@@ -220,11 +220,23 @@ paths:
       tags: [Reservas]
       summary: Dar de alta un nuevo lead/consulta (UC-03)
       description: |
-        Crea una reserva en estado `consulta`. Sin `fechaEvento` (US-003, alta exploratoria) la
-        reserva nace en sub-estado `2a` con `ttlExpiracion = null` y SIN crear `FechaBloqueada`;
-        con `fechaEvento` nace en `2b` (US-004/005, dispara el bloqueo blando atómico).
+        Crea una reserva en estado `consulta`. El sub-estado resultante depende de `fechaEvento`:
+        - SIN `fechaEvento` (US-003, alta exploratoria) → nace en `2a`, `ttlExpiracion = null`,
+          SIN `FechaBloqueada`.
+        - CON `fechaEvento` (estrictamente futura) y fecha LIBRE (US-004) → nace en `2b`, dispara
+          el bloqueo blando atómico (`FechaBloqueada` con `tipoBloqueo = blando`),
+          `ttlExpiracion = now() + ttl_consulta_dias`. La respuesta incluye `tipoBloqueo = blando`.
+        - CON `fechaEvento` bloqueada por una consulta en `2b` → nace en `2d` (cola), con
+          `posicionCola` y `consultaBloqueanteId`, SIN nueva `FechaBloqueada`.
+        - CON `fechaEvento` bloqueada por `2c`/`2v`/`pre_reserva`/`reserva_confirmada` o posteriores
+          → nace en `2a` exploratoria (`fechaDisponible = false` + `avisoDisponibilidad`
+          informativo), sin bloqueo ni cola.
+
         El CLIENTE se crea/reutiliza de forma idempotente por `(tenant_id, email)`. El campo
         `comentarios` decide el flujo del email E1 (ver su descripción en `CreateReservaRequest`).
+        Si hay `fechaEvento` + nº de invitados + horas, E1 incorpora la `tarifaEstimada` (motor
+        UC-16); es tolerante: si la tarifa no puede calcularse, E1 sale sin precio y el alta no se
+        bloquea.
       requestBody:
         required: true
         content:
@@ -234,16 +246,23 @@ paths:
       responses:
         '201':
           description: |
-            Reserva creada. En el alta exploratoria sin fecha (US-003) el recurso devuelto tiene
-            `estado = 'consulta'`, `subEstado = '2a'` y `ttlExpiracion = null`.
+            Reserva creada (`CreateReservaResponse`). En el alta exploratoria sin fecha (US-003) el
+            recurso tiene `estado = 'consulta'`, `subEstado = '2a'`, `ttlExpiracion = null` y los
+            campos transitorios ausentes. Con fecha aparecen los campos derivados según el
+            sub-estado: `tipoBloqueo`+`ttlExpiracion` (2b), `posicionCola`+`consultaBloqueanteId`
+            (2d), `fechaDisponible`+`avisoDisponibilidad` (2a por fecha no disponible), y
+            `tarifaEstimada` cuando E1 la incluye.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Reserva'
+                $ref: '#/components/schemas/CreateReservaResponse'
         '400':
           # Validación de entrada (class-validator → exception filter de NestJS). El cuerpo es
-          # ErrorResponse con `message` como array de strings (un mensaje por campo afectado:
-          # obligatorios faltantes, email mal formado, canalEntrada fuera del enum…).
+          # ErrorResponse con `message` como array de strings (un mensaje por campo afectado).
+          # Casos: obligatorios faltantes (cliente.nombre/apellidos/email/telefono), email mal
+          # formado, canalEntrada fuera del enum, y [US-004] `fechaEvento` = hoy o fecha pasada
+          # (debe ser estrictamente futura, > hoy). En cualquiera de ellos NO se crea RESERVA ni
+          # FechaBloqueada.
           $ref: '#/components/responses/ValidationError'
         '409':
           $ref: '#/components/responses/Conflict'
@@ -1221,12 +1240,93 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Reserva' }
         metadata: { $ref: '#/components/schemas/PaginationMetadata' }
+    # [US-004] Respuesta del alta (POST /reservas). Extiende `Reserva` con campos transitorios,
+    # NO persistidos en la RESERVA, derivados del sub-estado resultante del alta con fecha. Todos
+    # son OPCIONALES (ausentes en el alta sin fecha US-003 → compat. hacia atrás garantizada).
+    CreateReservaResponse:
+      allOf:
+        - $ref: '#/components/schemas/Reserva'
+        - type: object
+          properties:
+            tipoBloqueo:
+              allOf: [{ $ref: '#/components/schemas/TipoBloqueo' }]
+              nullable: true
+              description: >-
+                Presente (= `blando`) cuando el alta nace en `2b` y crea la `FechaBloqueada` blanda.
+                Espejo del `tipo_bloqueo` de la fila `FechaBloqueada` recién insertada; no es una
+                columna de RESERVA. Ausente/null en `2a` y `2d`.
+            fechaDisponible:
+              type: boolean
+              nullable: true
+              description: >-
+                Flag de disponibilidad de `fechaEvento`. `false` cuando el alta cae en `2a` por estar
+                la fecha bloqueada por un estado no encolable (`2c`/`2v`/`pre_reserva`/
+                `reserva_confirmada` o posteriores). Ausente/null en el alta sin fecha (US-003).
+            avisoDisponibilidad:
+              type: string
+              nullable: true
+              description: >-
+                Mensaje informativo para la UI cuando la fecha no está disponible (alta degradada a
+                `2a` exploratoria). Ausente/null cuando la fecha sí se pudo bloquear (`2b`) o encolar
+                (`2d`), y en el alta sin fecha.
+            tarifaEstimada:
+              allOf: [{ $ref: '#/components/schemas/TarifaEstimada' }]
+              nullable: true
+              description: >-
+                [D-4] Tarifa estimada que viaja en la comunicación E1, calculada por el motor UC-16
+                SOLO si hay `fechaEvento` + nº de invitados + horas. Es DECORATIVA (no se persiste
+                como importe congelado de la RESERVA, eso es UC-14) y TOLERANTE: si faltan datos o el
+                cálculo no es posible (temporada/tarifa no configurada, >50 invitados), se OMITE y E1
+                sale con el dossier general sin precio, sin bloquear el alta. Objeto camelCase propio
+                del envelope del alta (NO el `CalculoTarifaResponse` snake_case del motor UC-16).
+    TarifaEstimada:
+      # Objeto DECORATIVO (camelCase) anidado en CreateReservaResponse.tarifaEstimada (US-004 §D-4).
+      # Espejo del subconjunto que el alta emite en la comunicación E1; NO es la salida del motor de
+      # tarifa US-016 (eso es CalculoTarifaResponse, snake_case, no se toca). Importes como number
+      # (EUR ya redondeados a céntimos, IVA 21% incluido), igual que el motor. Es TOLERANTE: todos los
+      # campos son opcionales y los importes/ids nullable, porque el cálculo puede no ser posible.
+      type: object
+      properties:
+        temporada:
+          type: string
+          description: 'Temporada resuelta para el mes de fechaEvento. Puede omitirse si no se calculó.'
+        tarifaAConsultar:
+          type: boolean
+          description: 'true cuando numAdultosNinosMayores4 > 50 (tramo +51 sin tarifa): precio manual.'
+        precioTarifaEur:
+          type: number
+          nullable: true
+          description: 'Precio de la TARIFA en EUR (IVA 21% incluido). null si tarifaAConsultar=true.'
+        extrasTotalEur:
+          type: number
+          nullable: true
+          description: 'Suma de subtotales de extras (precioEur x cantidad). null si tarifaAConsultar=true.'
+        totalEur:
+          type: number
+          nullable: true
+          description: 'precioTarifaEur + extrasTotalEur. null si tarifaAConsultar=true.'
+        tarifaId:
+          type: string
+          format: uuid
+          nullable: true
+          description: 'ID de la fila TARIFA usada. null si tarifaAConsultar=true.'
     CreateReservaRequest:
       type: object
       required: [canalEntrada, cliente]
       properties:
         canalEntrada: { $ref: '#/components/schemas/CanalEntrada' }
-        fechaEvento: { type: string, format: date, nullable: true, description: 'Si se envía, se crea en sub-estado 2.b con bloqueo blando' }
+        fechaEvento:
+          type: string
+          format: date
+          nullable: true
+          description: >-
+            [US-004] OPCIONAL. Fecha del evento (YYYY-MM-DD). Si se OMITE → alta exploratoria
+            US-003: la reserva nace en `2a`, `ttlExpiracion = null`, SIN `FechaBloqueada`.
+            Si se ENVÍA debe ser ESTRICTAMENTE FUTURA (> hoy, día natural): el servidor rechaza
+            con 400 la fecha de HOY o anterior, sin crear RESERVA ni `FechaBloqueada` (regla
+            unificada `validarFechaFutura`, US-040; divergencia aprobada en Gate 1 frente a la
+            ficha que admitía ≥ hoy). Con fecha válida el sub-estado resultante (`2b` / `2d` /
+            `2a`) lo determina el estado de la fecha (ver la descripción del endpoint).
         tipoEvento: { $ref: '#/components/schemas/TipoEvento' }
         duracionHoras: { $ref: '#/components/schemas/DuracionHoras' }
         numAdultosNinosMayores4: { type: integer }
