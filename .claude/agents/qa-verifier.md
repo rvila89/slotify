@@ -28,7 +28,8 @@ Carga `qa-mandatory-steps` y `db-state-verify`. Para E2E usa el **MCP de Playwri
 **Step N+3 — E2E con Playwright MCP (si hay frontend)**
 1. Arranca frontend y backend. `browser_navigate`, `browser_click`, `browser_type`, `browser_snapshot`.
 2. Ejecuta el workflow completo, verifica persistencia y casos de error.
-3. Limpia datos de test, restaura BD, cierra navegador. Report.
+3. **Responsive (obligatorio)**: ejercita el flujo en 3 viewports (**390** móvil / **768** tablet / **1280** escritorio); comprueba que no hay overflow y que la nav colapsa a drawer en `<lg` y es sidebar fijo en `≥lg`. Documenta el resultado por viewport.
+4. Limpia datos de test, restaura BD, cierra navegador. Report.
 
 ## Reglas
 - Cada report sigue la plantilla: comandos ejecutados, resultados (passed/failed/skipped), comparación BD pre/post, restauración, outcome PASS/FAIL.

@@ -15,14 +15,16 @@ description: Usar cuando haya que implementar una UI a partir de un diseño de F
 - **No hardcodear valores**: usar los design tokens/variables de Figma.
 - Implementar con **shadcn/ui + Tailwind** mapeando tokens.
 - Si existe Code Connect, **reusar el componente mapeado** en vez de reimplementar.
+- **Responsive obligatorio**: comprueba si el nodo tiene **versión móvil** en Figma (p. ej. el login tiene `0:3` desktop y `0:304` mobile). **Si NO existe frame móvil** (caso del App Shell `0:86`, solo desktop), **diséñala tú** la adaptación móvil con los tokens del proyecto (nav → drawer + hamburguesa, header compacto, paddings reducidos) y señálalo; **nunca entregues solo-desktop**.
 
 ## Patrón de referencia (flujo)
+0. Comprobar si el nodo tiene **frame móvil** además del desktop. Si no lo tiene, planifica la adaptación móvil propia (no la omitas).
 1. `get_metadata` → entender estructura/jerarquía de nodos.
 2. `get_design_context` → contexto/código del nodo.
 3. `get_variable_defs` → design tokens/variables.
 4. `get_screenshot` → referencia visual.
 5. `get_code_connect_map` → mapeo componente Figma ↔ código.
-6. Implementar con shadcn/Tailwind usando los tokens; reusar componentes de Code Connect.
+6. Implementar con shadcn/Tailwind usando los tokens, **responsive (mobile-first)**; reusar componentes de Code Connect.
 
 ## Herramientas clave del MCP
 - `get_design_context` — contexto/código de un nodo.

@@ -28,10 +28,12 @@ Implementa con shadcn/ui + Tailwind usando los tokens de Figma.
 - **Formularios**: React Hook Form + Zod. Mapea errores backend (400/409/422) a mensajes de formulario **en español**.
 - **Auth**: access token en memoria; refresh en cookie httpOnly (no manipules la cookie desde JS).
 - **Calendario**: react-big-calendar o FullCalendar (vistas mes/semana con bloqueos).
+- **Responsive obligatorio (regla dura)**: toda UI es **mobile-first** y funciona en móvil, tablet y escritorio. Breakpoints Tailwind (`lg:` es el corte mobile↔desktop). Nada de anchos fijos que rompan en móvil: la nav lateral colapsa a **drawer + hamburguesa** (`Sheet` de shadcn) en `<lg`, el header se compacta y los paddings se reducen (`p-4 md:p-6 lg:p-8`). Sin overflow horizontal. Si el frame de Figma no trae versión móvil, diseña la adaptación con los tokens del proyecto; nunca entregues solo-desktop. (Ver `docs/frontend-standards.md` §Responsive Design.)
 
 ## Procedimiento
 1. Pon en verde los tests/comportamientos esperados; valida con Playwright si el `qa-verifier` lo requiere.
-2. `pnpm lint && pnpm typecheck` antes de entregar.
+2. **Verifica responsive en 3 viewports** (390 móvil / 768 tablet / 1280 escritorio) antes de marcar la tarea completa.
+3. `pnpm lint && pnpm typecheck` antes de entregar.
 
 ## Fuentes
 - `.claude/skills/frontend-feature`, `figma-design-consume`, `shadcn-tailwind`, `tanstack-forms`

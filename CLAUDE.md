@@ -52,6 +52,17 @@ Toda mutación de bloqueo pasa por `bloquearFecha()` y `liberarFecha()`. **No im
   `prefer-arrow-callback` en el ESLint de `apps/api` y `apps/web`; `pnpm lint`
   falla si se viola. (Métodos de clase de NestJS quedan exentos por ser
   métodos, no declaraciones de función.)
+- **Web responsive, obligatorio (regla dura).** Toda UI de `apps/web` es
+  **mobile-first** y debe funcionar sin romperse en móvil, tablet y escritorio.
+  Breakpoints Tailwind por defecto (`sm 640 / md 768 / lg 1024 / xl 1280`);
+  convención del proyecto: **`lg:` es el corte mobile↔desktop** (el login tiene
+  frame Figma desktop `0:3` y móvil `0:304`).
+  Prohibido fijar anchos que rompan en móvil (p. ej. un sidebar `w-72` sin
+  breakpoint): la **navegación lateral colapsa a drawer + hamburguesa** en `<lg`.
+  Sin overflow horizontal, objetivos táctiles accesibles. Se **verifica en
+  code-review y en QA** ejecutando los flujos en 3 viewports (390 / 768 / 1280).
+  No se entrega una pantalla "solo desktop"; si el diseño de Figma no trae
+  versión móvil, se diseña la adaptación con los tokens del proyecto.
 
 ---
 
