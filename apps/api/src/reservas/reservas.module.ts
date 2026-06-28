@@ -8,8 +8,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../shared/prisma/prisma.module';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { ComunicacionesModule } from '../comunicaciones/comunicaciones.module';
-import { ENVIAR_EMAIL_PORT } from '../comunicaciones/comunicaciones.tokens';
-import type { EnviarEmailPort } from '../comunicaciones/domain/enviar-email.port';
+import { DespacharEmailService } from '../comunicaciones/application/despachar-email.service';
 import { TarifasModule } from '../tarifas/tarifas.module';
 import { CalculadoraTarifaService } from '../tarifas/domain/calculadora-tarifa.service';
 import {
@@ -75,21 +74,21 @@ import {
       provide: AltaConsultaUseCase,
       inject: [
         UNIDAD_DE_TRABAJO_PORT,
-        ENVIAR_EMAIL_PORT,
+        DespacharEmailService,
         CLOCK_PORT,
         TARIFA_ESTIMADA_PORT,
         TENANT_SETTINGS_PORT,
       ],
       useFactory: (
         unidadDeTrabajo: UnidadDeTrabajoPort,
-        enviarEmail: EnviarEmailPort,
+        finalizarEnvio: DespacharEmailService,
         clock: ClockPort,
         tarifaEstimada: TarifaEstimadaPort,
         tenantSettings: TenantSettingsPort,
       ) =>
         new AltaConsultaUseCase({
           unidadDeTrabajo,
-          enviarEmail,
+          finalizarEnvio,
           clock,
           tarifaEstimada,
           tenantSettings,

@@ -26,6 +26,7 @@
  * batería está en ROJO. GREEN es responsabilidad de `backend-developer`.
  */
 import { Test, type TestingModule } from '@nestjs/testing';
+import { ConfigModule } from '@nestjs/config';
 import { ReservasModule } from '../reservas.module';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import {
@@ -88,7 +89,9 @@ const limpiar = async (): Promise<void> => {
 };
 
 beforeAll(async () => {
-  moduleRef = await Test.createTestingModule({ imports: [ReservasModule] }).compile();
+  moduleRef = await Test.createTestingModule({
+    imports: [ConfigModule.forRoot({ isGlobal: true }), ReservasModule],
+  }).compile();
   await moduleRef.init();
   prisma = moduleRef.get(PrismaService);
   useCase = moduleRef.get(AltaConsultaUseCase);

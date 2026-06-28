@@ -1,8 +1,8 @@
 ---
 id: US-045
-estado: backlog
-branch: null
-pr: null
+estado: done
+branch: feature/us-045-motor-email-automatico
+pr: https://github.com/rvila89/slotify/pull/23
 ---
 
 # 🧾 Historia de Usuario: Sistema envía email automático al detectar el trigger (E1–E8)
@@ -13,7 +13,7 @@ pr: null
 - Módulo: M10
 - Prioridad: Crítica
 - Alcance MVP: ✅ Implementado
-- Estado: Borrador
+- Estado: Done
 - Owner: PM
 
 ## 🎯 Historia

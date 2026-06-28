@@ -42,9 +42,9 @@ import {
   type EstadoFechaAlta,
   type FechaBloqueadaAltaRepositoryPort,
   type TarifaEstimadaPort,
+  type FinalizarEnvioEmailPort,
 } from '../application/alta-consulta.use-case';
 import type { AuditLogPort } from '../../shared/audit/audit-log.port';
-import type { EnviarEmailPort } from '../../comunicaciones/domain/enviar-email.port';
 
 const TENANT = '00000000-0000-0000-0000-000000000001';
 const GESTOR = '00000000-0000-0000-0000-000000000002';
@@ -122,8 +122,11 @@ const crearUowFake = (repos: ReposFake): UnidadDeTrabajoPort & { ejecutar: jest.
   ),
 });
 
-const crearEmailFake = (): EnviarEmailPort & { enviar: jest.Mock } => ({
-  enviar: jest.fn(async () => undefined),
+const crearFinalizarFake = (): FinalizarEnvioEmailPort & { finalizarEnvio: jest.Mock } => ({
+  finalizarEnvio: jest.fn(async () => ({
+    estado: 'enviado' as const,
+    fechaEnvio: new Date('2026-06-28T10:00:00.000Z'),
+  })),
 });
 
 /** Puerto de tarifa tolerante: por defecto devuelve un cálculo con precio. */
@@ -144,14 +147,14 @@ const montar = (
 ) => {
   const repos = crearReposFake(estadoFecha);
   const uow = crearUowFake(repos);
-  const enviarEmail = crearEmailFake();
+  const finalizarEnvio = crearFinalizarFake();
   const deps: AltaConsultaDeps = {
     unidadDeTrabajo: uow,
-    enviarEmail,
+    finalizarEnvio,
     clock: relojFijo,
     tarifaEstimada: tarifa,
   };
-  return { useCase: new AltaConsultaUseCase(deps), repos, uow, enviarEmail, tarifa };
+  return { useCase: new AltaConsultaUseCase(deps), repos, uow, finalizarEnvio, tarifa };
 };
 
 const comandoConFecha = (

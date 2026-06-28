@@ -393,23 +393,36 @@ Archivos adjuntos polimórficos. Discriminador `tipo`. Referenciable desde reser
 | `fecha_creacion` | `DateTime @default(now())` | |
 
 ### 3.16 Comunicacion
-Log de emails enviados (E1–E8 + manuales).
+Log de emails enviados (E1–E8 + manuales). El motor hexagonal `DespacharEmailService` (US-045) es el único responsable de registrar y actualizar las entradas de esta entidad para los emails del ciclo de vida.
 
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
 | `id_comunicacion` | `String @id @default(uuid())` | |
 | `tenant_id` | `String` | FK → `Tenant` |
-| `reserva_id` | `String?` | FK → `Reserva` (nullable) |
+| `reserva_id` | `String?` | FK → `Reserva` (nullable — emails `manual` sin reserva asociada, UC-36) |
 | `cliente_id` | `String` | FK → `Cliente` (destinatario) |
 | `codigo_email` | `CodigoEmail` | `E1 … E8 \| manual` |
 | `asunto` | `String` | Máx. 255 |
 | `cuerpo` | `String? @db.Text` | |
 | `destinatario_email` | `String` | |
 | `estado` | `EstadoComunicacion` | `borrador \| enviado \| fallido` |
-| `fecha_envio` | `DateTime?` | |
+| `fecha_envio` | `DateTime?` | No nulo **solo** si `estado = 'enviado'`; nulo en `borrador` y `fallido` |
 | `fecha_creacion` | `DateTime @default(now())` | |
 
-**Email E1 en el alta de consulta (UC-03 / US-003 / US-004):** toda alta genera un registro `COMUNICACION` con `codigo_email = 'E1'`. Sin `comentarios` → `estado = 'enviado'` y se invoca el `EnviarEmailPort` (adaptador stub no-op hasta US-045, que enchufará Resend/Postmark); con `comentarios` → `estado = 'borrador'`, el puerto **no** se invoca y la UI alerta al gestor sobre el borrador pendiente. En ambos casos la fila `COMUNICACION` se persiste dentro de la misma `$transaction` que crea la `RESERVA` y el `CLIENTE`. **Tarifa estimada en E1 (US-004 / D-4):** si el alta incluye `fecha_evento` + `num_adultos_ninos_mayores4` + `duracion_horas`, E1 incorpora la tarifa calculada vía `TarifaEstimadaPort` (motor UC-16); si falta algún dato o el cálculo no es posible (`TEMPORADA_NO_CONFIGURADA`, `TARIFA_NO_CONFIGURADA`, `tarifa_a_consultar = true`), E1 se envía con el **dossier general sin precio exacto**. La imposibilidad de calcular la tarifa **no bloquea el alta ni el bloqueo de fecha**. La tarifa estimada no se persiste en `RESERVA` (decorativa de E1). Fuente: `design.md §D-4`.
+**Idempotencia (US-045 — migración `20260628120000_us045_comunicacion_idempotencia_indice`):** índice UNIQUE parcial `comunicacion (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL`. Garantiza una sola entrada por `(reserva, codigo_email)`. Es parcial porque `reserva_id` es nullable (emails `manual` sin reserva no aplican el constraint). El motor consulta la existencia antes de insertar; el índice actúa como red de seguridad ante carreras concurrentes (violación → `ComunicacionDuplicadaError`, no 500). Ver también §5.
+
+**Email E1 en el alta de consulta (UC-03 / US-003/004 + US-045 motor real):** el alta crea siempre la `COMUNICACION` E1 dentro de la `$transaction` con `estado = 'borrador'` (estado no final, sin `fecha_envio`). Post-commit, el motor `DespacharEmailService.finalizarEnvio` la promueve:
+- Sin comentarios → `estado = 'enviado'` + `fecha_envio = now()` (envío real vía `ResendEmailAdapter` en producción; `FakeEmailAdapter` en test/CI/dev).
+- Con comentarios → permanece en `borrador` sin `fecha_envio` (pendiente de revisión manual, UC-36 / US-046).
+- Fallo del proveedor → `estado = 'fallido'` sin `fecha_envio` + registro en `AUDIT_LOG`. Sin reintento. La respuesta HTTP es 201 igualmente (fallo de email no revierte la reserva).
+
+
+**Tarifa estimada en E1 (US-004 / D-4):** si el alta incluye `fecha_evento` + `num_adultos_ninos_mayores4` + `duracion_horas`, E1 incorpora la tarifa calculada vía `TarifaEstimadaPort` (motor UC-16); si falta algún dato o el cálculo no es posible (`TEMPORADA_NO_CONFIGURADA`, `TARIFA_NO_CONFIGURADA`, `tarifa_a_consultar = true`), E1 se envía con el **dossier general sin precio exacto**. La imposibilidad de calcular la tarifa **no bloquea el alta ni el bloqueo de fecha**. La tarifa estimada no se persiste en `RESERVA` (decorativa de E1). Fuente: `design.md §D-4`.
+
+**Reglas de validación del estado:**
+- `tenant_id` y `cliente_id` siempre no nulos.
+- `reserva_id` no nulo para E1–E8; nullable para `manual`.
+- `fecha_envio` no nulo si y solo si `estado = 'enviado'`.
 
 ### 3.17 AuditLog
 Registro de auditoría de las acciones sobre reservas, facturas, bloqueos de fecha y autenticación.
@@ -465,6 +478,7 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 | `@@index([tenant_id, email])` | `Cliente` | Búsqueda de cliente y recurrencia |
 | Full-text (`nombre`, `codigo`, `notas`) | `Reserva` | Histórico consultable (`UC-32`) |
 | UNIQUE parcial `(tenant_id, consulta_bloqueante_id, posicion_cola) WHERE posicion_cola IS NOT NULL` | `Reserva` | Unicidad de posición en cola; defensa en profundidad D-5 / D-8 (US-004). Migración aditiva `20260628120000_us004_cola_posicion_unique`; índice activo en BD: `reserva_cola_posicion_key` |
+| `UNIQUE PARTIAL (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL` | `Comunicacion` | Idempotencia del motor de email (US-045): una `COMUNICACION` por `(reserva, codigo_email)`; emails `manual` sin reserva no aplican el constraint. Migración `20260628120000_us045_comunicacion_idempotencia_indice`. |
 
 ---
 
@@ -480,6 +494,7 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 
 ---
 
+*Documento de modelo de datos v1.6 (29/06/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v2.6. Cualquier cambio en el modelo debe actualizarse en ambos documentos y en `schema.prisma`. v1.6: refleja US-045 — motor de email automático (UC-35): actualiza §3.16 Comunicacion (motor `DespacharEmailService`, flujo E1 real post-commit con estados `borrador`/`enviado`/`fallido`, `fecha_envio` solo si `enviado`, `reserva_id` no nulo para E1–E8, fallo sin reintento) preservando la nota de tarifa estimada de US-004; añade índice UNIQUE parcial de idempotencia `(reserva_id, codigo_email) WHERE reserva_id IS NOT NULL` en §5 (migración `20260628120000_us045_comunicacion_idempotencia_indice`). Sin columnas nuevas en `COMUNICACION`.*
 *Documento de modelo de datos v1.5 (28/06/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v2.6. Cualquier cambio en el modelo debe actualizarse en ambos documentos y en `schema.prisma`. v1.5: refleja US-004 — alta de consulta con fecha (UC-03): divergencia intencional `fecha_evento > hoy` (§3.5, §6; Gate 1 decisión A; trazabilidad a `design.md §D-1` y `specs/consultas/spec.md`); función declarativa `determinarAltaConFecha` + entradas iniciales `2b`/`2d` en máquina de estados (§3.5); método `bloquearEnTx` en `FechaBloqueadaPrismaAdapter` para atomicidad RESERVA+FECHA_BLOQUEADA (§3.5); puerto `TarifaEstimadaPort` decorativo tolerante a errores en E1 (§3.16); índice UNIQUE parcial de cola `reserva_cola_posicion_key` (§5 / migración D-8 `20260628120000_us004_cola_posicion_unique`).*
 *Documento de modelo de datos v1.4 (28/06/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v2.5. Cualquier cambio en el modelo debe actualizarse en ambos documentos y en `schema.prisma`. v1.4: refleja los fixes finales de US-003: añade nota sobre generación del `codigo` correlativo con retry-on-conflict (`UnidadDeTrabajoPrismaAdapter`, hasta 3 reintentos) y red de seguridad `reserva_codigo_key` UNIQUE → 409 vía filtro global (§3.5); consistente con DT-CODIGO-01 RESUELTA en `architecture.md` §2.9. v1.3: refleja US-003 — alta de consulta exploratoria (UC-03): mapeo `SubEstadoConsulta` dominio `'2a'` ↔ Prisma `s2a` (prefijo `s`; helper `sub-estado-consulta.mapper.ts` en infrastructure, sin migración); nota sobre `apellidos`/`email`/`telefono` requeridos a nivel de contrato en el alta; regla `COMUNICACION` E1 auto-envío (`estado='enviado'`) vs borrador (`estado='borrador'`) según presencia de `comentarios`; puerto `EnviarEmailPort` con stub no-op hasta US-045. v1.2: refleja US-041 — `liberarFecha()` (UC-31): error `LIBERACION_FIRME_SIN_CANCELACION`, semántica rows-affected, seam `PromocionColaPort` (diferido a US-018), sin endpoint HTTP (D-7), y registros de auditoría con causa en `AuditLog`. v1.1: refleja US-040 — `reserva_id @unique` en `FechaBloqueada`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y errores de dominio de `bloquearFecha()`.*
 *Documento de modelo de datos v1.3 (28/06/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v2.4. Cualquier cambio en el modelo debe actualizarse en ambos documentos y en `schema.prisma`. v1.3: refleja US-002 — actualiza §3.17 AuditLog: descripción ampliada a "autenticación"; documenta convención `login`/`logout` (`entidad = 'Usuario'`, `entidad_id = usuario_id`) y la condicionalidad del registro de `logout` (solo cuando el token identifica usuario). v1.2: refleja US-041 — `liberarFecha()` (UC-31): error `LIBERACION_FIRME_SIN_CANCELACION`, semántica rows-affected, seam `PromocionColaPort` (diferido a US-018), sin endpoint HTTP (D-7), y registros de auditoría con causa en `AuditLog`. v1.1: refleja US-040 — `reserva_id @unique` en `FechaBloqueada`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y errores de dominio de `bloquearFecha()`.*

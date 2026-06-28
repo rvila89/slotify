@@ -11,16 +11,23 @@
  * Orden (design.md §4):
  *   0. Validación de forma PREVIA a abrir la transacción (rechazo sin efectos).
  *   1. (dentro de la UoW) find-or-create CLIENTE → crear RESERVA → crear
- *      COMUNICACION E1 → registrar AUDIT_LOG.
- *   2. (POST-COMMIT) si E1 nace `enviado` (sin comentarios), invocar el puerto de
- *      email. El envío NUNCA ocurre dentro de la transacción ni si esta falla.
+ *      COMUNICACION E1 en estado NO final (`borrador`, sin `fecha_envio`) →
+ *      registrar AUDIT_LOG. La fila E1 nace SIEMPRE en `borrador` para preservar la
+ *      atomicidad US-003 (all-or-nothing con la reserva) sin acoplar el resultado
+ *      del proveedor —que aún no se conoce— a la transacción.
+ *   2. (POST-COMMIT) si NO hay comentarios (auto-envío), DELEGAR el envío en el motor
+ *      `DespacharEmailService.finalizarEnvio` (decisión 6 del Gate 1): este envía y
+ *      PROMUEVE la fila a `enviado`+`fecha_envio` o, ante fallo del proveedor, a
+ *      `fallido` + AUDIT_LOG, SIN reintento y SIN propagar excepción (el alta ya está
+ *      commiteada: un fallo de email NO debe tumbar el 201). Con comentarios, la fila
+ *      queda en `borrador` y no se envía. El envío NUNCA ocurre dentro de la
+ *      transacción ni si esta falla.
  *
  * Hexagonal: depende solo de PUERTOS (interfaces) inyectados; no importa Prisma ni
  * `@nestjs/*`. La regla de entrada inicial proviene del dominio puro
- * (`maquina-estados`).
+ * (`maquina-estados`). El camino de fallo de email vive centralizado en el motor.
  */
 import type { AuditLogPort } from '../../shared/audit/audit-log.port';
-import type { EnviarEmailPort } from '../../comunicaciones/domain/enviar-email.port';
 import {
   esFechaEstrictamenteFutura,
   resolverPlanBloqueo,
@@ -120,7 +127,12 @@ export interface ComunicacionParaAlta {
   reservaId: string;
   clienteId: string;
   codigoEmail: 'E1';
-  estado: 'enviado' | 'borrador';
+  /**
+   * Estado OBSERVABLE final de la fila: nace `borrador` en la transacción y, tras el
+   * envío post-commit, queda `enviado` (éxito) o `fallido` (proveedor caído). Con
+   * comentarios permanece `borrador`.
+   */
+  estado: 'enviado' | 'borrador' | 'fallido';
   destinatarioEmail: string;
   fechaEnvio: Date | null;
 }
@@ -329,10 +341,43 @@ export interface UnidadDeTrabajoPort {
   ): Promise<unknown>;
 }
 
+/**
+ * Parámetros del envío POST-COMMIT de la COMUNICACION E1 ya creada (en `borrador`)
+ * dentro de la transacción del alta. El motor los usa para enviar y promover la fila.
+ */
+export interface FinalizarEnvioEmailParams {
+  tenantId: string;
+  reservaId: string;
+  idComunicacion: string;
+  destinatario: string;
+  asunto: string;
+  cuerpo: string;
+  codigoEmail: 'E1';
+}
+
+/** Estado terminal alcanzado tras el intento de envío post-commit. */
+export interface FinalizarEnvioEmailResultado {
+  estado: 'enviado' | 'fallido';
+  fechaEnvio: Date | null;
+}
+
+/**
+ * Puerto del camino de envío POST-COMMIT. Lo SATISFACE el motor de email
+ * (`DespacharEmailService.finalizarEnvio`), que centraliza el try/catch del proveedor
+ * (decisión 6 del Gate 1): éxito → `enviado`+`fecha_envio`; fallo → `fallido` +
+ * AUDIT_LOG, sin reintento y sin propagar excepción. El alta solo lo invoca tras el
+ * commit, jamás dentro de la transacción.
+ */
+export interface FinalizarEnvioEmailPort {
+  finalizarEnvio(
+    params: FinalizarEnvioEmailParams,
+  ): Promise<FinalizarEnvioEmailResultado>;
+}
+
 /** Dependencias del caso de uso (puertos inyectados). */
 export interface AltaConsultaDeps {
   unidadDeTrabajo: UnidadDeTrabajoPort;
-  enviarEmail: EnviarEmailPort;
+  finalizarEnvio: FinalizarEnvioEmailPort;
   clock: ClockPort;
   /** Tarifa estimada para E1 (US-004 §D-4). Opcional: el alta sin fecha no la usa. */
   tarifaEstimada?: TarifaEstimadaPort;
@@ -520,21 +565,20 @@ export class AltaConsultaUseCase {
           });
         }
 
-        // COMUNICACION E1: enviado (auto-envío) vs borrador (con comentarios). E1
-        // incorpora la tarifa estimada si está disponible (decorativa).
-        const estadoE1: ComunicacionParaAlta['estado'] = enviarAutomaticamente
-          ? 'enviado'
-          : 'borrador';
+        // COMUNICACION E1: nace SIEMPRE en `borrador` (estado NO final, sin
+        // `fecha_envio`) dentro de la transacción, preservando la atomicidad US-003.
+        // El estado terminal (`enviado`/`fallido`) lo decide el envío post-commit
+        // (US-045); con comentarios la fila se queda en `borrador` y no se envía.
         const comunicacion = await repos.comunicaciones.crear({
           tenantId: comando.tenantId,
           reservaId: reserva.idReserva,
           clienteId: cliente.idCliente,
           codigoEmail: 'E1',
-          estado: estadoE1,
+          estado: 'borrador',
           asunto: ASUNTO_E1,
           cuerpo: construirCuerpoE1(tarifaEstimada),
           destinatarioEmail: email,
-          fechaEnvio: estadoE1 === 'enviado' ? ahora : null,
+          fechaEnvio: null,
         });
 
         // AUDIT_LOG dentro de la misma transacción.
@@ -568,18 +612,36 @@ export class AltaConsultaUseCase {
       },
     )) as AltaConsultaResultado;
 
-    // 2. Efecto POST-COMMIT: enviar E1 solo si la transacción confirmó y E1 nace
-    //    en `enviado`. Nunca dentro de la transacción ni si esta falla.
-    if (enviarAutomaticamente) {
-      await this.deps.enviarEmail.enviar({
-        destinatario: email,
-        asunto: ASUNTO_E1,
-        cuerpo: construirCuerpoE1(tarifaEstimada),
-        codigoEmail: 'E1',
-      });
+    // 2. Efecto POST-COMMIT: solo si la transacción confirmó y NO hay comentarios
+    //    (auto-envío). Se DELEGA el envío en el motor, que centraliza el camino de
+    //    éxito/fallo (decisión 6 del Gate 1): promueve la fila a `enviado`/`fallido`
+    //    sin propagar excepción (un fallo de email NO debe tumbar el alta ya
+    //    commiteada → el alta responde 201 igualmente). Con comentarios, la fila
+    //    permanece en `borrador` y no se envía.
+    if (!enviarAutomaticamente) {
+      return resultado;
     }
 
-    return resultado;
+    const envio = await this.deps.finalizarEnvio.finalizarEnvio({
+      tenantId: comando.tenantId,
+      reservaId: resultado.reserva.idReserva,
+      idComunicacion: resultado.comunicacion.idComunicacion,
+      destinatario: email,
+      asunto: ASUNTO_E1,
+      // Mismo cuerpo (con tarifa estimada de US-004) que se persistió en la fila
+      // COMUNICACION dentro de la transacción.
+      cuerpo: construirCuerpoE1(tarifaEstimada),
+      codigoEmail: 'E1',
+    });
+
+    return {
+      ...resultado,
+      comunicacion: {
+        ...resultado.comunicacion,
+        estado: envio.estado,
+        fechaEnvio: envio.fechaEnvio,
+      },
+    };
   }
 
   /**

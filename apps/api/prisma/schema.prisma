@@ -543,6 +543,11 @@ model Comunicacion {
   reserva Reserva? @relation(fields: [reservaId], references: [idReserva])
   cliente Cliente  @relation(fields: [clienteId], references: [idCliente])
 
+  // US-045 — Idempotencia de un email por (reserva, código). Índice UNIQUE PARCIAL
+  // `uq_comunicacion_reserva_codigo (reserva_id, codigo_email) WHERE reserva_id IS
+  // NOT NULL` creado por SQL crudo en la migración us045_comunicacion_idempotencia_indice
+  // (Prisma no modela el predicado WHERE de índices parciales). Los emails `manual`
+  // (reserva_id NULL, US-046) quedan excluidos del constraint.
   @@map("comunicacion")
 }
 

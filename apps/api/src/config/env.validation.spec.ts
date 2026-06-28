@@ -29,4 +29,53 @@ describe('validarEntorno', () => {
       validarEntorno({ ...base, JWT_ACCESS_SECRET: 'corto' }),
     ).toThrow(/al menos 32 caracteres/);
   });
+
+  // M2 (US-045): el transporte de email debe ser `resend` en producción y nunca
+  // arrancar con `fake` silenciosamente; `fake` queda permitido fuera de producción.
+  it('debe_fallar_si_en_produccion_el_transporte_de_email_es_fake', () => {
+    expect(() =>
+      validarEntorno({ ...base, NODE_ENV: 'production', EMAIL_TRANSPORT: 'fake' }),
+    ).toThrow(/EMAIL_TRANSPORT/);
+  });
+
+  it('debe_fallar_si_en_produccion_no_se_indica_transporte_y_cae_al_default_fake', () => {
+    expect(() =>
+      validarEntorno({ ...base, NODE_ENV: 'production' }),
+    ).toThrow(/EMAIL_TRANSPORT/);
+  });
+
+  it('debe_aceptar_produccion_con_resend_y_sus_secretos', () => {
+    const env = validarEntorno({
+      ...base,
+      NODE_ENV: 'production',
+      EMAIL_TRANSPORT: 'resend',
+      RESEND_API_KEY: 're_clave_de_prueba',
+      EMAIL_FROM: 'no-reply@masia.example',
+    });
+    expect(env.EMAIL_TRANSPORT).toBe('resend');
+  });
+
+  it('debe_permitir_fake_fuera_de_produccion_test_y_development', () => {
+    expect(validarEntorno({ ...base, NODE_ENV: 'test' }).EMAIL_TRANSPORT).toBe('fake');
+    expect(validarEntorno({ ...base, NODE_ENV: 'development' }).EMAIL_TRANSPORT).toBe('fake');
+  });
+
+  // Bj3 (US-045): el DEFAULT de EMAIL_SANDBOX es SEGURO. Si no se setea, el sistema
+  // NO envía correos reales (sandbox = true). El envío real es opt-in EXPLÍCITO con
+  // EMAIL_SANDBOX=false.
+  it('debe_activar_sandbox_por_defecto_cuando_EMAIL_SANDBOX_no_esta_seteada', () => {
+    expect(validarEntorno(base).EMAIL_SANDBOX).toBe(true);
+  });
+
+  it('debe_mantener_sandbox_activo_con_EMAIL_SANDBOX_true', () => {
+    expect(validarEntorno({ ...base, EMAIL_SANDBOX: 'true' }).EMAIL_SANDBOX).toBe(
+      true,
+    );
+  });
+
+  it('debe_desactivar_sandbox_solo_con_EMAIL_SANDBOX_false_explicito', () => {
+    expect(validarEntorno({ ...base, EMAIL_SANDBOX: 'false' }).EMAIL_SANDBOX).toBe(
+      false,
+    );
+  });
 });
