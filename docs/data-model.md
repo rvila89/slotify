@@ -131,6 +131,8 @@ Datos de contacto y fiscales. Es un atributo de la reserva, no un punto de entra
 
 **Regla:** para generar presupuesto/factura (`UC-14`, `UC-18`) son obligatorios `dni_nif`, `direccion`, `codigo_postal`, `poblacion`, `provincia`.
 
+**Alta de consulta (UC-03 / US-003):** a nivel de contrato (DTO/validación de API), `nombre`, `apellidos`, `email` y `telefono` son obligatorios para el alta de lead. En el esquema Prisma siguen siendo nullable para preservar flexibilidad en otras operaciones; la restricción se aplica en la capa interface (class-validator).
+
 ### 3.5 Reserva (entidad central)
 Recorre toda la máquina de estados. Incluye campos de cola, visita, sub-procesos paralelos y fianza.
 
@@ -183,6 +185,10 @@ Recorre toda la máquina de estados. Incluye campos de cola, visita, sub-proceso
 - `2x` — Expirada (terminal).
 - `2y` — Descartada por cola (terminal).
 - `2z` — Descartada por cliente (terminal).
+
+**Mapeo dominio ↔ Prisma (US-003):** el enum `SubEstadoConsulta` en Prisma no declara `@map`, por lo que los literales almacenados en BD llevan el prefijo `s` (`s2a`, `s2b`… `s2z`), ya que un identificador TypeScript no puede comenzar por dígito. El valor de dominio `'2a'` se traduce a `'s2a'` (y a la inversa) mediante el helper de infraestructura `sub-estado-consulta.mapper.ts`. Es un detalle de persistencia, no un cambio de modelo ni una migración; el concepto de negocio es siempre `'2a'`.
+
+**Generación del `codigo` correlativo (US-003 / UC-03 — patrón retry-on-conflict):** el código de negocio `YY-NNNN` se genera dentro de la `$transaction` del alta mediante `count(*)+1` del tenant. Para resolver la posible colisión entre dos altas concurrentes (que podrían leer el mismo recuento), `UnidadDeTrabajoPrismaAdapter.ejecutar()` implementa **retry-on-conflict**: ante un `P2002` sobre el índice `reserva_codigo_key`, reabre la `$transaction` y reintenta (hasta 3 intentos), re-leyendo el `count` con el ganador ya confirmado. El índice `@unique` sobre `codigo` actúa como red de seguridad final: si se agotan los reintentos, el `P2002` se propaga al `HttpExceptionFilter` global → **409 Conflict**. El controlador no enmascara ningún error como 500.
 
 **Guarda de transición a `evento_en_curso`:** `pre_evento_status = cerrado AND liquidacion_status = cobrada AND fianza_status = cobrada`.
 
@@ -395,6 +401,8 @@ Log de emails enviados (E1–E8 + manuales).
 | `fecha_envio` | `DateTime?` | |
 | `fecha_creacion` | `DateTime @default(now())` | |
 
+**Email E1 en el alta de consulta (UC-03 / US-003):** el alta de consulta exploratoria genera siempre un registro `COMUNICACION` con `codigo_email = 'E1'`. Si la petición no incluye `comentarios` → `estado = 'enviado'` y se invoca el `EnviarEmailPort` (adaptador stub no-op hasta US-045, que enchufará Resend/Postmark); si la petición incluye `comentarios` → `estado = 'borrador'`, el puerto **no** se invoca y la UI alerta al gestor sobre el borrador pendiente. En ambos casos la fila `COMUNICACION` se persiste dentro de la misma `$transaction` que crea la `RESERVA` y el `CLIENTE`.
+
 ### 3.17 AuditLog
 Registro de auditoría de las acciones sobre reservas, facturas, bloqueos de fecha y autenticación.
 
@@ -463,4 +471,5 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 
 ---
 
+*Documento de modelo de datos v1.4 (28/06/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v2.5. Cualquier cambio en el modelo debe actualizarse en ambos documentos y en `schema.prisma`. v1.4: refleja los fixes finales de US-003: añade nota sobre generación del `codigo` correlativo con retry-on-conflict (`UnidadDeTrabajoPrismaAdapter`, hasta 3 reintentos) y red de seguridad `reserva_codigo_key` UNIQUE → 409 vía filtro global (§3.5); consistente con DT-CODIGO-01 RESUELTA en `architecture.md` §2.9. v1.3: refleja US-003 — alta de consulta exploratoria (UC-03): mapeo `SubEstadoConsulta` dominio `'2a'` ↔ Prisma `s2a` (prefijo `s`; helper `sub-estado-consulta.mapper.ts` en infrastructure, sin migración); nota sobre `apellidos`/`email`/`telefono` requeridos a nivel de contrato en el alta; regla `COMUNICACION` E1 auto-envío (`estado='enviado'`) vs borrador (`estado='borrador'`) según presencia de `comentarios`; puerto `EnviarEmailPort` con stub no-op hasta US-045. v1.2: refleja US-041 — `liberarFecha()` (UC-31): error `LIBERACION_FIRME_SIN_CANCELACION`, semántica rows-affected, seam `PromocionColaPort` (diferido a US-018), sin endpoint HTTP (D-7), y registros de auditoría con causa en `AuditLog`. v1.1: refleja US-040 — `reserva_id @unique` en `FechaBloqueada`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y errores de dominio de `bloquearFecha()`.*
 *Documento de modelo de datos v1.3 (28/06/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v2.4. Cualquier cambio en el modelo debe actualizarse en ambos documentos y en `schema.prisma`. v1.3: refleja US-002 — actualiza §3.17 AuditLog: descripción ampliada a "autenticación"; documenta convención `login`/`logout` (`entidad = 'Usuario'`, `entidad_id = usuario_id`) y la condicionalidad del registro de `logout` (solo cuando el token identifica usuario). v1.2: refleja US-041 — `liberarFecha()` (UC-31): error `LIBERACION_FIRME_SIN_CANCELACION`, semántica rows-affected, seam `PromocionColaPort` (diferido a US-018), sin endpoint HTTP (D-7), y registros de auditoría con causa en `AuditLog`. v1.1: refleja US-040 — `reserva_id @unique` en `FechaBloqueada`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y errores de dominio de `bloquearFecha()`.*

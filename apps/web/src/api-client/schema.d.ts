@@ -252,7 +252,11 @@ export interface paths {
         put?: never;
         /**
          * Dar de alta un nuevo lead/consulta (UC-03)
-         * @description Crea una reserva en estado `consulta`. Sub-estado `2.a` (sin fecha) o `2.b` (con fecha, dispara bloqueo blando).
+         * @description Crea una reserva en estado `consulta`. Sin `fechaEvento` (US-003, alta exploratoria) la
+         *     reserva nace en sub-estado `2a` con `ttlExpiracion = null` y SIN crear `FechaBloqueada`;
+         *     con `fechaEvento` nace en `2b` (US-004/005, dispara el bloqueo blando atómico).
+         *     El CLIENTE se crea/reutiliza de forma idempotente por `(tenant_id, email)`. El campo
+         *     `comentarios` decide el flujo del email E1 (ver su descripción en `CreateReservaRequest`).
          */
         post: {
             parameters: {
@@ -267,7 +271,10 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description Reserva creada */
+                /**
+                 * @description Reserva creada. En el alta exploratoria sin fecha (US-003) el recurso devuelto tiene
+                 *     `estado = 'consulta'`, `subEstado = '2a'` y `ttlExpiracion = null`.
+                 */
                 201: {
                     headers: {
                         [name: string]: unknown;
@@ -2018,6 +2025,8 @@ export interface components {
             numAdultosNinosMayores4?: number;
             numNinosMenores4?: number;
             notas?: string;
+            /** @description [US-003] Comentarios libres del gestor sobre el lead en el momento del alta. Su PRESENCIA/AUSENCIA decide el flujo del email E1 (respuesta inicial automática): SIN `comentarios` (omitido o vacío) → la COMUNICACION E1 se persiste con `estado='enviado'` y se dispara el auto-envío de la respuesta inicial; CON `comentarios` → la COMUNICACION E1 se persiste con `estado='borrador'`, NO se envía, y la UI alerta al gestor de un borrador pendiente de revisión. Es distinto de `notas` (anotaciones internas que NO afectan al envío de E1). */
+            comentarios?: string;
             cliente: components["schemas"]["CreateClienteRequest"];
         };
         UpdateReservaRequest: {
@@ -2072,7 +2081,25 @@ export interface components {
             ibanDevolucion?: string | null;
         };
         CreateClienteRequest: {
+            /** @description Obligatorio, no vacío, máx 100. */
             nombre: string;
+            /** @description Obligatorio, no vacío, máx 100. */
+            apellidos: string;
+            /**
+             * Format: email
+             * @description Obligatorio. Formato email RFC 5322 básico. Idempotencia de CLIENTE por (tenant_id, email).
+             */
+            email: string;
+            /** @description Obligatorio, no vacío. */
+            telefono: string;
+            dniNif?: string;
+            direccion?: string;
+            codigoPostal?: string;
+            poblacion?: string;
+            provincia?: string;
+        };
+        UpdateClienteRequest: {
+            nombre?: string;
             apellidos?: string;
             /** Format: email */
             email?: string;
@@ -2082,8 +2109,6 @@ export interface components {
             codigoPostal?: string;
             poblacion?: string;
             provincia?: string;
-        };
-        UpdateClienteRequest: components["schemas"]["CreateClienteRequest"] & {
             ibanDevolucion?: string;
         };
         Extra: {

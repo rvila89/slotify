@@ -87,7 +87,7 @@ Módulos alineados con los componentes de [c4-diagrams.md](./c4-diagrams.md) (no
 | `clientes` | Datos de contacto y fiscales | UC-03, UC-14 |
 | `presupuestos` | Motor de tarifas + generación/versionado de PDF | UC-14 a UC-16 |
 | `facturacion` | Facturas (señal, liquidación, fianza, complementaria), pagos, fianza | UC-17, UC-18, UC-21, UC-22, UC-26, UC-27 |
-| `comunicaciones` | Plantillas E1–E8 y emails manuales, log | UC-35, UC-36 |
+| `comunicaciones` | Puerto `EnviarEmailPort` (domain) + adaptador stub (infra, US-003); plantillas E1–E8 y emails manuales, log | UC-03, UC-35, UC-36 |
 | `ficha-operativa` | Briefing operativo del evento | UC-20, UC-24 |
 | `dashboards` | KPIs operativos y financieros, exports | UC-32, UC-33, UC-34 |
 | `configuracion` | Tarifario, plantillas, TTLs, festivos por tenant | Transversal |
@@ -240,7 +240,7 @@ throw new ConflictException('La fecha ya está bloqueada');
 | Validación de entrada fallida | 400 |
 | No autenticado / token inválido / credenciales incorrectas | 401 |
 | Recurso no encontrado en el tenant | 404 |
-| Fecha ya bloqueada / conflicto de concurrencia | 409 |
+| Fecha ya bloqueada / colisión del `codigo` correlativo de `RESERVA` / todo conflicto UNIQUE (`P2002` → `HttpExceptionFilter` global → 409, nunca 500) | 409 |
 | Transición de estado no permitida / guarda no satisfecha | 422 |
 | Demasiados intentos de login (throttle self-contained, 5/60 s) | 429 |
 
@@ -251,6 +251,7 @@ throw new ConflictException('La fecha ya está bloqueada');
 - **Patrón repositorio**: interfaz (puerto) en `domain`; implementación Prisma en `infrastructure`. `PrismaService` se inyecta, nunca se instancia un cliente global por entidad.
 - **Importes** en `Decimal`, nunca `Float`.
 - **Transacciones** (`prisma.$transaction`) para toda operación que toque bloqueo de fecha + estado de reserva.
+- **Retry-on-conflict para correlativos:** la generación de códigos correlativos (`YY-NNNN`) usa `count(*)+1` dentro de la transacción; ante una colisión concurrente (`P2002` sobre el `@unique` del `codigo`), el adaptador reabre la `$transaction` y reintenta (hasta 3 intentos) en lugar de propagar el error. El segundo intento re-lee el `count` con el ganador ya confirmado y obtiene el siguiente correlativo sin colisión. Si se agotan los reintentos, el `P2002` se propaga al `HttpExceptionFilter` global → 409. Coherente con la filosofía del proyecto: PostgreSQL + UNIQUE, sin locks distribuidos.
 
 ## Autenticación y autorización
 

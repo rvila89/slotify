@@ -1,8 +1,8 @@
 ---
 id: US-003
-estado: backlog
-branch: null
-pr: null
+estado: done
+branch: feature/us-003-alta-consulta-exploratoria
+pr: https://github.com/rvila89/slotify/pull/20
 ---
 
 # 🧾 Historia de Usuario: Alta de consulta exploratoria sin fecha de evento
@@ -13,7 +13,7 @@ pr: null
 - Módulo: M1 — Reserva (entidad central)
 - Prioridad: Crítica
 - Alcance MVP: ✅ Implementado
-- Estado: Borrador
+- Estado: Hecho
 - Owner: PM
 
 ## 🎯 Historia

@@ -7,12 +7,21 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../shared/prisma/prisma.module';
 import { PrismaService } from '../shared/prisma/prisma.service';
+import { ComunicacionesModule } from '../comunicaciones/comunicaciones.module';
+import { ENVIAR_EMAIL_PORT } from '../comunicaciones/comunicaciones.tokens';
+import type { EnviarEmailPort } from '../comunicaciones/domain/enviar-email.port';
 import {
   BloquearFechaService,
   ClockPort,
   FechaBloqueadaRepositoryPort,
   TenantSettingsPort,
 } from './domain/bloquear-fecha.service';
+import {
+  AltaConsultaUseCase,
+  type UnidadDeTrabajoPort,
+} from './application/alta-consulta.use-case';
+import { UnidadDeTrabajoPrismaAdapter } from './infrastructure/unidad-de-trabajo.prisma.adapter';
+import { AltaConsultaController } from './interface/alta-consulta.controller';
 import {
   AuditLogPort,
   ColaQueryPort,
@@ -39,11 +48,27 @@ import {
   PROMOCION_COLA_PORT,
   RESERVA_ESTADO_PORT,
   TENANT_SETTINGS_PORT,
+  UNIDAD_DE_TRABAJO_PORT,
 } from './reservas.tokens';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, ComunicacionesModule],
+  controllers: [AltaConsultaController],
   providers: [
+    {
+      provide: UNIDAD_DE_TRABAJO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) => new UnidadDeTrabajoPrismaAdapter(prisma),
+    },
+    {
+      provide: AltaConsultaUseCase,
+      inject: [UNIDAD_DE_TRABAJO_PORT, ENVIAR_EMAIL_PORT, CLOCK_PORT],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoPort,
+        enviarEmail: EnviarEmailPort,
+        clock: ClockPort,
+      ) => new AltaConsultaUseCase({ unidadDeTrabajo, enviarEmail, clock }),
+    },
     {
       provide: FECHA_BLOQUEADA_REPOSITORY_PORT,
       inject: [PrismaService],
@@ -104,6 +129,11 @@ import {
       useFactory: (servicio: LiberarFechaService) => new LiberarFechasEnLoteService(servicio),
     },
   ],
-  exports: [BloquearFechaService, LiberarFechaService, LiberarFechasEnLoteService],
+  exports: [
+    BloquearFechaService,
+    LiberarFechaService,
+    LiberarFechasEnLoteService,
+    AltaConsultaUseCase,
+  ],
 })
 export class ReservasModule {}
