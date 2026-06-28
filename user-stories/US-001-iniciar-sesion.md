@@ -2,7 +2,7 @@
 id: US-001
 estado: en-revision
 branch: feature/us-001-iniciar-sesion
-pr: null
+pr: 15
 ---
 
 # 🧾 Historia de Usuario: Iniciar Sesión

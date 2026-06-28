@@ -95,4 +95,4 @@ Convierte el scaffolding de US-000A en implementación real (no lo recrea).
 
 ## 11. Archivar change + abrir PR (OBLIGATORIO — archive)
 
-- [ ] 11.1 `openspec archive us-001-iniciar-sesion`, promover el spec-delta a `openspec/specs/auth/` y abrir PR (solo tras gate final y code-review APTO; el hook `require-code-review` lo bloquea sin APTO).
+- [x] 11.1 `openspec archive us-001-iniciar-sesion`, promover el spec-delta a `openspec/specs/auth/` y abrir PR (solo tras gate final y code-review APTO; el hook `require-code-review` lo bloquea sin APTO). **Archivado 2026-06-28; PR #15.**
