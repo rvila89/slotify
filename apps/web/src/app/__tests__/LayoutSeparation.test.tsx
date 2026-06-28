@@ -38,7 +38,7 @@ describe('App Shell — separacion de layouts auth vs app', () => {
     renderApp(sesionAnonima, '/login');
 
     // Assert: se ve el formulario de login...
-    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/correo/i)).toBeInTheDocument();
 
     // ...y NO el chrome del shell: ni nav lateral ni "+ Nueva Reserva".
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument();

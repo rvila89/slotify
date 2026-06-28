@@ -117,8 +117,8 @@ afterEach(() => {
 describe('LoginPage — render base (US-000A, conservado)', () => {
   it('renderiza los campos email y contrasena y el boton de envio', () => {
     renderLogin();
-    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/contrasena/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/correo/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/contraseña/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /entrar/i })).toBeInTheDocument();
   });
 });
@@ -141,8 +141,8 @@ describe('LoginPage — validación por campo sin llamar a la API (REQ 9)', () =
     const user = userEvent.setup();
     renderLogin();
 
-    await user.type(screen.getByLabelText(/email/i), 'esto-no-es-email');
-    await user.type(screen.getByLabelText(/contrasena/i), PASSWORD);
+    await user.type(screen.getByLabelText(/correo/i), 'esto-no-es-email');
+    await user.type(screen.getByLabelText(/contraseña/i), PASSWORD);
     await user.click(screen.getByRole('button', { name: /entrar/i }));
 
     expect(postMock).not.toHaveBeenCalled();
@@ -156,8 +156,8 @@ describe('LoginPage — login correcto: mutación + redirect (REQ 10)', () => {
     const user = userEvent.setup();
     renderLogin();
 
-    await user.type(screen.getByLabelText(/email/i), EMAIL);
-    await user.type(screen.getByLabelText(/contrasena/i), PASSWORD);
+    await user.type(screen.getByLabelText(/correo/i), EMAIL);
+    await user.type(screen.getByLabelText(/contraseña/i), PASSWORD);
     await user.click(screen.getByRole('button', { name: /entrar/i }));
 
     await waitFor(() =>
@@ -173,8 +173,8 @@ describe('LoginPage — login correcto: mutación + redirect (REQ 10)', () => {
     const user = userEvent.setup();
     renderLogin();
 
-    await user.type(screen.getByLabelText(/email/i), EMAIL);
-    await user.type(screen.getByLabelText(/contrasena/i), PASSWORD);
+    await user.type(screen.getByLabelText(/correo/i), EMAIL);
+    await user.type(screen.getByLabelText(/contraseña/i), PASSWORD);
     await user.click(screen.getByRole('button', { name: /entrar/i }));
 
     expect(await screen.findByText(/pantalla calendario/i)).toBeInTheDocument();
@@ -185,8 +185,8 @@ describe('LoginPage — login correcto: mutación + redirect (REQ 10)', () => {
     const user = userEvent.setup();
     renderLogin({ from: '/reservas' });
 
-    await user.type(screen.getByLabelText(/email/i), EMAIL);
-    await user.type(screen.getByLabelText(/contrasena/i), PASSWORD);
+    await user.type(screen.getByLabelText(/correo/i), EMAIL);
+    await user.type(screen.getByLabelText(/contraseña/i), PASSWORD);
     await user.click(screen.getByRole('button', { name: /entrar/i }));
 
     expect(await screen.findByText(/pantalla reservas/i)).toBeInTheDocument();
@@ -197,8 +197,8 @@ describe('LoginPage — login correcto: mutación + redirect (REQ 10)', () => {
     const user = userEvent.setup();
     renderLogin();
 
-    await user.type(screen.getByLabelText(/email/i), EMAIL);
-    await user.type(screen.getByLabelText(/contrasena/i), PASSWORD);
+    await user.type(screen.getByLabelText(/correo/i), EMAIL);
+    await user.type(screen.getByLabelText(/contraseña/i), PASSWORD);
     await user.click(screen.getByRole('button', { name: /entrar/i }));
     await screen.findByText(/pantalla calendario/i);
 
@@ -215,11 +215,14 @@ describe('LoginPage — errores de la API (REQ 3 / REQ 8)', () => {
     const user = userEvent.setup();
     renderLogin();
 
-    await user.type(screen.getByLabelText(/email/i), EMAIL);
-    await user.type(screen.getByLabelText(/contrasena/i), 'mala');
+    await user.type(screen.getByLabelText(/correo/i), EMAIL);
+    await user.type(screen.getByLabelText(/contraseña/i), 'mala');
     await user.click(screen.getByRole('button', { name: /entrar/i }));
 
-    expect(await screen.findByText(/credenciales/i)).toBeInTheDocument();
+    // El copy del diseño (subtítulo "Introduce tus credenciales…") también contiene
+    // la palabra, así que afianzamos la aserción al contenedor de error role="alert"
+    // (anti-enumeration, REQ 3 / FA-01): más estricta, no más débil.
+    expect(await screen.findByRole('alert')).toHaveTextContent(/credenciales/i);
     expect(screen.queryByText(/pantalla calendario/i)).not.toBeInTheDocument();
   });
 
@@ -228,8 +231,8 @@ describe('LoginPage — errores de la API (REQ 3 / REQ 8)', () => {
     const user = userEvent.setup();
     renderLogin();
 
-    await user.type(screen.getByLabelText(/email/i), EMAIL);
-    await user.type(screen.getByLabelText(/contrasena/i), PASSWORD);
+    await user.type(screen.getByLabelText(/correo/i), EMAIL);
+    await user.type(screen.getByLabelText(/contraseña/i), PASSWORD);
     await user.click(screen.getByRole('button', { name: /entrar/i }));
 
     expect(await screen.findByText(/(demasiad|intent|espera)/i)).toBeInTheDocument();
