@@ -11,7 +11,7 @@ description: Usar cuando el qa-verifier deba ejecutar los pasos obligatorios de 
 ## Reglas / Pasos
 1. **Step N+1 — Unit tests**: ejecutar la suite unitaria + verificar estado de BD pre/post + escribir report.
 2. **Step N+2 — Manual (curl)**: `curl` de GET/POST/PATCH/DELETE + casos de error **400/404/409/422** + **RESTAURAR el estado de BD tras cada CREATE/UPDATE/DELETE** + report.
-3. **Step N+3 — E2E (solo si hay cambios de frontend)**: Playwright MCP (`browser_navigate`, `browser_click`, `browser_type`, `browser_snapshot`), verificar persistencia, restaurar BD + report.
+3. **Step N+3 — E2E (solo si hay cambios de frontend)**: Playwright MCP (`browser_navigate`, `browser_click`, `browser_type`, `browser_snapshot`), verificar persistencia, restaurar BD + report. **Responsive obligatorio**: ejercitar el flujo en 3 viewports (**390** móvil / **768** tablet / **1280** escritorio) verificando sin overflow y nav colapsada a drawer en `<lg`.
 4. Todos los reports van a `openspec/changes/<change>/reports/YYYY-MM-DD-step-N+X-*.md`.
 5. La tarea se marca completa **SOLO** tras tests verdes + report escrito.
 6. Cada mutación de prueba debe dejar la BD como estaba (sin residuos).
@@ -28,6 +28,12 @@ Plantilla de cada report:
 ## Comparación BD pre/post
 | tabla | pre | post |
 |-------|-----|------|
+## Verificación responsive (Step N+3, si hay UI)
+| viewport | resultado |
+|----------|-----------|
+| 390 (móvil) | PASS/FAIL |
+| 768 (tablet) | PASS/FAIL |
+| 1280 (escritorio) | PASS/FAIL |
 ## Restauración
 - <qué se borró/revirtió para dejar la BD intacta>
 ## Outcome

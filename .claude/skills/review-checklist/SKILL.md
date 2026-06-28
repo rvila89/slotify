@@ -21,6 +21,7 @@ Revisar el diff contra este checklist y reportar cada hallazgo:
 9. **Contrato OpenAPI** coincide con los DTOs.
 10. **Cliente HTTP del frontend** generado, no editado a mano.
 11. **Convenciones de nombres**: PascalCase / camelCase / kebab-case, en español.
+12. **Responsive (frontend)**: UI mobile-first que se adapta a móvil/tablet/escritorio sin layout roto ni overflow; nav lateral colapsa a drawer en `<lg`; sin anchos px fijos que rompan en móvil; evidencia en 3 viewports (390/768/1280).
 
 ## Patrón de referencia
 Formato del informe:

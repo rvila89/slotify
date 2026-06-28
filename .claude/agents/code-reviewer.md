@@ -20,6 +20,7 @@ Carga `review-checklist` y `architecture-guardrails`. Revisa con `git diff` (ram
 - **Jobs**: estado en fila + barrido idempotente; nada de timers exactos/Lambda.
 - **Tipos y datos**: TS strict sin `any` injustificado; Importes en `Decimal` no `Float`; DTOs validados con `class-validator`.
 - **Contrato**: DTOs coinciden con `docs/api-spec.yml`; el cliente del frontend no está editado a mano.
+- **Responsive (frontend)**: la UI es mobile-first y se adapta a móvil/tablet/escritorio sin layout roto ni overflow; nav lateral colapsa a drawer en `<lg`; sin anchos px fijos que rompan en móvil. Si no se aporta evidencia en 3 viewports (390/768/1280), señalar como hallazgo.
 - **Tests primero**: existen tests (concurrencia, transiciones) y pasan.
 - **Convenciones**: nombres español (PascalCase/camelCase/kebab-case); comentarios y errores en español.
 

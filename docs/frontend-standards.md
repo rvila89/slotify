@@ -152,7 +152,18 @@ export function TarjetaReserva({ reserva, onSeleccionar }: TarjetaReservaProps) 
 - Estilado con **utilidades Tailwind**; tokens de diseño centralizados en la config de Tailwind.
 - Componentes accesibles de **shadcn/ui** (sobre Radix): diálogos, menús, formularios, toasts.
 - **Opinado por fuera, configurable por dentro**: la UX expone un único flujo claro aunque la configuración por tenant exista por debajo.
-- Layout responsive con utilidades de Tailwind (grid/flex), pensado para uso de escritorio del gestor.
+
+## Responsive Design (Obligatorio)
+
+> Regla **dura** (ver [CLAUDE.md](../CLAUDE.md)). Toda UI debe funcionar en móvil, tablet y escritorio. No se entrega una pantalla "solo desktop".
+
+- **Mobile-first**: los estilos base son para móvil; los breakpoints Tailwind (`md:`, `lg:`…) añaden el comportamiento de pantallas mayores. No al revés.
+- **Breakpoints** (defaults de Tailwind): `sm 640` · `md 768` · `lg 1024` · `xl 1280`. Convención del proyecto: **`lg:` es el corte mobile↔desktop** (el login tiene diseño Figma desktop `0:3` y móvil `0:304`).
+- **Layout adaptativo con grid/flex**, no anchos fijos en px que rompan en móvil. La **navegación lateral colapsa a drawer + hamburguesa** en `<lg`; el header se compacta (ocultar/colapsar elementos secundarios); los paddings se reducen (`p-4 md:p-6 lg:p-8`).
+- **Sin overflow horizontal** en ningún breakpoint; objetivos táctiles cómodos (≥40px).
+- **Verificación obligatoria en 3 viewports**: **390** (móvil), **768** (tablet), **1280** (escritorio). Se comprueba en code-review y en QA (E2E con `page.setViewportSize`).
+- Si el diseño de Figma **no trae versión móvil** (p. ej. el App Shell solo tiene frame desktop), se diseña la adaptación móvil con los tokens del proyecto y se señala; nunca se entrega solo-desktop.
+- Patrones útiles: `w-full md:w-1/2 lg:w-1/3` · `grid-cols-1 md:grid-cols-2 lg:grid-cols-3` · `hidden lg:flex` / `lg:hidden`. Usar el `Sheet`/`Dialog` de shadcn (Radix) para drawers/modales accesibles.
 
 ## Calendario y disponibilidad
 
@@ -190,6 +201,7 @@ if (isError) {
 
 - **Unitario / componentes**: Vitest + Testing Library. Probar comportamiento, no detalles de implementación.
 - **End-to-end**: Playwright para los flujos clave del gestor (alta de lead, generar presupuesto, confirmar señal, ver calendario). Usar `data-testid` para selección estable.
+- **Responsive (obligatorio si hay UI)**: ejercitar el flujo en 3 viewports con `page.setViewportSize` — **390** (móvil), **768** (tablet), **1280** (escritorio) — verificando que no hay overflow, que la nav colapsa a drawer en `<lg` y es sidebar fijo en `≥lg`.
 - Tras crear/actualizar datos por la UI en e2e, verificar persistencia y restaurar el estado.
 
 ```ts

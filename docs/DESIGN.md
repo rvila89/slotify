@@ -140,6 +140,18 @@ Layout de dos columnas, **solo para usuarios autenticados** (el login NO usa est
   - **Ruta inexistente** → estado "no encontrado" *dentro* del área, conservando nav.
   - **Sin sesión** → redirige a login (US-001) y vuelve a la ruta solicitada tras autenticar.
 
+### Responsive del App Shell (obligatorio)
+
+> **Web responsive es regla dura** (ver [CLAUDE.md](../CLAUDE.md) y [frontend-standards.md](./frontend-standards.md)). El frame de Figma del shell (`0:86`) **solo existe en desktop** (sidebar nombrado *"Aside - Sidebar Navigation (Desktop)"*); **no hay diseño móvil en Figma**, así que la adaptación se diseña con los tokens de este documento.
+
+Breakpoints (defaults de Tailwind): `sm 640 · md 768 · lg 1024 · xl 1280`. Corte mobile↔desktop del shell en **`lg` (1024px)**.
+
+- **Desktop (`≥ lg`)**: layout de dos columnas tal cual arriba (sidebar fijo 288px + header + content).
+- **Móvil / tablet (`< lg`)**: el **sidebar se oculta** (`hidden lg:flex`) y su contenido (marca + nav + card de usuario) se sirve en un **drawer off-canvas** (`Sheet` de shadcn / Radix Dialog, lado izquierdo) que abre un **botón hamburguesa** en el header (`lg:hidden`, con `aria-label`/`aria-expanded`/`aria-controls`). El drawer cierra al navegar, con Escape o al pulsar el overlay (focus-trap de Radix).
+- **Header compacto en `< lg`**: el badge "N reservas hoy" se oculta en móvil (`hidden md:flex`); el botón **"+ Nueva Reserva"** colapsa a solo-icono (`<span className="hidden sm:inline">Nueva Reserva</span>`). Padding-x `px-4 lg:px-8`.
+- **Content**: padding `p-4 md:p-6 lg:p-8`; sin overflow horizontal.
+- **Verificación**: E2E en 390 / 768 / 1280 (móvil sin sidebar visible hasta abrir hamburguesa; desktop con sidebar fijo y sin hamburguesa).
+
 ---
 
 ## 5. Implementación en apps/web
