@@ -16,7 +16,7 @@ import {
 } from '../domain/liberar-fecha.service';
 
 @Injectable()
-export class AuditLogPrismaAdapter implements AuditLogPort {
+export class AuditLogPrismaAdapter implements AuditLogPort<RegistroAuditoriaLiberacion> {
   constructor(private readonly prisma: PrismaService) {}
 
   async registrar(registro: RegistroAuditoriaLiberacion): Promise<void> {

@@ -104,12 +104,14 @@ export function useTransicionarReserva() {
 
 ## Autenticación en el frontend
 
-(Ver [architecture.md §2.8](./architecture.md).)
+(Ver [architecture.md §2.8](./architecture.md) y [architecture.md §2.9](./architecture.md) para la deuda técnica registrada.)
 
-- El **access token vive en memoria** (estado de la app / contexto de Auth), **nunca** en `localStorage` ni `sessionStorage`.
-- El **refresh token** está en una cookie httpOnly que el JS no puede leer; las peticiones a `/auth/refresh` se hacen `withCredentials`.
-- Un interceptor del cliente HTTP añade `Authorization: Bearer <accessToken>` y, ante un 401, intenta `/auth/refresh` una vez antes de redirigir a login.
-- **Prohibido** guardar cualquier token en `localStorage`.
+- El **access token vive en memoria** (`accessTokenEnMemoria` a nivel de módulo en `session.tsx`), **nunca** en `localStorage` ni `sessionStorage`. Las funciones `iniciarSesion`/`cerrarSesion` solo mutan memoria.
+- El **refresh token** está en una cookie `httpOnly + Secure + SameSite` que el JS no puede leer. El cliente HTTP usa `credentials: 'include'` para que el navegador envíe la cookie en las peticiones a `/auth/refresh`.
+- **Interceptor de refresh:** ante un 401 en cualquier petición, el interceptor intenta `POST /auth/refresh` una vez y reintenta la petición original. Si el refresh también devuelve 401, el interceptor limpia la sesión en memoria y redirige a `/login`. **Guarda anti-recursión:** si el 401 proviene de la propia llamada a `/auth/refresh`, el interceptor retorna sin reintentar para evitar bucles infinitos.
+- **Login:** `LoginPage.tsx` ejecuta una **mutación TanStack Query** contra el SDK generado. El cliente HTTP generado **nunca se edita a mano**; si el contrato cambia, se regenera con `pnpm generate-client`. Tras login exitoso la sesión se puebla en memoria y la app redirige al calendario (respetando el `state.from` preservado por `RequireAuth`).
+- **Validación en el frontend:** el formulario de login bloquea el envío y muestra mensajes por campo si el email o la contraseña están vacíos, o si el email tiene formato inválido — antes de hacer ninguna llamada a la API.
+- **Prohibido** guardar cualquier token en `localStorage`. Ver DT-AUTH-04 en [architecture.md §2.9](./architecture.md) para la deuda del codegen.
 
 ## Convenciones de código
 

@@ -1,8 +1,8 @@
 ---
 id: US-001
-estado: backlog
-branch: null
-pr: null
+estado: en-revision
+branch: feature/us-001-iniciar-sesion
+pr: 15
 ---
 
 # 🧾 Historia de Usuario: Iniciar Sesión

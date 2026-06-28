@@ -19,6 +19,7 @@ import {
   FechaBloqueadaLiberacionPort,
   LiberarFechaService,
   PromocionColaPort,
+  RegistroAuditoriaLiberacion,
   ReservaEstadoPort,
 } from './domain/liberar-fecha.service';
 import { LiberarFechasEnLoteService } from './application/liberar-fechas-lote.service';
@@ -87,7 +88,7 @@ import {
         reservaEstado: ReservaEstadoPort,
         cola: ColaQueryPort,
         promocion: PromocionColaPort,
-        auditoria: AuditLogPort,
+        auditoria: AuditLogPort<RegistroAuditoriaLiberacion>,
       ) =>
         new LiberarFechaService({
           repositorio,

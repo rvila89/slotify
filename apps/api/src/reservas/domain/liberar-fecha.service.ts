@@ -25,7 +25,12 @@
  * La liberación NO posee ningún puerto de ESCRITURA de la RESERVA (D-7, §3.7): solo
  * lee su estado para la guarda firme.
  */
+import type { AuditLogPort, RegistroAuditoria } from '../../shared/audit/audit-log.port';
 import type { TipoBloqueoDominio } from './bloquear-fecha.service';
+
+// Re-export del puerto de auditoría COMPARTIDO (extraído a `shared/audit`): los
+// consumidores de reservas siguen importándolo desde aquí sin cambios.
+export type { AuditLogPort } from '../../shared/audit/audit-log.port';
 
 // ---------------------------------------------------------------------------
 // Tipos de dominio
@@ -109,9 +114,12 @@ export interface PromocionColaPort {
   promoverPrimeroEnCola(params: { tenantId: string; fecha: Date }): Promise<void>;
 }
 
-/** Registro inmutable de una tentativa de liberación en el AUDIT_LOG (D-8). */
-export interface RegistroAuditoriaLiberacion {
-  tenantId: string;
+/**
+ * Registro inmutable de una tentativa de liberación en el AUDIT_LOG (D-8). Extiende
+ * el `RegistroAuditoria` compartido, estrechando `accion`/`entidad` y añadiendo la
+ * causa y el resultado específicos de la liberación.
+ */
+export interface RegistroAuditoriaLiberacion extends RegistroAuditoria {
   accion: 'eliminar';
   entidad: 'FECHA_BLOQUEADA';
   entidadId: string;
@@ -121,18 +129,13 @@ export interface RegistroAuditoriaLiberacion {
   reservaId: string | null;
 }
 
-/** Persiste el registro de auditoría de toda liberación con su causa (D-8). */
-export interface AuditLogPort {
-  registrar(registro: RegistroAuditoriaLiberacion): Promise<void>;
-}
-
 /** Dependencias del servicio: puertos inyectados (hexagonal). */
 export interface LiberarFechaDeps {
   repositorio: FechaBloqueadaLiberacionPort;
   reservaEstado: ReservaEstadoPort;
   cola: ColaQueryPort;
   promocion: PromocionColaPort;
-  auditoria: AuditLogPort;
+  auditoria: AuditLogPort<RegistroAuditoriaLiberacion>;
 }
 
 // ---------------------------------------------------------------------------
