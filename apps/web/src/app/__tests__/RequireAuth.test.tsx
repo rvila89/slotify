@@ -15,10 +15,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 // Modulos de produccion aun inexistentes (RED esperado):
 import { RequireAuth } from '@/app/RequireAuth';
-import { SessionProvider } from '@/auth/session';
+import { SessionProvider, useSessionActions } from '@/auth/session';
 
 const sesionAnonima = { status: 'unauthenticated' } as const;
 const sesionValida = {
@@ -79,5 +80,58 @@ describe('RequireAuth (guard de sesion)', () => {
     // Assert: el guard deja pasar y se renderiza la ruta solicitada (sin redirigir).
     expect(screen.getByText(/contenido protegido: reservas/i)).toBeInTheDocument();
     expect(screen.queryByText(/pantalla de login/i)).not.toBeInTheDocument();
+  });
+});
+
+// ===========================================================================
+// US-001 — el guard consume la sesión REAL poblada en memoria (no inyectada).
+// Tras `iniciarSesion(...)` (provider autogestionado de US-001), la ruta
+// protegida que antes redirigía a /login pasa a ser accesible sin recargar.
+// RED: `useSessionActions` y el `SessionProvider` autogestionado aún no existen.
+// ===========================================================================
+
+const BotonIniciar = () => {
+  const { iniciarSesion } = useSessionActions();
+  return (
+    <button onClick={() => iniciarSesion('access.jwt.en-memoria', { nombre: 'Roger' })}>
+      iniciar sesion
+    </button>
+  );
+};
+
+describe('RequireAuth (guard) + sesión real US-001', () => {
+  it('debe_conceder_acceso_tras_poblar_la_sesion_en_memoria_con_iniciarSesion', async () => {
+    const user = userEvent.setup();
+    render(
+      <SessionProvider>
+        <MemoryRouter initialEntries={['/calendario']}>
+          <Routes>
+            <Route element={<RequireAuth />}>
+              <Route
+                path="/calendario"
+                element={<div>Contenido protegido: Calendario</div>}
+              />
+            </Route>
+            <Route
+              path="/login"
+              element={
+                <div>
+                  <span>Pantalla de login</span>
+                  <BotonIniciar />
+                </div>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </SessionProvider>,
+    );
+
+    // Sin sesión, el guard redirige a /login (donde está el botón de iniciar).
+    expect(screen.getByText(/pantalla de login/i)).toBeInTheDocument();
+
+    // Al poblar la sesión en memoria, el guard deja de redirigir.
+    await user.click(screen.getByRole('button', { name: /iniciar sesion/i }));
+
+    expect(await screen.findByText(/contenido protegido: calendario/i)).toBeInTheDocument();
   });
 });

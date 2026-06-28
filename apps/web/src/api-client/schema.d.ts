@@ -39,7 +39,20 @@ export interface paths {
                         "application/json": components["schemas"]["LoginResponse"];
                     };
                 };
-                401: components["responses"]["Unauthorized"];
+                /**
+                 * @description Autenticación fallida. Cubre tanto **credenciales inválidas** como **cuenta
+                 *     deshabilitada** (`activo=false`) con idéntico cuerpo de error (decisión
+                 *     anti-enumeration deliberada). El cliente no puede distinguir ambos casos.
+                 */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                429: components["responses"]["TooManyRequests"];
             };
         };
         delete?: never;
@@ -2399,6 +2412,15 @@ export interface components {
         };
         /** @description Conflicto de estado o de concurrencia (p. ej. fecha ya bloqueada) */
         Conflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description Demasiadas peticiones (rate-limit excedido) */
+        TooManyRequests: {
             headers: {
                 [name: string]: unknown;
             };

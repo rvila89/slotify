@@ -153,7 +153,22 @@ apps/
 
 **Tenant y rol en el token:** el `tenant_id` y el `rol` del usuario se incluyen en el payload firmado del access token. El backend los lee en cada petición para alimentar el aislamiento multi-tenant (RLS) y la autorización. Al ir firmados, el cliente no puede manipularlos.
 
-**Implementación:** NestJS + Passport con estrategia `local` (login usuario/contraseña) y estrategia `jwt` (validación del access token) + `@nestjs/jwt`. Contraseñas con hash (bcrypt o argon2). Para la primera iteración de TDD puede empezarse solo con el access token y añadir el refresh token cuando el flujo básico pase los tests.
+**Implementación (US-001, completada):** El módulo `auth` aplica arquitectura hexagonal bajo `apps/api/src/auth/`:
+
+- **domain/**: entidad `Usuario` (sin contraseña en claro), invariante `activo`.
+- **application/**: `login.use-case.ts`, `refresh.use-case.ts`, `logout.use-case.ts`, `obtener-usuario-actual.use-case.ts`. Los **puertos** (`UsuarioRepositoryPort`, `PasswordHasherPort`, `TokenEmitterPort`) viven consolidados en esta capa junto a los casos de uso; no importan `@nestjs/*` ni Prisma. La inversión de dependencias se mantiene: la infraestructura implementa los puertos y `auth.module.ts` los enlaza por Symbol vía factory.
+- **infrastructure/**: `usuario.prisma.adapter.ts` (Prisma), `argon2-password-hasher.adapter.ts` (argon2, coherente con el seed), `jwt-token-emitter.adapter.ts` (`@nestjs/jwt`).
+- **interface/**: `auth.controller.ts` — `POST /auth/login` (ruta pública, `@Public`), `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` (resuelve el usuario real desde BD, ya no devuelve solo el payload del JWT). La cookie de refresh se setea y limpia íntegramente en esta capa (framework); el dominio no la toca.
+
+El guard `JwtAuthGuard` y la estrategia `jwt` de Passport se reutilizan del scaffolding de US-000A (`shared/auth/`). Contraseñas verificadas con **argon2** (nunca bcrypt). `buscarPorEmail` es una consulta pre-autenticación: el email es único globalmente; el `tenant_id` se fija en contexto RLS **tras** autenticar.
+
+**Anti-enumeration (OWASP A01):** el dominio lanza un único `CredencialesInvalidasError` para los tres casos de fallo — email inexistente, contraseña incorrecta, `activo=false` —; el controlador lo traduce siempre a **401 genérico uniforme** (`"Credenciales incorrectas"`) con el mismo body y status. Los intentos fallidos de login **no se registran en `AUDIT_LOG`**; solo los logins exitosos generan un registro `login`.
+
+**Protección brute-force — throttler self-contained:** `LoginThrottleGuard` implementado con `Map` en memoria del proceso, clave `IP+email` normalizada, ventana **5 intentos / 60 s** → responde **429** genérico (no revela si el email existe). No usa `@nestjs/throttler` ni Redis. Adecuado para el MVP de instancia única; ver §2.9 DT-AUTH-03 para la deuda de migración.
+
+**Cookie del refresh token:** `httpOnly: true`; `secure: true` + `sameSite: 'none'` en producción; `sameSite: 'lax'` en desarrollo. `path: '/api/auth'`, `maxAge` ~7 días. El frontend no puede leerla desde JavaScript.
+
+**Puerto compartido de auditoría (`AuditLogPort`):** extraído a `shared/audit/audit-log.port.ts` (interfaz pura, sin NestJS ni Prisma). Los módulos `auth` y `reservas` la comparten: `auth` usa el adaptador genérico `shared/audit/audit-log.prisma.adapter.ts`; `reservas` conserva su adaptador especializado con tipos estrechados (`RegistroAuditoriaLiberacion extends RegistroAuditoria`). Sin duplicación de interfaz ni ruptura de comportamiento en US-040/US-041.
 
 **Modelo de usuarios y los dos niveles de administración.** Conceptualmente, un SaaS multi-tenant tiene dos figuras de administración distintas:
 
@@ -166,6 +181,17 @@ apps/
 **En el MVP estos roles se colapsan:** como solo hay **un usuario por tenant (el gestor)**, no existe la necesidad de que un admin de tenant cree otros usuarios. El gestor único se aprovisiona por **seed/script** al crear el tenant; no se construye UI de gestión de usuarios, invitaciones ni roles múltiples. El campo `rol` permanece en la tabla `USUARIO` (el modelo es multi-tenant desde el día 1), pero en el MVP todos los usuarios reales tienen `rol = gestor`. La creación de usuarios por un admin de tenant y la administración de plataforma quedan **fuera del alcance del MVP** (post-TFM).
 
 **Convención de layouts de la SPA (implementada en US-000A):** la SPA divide el árbol de rutas en dos ramas independientes. La rama protegida envuelve todas las pantallas autenticadas en el `AppShell` (sidebar 288px + header + `<Outlet/>`), precedida por el guard `RequireAuth` que redirige a `/login` preservando la ruta solicitada y vuelve a ella tras autenticar. La rama de autenticación (`/login`) tiene su propio layout y no hereda el chrome del shell. Esta separación garantiza que ninguna pantalla autenticada futura necesite redefinir navegación; se monta directamente como ruta hija dentro del árbol protegido.
+
+### 2.9 Deuda técnica y decisiones diferidas
+
+Esta sección registra las decisiones tomadas conscientemente como deuda en US-001. Cada entrada lleva el fundamento y el punto de cierre previsto. El responsable de cada deuda técnica es el agente/US que la cierra.
+
+| ID | Deuda / Decisión diferida | Contexto | Cuándo se cierra |
+|---|---|---|---|
+| DT-AUTH-01 | **Refresh stateless — sin revocación real.** El `POST /auth/logout` borra la cookie pero no invalida un refresh token ya emitido. El riesgo se acota por la vida corta (~15 min) del access token. La estrategia stateful (modelo `SesionRefresh` en Prisma, rotación e invalidación por familia de tokens) está diseñada y diferida. | Decisión §2 del change US-001 (`proposal.md`) | US-002+ / sprint auth-completo cuando se necesite logout con invalidación real |
+| DT-AUTH-02 | **Multi-device FA-03 diferido.** Las sesiones en múltiples dispositivos coexisten en silencio; no existe flujo interactivo ("continuar / cerrar sesión anterior"). El flujo completo requiere registro de sesiones activas, que depende de DT-AUTH-01 (refresh stateful). | Decisión §4 del change US-001 (`proposal.md`) | Cuando se adopte el refresh stateful |
+| DT-AUTH-03 | **Throttler en memoria por proceso.** `LoginThrottleGuard` usa un `Map` en memoria del proceso: los contadores no se comparten entre instancias y se reinician al rearrancar el proceso. Aceptado para el MVP de instancia única (Railway). Antes de cualquier despliegue multi-instancia debe migrarse a una solución compartida (Redis, BD o `@nestjs/throttler` con store distribuido). | Decisión §3 del change US-001; nota de escalabilidad del code-review | Antes de despliegue multi-instancia |
+| DT-AUTH-04 | **SDK del frontend genera `.d.ts` en lugar de `.ts`.** La configuración actual de `resolve.extensions` incluye `.d.ts`, lo que hace que el cliente generado sea un archivo de tipos, no un módulo importable directamente. Requiere workaround en el build del frontend. La corrección pasa por ajustar la config de codegen del `contract-engineer`. | Nota de codegen del code-review | Próxima iteración de codegen del `contract-engineer` |
 
 ---
 
@@ -436,4 +462,4 @@ El MVP tiene tres piezas, pero solo dos cuestan: el **frontend SPA** se sirve co
 
 ---
 
-*Documento de arquitectura v3.4, 27/06/2026. Cambios respecto a v3.3: documenta en §2.4 la implementación de US-041 — `liberarFecha()` (UC-31): DELETE serializado + RLS, rows-affected como primitiva exactamente-una-vez, idempotencia (0 filas = éxito silencioso), guarda firme (`reserva_cancelada`), seam `PromocionColaPort` (implementación diferida a US-018), liberación en lote con transacciones independientes y decisión D-7 (sin endpoint HTTP). v3.3 documentó US-040 en §2.4: mapa canónico fase→(tipo,TTL,modo) declarativo, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, errores de dominio tipados en español y decisión D-7. v3.2 cerró la autenticación (JWT access+refresh, §2.8) y los dos niveles de administración. v3.1 separó monorepo de despliegue. v3.0 invirtió el orden y añadió prompts y análisis de coste. v2.0 reclasificó la arquitectura AWS como objetivo de producción.*
+*Documento de arquitectura v3.5, 28/06/2026. Cambios respecto a v3.4: actualiza §2.8 con la implementación real de US-001 (módulo auth hexagonal — domain/application/infrastructure/interface; puertos consolidados en application/; argon2; anti-enumeration 401 genérico uniforme sin auditar fallos; throttler self-contained en memoria 5/60s sin `@nestjs/throttler`; `AuditLogPort` compartido en `shared/audit/`; cookie refresh con atributos condicionales prod/dev); añade §2.9 con la tabla de deuda técnica registrada (DT-AUTH-01 refresh stateless, DT-AUTH-02 multi-device diferido, DT-AUTH-03 throttler por proceso, DT-AUTH-04 codegen .d.ts). v3.4 documentó US-041 en §2.4 (`liberarFecha()`). v3.3 documentó US-040 en §2.4: mapa canónico fase→(tipo,TTL,modo) declarativo, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, errores de dominio tipados en español y decisión D-7. v3.2 cerró el diseño de autenticación (JWT access+refresh, §2.8) y los dos niveles de administración. v3.1 separó monorepo de despliegue. v3.0 invirtió el orden y añadió prompts y análisis de coste. v2.0 reclasificó la arquitectura AWS como objetivo de producción.*

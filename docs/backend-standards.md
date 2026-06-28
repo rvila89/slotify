@@ -238,10 +238,11 @@ throw new ConflictException('La fecha ya está bloqueada');
 | Situación | Código |
 |---|---|
 | Validación de entrada fallida | 400 |
-| No autenticado / token inválido | 401 |
+| No autenticado / token inválido / credenciales incorrectas | 401 |
 | Recurso no encontrado en el tenant | 404 |
 | Fecha ya bloqueada / conflicto de concurrencia | 409 |
 | Transición de estado no permitida / guarda no satisfecha | 422 |
+| Demasiados intentos de login (throttle self-contained, 5/60 s) | 429 |
 
 ## Patrones de base de datos (Prisma)
 
@@ -253,12 +254,17 @@ throw new ConflictException('La fecha ya está bloqueada');
 
 ## Autenticación y autorización
 
-(Ver [architecture.md §2.8](./architecture.md).)
+(Ver [architecture.md §2.8](./architecture.md) para la implementación completa y [architecture.md §2.9](./architecture.md) para la deuda técnica registrada.)
 
-- **JWT access + refresh**. Access token de ~15 min (lo consume el front en memoria); refresh token de ~7 días en cookie httpOnly + Secure + SameSite, solo válido para `/auth/refresh`.
-- `tenant_id` y `rol` van en el payload firmado del access token; el backend los lee en cada petición para RLS y autorización.
-- Estrategias Passport: `local` (login) y `jwt` (validación). Contraseñas con hash bcrypt/argon2.
-- Guards: `JwtAuthGuard` global + `RolesGuard` por rol. En el MVP todos los usuarios son `gestor`.
+- **JWT access + refresh**. Access token de ~15 min (lo consume el front en memoria); refresh token de ~7 días en cookie `httpOnly + Secure + SameSite` (`path: '/api/auth'`), solo válido para `POST /auth/refresh`.
+- `tenant_id` y `rol` van en el payload firmado del access token; el backend los extrae en cada petición para RLS y autorización. **Nunca se toman del path ni del body.**
+- Contraseñas verificadas con **argon2** (coherente con el seed de Prisma). No usar bcrypt en esta implementación.
+- Estrategia Passport: **`jwt`** (validación del access token). El login valida credenciales en `login.use-case.ts` sin estrategia `local` explícita de Passport.
+- Guards: `JwtAuthGuard` global + `RolesGuard` por rol. En el MVP todos los usuarios tienen `rol = gestor`.
+- **Anti-enumeration (OWASP A01):** el dominio lanza `CredencialesInvalidasError` para email inexistente, contraseña incorrecta y `activo=false`; el controlador lo traduce siempre a **401 genérico uniforme** con el mismo body. Los intentos fallidos **no** escriben en `AUDIT_LOG`; solo el login exitoso genera registro `login`.
+- **Protección brute-force — throttler self-contained:** `LoginThrottleGuard` con `Map` en memoria del proceso, clave `IP+email` normalizada, ventana 5 intentos / 60 s → **429** genérico. No usa `@nestjs/throttler` ni Redis (ver DT-AUTH-03 en [architecture.md §2.9](./architecture.md) para la deuda de migración multi-instancia).
+- **Módulo `auth` hexagonal:** `domain/` (entidad `Usuario`), `application/` (casos de uso + puertos, sin NestJS ni Prisma), `infrastructure/` (adaptadores Prisma/argon2/JWT), `interface/` (controlador HTTP + gestión de cookies). Cookie de refresh gestionada íntegramente en la capa `interface`.
+- **`AuditLogPort` compartido:** interfaz pura en `shared/audit/audit-log.port.ts`, reutilizada por `auth` y `reservas` con un único adaptador Prisma genérico. Los módulos pueden estrechar el tipo de registro sin duplicar la interfaz.
 
 ## Procesos asíncronos: cron y barrido
 

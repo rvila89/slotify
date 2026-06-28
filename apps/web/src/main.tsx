@@ -1,32 +1,24 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
+import { SessionProvider } from './auth/session';
 import './index.css';
-
-// QueryClient para estado de servidor (TanStack Query). Configurado aunque
-// todavia no se consuma: las features lo usaran sobre el cliente API generado.
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error('No se encontro el elemento #root en index.html');
 }
 
+// SessionProvider envuelve el router: la sesión vive en memoria (REQ 10) y la
+// navegación tras login la resuelven los hooks dentro del árbol del router.
+// El QueryClientProvider lo aporta <App/> (estado de servidor).
 createRoot(rootElement).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
+    <SessionProvider>
       <BrowserRouter>
         <App />
       </BrowserRouter>
-    </QueryClientProvider>
+    </SessionProvider>
   </StrictMode>,
 );

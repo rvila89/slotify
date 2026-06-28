@@ -99,23 +99,24 @@ Barra superior persistente con elementos de acceso rápido:
 | **Actores Secundarios** | Sistema |
 | **Descripción** | El gestor accede al sistema mediante credenciales válidas para gestionar las reservas del tenant |
 | **Precondiciones** | - El gestor tiene una cuenta activa en el sistema<br>- El tenant está configurado y activo |
-| **Postcondiciones** | - El gestor tiene acceso a las funcionalidades según su rol<br>- Se registra el acceso en audit log |
+| **Postcondiciones** | - El gestor tiene acceso a las funcionalidades según su rol<br>- Se registra el evento `login` en `AUDIT_LOG` (únicamente en login exitoso; los intentos fallidos no se auditan)<br>- El access token JWT (~15 min) queda en memoria de la SPA; el refresh token (~7 días) queda en cookie `httpOnly + Secure + SameSite` |
 | **Prioridad** | Alta |
 | **Frecuencia** | Diaria |
 
 **Flujo Básico:**
 1. El gestor accede a la URL del sistema
 2. El sistema muestra el formulario de login
-3. El gestor introduce email y contraseña
-4. El sistema valida las credenciales
-5. El sistema identifica el tenant asociado al usuario
-6. El sistema redirige al calendario
-7. El sistema registra el acceso en audit log
+3. El gestor introduce email y contraseña (el frontend valida por campo antes de llamar a la API: bloquea si email o contraseña están vacíos o el email tiene formato inválido)
+4. El sistema valida las credenciales contra el hash argon2 del usuario dentro del tenant
+5. El sistema emite un access token JWT de vida corta (~15 min) con `{sub, tenantId, rol, email}` en el payload firmado, y establece el refresh token en cookie `httpOnly + Secure + SameSite`
+6. El sistema registra el evento `login` en `AUDIT_LOG`
+7. La SPA puebla la sesión en memoria y redirige al calendario
 
 **Flujos Alternativos:**
-- **FA-01**: Credenciales inválidas → El sistema muestra mensaje de error y permite reintentar
-- **FA-02**: Cuenta bloqueada → El sistema muestra mensaje y sugiere contactar administrador
-- **FA-03**: Sesión activa en otro dispositivo → El sistema permite continuar o cerrar la otra sesión
+- **FA-01** (anti-enumeration): Credenciales inválidas (email inexistente o contraseña incorrecta) → El sistema devuelve **401 genérico uniforme** con el mismo mensaje en ambos casos, sin revelar qué campo es incorrecto (OWASP A01). No se emite token ni se registra en `AUDIT_LOG`. El gestor puede reintentar.
+- **FA-02**: Cuenta deshabilitada (`activo=false`) → El sistema devuelve el **mismo 401 genérico** que FA-01 (anti-enumeration: la respuesta no distingue esta causa de FA-01). No se emite token ni se registra en `AUDIT_LOG`. La reactivación de la cuenta se hace por script/seed, no por UI.
+- **FA-03** (**DIFERIDO**): Sesión activa en otro dispositivo → Las sesiones en múltiples dispositivos coexisten en silencio. El flujo interactivo (continuar / cerrar la sesión anterior) requiere refresh stateful y está diferido (ver DT-AUTH-02 en [architecture.md §2.9](./architecture.md)).
+- **FA-04**: Demasiados intentos de login → El sistema devuelve **429** (throttler self-contained: ventana de 5 intentos por 60 s, clave IP+email). La respuesta 429 es genérica e independiente de si el email existe.
 
 ---
 
@@ -129,15 +130,14 @@ Barra superior persistente con elementos de acceso rápido:
 | **Actores Secundarios** | Sistema |
 | **Descripción** | El gestor cierra su sesión activa de forma segura |
 | **Precondiciones** | - El gestor tiene una sesión activa |
-| **Postcondiciones** | - La sesión queda invalidada<br>- El gestor es redirigido al login |
+| **Postcondiciones** | - La cookie del refresh token queda limpiada; el access token caduca en ~15 min por su vida corta natural<br>- El gestor es redirigido al login<br>**Nota:** con la estrategia de refresh stateless actual (DT-AUTH-01 en [architecture.md §2.9](./architecture.md)), el logout es best-effort: un refresh token ya emitido no se invalida en BD. La invalidación real queda diferida al sprint que adopte el refresh stateful. |
 | **Prioridad** | Alta |
 | **Frecuencia** | Diaria |
 
 **Flujo Básico:**
 1. El gestor selecciona la opción "Cerrar sesión"
-2. El sistema invalida la sesión activa
+2. El sistema invoca `POST /auth/logout` (204), limpia la cookie del refresh token y elimina el access token de la memoria de la SPA
 3. El sistema redirige a la página de login
-4. El sistema registra el cierre en audit log
 
 ---
 
