@@ -1,7 +1,7 @@
 ---
 id: US-002
-estado: backlog
-branch: null
+estado: done
+branch: feature/us-002-cerrar-sesion
 pr: null
 ---
 
@@ -13,7 +13,7 @@ pr: null
 - Módulo: Transversal (Auth) — plataforma transversal descrita en SlotifyGeneralSpecs §3.1; Auth no pertenece a M1–M12 de negocio sino a la capa transversal de infraestructura.
 - Prioridad: Alta  (heredada de UC-02)
 - Alcance MVP: ✅ Implementado
-- Estado: Borrador
+- Estado: Implementado
 - Owner: PM
 
 ---

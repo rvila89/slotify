@@ -209,6 +209,44 @@ describe('LoginPage — login correcto: mutación + redirect (REQ 10)', () => {
   });
 });
 
+describe('LoginPage — aviso de cierre de sesión degradado (US-002)', () => {
+  const AVISO_DEGRADADO =
+    'No se pudo confirmar el cierre en el servidor, pero tu sesión se ha cerrado en este dispositivo.';
+
+  const renderConAviso = (aviso?: string) => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const entry = aviso
+      ? { pathname: '/login', state: { avisoLogout: aviso } }
+      : '/login';
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <SessionProvider value={{ status: 'unauthenticated' }}>
+          <MemoryRouter initialEntries={[entry]}>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+            </Routes>
+          </MemoryRouter>
+        </SessionProvider>
+      </QueryClientProvider>,
+    );
+  };
+
+  it('debe_mostrar_un_banner_persistente_cuando_llega_el_aviso_en_el_state', () => {
+    renderConAviso(AVISO_DEGRADADO);
+
+    // El aviso, transportado por `useLogout` en el `state` de navegación, se muestra
+    // en `/login` (donde `SidebarContent` ya no existe) de forma accesible.
+    const banner = screen.getByRole('status');
+    expect(banner).toHaveTextContent(/sesión se ha cerrado en este dispositivo/i);
+  });
+
+  it('no_debe_mostrar_el_banner_cuando_no_hay_aviso_en_el_state', () => {
+    renderConAviso();
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
+
 describe('LoginPage — errores de la API (REQ 3 / REQ 8)', () => {
   it('debe_mostrar_un_mensaje_generico_y_permanecer_en_login_ante_credenciales_invalidas', async () => {
     postMock.mockResolvedValue(fallo(401));

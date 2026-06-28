@@ -696,7 +696,7 @@ Log de emails enviados (E1–E8 + manuales).
 | estado | ENUM | borrador, enviado, fallido |
 
 ### 3.17 AUDIT_LOG
-Registro de auditoría de todas las acciones sobre reservas y facturas.
+Registro de auditoría de todas las acciones sobre reservas, facturas y autenticación.
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
@@ -708,6 +708,8 @@ Registro de auditoría de todas las acciones sobre reservas y facturas.
 | accion | ENUM | crear, actualizar, eliminar, transicion, login, logout |
 | datos_anteriores | JSON | Estado anterior |
 | datos_nuevos | JSON | Estado nuevo |
+
+**Registros de autenticación `login` / `logout` (US-001 / US-002):** los eventos de autenticación siguen la convención `entidad = 'Usuario'`, `entidad_id = usuario_id`, con `usuario_id` y `tenant_id` extraídos del token. El registro de `login` se genera en todo login exitoso (los intentos fallidos no se auditan — OWASP anti-enumeration). El registro de `logout` se genera **solo cuando el refresh token identifica a un usuario válido**; un doble logout con token ausente, expirado o inválido responde 200/204 de forma idempotente pero **no produce registro** (no hay usuario identificable). El access token no se revoca activamente y su expiración natural no genera registro de auditoría.
 
 **Registros generados por `liberarFecha()` (UC-31 / US-041):** toda liberación exitosa, tentativa idempotente (0 filas) e intento rechazado de bloqueo firme producen un registro con `accion = 'eliminar'`, `entidad = 'FECHA_BLOQUEADA'` y la causa de la operación (`TTL` / `descarte` / `cancelacion`) en `datos_nuevos`. Esto permite auditar el ciclo completo bloqueo→liberación de cada fecha por tenant.
 
@@ -779,4 +781,4 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 
 ---
 
-*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 2.3 (27/06/2026): refleja US-041 — documenta `liberarFecha()` (UC-31): DELETE serializado con `$executeRaw` + RLS + rows-affected como primitiva exactamente-una-vez, idempotencia (0 filas = éxito silencioso), guarda firme (`reserva_cancelada`), seam `PromocionColaPort` (implementación diferida a US-018), liberación en lote con transacciones independientes, AUDIT_LOG con causa (TTL/descarte/cancelacion), y decisión D-7 (sin endpoint HTTP). Actualiza §3.6, §3.17, §5.2 y §5.3. Versión 2.2 (27/06/2026): refleja US-040 — `reserva_id @unique` en `FECHA_BLOQUEADA`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y decisión de no exponer endpoint HTTP propio (D-7). Versión 2.1: elimina la entidad de recurrencia (fuera del MVP) y desarrolla el modelo de extras (catálogo vs línea, congelación al añadir, extras tardíos vía `origen` y `factura_id`). Versión 2.0: incorpora las decisiones de modelado consensuadas tras el contraste entre especificación funcional, casos de uso y la primera versión del ERD.*
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 2.4 (28/06/2026): refleja US-002 — actualiza §3.17 AUDIT_LOG: descripción ampliada a "reservas, facturas y autenticación"; documenta la convención de registros `login`/`logout` (`entidad = 'Usuario'`, `entidad_id = usuario_id`), la condicionalidad del `logout` (solo cuando el token identifica usuario; doble logout silencioso) y la no-revocación activa del access token. Versión 2.3 (27/06/2026): refleja US-041 — documenta `liberarFecha()` (UC-31): DELETE serializado con `$executeRaw` + RLS + rows-affected como primitiva exactamente-una-vez, idempotencia (0 filas = éxito silencioso), guarda firme (`reserva_cancelada`), seam `PromocionColaPort` (implementación diferida a US-018), liberación en lote con transacciones independientes, AUDIT_LOG con causa (TTL/descarte/cancelacion), y decisión D-7 (sin endpoint HTTP). Actualiza §3.6, §3.17, §5.2 y §5.3. Versión 2.2 (27/06/2026): refleja US-040 — `reserva_id @unique` en `FECHA_BLOQUEADA`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y decisión de no exponer endpoint HTTP propio (D-7). Versión 2.1: elimina la entidad de recurrencia (fuera del MVP) y desarrolla el modelo de extras (catálogo vs línea, congelación al añadir, extras tardíos vía `origen` y `factura_id`). Versión 2.0: incorpora las decisiones de modelado consensuadas tras el contraste entre especificación funcional, casos de uso y la primera versión del ERD.*

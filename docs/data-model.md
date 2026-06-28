@@ -396,7 +396,7 @@ Log de emails enviados (E1–E8 + manuales).
 | `fecha_creacion` | `DateTime @default(now())` | |
 
 ### 3.17 AuditLog
-Registro de auditoría de las acciones sobre reservas, facturas y bloqueos de fecha.
+Registro de auditoría de las acciones sobre reservas, facturas, bloqueos de fecha y autenticación.
 
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
@@ -411,6 +411,8 @@ Registro de auditoría de las acciones sobre reservas, facturas y bloqueos de fe
 | `ip_address` | `String?` | |
 | `user_agent` | `String?` | |
 | `fecha_creacion` | `DateTime @default(now())` | |
+
+**Registros de autenticación `login` / `logout` (US-001 / US-002):** convención `entidad = 'Usuario'`, `entidad_id = usuario_id`; `usuario_id` y `tenant_id` proceden del payload del token. El `login` se registra en todo login exitoso (intentos fallidos no se auditan). El `logout` se registra **solo cuando el refresh token identifica a un usuario**; un segundo logout con token ausente/expirado/inválido no genera registro (`usuario_id` sería nulo y el comportamiento es idempotente silencioso). Ver [er-diagram.md §3.17](./er-diagram.md) para la descripción completa del enum `AccionAudit`.
 
 **Uso por `liberarFecha()` (UC-31 / US-041):** produce registros con `accion = 'eliminar'`, `entidad = 'FECHA_BLOQUEADA'` en tres escenarios: liberación exitosa (causa: `TTL`/`descarte`/`cancelacion` en `datos_nuevos`), tentativa idempotente (`rows = 0`, causa en `datos_nuevos`) e intento rechazado de bloqueo firme (error `LIBERACION_FIRME_SIN_CANCELACION`, `usuario_id` del solicitante si aplica).
 
@@ -461,4 +463,4 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 
 ---
 
-*Documento de modelo de datos v1.2 (27/06/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v2.3. Cualquier cambio en el modelo debe actualizarse en ambos documentos y en `schema.prisma`. v1.2: refleja US-041 — `liberarFecha()` (UC-31): error `LIBERACION_FIRME_SIN_CANCELACION`, semántica rows-affected, seam `PromocionColaPort` (diferido a US-018), sin endpoint HTTP (D-7), y registros de auditoría con causa en `AuditLog`. v1.1: refleja US-040 — `reserva_id @unique` en `FechaBloqueada`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y errores de dominio de `bloquearFecha()`.*
+*Documento de modelo de datos v1.3 (28/06/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v2.4. Cualquier cambio en el modelo debe actualizarse en ambos documentos y en `schema.prisma`. v1.3: refleja US-002 — actualiza §3.17 AuditLog: descripción ampliada a "autenticación"; documenta convención `login`/`logout` (`entidad = 'Usuario'`, `entidad_id = usuario_id`) y la condicionalidad del registro de `logout` (solo cuando el token identifica usuario). v1.2: refleja US-041 — `liberarFecha()` (UC-31): error `LIBERACION_FIRME_SIN_CANCELACION`, semántica rows-affected, seam `PromocionColaPort` (diferido a US-018), sin endpoint HTTP (D-7), y registros de auditoría con causa en `AuditLog`. v1.1: refleja US-040 — `reserva_id @unique` en `FechaBloqueada`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y errores de dominio de `bloquearFecha()`.*
