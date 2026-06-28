@@ -10,6 +10,8 @@ import { PrismaService } from '../shared/prisma/prisma.service';
 import { ComunicacionesModule } from '../comunicaciones/comunicaciones.module';
 import { ENVIAR_EMAIL_PORT } from '../comunicaciones/comunicaciones.tokens';
 import type { EnviarEmailPort } from '../comunicaciones/domain/enviar-email.port';
+import { TarifasModule } from '../tarifas/tarifas.module';
+import { CalculadoraTarifaService } from '../tarifas/domain/calculadora-tarifa.service';
 import {
   BloquearFechaService,
   ClockPort,
@@ -18,9 +20,11 @@ import {
 } from './domain/bloquear-fecha.service';
 import {
   AltaConsultaUseCase,
+  type TarifaEstimadaPort,
   type UnidadDeTrabajoPort,
 } from './application/alta-consulta.use-case';
 import { UnidadDeTrabajoPrismaAdapter } from './infrastructure/unidad-de-trabajo.prisma.adapter';
+import { TarifaEstimadaAdapter } from './infrastructure/tarifa-estimada.adapter';
 import { AltaConsultaController } from './interface/alta-consulta.controller';
 import {
   AuditLogPort,
@@ -47,12 +51,13 @@ import {
   FECHA_BLOQUEADA_REPOSITORY_PORT,
   PROMOCION_COLA_PORT,
   RESERVA_ESTADO_PORT,
+  TARIFA_ESTIMADA_PORT,
   TENANT_SETTINGS_PORT,
   UNIDAD_DE_TRABAJO_PORT,
 } from './reservas.tokens';
 
 @Module({
-  imports: [PrismaModule, ComunicacionesModule],
+  imports: [PrismaModule, ComunicacionesModule, TarifasModule],
   controllers: [AltaConsultaController],
   providers: [
     {
@@ -61,13 +66,34 @@ import {
       useFactory: (prisma: PrismaService) => new UnidadDeTrabajoPrismaAdapter(prisma),
     },
     {
+      provide: TARIFA_ESTIMADA_PORT,
+      inject: [CalculadoraTarifaService],
+      useFactory: (calculadora: CalculadoraTarifaService) =>
+        new TarifaEstimadaAdapter(calculadora),
+    },
+    {
       provide: AltaConsultaUseCase,
-      inject: [UNIDAD_DE_TRABAJO_PORT, ENVIAR_EMAIL_PORT, CLOCK_PORT],
+      inject: [
+        UNIDAD_DE_TRABAJO_PORT,
+        ENVIAR_EMAIL_PORT,
+        CLOCK_PORT,
+        TARIFA_ESTIMADA_PORT,
+        TENANT_SETTINGS_PORT,
+      ],
       useFactory: (
         unidadDeTrabajo: UnidadDeTrabajoPort,
         enviarEmail: EnviarEmailPort,
         clock: ClockPort,
-      ) => new AltaConsultaUseCase({ unidadDeTrabajo, enviarEmail, clock }),
+        tarifaEstimada: TarifaEstimadaPort,
+        tenantSettings: TenantSettingsPort,
+      ) =>
+        new AltaConsultaUseCase({
+          unidadDeTrabajo,
+          enviarEmail,
+          clock,
+          tarifaEstimada,
+          tenantSettings,
+        }),
     },
     {
       provide: FECHA_BLOQUEADA_REPOSITORY_PORT,

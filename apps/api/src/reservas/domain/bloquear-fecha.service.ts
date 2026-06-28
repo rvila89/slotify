@@ -223,6 +223,20 @@ const sumarDias = (base: Date, dias: number): Date =>
 const inicioDiaUtc = (d: Date): number =>
   Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 
+/**
+ * Regla ÚNICA de "fecha válida" del proyecto (US-040, reutilizada por el alta con
+ * fecha de US-004 §D-1): la fecha debe ser ESTRICTAMENTE FUTURA (día natural en
+ * UTC), rechazando tanto el pasado como el mismo día. Función pura: el invocante
+ * inyecta `ahora` (determinismo). El bloqueo (US-040) y el alta (US-004) enrutan
+ * por esta misma regla, coherente con el motor de tarifa (US-016).
+ */
+export const esFechaEstrictamenteFutura = (fecha: Date, ahora: Date): boolean => {
+  if (!(fecha instanceof Date) || Number.isNaN(fecha.getTime())) {
+    return false;
+  }
+  return inicioDiaUtc(fecha) > inicioDiaUtc(ahora);
+};
+
 export interface ResolverPlanBloqueoInput {
   fase: FaseBloqueo;
   ahora: Date;
@@ -327,8 +341,9 @@ export class BloquearFechaService {
     if (!(fecha instanceof Date) || Number.isNaN(fecha.getTime())) {
       throw new ValidacionBloqueoError('La fecha del bloqueo es obligatoria y válida');
     }
-    // La fecha debe ser estrictamente futura: no se admite el mismo día.
-    if (inicioDiaUtc(fecha) <= inicioDiaUtc(this.deps.clock.ahora())) {
+    // La fecha debe ser estrictamente futura: no se admite el mismo día. Regla
+    // única del proyecto (reutilizada por US-004 §D-1 vía `esFechaEstrictamenteFutura`).
+    if (!esFechaEstrictamenteFutura(fecha, this.deps.clock.ahora())) {
       throw new FechaEnPasadoError(fecha);
     }
   }

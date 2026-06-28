@@ -3,43 +3,61 @@ import { useForm, type UseFormSetError } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, ChevronDown, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Calendar,
+  CalendarCheck,
+  CalendarX,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  X,
+} from 'lucide-react';
 import { apiClient, type components } from '@/api-client';
 import { cn } from '@/lib/utils';
 
 /**
- * Alta de consulta exploratoria sin fecha (US-003 · UC-03).
+ * Alta de consulta (US-003 · UC-03) extendida con fecha de evento (US-004 · UC-03).
  *
  * Diseño: archivo Figma "Slotify" (`rBCYMkAoQQRVnWhOxXatio`). NO existe un frame
  * propio de "Nueva consulta" ni versión móvil; se ADAPTA el lenguaje visual del
- * frame `0:382` "Nueva Reserva" (mapeado a US-014): tarjeta blanca con borde y
- * sombra suave (`shadow rgba(141,77,57,0.05)`), secciones numeradas sobre fondo
- * `surface-subtle/30`, inputs `bg-canvas` con borde `border-default/30` y toggles
- * de duración en `state-confirmada`. Tokens de `index.css`/`tailwind.config.ts`
- * (NO hex sueltos salvo el `#5b2615` del texto sobre terracota, que ya usa el
- * login). Tipografía Epilogue (display) + Manrope (body).
+ * frame `0:382` "Nueva Reserva" (mapeado a US-014). Para US-004 se CONSUME además el
+ * campo "Fecha (Opcional)" de ese mismo frame (`0:458`–`0:473`): input
+ * `bg-canvas` + borde `border-default/30` + `rounded-[12px]` con icono de calendario
+ * a la derecha, label Manrope Medium 12px `text-secondary` tracking `0.48px`
+ * (idéntico a `claseInput`/`claseLabel`). Tokens de `index.css`/`tailwind.config.ts`
+ * (no hex sueltos salvo el `#5b2615` del texto sobre terracota, que ya usa el login).
+ * Tipografía Epilogue (display) + Manrope (body).
  *
- * Adaptaciones a US-003 frente al frame de referencia:
- *  - Se SEPARA "Nombre Completo" en `nombre` + `apellidos` (ambos obligatorios
- *    por contrato `CreateClienteRequest`).
- *  - Se OMITE el campo "Fecha": esta US es la consulta exploratoria SIN fecha
- *    (sub-estado 2.a). Con fecha el alta nace en 2.b (US-004/005), fuera de
- *    alcance.
- *  - Mobile-first: una columna en móvil, dos en `sm:`; paddings reducidos; sin
- *    overflow horizontal; objetivos táctiles ≥ 48px. El chrome (sidebar→drawer)
- *    lo aporta el AppShell.
+ * Adaptaciones a US-004 frente al frame de referencia:
+ *  - Selector de fecha con `<input type="date">` nativo (picker táctil en móvil,
+ *    accesible). El icono nativo se hace transparente y se superpone el icono
+ *    `Calendar` de lucide para respetar el tratamiento del frame.
+ *  - **Bloqueo de fechas pasadas Y de hoy**: `min` = mañana en el picker y, como
+ *    red de seguridad ante bypass, el schema Zod exige `fecha > hoy` (estrictamente
+ *    futura), coherente con la regla del servidor `validarFechaFutura` (Gate 1 · D-1).
+ *  - Sin fecha → flujo US-003 (sub-estado 2.a exploratoria) intacto.
+ *  - Mobile-first: una columna en móvil, dos en `sm:`; paddings reducidos
+ *    (`p-4 sm:p-6 lg:p-10`); sin overflow horizontal; objetivos táctiles ≥ 48px. El
+ *    chrome (sidebar→drawer) lo aporta el AppShell.
  *
- * Comportamiento E1 (clave de la US): si el gestor rellena `comentarios`, tras
- * crear la consulta la UI ALERTA de un borrador E1 pendiente de revisar (el
- * email NO se envía). Sin comentarios, el E1 se auto-envía y se informa de ello.
- * El SDK generado (`apiClient.POST('/reservas')`) es la única vía a la API; los
- * errores 400 por campo se mapean a los campos del formulario en español.
+ * Comportamiento según la respuesta del SDK generado (`apiClient.POST('/reservas')`,
+ * única vía a la API):
+ *  - `subEstado = 2b` (fecha libre): confirmación de alta + fecha bloqueada (bloqueo
+ *    blando) con su `ttlExpiracion`; se indica la tarifa estimada de E1 si viaja.
+ *  - `subEstado = 2d` (fecha ocupada por otra consulta): aviso de cola con
+ *    `posicionCola`.
+ *  - `subEstado = 2a` con `fechaDisponible = false`: aviso de fecha no disponible
+ *    (`avisoDisponibilidad`); la consulta queda como exploratoria.
+ *  - E1 borrador: si el gestor rellena `comentarios`, la comunicación E1 queda en
+ *    borrador (no se envía) y la UI lo alerta; sin comentarios, E1 se auto-envía.
+ * Los errores 400 por campo se mapean a los campos del formulario en español.
  */
 type CreateReservaRequest = components['schemas']['CreateReservaRequest'];
+type CreateReservaResponse = components['schemas']['CreateReservaResponse'];
 type CanalEntrada = components['schemas']['CanalEntrada'];
 type TipoEvento = components['schemas']['TipoEvento'];
 type DuracionHoras = components['schemas']['DuracionHoras'];
-type Reserva = components['schemas']['Reserva'];
 type ErrorResponse = components['schemas']['ErrorResponse'];
 
 const CANALES: { value: CanalEntrada; label: string }[] = [
@@ -64,6 +82,32 @@ const CANAL_VALUES = CANALES.map((c) => c.value) as CanalEntrada[];
 // RFC 5322 básico, alineado al `pattern` del contrato (local@dominio.tld).
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
+// Las fechas en formato YYYY-MM-DD comparan lexicográficamente == cronológicamente,
+// lo que evita problemas de zona horaria al validar "estrictamente futura".
+const aISODate = (d: Date): string => {
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mes}-${dia}`;
+};
+
+const hoyISO = (): string => aISODate(new Date());
+
+const mananaISO = (): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return aISODate(d);
+};
+
+const formatearFecha = (iso: string): string =>
+  new Date(`${iso}T00:00:00`).toLocaleDateString('es-ES', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+const formatearFechaHora = (iso: string): string =>
+  new Date(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+
 const esquema = z.object({
   nombre: z
     .string()
@@ -87,6 +131,13 @@ const esquema = z.object({
     .refine((v) => CANAL_VALUES.includes(v as CanalEntrada), {
       message: 'Selecciona un canal de entrada',
     }),
+  // Opcional: vacía → consulta exploratoria (2.a). Si se indica, debe ser
+  // estrictamente futura (> hoy), coherente con el servidor (rechaza hoy y pasado).
+  fechaEvento: z
+    .string()
+    .refine((v) => v === '' || v > hoyISO(), {
+      message: 'La fecha del evento debe ser posterior a hoy',
+    }),
   invitados: z
     .string()
     .trim()
@@ -104,15 +155,25 @@ const valoresIniciales: FormularioConsulta = {
   email: '',
   telefono: '',
   canalEntrada: '',
+  fechaEvento: '',
   invitados: '',
   duracionHoras: '',
   tipoEvento: '',
   comentarios: '',
 };
 
-type VariablesAlta = { body: CreateReservaRequest; tieneComentarios: boolean };
+type VariablesAlta = {
+  body: CreateReservaRequest;
+  tieneComentarios: boolean;
+  fechaEnviada: string;
+};
 type ErrorAlta = { status?: number; body?: ErrorResponse };
-type ResultadoAlta = { reserva: Reserva; tieneComentarios: boolean };
+type ResultadoAlta = {
+  reserva: CreateReservaResponse;
+  tieneComentarios: boolean;
+  conFecha: boolean;
+  fechaEnviada: string;
+};
 
 /**
  * Mapea los mensajes de validación del backend (400, formato NestJS: `message`
@@ -136,6 +197,8 @@ const aplicarErroresDeCampo = (
       setError('telefono', { message: mensaje });
     } else if (m.includes('canal')) {
       setError('canalEntrada', { message: mensaje });
+    } else if (m.includes('fecha')) {
+      setError('fechaEvento', { message: mensaje });
     } else {
       continue;
     }
@@ -192,6 +255,9 @@ const SeccionHeader = ({ numero, titulo }: { numero: number; titulo: string }) =
 const claseSeccion =
   'flex flex-col gap-6 rounded-[20px] border border-border-default/20 bg-surface-subtle/30 p-4 sm:p-6 lg:p-10';
 
+const claseAviso = 'flex items-start gap-3 rounded-[16px] border p-4';
+const claseCerrar = 'rounded-full p-1 transition';
+
 export const NuevaConsultaPage = () => {
   const [errorApi, setErrorApi] = useState<string | null>(null);
   const [resultado, setResultado] = useState<ResultadoAlta | null>(null);
@@ -212,6 +278,7 @@ export const NuevaConsultaPage = () => {
   const canalSeleccionado = watch('canalEntrada');
   const tipoSeleccionado = watch('tipoEvento');
   const duracionSeleccionada = watch('duracionHoras');
+  const fechaSeleccionada = watch('fechaEvento');
 
   const mutation = useMutation({
     mutationFn: async ({ body }: VariablesAlta) => {
@@ -223,7 +290,12 @@ export const NuevaConsultaPage = () => {
     },
     onSuccess: (reserva, variables) => {
       setErrorApi(null);
-      setResultado({ reserva, tieneComentarios: variables.tieneComentarios });
+      setResultado({
+        reserva,
+        tieneComentarios: variables.tieneComentarios,
+        conFecha: variables.fechaEnviada !== '',
+        fechaEnviada: variables.fechaEnviada,
+      });
       reset(valoresIniciales);
       if (typeof window !== 'undefined') {
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -246,6 +318,7 @@ export const NuevaConsultaPage = () => {
     setResultado(null);
 
     const comentarios = valores.comentarios.trim();
+    const fechaEvento = valores.fechaEvento.trim();
     const body: CreateReservaRequest = {
       canalEntrada: valores.canalEntrada as CanalEntrada,
       cliente: {
@@ -254,6 +327,7 @@ export const NuevaConsultaPage = () => {
         email: valores.email.trim(),
         telefono: valores.telefono.trim(),
       },
+      ...(fechaEvento ? { fechaEvento } : {}),
       ...(comentarios ? { comentarios } : {}),
       ...(valores.tipoEvento ? { tipoEvento: valores.tipoEvento as TipoEvento } : {}),
       ...(valores.duracionHoras
@@ -262,8 +336,11 @@ export const NuevaConsultaPage = () => {
       ...(valores.invitados ? { numAdultosNinosMayores4: Number(valores.invitados) } : {}),
     };
 
-    mutation.mutate({ body, tieneComentarios: Boolean(comentarios) });
+    mutation.mutate({ body, tieneComentarios: Boolean(comentarios), fechaEnviada: fechaEvento });
   });
+
+  const reserva = resultado?.reserva;
+  const tarifaTotal = reserva?.tarifaEstimada?.totalEur;
 
   return (
     <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-6">
@@ -272,21 +349,119 @@ export const NuevaConsultaPage = () => {
           Nueva consulta
         </h1>
         <p className="font-body text-sm text-text-secondary sm:text-base">
-          Registra un lead exploratorio sin fecha de evento. Podrás asignarle una fecha más adelante.
+          Registra un lead. Indica una fecha de evento para intentar reservarla, o déjala vacía para
+          una consulta exploratoria sin fecha.
         </p>
       </header>
 
-      {/* Feedback de éxito: la diferencia E1 enviado vs E1 borrador (REQ clave US-003). */}
-      {resultado?.tieneComentarios && (
+      {/* Aviso del resultado de la fecha (solo cuando se envió fecha): 2b / 2d / 2a. */}
+      {resultado?.conFecha && reserva?.subEstado === '2b' && (
+        <div
+          role="status"
+          data-testid="alerta-fecha-bloqueada"
+          className={cn(claseAviso, 'border-emerald-200 bg-emerald-50 text-emerald-900')}
+        >
+          <CalendarCheck aria-hidden className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+          <div className="flex-1">
+            <p className="font-body text-sm font-bold">
+              Consulta {reserva.codigo} creada — fecha reservada
+            </p>
+            <p className="font-body text-sm">
+              La fecha <strong>{formatearFecha(resultado.fechaEnviada)}</strong> ha quedado{' '}
+              <strong>bloqueada</strong> (bloqueo blando)
+              {reserva.ttlExpiracion
+                ? ` hasta el ${formatearFechaHora(reserva.ttlExpiracion)}`
+                : ''}
+              . Confírmala antes de que expire para no perder la reserva.
+            </p>
+            {typeof tarifaTotal === 'number' && (
+              <p className="mt-1 font-body text-sm" data-testid="tarifa-estimada-importe">
+                Se ha incluido una tarifa estimada de{' '}
+                <strong>{tarifaTotal.toLocaleString('es-ES')} €</strong> en el email E1.
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            aria-label="Cerrar aviso"
+            onClick={() => setResultado(null)}
+            className={cn(claseCerrar, 'text-emerald-700 hover:bg-emerald-100')}
+          >
+            <X aria-hidden className="size-4" />
+          </button>
+        </div>
+      )}
+
+      {resultado?.conFecha && reserva?.subEstado === '2d' && (
+        <div
+          role="status"
+          data-testid="alerta-cola"
+          className={cn(claseAviso, 'border-amber-200 bg-amber-50 text-amber-900')}
+        >
+          <Clock aria-hidden className="mt-0.5 size-5 shrink-0 text-amber-600" />
+          <div className="flex-1">
+            <p className="font-body text-sm font-bold">
+              Consulta {reserva.codigo} en cola de espera
+            </p>
+            <p className="font-body text-sm">
+              La fecha <strong>{formatearFecha(resultado.fechaEnviada)}</strong> ya está ocupada por
+              otra consulta. Tu consulta ha entrado en la cola en la{' '}
+              <strong>posición {reserva.posicionCola}</strong>. Te avisaremos si la fecha se libera.
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Cerrar aviso"
+            onClick={() => setResultado(null)}
+            className={cn(claseCerrar, 'text-amber-700 hover:bg-amber-100')}
+          >
+            <X aria-hidden className="size-4" />
+          </button>
+        </div>
+      )}
+
+      {resultado?.conFecha && reserva?.subEstado === '2a' && (
+        <div
+          role="status"
+          data-testid="alerta-fecha-no-disponible"
+          className={cn(claseAviso, 'border-border-default bg-surface-muted text-text-primary')}
+        >
+          <CalendarX aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
+          <div className="flex-1">
+            <p className="font-body text-sm font-bold">
+              Consulta {reserva.codigo} creada como exploratoria
+            </p>
+            <p className="font-body text-sm text-text-secondary">
+              {reserva.avisoDisponibilidad ??
+                `La fecha ${formatearFecha(resultado.fechaEnviada)} no está disponible.`}{' '}
+              Hemos registrado la consulta sin fecha asignada; podrás proponer otra fecha más
+              adelante.
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Cerrar aviso"
+            onClick={() => setResultado(null)}
+            className={cn(claseCerrar, 'text-text-secondary hover:bg-surface-subtle')}
+          >
+            <X aria-hidden className="size-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Estado de la comunicación E1: borrador (con comentarios) vs auto-enviado. */}
+      {resultado?.tieneComentarios && reserva && (
         <div
           role="alert"
           data-testid="alerta-e1-borrador"
-          className="flex items-start gap-3 rounded-[16px] border border-amber-200 bg-amber-50 p-4 text-amber-900"
+          className={cn(claseAviso, 'border-amber-200 bg-amber-50 text-amber-900')}
         >
           <AlertTriangle aria-hidden className="mt-0.5 size-5 shrink-0 text-amber-600" />
           <div className="flex-1">
             <p className="font-body text-sm font-bold">
-              Consulta {resultado.reserva.codigo} creada — borrador E1 pendiente
+              {resultado.conFecha
+                ? 'Borrador E1 pendiente de revisar'
+                : `Consulta ${reserva.codigo} creada — borrador E1 pendiente`}
             </p>
             <p className="font-body text-sm">
               Como has añadido comentarios, el email de respuesta inicial (E1) ha quedado en{' '}
@@ -298,23 +473,25 @@ export const NuevaConsultaPage = () => {
             type="button"
             aria-label="Cerrar aviso"
             onClick={() => setResultado(null)}
-            className="rounded-full p-1 text-amber-700 transition hover:bg-amber-100"
+            className={cn(claseCerrar, 'text-amber-700 hover:bg-amber-100')}
           >
             <X aria-hidden className="size-4" />
           </button>
         </div>
       )}
 
-      {resultado && !resultado.tieneComentarios && (
+      {resultado && !resultado.tieneComentarios && reserva && (
         <div
           role="status"
           data-testid="alerta-e1-enviado"
-          className="flex items-start gap-3 rounded-[16px] border border-emerald-200 bg-emerald-50 p-4 text-emerald-900"
+          className={cn(claseAviso, 'border-emerald-200 bg-emerald-50 text-emerald-900')}
         >
           <CheckCircle2 aria-hidden className="mt-0.5 size-5 shrink-0 text-emerald-600" />
           <div className="flex-1">
             <p className="font-body text-sm font-bold">
-              Consulta {resultado.reserva.codigo} creada
+              {resultado.conFecha
+                ? 'Email E1 enviado automáticamente'
+                : `Consulta ${reserva.codigo} creada`}
             </p>
             <p className="font-body text-sm">
               El email de respuesta inicial (E1) se ha <strong>enviado automáticamente</strong> al
@@ -325,7 +502,7 @@ export const NuevaConsultaPage = () => {
             type="button"
             aria-label="Cerrar aviso"
             onClick={() => setResultado(null)}
-            className="rounded-full p-1 text-emerald-700 transition hover:bg-emerald-100"
+            className={cn(claseCerrar, 'text-emerald-700 hover:bg-emerald-100')}
           >
             <X aria-hidden className="size-4" />
           </button>
@@ -440,12 +617,42 @@ export const NuevaConsultaPage = () => {
           </div>
         </section>
 
-        {/* Sección 2 — Detalles del evento (opcionales; sin fecha en la 2.a). */}
+        {/* Sección 2 — Detalles del evento (opcionales; fecha opcional en US-004). */}
         <section className={claseSeccion} aria-labelledby="seccion-evento">
           <div id="seccion-evento">
             <SeccionHeader numero={2} titulo="Detalles del evento" />
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
+            <Campo
+              id="fechaEvento"
+              label="Fecha del evento"
+              opcional
+              error={errors.fechaEvento?.message}
+            >
+              <div className="relative">
+                <input
+                  id="fechaEvento"
+                  type="date"
+                  min={mananaISO()}
+                  aria-invalid={errors.fechaEvento ? 'true' : undefined}
+                  aria-describedby={
+                    errors.fechaEvento ? 'fechaEvento-error' : 'fechaEvento-hint'
+                  }
+                  {...register('fechaEvento')}
+                  className={cn(
+                    claseInput,
+                    'appearance-none pr-12 [color-scheme:light]',
+                    '[&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:right-0 [&::-webkit-calendar-picker-indicator]:top-0 [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:w-12 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0',
+                    !fechaSeleccionada && 'text-text-secondary/60',
+                  )}
+                />
+                <Calendar
+                  aria-hidden
+                  className="pointer-events-none absolute right-4 top-1/2 size-5 -translate-y-1/2 text-text-secondary"
+                />
+              </div>
+            </Campo>
+
             <Campo id="invitados" label="Invitados" opcional error={errors.invitados?.message}>
               <input
                 id="invitados"
@@ -459,7 +666,7 @@ export const NuevaConsultaPage = () => {
               />
             </Campo>
 
-            <Campo id="tipoEvento" label="Tipo de evento" opcional>
+            <Campo id="tipoEvento" label="Tipo de evento" opcional className="sm:col-span-2">
               <div className="relative">
                 <select
                   id="tipoEvento"
@@ -483,6 +690,11 @@ export const NuevaConsultaPage = () => {
                 />
               </div>
             </Campo>
+
+            <p id="fechaEvento-hint" className="px-1 font-body text-[13px] text-text-muted sm:col-span-2">
+              Solo se admiten fechas posteriores a hoy. Déjala vacía para crear una consulta
+              exploratoria sin fecha asignada.
+            </p>
 
             <div className="flex flex-col gap-2 sm:col-span-2">
               <span className={claseLabel}>

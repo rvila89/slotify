@@ -1,8 +1,8 @@
 ---
 id: US-004
-estado: backlog
-branch: null
-pr: null
+estado: done
+branch: feature/us-004-alta-consulta-con-fecha
+pr: https://github.com/rvila89/slotify/pull/21
 ---
 
 # 🧾 Historia de Usuario: Alta de consulta con fecha de evento disponible

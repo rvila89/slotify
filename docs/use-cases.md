@@ -175,7 +175,7 @@ Barra superior persistente con elementos de acceso rápido:
    - Teléfono
    - Canal de entrada
 3. Opcionalmente, el gestor introduce:
-   - Fecha del evento (≥ hoy)
+   - Fecha del evento (**> hoy**, estrictamente futura; el selector de UI bloquea hoy y fechas pasadas, `min = mañana`)
    - Nº aproximado de invitados
    - Horas de evento (4/8/12)
    - Comentarios/notas adicionales
@@ -194,7 +194,7 @@ Barra superior persistente con elementos de acceso rápido:
 10. El sistema registra la acción en audit log
 
 **Flujos Alternativos:**
-- **FA-01**: Fecha pasada introducida → Sistema bloquea en UI (selector no permite fechas < hoy)
+- **FA-01**: Fecha pasada **o fecha = hoy** introducida → Sistema bloquea en UI (selector solo permite fechas estrictamente futuras, `min = mañana`); bypass del lado servidor devuelve **400** sin crear `RESERVA` ni `FECHA_BLOQUEADA`. **Divergencia intencional (Gate 1, decisión A):** la ficha US-004 admitía `≥ hoy`; implementado `> hoy` para unificar la regla con `validarFechaFutura` (US-040) y el motor de tarifa (US-016). Fuente: `design.md §D-1`.
 - **FA-02**: Email ya existe con reserva activa → Sistema alerta al gestor (detección recurrente - solo diseñado, no implementado en MVP)
 - **FA-03**: Datos incompletos → Sistema muestra errores de validación
 
@@ -228,7 +228,7 @@ flowchart TD
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
 | **Descripción** | Cuando un cliente en estado exploratorio indica una fecha concreta disponible, la consulta pasa a bloquear esa fecha |
-| **Precondiciones** | - Consulta en sub-estado 2.a<br>- Fecha solicitada ≥ hoy<br>- Fecha disponible (no bloqueada por otra consulta/reserva) |
+| **Precondiciones** | - Consulta en sub-estado 2.a<br>- Fecha solicitada **> hoy** (estrictamente futura; `validarFechaFutura` de `bloquearFecha()` rechaza hoy y pasado)<br>- Fecha disponible (no bloqueada por otra consulta/reserva) |
 | **Postcondiciones** | - Consulta pasa a sub-estado 2.b<br>- Fecha bloqueada por 3 días<br>- TTL de expiración programado<br>- Email enviado al cliente |
 | **Prioridad** | Alta |
 | **Frecuencia** | Alta |
@@ -1701,4 +1701,4 @@ Este análisis ha identificado **36 casos de uso** que cubren completamente la f
 
 ---
 
-*Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify.*
+*Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.1 (28/06/2026): refleja US-004 — alta de consulta con fecha (UC-03): actualiza §3 UC-03 — flujo básico paso 3 (`fecha_evento > hoy`, estrictamente futura) y FA-01 (rechaza hoy y pasado con 400 en servidor; divergencia intencional Gate 1 decisión A; trazabilidad a `design.md §D-1`). Corrección transversal: UC-04 precondiciones alineadas con la regla real de `bloquearFecha()` / `validarFechaFutura` (`> hoy`; inconsistencia preexistente respecto a la ficha original).*
