@@ -2,7 +2,7 @@
 id: US-003
 estado: done
 branch: feature/us-003-alta-consulta-exploratoria
-pr: null
+pr: https://github.com/rvila89/slotify/pull/20
 ---
 
 # 🧾 Historia de Usuario: Alta de consulta exploratoria sin fecha de evento
