@@ -79,13 +79,13 @@ describe('UnidadDeTrabajoPrismaAdapter — retry-on-conflict del codigo (MAYOR #
 
   it('debe_propagar_el_P2002_del_codigo_tras_agotar_los_reintentos_red_de_seguridad', async () => {
     // Todos los intentos colisionan: el UNIQUE actúa de red de seguridad y el
-    // P2002 final se propaga (el filtro global lo mapeará a 409).
-    const prisma = crearPrismaFake([
-      p2002Codigo(),
-      p2002Codigo(),
-      p2002Codigo(),
-      p2002Codigo(),
-    ]);
+    // P2002 final se propaga (el filtro global lo mapeará a 409). El presupuesto de
+    // reintentos se amplió en US-004 (`MAX_INTENTOS_TRANSACCION`) para cubrir también
+    // las colisiones de la fecha bloqueada y de la posición de cola.
+    const MAX_INTENTOS_TRANSACCION = 12;
+    const prisma = crearPrismaFake(
+      Array.from({ length: MAX_INTENTOS_TRANSACCION }, () => p2002Codigo()),
+    );
     const adapter = new UnidadDeTrabajoPrismaAdapter(prisma);
 
     const error = await adapter
@@ -94,7 +94,7 @@ describe('UnidadDeTrabajoPrismaAdapter — retry-on-conflict del codigo (MAYOR #
 
     expect(error).toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
     expect((error as Prisma.PrismaClientKnownRequestError).code).toBe('P2002');
-    expect(prisma.$transaction).toHaveBeenCalledTimes(3); // MAX_INTENTOS_CODIGO
+    expect(prisma.$transaction).toHaveBeenCalledTimes(MAX_INTENTOS_TRANSACCION);
   });
 
   it('NO_debe_reintentar_ante_un_P2002_ajeno_al_codigo_se_propaga_de_inmediato', async () => {

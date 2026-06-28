@@ -58,11 +58,16 @@ interface EntradaInicial {
 }
 
 /**
- * Tabla declarativa de entradas iniciales VÁLIDAS del agregado RESERVA. Hoy solo
- * la consulta exploratoria (2.a) sin TTL. Ampliable por las US siguientes.
+ * Tabla declarativa de entradas iniciales VÁLIDAS del agregado RESERVA. Además de
+ * la consulta exploratoria (2.a) sin TTL (US-003), el alta CON FECHA (US-004) añade
+ * dos entradas iniciales: la consulta con fecha que bloquea (2.b) y la que entra en
+ * cola (2.d). El TTL concreto de 2.b lo calcula la aplicación (now()+ttl_consulta);
+ * aquí solo se declara la VALIDEZ del punto de entrada.
  */
 const ENTRADAS_INICIALES: ReadonlyArray<EntradaInicial> = [
   { estado: 'consulta', subEstado: '2a', ttlExpiracion: null },
+  { estado: 'consulta', subEstado: '2b', ttlExpiracion: null },
+  { estado: 'consulta', subEstado: '2d', ttlExpiracion: null },
 ];
 
 /**
@@ -88,3 +93,69 @@ export const esEntradaInicialValida = (
       entrada.estado === estado &&
       entrada.subEstado === (subEstado ?? null),
   );
+
+// ---------------------------------------------------------------------------
+// Determinación declarativa del sub-estado del ALTA CON FECHA (US-004 / §D-3)
+// ---------------------------------------------------------------------------
+
+/** Acción asociada al sub-estado resultante del alta con fecha. */
+export type AccionAlta = 'bloquear' | 'encolar' | 'exploratoria';
+
+/** Resultado de la determinación del alta: sub-estado destino + acción. */
+export interface ResultadoAlta {
+  subEstado: '2b' | '2d' | '2a';
+  accion: AccionAlta;
+}
+
+/**
+ * Estado de disponibilidad de la fecha visto por el alta. `libre` = no hay fila
+ * activa en `FECHA_BLOQUEADA` para `(tenant, fecha)`; `bloqueada` = la hay, con el
+ * sub-estado/estado de la RESERVA bloqueante.
+ */
+export type EstadoFecha =
+  | { tipo: 'libre' }
+  | {
+      tipo: 'bloqueada';
+      subEstadoBloqueante: SubEstadoConsulta | null;
+      estadoBloqueante: EstadoReserva;
+    };
+
+/**
+ * Clave de regla del alta con fecha. Clasifica el `EstadoFecha` en uno de los tres
+ * casos canónicos para hacer un lookup en la tabla `REGLAS_ALTA_CON_FECHA`.
+ */
+type ClaveReglaAlta = 'libre' | 'bloqueada-por-2b' | 'bloqueada-no-encolable';
+
+/**
+ * Tabla declarativa estado-de-la-fecha → resultado del alta (datos, NO `if/else`
+ * disperso; skill `state-machine`). Una sola fuente de verdad reutilizada también
+ * por la re-derivación tras la colisión D4 (US-004 §D-6): tras un `P2002` en el
+ * INSERT de 2.b, al reabrir la transacción la fecha pasa a `bloqueada-por-2b` y la
+ * tabla devuelve `2.d`.
+ */
+const REGLAS_ALTA_CON_FECHA: Readonly<Record<ClaveReglaAlta, ResultadoAlta>> = {
+  libre: { subEstado: '2b', accion: 'bloquear' },
+  'bloqueada-por-2b': { subEstado: '2d', accion: 'encolar' },
+  'bloqueada-no-encolable': { subEstado: '2a', accion: 'exploratoria' },
+};
+
+/**
+ * Clasifica el estado de la fecha. Solo la fecha bloqueada por una consulta en
+ * `2.b` es encolable (2.d); el resto de bloqueos (`2.c`, `2.v`, `pre_reserva`,
+ * `reserva_confirmada` o posteriores) degradan el alta a `2.a` exploratoria.
+ */
+const clasificarEstadoFecha = (estado: EstadoFecha): ClaveReglaAlta => {
+  if (estado.tipo === 'libre') {
+    return 'libre';
+  }
+  return estado.estadoBloqueante === 'consulta' && estado.subEstadoBloqueante === '2b'
+    ? 'bloqueada-por-2b'
+    : 'bloqueada-no-encolable';
+};
+
+/**
+ * Determina el sub-estado y la acción del alta con fecha a partir del estado de la
+ * fecha, consultando la tabla declarativa `REGLAS_ALTA_CON_FECHA`.
+ */
+export const determinarAltaConFecha = (estado: EstadoFecha): ResultadoAlta =>
+  REGLAS_ALTA_CON_FECHA[clasificarEstadoFecha(estado)];

@@ -37,12 +37,21 @@ import type {
   CrearClienteParams,
   CrearComunicacionParams,
   CrearReservaParams,
+  EstadoFechaAlta,
+  FechaBloqueadaAltaRepositoryPort,
   RepositoriosAltaConsulta,
   ReservaParaAlta,
   ReservaRepositoryPort,
   UnidadDeTrabajoPort,
 } from '../application/alta-consulta.use-case';
-import { subEstadoDominioAPrisma } from './sub-estado-consulta.mapper';
+import type { EstadoReserva as EstadoReservaDominio } from '../domain/maquina-estados';
+import type { PlanBloqueo } from '../domain/bloquear-fecha.service';
+import { FechaBloqueadaPrismaAdapter } from './fecha-bloqueada.prisma.adapter';
+import {
+  subEstadoDominioAPrisma,
+  subEstadoPrismaADominio,
+  type SubEstadoConsultaPrisma,
+} from './sub-estado-consulta.mapper';
 
 /** Traduce el nº de horas de dominio al literal del enum Prisma (`h4`/`h8`/`h12`). */
 const duracionHorasAPrisma = (horas: number): DuracionHoras => {
@@ -115,6 +124,11 @@ class ReservaAltaPrismaRepository implements ReservaRepositoryPort {
         subEstado: subEstadoDominioAPrisma(p.subEstado) as SubEstadoConsulta,
         ttlExpiracion: p.ttlExpiracion,
         canalEntrada: p.canalEntrada as CanalEntrada,
+        ...(p.fechaEvento !== undefined ? { fechaEvento: p.fechaEvento } : {}),
+        ...(p.posicionCola !== undefined ? { posicionCola: p.posicionCola } : {}),
+        ...(p.consultaBloqueanteId !== undefined
+          ? { consultaBloqueanteId: p.consultaBloqueanteId }
+          : {}),
         ...(p.tipoEvento !== undefined
           ? { tipoEvento: p.tipoEvento as TipoEvento }
           : {}),
@@ -136,9 +150,11 @@ class ReservaAltaPrismaRepository implements ReservaRepositoryPort {
       clienteId: fila.clienteId,
       codigo: fila.codigo,
       estado: 'consulta',
-      subEstado: '2a',
-      ttlExpiracion: null,
+      subEstado: p.subEstado,
+      ttlExpiracion: fila.ttlExpiracion,
       canalEntrada: p.canalEntrada,
+      posicionCola: fila.posicionCola,
+      consultaBloqueanteId: fila.consultaBloqueanteId,
     };
   }
 
@@ -220,15 +236,117 @@ class AuditLogAltaPrismaRepository implements AuditLogPort {
   }
 }
 
-/**
- * Nº máximo de intentos de la `$transaction` ante colisión del `codigo`
- * correlativo (`P2002` sobre `reserva_codigo_key`). El primer reintento ya basta
- * en el caso normal (dos altas simultáneas); se deja margen por si concurren más.
- */
-const MAX_INTENTOS_CODIGO = 3;
+/** Fila cruda de `leerEstadoFecha` (columnas snake_case del JOIN). */
+interface FilaEstadoFecha {
+  reserva_id: string;
+  estado: EstadoReservaDominio;
+  sub_estado: SubEstadoConsultaPrisma | null;
+}
 
-/** ¿El error es una colisión del UNIQUE del `codigo` de RESERVA (P2002)? */
-const esColisionCodigo = (error: unknown): boolean => {
+/** Fila cruda del cálculo de la siguiente posición de cola. */
+interface FilaSiguienteCola {
+  siguiente: number;
+}
+
+const formatearFecha = (fecha: Date): string => fecha.toISOString().slice(0, 10);
+
+/**
+ * Repositorio tx-bound de FECHA_BLOQUEADA para el alta con fecha (US-004). Vive
+ * dentro de la transacción del alta (atomicidad RESERVA `2.b` + `FECHA_BLOQUEADA`)
+ * y reutiliza la primitiva atómica `bloquearEnTx` de US-040 (§D-2). La
+ * serialización de la cola se hace con `SELECT … FOR UPDATE` sobre la fila
+ * bloqueante (§D-5); el `P2002` del INSERT del bloqueo se deja propagar para que la
+ * UoW lo reintente re-derivando a `2.d` (§D-6).
+ */
+class FechaBloqueadaAltaPrismaRepository implements FechaBloqueadaAltaRepositoryPort {
+  constructor(
+    private readonly tx: Prisma.TransactionClient,
+    private readonly adapter: FechaBloqueadaPrismaAdapter,
+  ) {}
+
+  async leerEstadoFecha(params: {
+    tenantId: string;
+    fecha: Date;
+  }): Promise<EstadoFechaAlta> {
+    const { tenantId, fecha } = params;
+    const fechaIso = formatearFecha(fecha);
+    const filas = await this.tx.$queryRaw<FilaEstadoFecha[]>(Prisma.sql`
+      SELECT fb.reserva_id, r.estado, r.sub_estado
+      FROM fecha_bloqueada fb
+      JOIN reserva r ON r.id_reserva = fb.reserva_id
+      WHERE fb.tenant_id = ${tenantId} AND fb.fecha = ${fechaIso}::date
+    `);
+    if (filas.length === 0) {
+      return { tipo: 'libre' };
+    }
+    const fila = filas[0];
+    return {
+      tipo: 'bloqueada',
+      subEstadoBloqueante:
+        fila.sub_estado === null ? null : subEstadoPrismaADominio(fila.sub_estado),
+      estadoBloqueante: fila.estado,
+      reservaBloqueanteId: fila.reserva_id,
+    };
+  }
+
+  async bloquear(params: {
+    tenantId: string;
+    fecha: Date;
+    reservaId: string;
+    ttlExpiracion: Date;
+  }): Promise<void> {
+    const plan: PlanBloqueo = {
+      modo: 'insert',
+      tipo: 'blando',
+      ttl: params.ttlExpiracion,
+    };
+    // Reutiliza el núcleo atómico de US-040 dentro de la tx del alta. El `P2002`
+    // (UNIQUE `(tenant_id, fecha)`) se propaga CRUDO para el retry de la UoW (D-6).
+    await this.adapter.bloquearEnTx(this.tx, {
+      tenantId: params.tenantId,
+      fecha: params.fecha,
+      reservaId: params.reservaId,
+      plan,
+    });
+  }
+
+  async siguientePosicionCola(params: {
+    tenantId: string;
+    fecha: Date;
+    consultaBloqueanteId: string;
+  }): Promise<number> {
+    const { tenantId, fecha } = params;
+    const fechaIso = formatearFecha(fecha);
+    // Serializa por la fila bloqueante: todas las altas 2.d de esa fecha comparten
+    // este lock de UNA fila → posiciones únicas y contiguas sin locks distribuidos.
+    await this.tx.$queryRaw(Prisma.sql`
+      SELECT id_bloqueo FROM fecha_bloqueada
+      WHERE tenant_id = ${tenantId} AND fecha = ${fechaIso}::date
+      FOR UPDATE
+    `);
+    const filas = await this.tx.$queryRaw<FilaSiguienteCola[]>(Prisma.sql`
+      SELECT COALESCE(MAX(posicion_cola), 0) + 1 AS siguiente
+      FROM reserva
+      WHERE tenant_id = ${tenantId}
+        AND fecha_evento = ${fechaIso}::date
+        AND posicion_cola IS NOT NULL
+    `);
+    return Number(filas[0]?.siguiente ?? 1);
+  }
+}
+
+/**
+ * Nº máximo de intentos de la `$transaction` ante una colisión REINTENTABLE: el
+ * `codigo` correlativo (`reserva_codigo_key`), el bloqueo de fecha (UNIQUE
+ * `(tenant_id, fecha)` de US-040, que dispara la re-derivación a `2.d` de US-004
+ * §D-6) o la posición de cola (UNIQUE parcial de US-004 §D-8). El margen es amplio
+ * porque varias altas concurrentes sobre la misma fecha pueden encadenar reintentos
+ * (colisión de `codigo` y de fecha en la misma ventana).
+ */
+const MAX_INTENTOS_TRANSACCION = 12;
+
+/** ¿El error es una colisión P2002 reintentable (codigo / fecha / posicion_cola)? */
+const esColisionReintentable = (error: unknown): boolean => {
   if (
     !(error instanceof Prisma.PrismaClientKnownRequestError) ||
     error.code !== 'P2002'
@@ -236,32 +354,46 @@ const esColisionCodigo = (error: unknown): boolean => {
     return false;
   }
   const target = error.meta?.target;
-  const texto = Array.isArray(target) ? target.join(',') : String(target ?? '');
-  return texto.toLowerCase().includes('codigo');
+  const texto = (
+    Array.isArray(target) ? target.join(',') : String(target ?? '')
+  ).toLowerCase();
+  // `fecha` cubre el UNIQUE `(tenant_id, fecha)` de FECHA_BLOQUEADA (no el
+  // `reserva_id`, que NO es reintentable: indica reserva ya bloqueante).
+  return (
+    texto.includes('codigo') ||
+    texto.includes('fecha') ||
+    texto.includes('posicion_cola')
+  );
 };
 
 @Injectable()
 export class UnidadDeTrabajoPrismaAdapter implements UnidadDeTrabajoPort {
+  /** Adaptador de bloqueo cuyo núcleo `bloquearEnTx` reutiliza el alta (US-004 §D-2). */
+  private readonly fechaBloqueadaAdapter = new FechaBloqueadaPrismaAdapter(this.prisma);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Abre la `$transaction` (con RLS) y ejecuta el `trabajo`. Si el commit choca
-   * con el UNIQUE del `codigo` (carrera de dos altas con el mismo correlativo),
-   * REABRE una transacción nueva y reintenta hasta `MAX_INTENTOS_CODIGO`: en
-   * PostgreSQL la `P2002` aborta la transacción en curso, así que no se puede
-   * continuar la abortada, hay que reabrirla. Cualquier otro error (o el `P2002`
-   * tras agotar los reintentos) se propaga al filtro global.
+   * Abre la `$transaction` (con RLS) y ejecuta el `trabajo`. Si el commit choca con
+   * una colisión REINTENTABLE (`codigo` correlativo, UNIQUE de FECHA_BLOQUEADA o
+   * `posicion_cola`), REABRE una transacción nueva y reintenta hasta
+   * `MAX_INTENTOS_TRANSACCION`: en PostgreSQL la `P2002` aborta la transacción en
+   * curso, así que no se puede continuar la abortada, hay que reabrirla. Como la
+   * determinación del sub-estado vive DENTRO del `trabajo`, el reintento re-deriva
+   * automáticamente (libre→2.b colisiona→ ahora bloqueada-por-2.b → 2.d, US-004
+   * §D-6). Cualquier otro error (o el `P2002` tras agotar los reintentos) se propaga
+   * al filtro global.
    */
   async ejecutar(
     tenantId: string,
     trabajo: (repos: RepositoriosAltaConsulta) => Promise<unknown>,
   ): Promise<unknown> {
     let ultimoError: unknown;
-    for (let intento = 1; intento <= MAX_INTENTOS_CODIGO; intento += 1) {
+    for (let intento = 1; intento <= MAX_INTENTOS_TRANSACCION; intento += 1) {
       try {
         return await this.ejecutarTransaccion(tenantId, trabajo);
       } catch (error) {
-        if (esColisionCodigo(error) && intento < MAX_INTENTOS_CODIGO) {
+        if (esColisionReintentable(error) && intento < MAX_INTENTOS_TRANSACCION) {
           ultimoError = error;
           continue;
         }
@@ -283,6 +415,10 @@ export class UnidadDeTrabajoPrismaAdapter implements UnidadDeTrabajoPort {
         reservas: new ReservaAltaPrismaRepository(tx),
         comunicaciones: new ComunicacionAltaPrismaRepository(tx),
         auditoria: new AuditLogAltaPrismaRepository(tx),
+        fechaBloqueada: new FechaBloqueadaAltaPrismaRepository(
+          tx,
+          this.fechaBloqueadaAdapter,
+        ),
       };
       return trabajo(repos);
     });

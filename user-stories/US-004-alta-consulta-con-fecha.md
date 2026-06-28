@@ -1,7 +1,7 @@
 ---
 id: US-004
-estado: backlog
-branch: null
+estado: done
+branch: feature/us-004-alta-consulta-con-fecha
 pr: null
 ---
 
