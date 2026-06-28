@@ -7,7 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, CalendarDays, Eye, EyeOff, Lock, Mail, Sparkles } from 'lucide-react';
 import { apiClient } from '@/api-client';
 import { useSessionActions } from '@/auth/session';
-import heroMasia from '@/assets/login/hero-masia.jpg';
+import heroMasia from '@/assets/login/hero-masia.webp';
 import googleIcon from '@/assets/login/google.jpg';
 import appleIcon from '@/assets/login/apple.jpg';
 
@@ -18,7 +18,7 @@ import appleIcon from '@/assets/login/apple.jpg';
  * desktop) y `0:304` (login mobile). Dos columnas 50/50 a pantalla completa en
  * desktop; en mobile el hero se reduce a una franja superior y el formulario
  * queda en stack debajo (breakpoints Tailwind `lg:`). Columna izquierda: foto de
- * la masía (`hero-masia.jpg`) con overlay terracota `rgba(141,77,57,0.1)` en
+ * la masía (`hero-masia.webp`) con overlay terracota `rgba(141,77,57,0.1)` en
  * `mix-blend-multiply` + tarjeta glassmorphism (`backdrop-blur`). Columna derecha:
  * brand anchor (logo terracota + wordmark SLOTIFY) + formulario. Tokens de
  * `apps/web/src/index.css` (paleta cálida mediterránea) consumidos vía clases
