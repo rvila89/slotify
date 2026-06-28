@@ -2,7 +2,7 @@
 id: US-004
 estado: done
 branch: feature/us-004-alta-consulta-con-fecha
-pr: null
+pr: https://github.com/rvila89/slotify/pull/21
 ---
 
 # 🧾 Historia de Usuario: Alta de consulta con fecha de evento disponible
