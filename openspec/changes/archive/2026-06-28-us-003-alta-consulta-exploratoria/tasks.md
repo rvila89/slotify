@@ -101,6 +101,6 @@
       antes de archive/PR
 
 ## 12. Archivar change + abrir PR (OBLIGATORIO — archive — dueño: `spec-author`)
-- [ ] 12.1 `openspec archive us-003-alta-consulta-exploratoria` (solo tras gate
+- [x] 12.1 `openspec archive us-003-alta-consulta-exploratoria` (solo tras gate
       final y code-review APTO; el hook `require-code-review` lo bloquea sin APTO)
-- [ ] 12.2 Actualizar `openspec/specs/` y abrir PR
+- [x] 12.2 Actualizar `openspec/specs/` y abrir PR
