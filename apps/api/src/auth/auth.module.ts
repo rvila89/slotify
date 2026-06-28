@@ -93,8 +93,9 @@ import {
     },
     {
       provide: LOGOUT_USE_CASE,
-      inject: [AUTH_AUDIT_LOG_PORT],
-      useFactory: (auditoria: AuditLogPort) => new LogoutUseCase({ auditoria }),
+      inject: [TOKEN_EMITTER_PORT, AUTH_AUDIT_LOG_PORT],
+      useFactory: (tokenEmitter: TokenEmitterPort, auditoria: AuditLogPort) =>
+        new LogoutUseCase({ tokenEmitter, auditoria }),
     },
     {
       provide: OBTENER_USUARIO_ACTUAL_USE_CASE,

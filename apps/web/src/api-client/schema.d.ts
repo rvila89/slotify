@@ -112,9 +112,28 @@ export interface paths {
         put?: never;
         /**
          * Cerrar sesión (UC-02)
-         * @description Invalida el refresh token y limpia la cookie de sesión.
-         *     [F1-09] Se autentica con la cookie de refresh (no con el access token), para permitir
-         *     el logout aunque el access token ya haya expirado (US-002).
+         * @description Cierra la sesión del **dispositivo actual**: limpia la cookie httpOnly de
+         *     refresh. Es **best-effort / stateless** — no hay invalidación server-side
+         *     persistente del refresh token (decisión US-002 §1); el riesgo residual está
+         *     acotado por la cookie httpOnly + TTL del refresh (~7 días).
+         *
+         *     **Idempotente**: responde 200/204 SIEMPRE, también en un segundo logout cuando
+         *     la cookie de refresh está ausente, expirada o es inválida; NUNCA devuelve 401
+         *     por falta de cookie. Por eso la cookie de refresh es seguridad **opcional**.
+         *
+         *     **No anónimo**: actúa únicamente sobre la cookie de refresh del propio llamante.
+         *     No acepta un identificador de usuario de destino (ni en body ni en parámetros),
+         *     por lo que no puede cerrar la sesión de otro usuario.
+         *
+         *     **Auditoría (efecto de servidor)**: cuando el refresh token identifica a un
+         *     usuario, el servidor registra en AUDIT_LOG `accion = logout`, `entidad = USUARIO`,
+         *     `usuario_id` y `tenant_id` (bajo contexto RLS del tenant). Si no hay usuario
+         *     identificable (doble logout sin cookie válida), NO se audita.
+         *
+         *     El **access token previo no se revoca** activamente: sigue siendo válido hasta su
+         *     expiración natural (~15 min); es el frontend quien lo elimina de memoria.
+         *     [F1-09] Se autentica con la cookie de refresh (no con el access token), para
+         *     permitir el logout aunque el access token ya haya expirado (US-002).
          */
         post: {
             parameters: {
@@ -125,7 +144,14 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Sesión cerrada */
+                /** @description Sesión cerrada de forma idempotente (cuerpo vacío). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Sesión cerrada (sin contenido). */
                 204: {
                     headers: {
                         [name: string]: unknown;

@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowRight, CalendarDays, Eye, EyeOff, Lock, Mail, Sparkles } from 'lucide-react';
+import { ArrowRight, CalendarDays, Eye, EyeOff, Info, Lock, Mail, Sparkles } from 'lucide-react';
 import { apiClient } from '@/api-client';
 import { useSessionActions } from '@/auth/session';
 import heroMasia from '@/assets/login/hero-masia.webp';
@@ -74,6 +74,13 @@ export const LoginPage = () => {
 
   const destino =
     (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/calendario';
+
+  // Aviso de cierre de sesión degradado (US-002): cuando el logout falla por red,
+  // `useLogout` redirige a `/login` transportando el aviso por el `state` de
+  // navegación. `SidebarContent` se desmonta en la redirección, así que el banner
+  // PERSISTE aquí en lugar de desaparecer antes de ser leído.
+  const avisoLogout =
+    (location.state as { avisoLogout?: string } | null)?.avisoLogout ?? null;
 
   const {
     register,
@@ -146,6 +153,20 @@ export const LoginPage = () => {
       {/* Columna DERECHA — Login Form (frame 0:3). */}
       <div className="flex items-center justify-center bg-canvas px-6 py-12 lg:p-12">
         <div className="flex w-full max-w-[400px] flex-col">
+          {/* Aviso de cierre degradado (US-002): persistente tras la redirección
+              desde el logout best-effort. `role="status"` + `aria-live` para que los
+              lectores de pantalla lo anuncien sin interrumpir el foco del formulario. */}
+          {avisoLogout && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mb-8 flex items-start gap-2 rounded-[12px] border border-border-default bg-surface-muted px-4 py-3 font-body text-[14px] leading-[20px] text-text-secondary"
+            >
+              <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-brand-primary" />
+              <span>{avisoLogout}</span>
+            </div>
+          )}
+
           {/* Brand anchor: logo terracota + wordmark, título y subtítulo. */}
           <div className="flex flex-col pb-16">
             <div className="flex items-center gap-2 pb-4">

@@ -161,21 +161,29 @@ export class AuthController {
     }
   }
 
+  @Public()
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Cierra la sesión y limpia la cookie de refresh' })
+  @ApiOperation({
+    summary: 'Cierra la sesión del dispositivo actual y limpia la cookie de refresh',
+    description:
+      'Idempotente y NO anónimo: identifica al usuario por la COOKIE de refresh ' +
+      '(httpOnly), no por el access token. La cookie de refresh es OPCIONAL: su ' +
+      'ausencia, expiración o invalidez NO produce 401 — responde 200/204 y limpia ' +
+      'cualquier cookie presente. Solo audita `logout` si el refresh identifica a un ' +
+      'usuario. Opera únicamente sobre la sesión del propio llamante (no acepta un ' +
+      'usuario de destino) y NO revoca activamente el access token (caduca por su TTL).',
+  })
   async logout(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
-    const usuario = (req as Request & { user?: UsuarioAutenticado }).user;
-    if (usuario?.sub && usuario?.tenantId) {
-      await this.logoutUseCase.ejecutar({
-        tenantId: usuario.tenantId,
-        idUsuario: usuario.sub,
-      });
-    }
+    // Identificación SOLO por la cookie de refresh (contrato congelado): nunca por
+    // `req.user`/access token ni por un identificador de destino del body. El caso
+    // de uso es idempotente con `refreshToken` ausente/inválido (no lanza error).
+    const refreshToken = leerCookieRefresh(req);
+    await this.logoutUseCase.ejecutar({ refreshToken });
+    // Limpiar SIEMPRE la cookie de refresh, también sin cookie (idempotencia §2).
     res.clearCookie(COOKIE_REFRESH, opcionesBaseCookie());
   }
 
