@@ -34,6 +34,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
     // la excepción los aporta; el resto de errores conservan el envelope estándar.
     let codigo: string | undefined;
     let detalle: unknown;
+    // Campos opcionales del conflicto de fecha (US-005, `AsignarFechaConflictoError`
+    // → 409): `colaDisponible` (boolean) + `motivo` (string). El contrato OpenAPI los
+    // declara `required` en el 409; sin ellos el frontend no clasifica la oferta de
+    // cola. Mismo patrón opcional que `codigo`/`detalle`: solo se incluyen si la
+    // excepción los aporta.
+    let colaDisponible: boolean | undefined;
+    let motivo: string | undefined;
 
     if (exception instanceof HttpException) {
       statusCode = exception.getStatus();
@@ -46,11 +53,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
           error?: string;
           codigo?: string;
           detalle?: unknown;
+          colaDisponible?: boolean;
+          motivo?: string;
         };
         message = b.message ?? exception.message;
         error = b.error ?? error;
         codigo = b.codigo;
         detalle = b.detalle;
+        colaDisponible = b.colaDisponible;
+        motivo = b.motivo;
       }
     } else if (
       exception instanceof Prisma.PrismaClientKnownRequestError &&
@@ -70,6 +81,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       error,
       ...(codigo !== undefined ? { codigo } : {}),
       ...(detalle !== undefined ? { detalle } : {}),
+      ...(colaDisponible !== undefined ? { colaDisponible } : {}),
+      ...(motivo !== undefined ? { motivo } : {}),
       path: request.url,
       timestamp: new Date().toISOString(),
     });

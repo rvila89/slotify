@@ -227,26 +227,56 @@ flowchart TD
 | **Nombre** | Transicionar Consulta a Estado con Fecha |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | Cuando un cliente en estado exploratorio indica una fecha concreta disponible, la consulta pasa a bloquear esa fecha |
-| **Precondiciones** | - Consulta en sub-estado 2.a<br>- Fecha solicitada **> hoy** (estrictamente futura; `validarFechaFutura` de `bloquearFecha()` rechaza hoy y pasado)<br>- Fecha disponible (no bloqueada por otra consulta/reserva) |
-| **Postcondiciones** | - Consulta pasa a sub-estado 2.b<br>- Fecha bloqueada por 3 días<br>- TTL de expiración programado<br>- Email enviado al cliente |
+| **Descripción** | El Gestor añade una fecha concreta a una consulta **ya existente** en sub-estado `2.a` (exploratoria), sin crear un lead nuevo. La consulta pasa a bloquear esa fecha si está libre (`2.b`), entra en cola si la fecha la tiene bloqueada otra consulta en `2.b` (`2.d`), o permanece en `2.a` si la fecha no está disponible ni admite cola. Implementado en **US-005** (change `2026-06-29-us-005-transicion-exploratoria-a-con-fecha`). A diferencia de UC-03 (alta de un lead nuevo), aquí el agregado RESERVA ya existe y lo que cambia es su sub-estado. |
+| **Precondiciones** | - Consulta en sub-estado `2.a` (guarda de origen; cualquier otro sub-estado produce 422 sin efectos)<br>- `fecha_evento` **> hoy** (estrictamente futura, regla unificada `esFechaEstrictamenteFutura`; el servidor rechaza hoy y pasado con 400 sin efectos)<br>- Gestor autenticado con rol gestor sobre el tenant |
+| **Postcondiciones** | - **Fecha libre:** consulta pasa a `2.b`; `fecha_evento` y `ttl_expiracion = now() + ttl_consulta_dias` escritos; fila insertada en `FECHA_BLOQUEADA` (`tipo_bloqueo='blando'`); `AUDIT_LOG` con `accion='transicion'`; email de confirmación (extensión de E1) enviado post-commit<br>- **Fecha bloqueada por `2.b` + gestor acepta cola:** consulta pasa a `2.d`; `posicion_cola = MAX+1`; `consulta_bloqueante_id` apunta a la bloqueante; no se crea `FECHA_BLOQUEADA`<br>- **Fecha bloqueada por `2.b` + gestor rechaza:** consulta permanece en `2.a` sin cambios (409 `colaDisponible:true`)<br>- **Fecha bloqueada por `2.c/2.v/pre_reserva/confirmada+`:** consulta permanece en `2.a` sin cambios (409 `colaDisponible:false`) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Alta |
+| **US** | US-005 |
+| **Endpoint** | `POST /reservas/{id}/fecha` — body `{ fechaEvento: "YYYY-MM-DD", aceptarCola?: boolean }` |
+| **Entidades afectadas** | RESERVA (UPDATE), FECHA_BLOQUEADA (INSERT en `2.b`), COMUNICACION (UPSERT E1), AUDIT_LOG — sin migración de columnas |
 
-**Flujo Básico:**
-1. El gestor abre la ficha de consulta en estado 2.a
-2. El gestor introduce/actualiza la fecha del evento
-3. El sistema verifica disponibilidad de la fecha
-4. El sistema confirma que la fecha está libre
-5. El sistema cambia el sub-estado a 2.b
-6. El sistema aplica bloqueo blando de 3 días
-7. El sistema programa TTL de expiración
-8. El sistema envía email confirmando bloqueo provisional
-9. El sistema registra la transición en audit log
+**Flujo Básico (fecha libre → 2.b):**
+1. El gestor abre la ficha de consulta `2.a` en la pantalla `/reservas/:id` (`FichaConsultaPage`)
+2. El gestor hace clic en "Añadir fecha" e introduce la fecha (selector con `min = mañana`)
+3. El sistema valida la guarda de origen: la RESERVA está en `2.a`
+4. El sistema valida la fecha: estrictamente futura (`esFechaEstrictamenteFutura`)
+5. El sistema consulta el estado de la fecha en `FECHA_BLOQUEADA` para el tenant
+6. La fecha está libre: la máquina de estados resuelve `2.b` + `bloquear` vía `determinarAltaConFecha`
+7. En una única transacción all-or-nothing: actualiza la RESERVA (`sub_estado='2b'`, `fecha_evento`, `ttl_expiracion`); inserta en `FECHA_BLOQUEADA` con `tipo_bloqueo='blando'` vía `bloquearEnTx`; registra `AUDIT_LOG` con `accion='transicion'`, `datos_anteriores.sub_estado='2a'`, `datos_nuevos.sub_estado='2b'`
+8. Post-commit (no bloqueante): UPSERT de `COMUNICACION E1` (extensión de confirmación de bloqueo provisional) vía `ConfirmacionBloqueoEmailAdapter` + motor de email US-045; un fallo de envío no revierte la transición
+9. El sistema responde `200` con `subEstado='2b'`, `fechaEvento`, `ttlExpiracion`
 
 **Flujos Alternativos:**
-- **FA-01**: Fecha bloqueada por 2.b → El sistema ofrece entrar en cola (2.d)
-- **FA-02**: Fecha bloqueada por 2.c+ → El sistema informa y sugiere alternativas
+- **FA-01** (fecha bloqueada por `2.b` — flujo interactivo de cola):
+  - Primera llamada sin `aceptarCola`: el sistema devuelve **409** con `colaDisponible: true` y `motivo`; la RESERVA permanece en `2.a`. El gestor acepta o rechaza la cola
+  - Segunda llamada con `aceptarCola: true`: la RESERVA pasa a `2.d`; `posicion_cola = MAX(posicion_cola de esa fecha)+1` (serializado por `SELECT … FOR UPDATE` sobre la fila bloqueante); `consulta_bloqueante_id` y `fecha_evento` escritos; sin nueva `FECHA_BLOQUEADA`. Responde `200` con `subEstado='2d'`, `posicionCola`, `consultaBloqueanteId`
+  - Si el gestor rechaza: la RESERVA permanece en `2.a`; no se reenvía
+- **FA-02** (fecha bloqueada por `2.c`/`2.v`/`pre_reserva`/`reserva_confirmada` o posteriores):
+  - **409** con `colaDisponible: false`; no se ofrece cola; RESERVA permanece en `2.a` sin cambios
+- **FA-03** (guarda de origen — RESERVA no en `2.a`):
+  - **422** con mensaje de validación; la RESERVA no se modifica ni se crea `FECHA_BLOQUEADA`
+- **FA-04** (fecha no válida por bypass de la UI):
+  - `fecha_evento` = hoy o en el pasado: **400** sin efectos sobre la RESERVA ni `FECHA_BLOQUEADA`
+- **FA-05** (concurrencia D4 — carrera sobre fecha libre):
+  - Dos transiciones simultáneas hacia la misma fecha libre: una gana (`2.b` + `FECHA_BLOQUEADA`); la otra recibe `P2002 UNIQUE(tenant_id, fecha)` → re-deriva a `bloqueada-por-2b` → **409** `colaDisponible:true` (o entra en `2.d` si llevaba `aceptarCola:true`). Garantía determinista del motor PostgreSQL
+
+```mermaid
+flowchart TD
+    A[Gestor: Añadir fecha a consulta 2.a] --> B{Guarda de origen: RESERVA en 2.a?}
+    B -->|No| C[422 — Transición inválida sin efectos]
+    B -->|Sí| D{fecha_evento > hoy?}
+    D -->|No| E[400 — Fecha no válida sin efectos]
+    D -->|Sí| F{Estado de la fecha en FECHA_BLOQUEADA}
+    F -->|Libre| G[Tx: UPDATE RESERVA 2b + INSERT FECHA_BLOQUEADA blando + AUDIT_LOG transicion]
+    G --> H[Post-commit: UPSERT COMUNICACION E1 motor US-045]
+    H --> I[200 — subEstado=2b + ttlExpiracion]
+    F -->|Bloqueada por 2b| J{aceptarCola?}
+    J -->|false / ausente| K[409 — colaDisponible:true]
+    J -->|true| L[Tx: UPDATE RESERVA 2d + posicion_cola + consulta_bloqueante_id + AUDIT_LOG]
+    L --> M[200 — subEstado=2d + posicionCola]
+    F -->|Bloqueada por 2c/2v/pre/conf+| N[409 — colaDisponible:false]
+```
 
 ---
 

@@ -21,3 +21,14 @@ export const UNIDAD_DE_TRABAJO_PORT = Symbol('UnidadDeTrabajoPort');
 
 // US-004 — alta de consulta con fecha (tarifa estimada de E1)
 export const TARIFA_ESTIMADA_PORT = Symbol('TarifaEstimadaPort');
+
+// US-005 — transición «añadir fecha» (2.a → 2.b/2.d)
+export const UNIDAD_DE_TRABAJO_TRANSICION_PORT = Symbol(
+  'UnidadDeTrabajoTransicionPort',
+);
+export const CONFIRMACION_BLOQUEO_EMAIL_PORT = Symbol(
+  'ConfirmacionBloqueoEmailPort',
+);
+
+// US-005 — lectura de la ficha (GET /reservas/{id} → ReservaDetalle)
+export const RESERVA_DETALLE_QUERY_PORT = Symbol('ReservaDetalleQueryPort');

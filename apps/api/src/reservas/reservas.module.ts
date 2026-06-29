@@ -23,8 +23,22 @@ import {
   type UnidadDeTrabajoPort,
 } from './application/alta-consulta.use-case';
 import { UnidadDeTrabajoPrismaAdapter } from './infrastructure/unidad-de-trabajo.prisma.adapter';
+import { UnidadDeTrabajoTransicionPrismaAdapter } from './infrastructure/transicion-fecha-uow.prisma.adapter';
+import { ConfirmacionBloqueoEmailAdapter } from './infrastructure/confirmacion-bloqueo-email.adapter';
 import { TarifaEstimadaAdapter } from './infrastructure/tarifa-estimada.adapter';
 import { AltaConsultaController } from './interface/alta-consulta.controller';
+import { TransicionFechaController } from './interface/transicion-fecha.controller';
+import { ObtenerReservaController } from './interface/obtener-reserva.controller';
+import {
+  TransicionFechaUseCase,
+  type ConfirmacionBloqueoEmailPort,
+  type UnidadDeTrabajoTransicionPort,
+} from './application/transicion-fecha.use-case';
+import {
+  ObtenerReservaUseCase,
+  type ReservaDetalleQueryPort,
+} from './application/obtener-reserva.query';
+import { ReservaDetalleQueryPrismaAdapter } from './infrastructure/reserva-detalle-query.prisma.adapter';
 import {
   AuditLogPort,
   ColaQueryPort,
@@ -46,18 +60,25 @@ import {
   AUDIT_LOG_PORT,
   CLOCK_PORT,
   COLA_QUERY_PORT,
+  CONFIRMACION_BLOQUEO_EMAIL_PORT,
   FECHA_BLOQUEADA_LIBERACION_PORT,
   FECHA_BLOQUEADA_REPOSITORY_PORT,
   PROMOCION_COLA_PORT,
+  RESERVA_DETALLE_QUERY_PORT,
   RESERVA_ESTADO_PORT,
   TARIFA_ESTIMADA_PORT,
   TENANT_SETTINGS_PORT,
   UNIDAD_DE_TRABAJO_PORT,
+  UNIDAD_DE_TRABAJO_TRANSICION_PORT,
 } from './reservas.tokens';
 
 @Module({
   imports: [PrismaModule, ComunicacionesModule, TarifasModule],
-  controllers: [AltaConsultaController],
+  controllers: [
+    AltaConsultaController,
+    TransicionFechaController,
+    ObtenerReservaController,
+  ],
   providers: [
     {
       provide: UNIDAD_DE_TRABAJO_PORT,
@@ -93,6 +114,51 @@ import {
           tarifaEstimada,
           tenantSettings,
         }),
+    },
+    {
+      provide: UNIDAD_DE_TRABAJO_TRANSICION_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new UnidadDeTrabajoTransicionPrismaAdapter(prisma),
+    },
+    {
+      provide: CONFIRMACION_BLOQUEO_EMAIL_PORT,
+      inject: [DespacharEmailService],
+      useFactory: (motor: DespacharEmailService) =>
+        new ConfirmacionBloqueoEmailAdapter(motor),
+    },
+    {
+      provide: TransicionFechaUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_TRANSICION_PORT,
+        CONFIRMACION_BLOQUEO_EMAIL_PORT,
+        CLOCK_PORT,
+        TENANT_SETTINGS_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoTransicionPort,
+        confirmacionBloqueo: ConfirmacionBloqueoEmailPort,
+        clock: ClockPort,
+        tenantSettings: TenantSettingsPort,
+      ) =>
+        new TransicionFechaUseCase({
+          unidadDeTrabajo,
+          confirmacionBloqueo,
+          clock,
+          tenantSettings,
+        }),
+    },
+    {
+      provide: RESERVA_DETALLE_QUERY_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new ReservaDetalleQueryPrismaAdapter(prisma),
+    },
+    {
+      provide: ObtenerReservaUseCase,
+      inject: [RESERVA_DETALLE_QUERY_PORT],
+      useFactory: (reservaDetalle: ReservaDetalleQueryPort) =>
+        new ObtenerReservaUseCase({ reservaDetalle }),
     },
     {
       provide: FECHA_BLOQUEADA_REPOSITORY_PORT,
@@ -159,6 +225,8 @@ import {
     LiberarFechaService,
     LiberarFechasEnLoteService,
     AltaConsultaUseCase,
+    TransicionFechaUseCase,
+    ObtenerReservaUseCase,
   ],
 })
 export class ReservasModule {}
