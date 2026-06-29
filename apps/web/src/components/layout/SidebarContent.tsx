@@ -1,7 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { BarChart3, CalendarDays, ClipboardList, LogOut } from 'lucide-react';
-import { useSession } from '@/features/auth';
-import { useLogout } from '@/features/auth';
+import { useLogout, useSession } from '@/features/auth';
 import { cn } from '@/lib/utils';
 
 /**
