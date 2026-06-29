@@ -24,7 +24,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RequireAuth } from '@/features/auth';
-import { AppShell } from '@/app/AppShell';
+import { AppShell } from '@/components/layout';
 import { SessionProvider, establecerAccessTokenEnMemoria } from '@/features/auth';
 
 // El SDK generado se DOBLA: ningún test toca la red. El logout responde 204.

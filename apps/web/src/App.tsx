@@ -1,10 +1,8 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginPage } from './pages/LoginPage';
-import { AppShell } from './app/AppShell';
+import { AppShell, SectionPlaceholder, NotFound } from './components/layout';
 import { NuevaConsultaPage, FichaConsultaPage } from './features/reservas';
-import { SectionPlaceholder } from './app/SectionPlaceholder';
-import { NotFound } from './app/NotFound';
 import { InterceptorRegistrar, RequireAuth } from './features/auth';
 
 // QueryClient para estado de servidor (TanStack Query) sobre el cliente API

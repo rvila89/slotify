@@ -13,7 +13,7 @@
  *    disponible); ademas declara/carga las familias Epilogue y Manrope.
  *  - `tailwind.config.ts`: mapea esas custom properties en `theme.extend.colors`
  *    y `fontFamily` (referenciando `var(--...)`), con Epilogue + Manrope.
- *  - `src/app/AppShell.tsx`: existe y NO contiene literales hex de color.
+ *  - `src/components/layout/AppShell.tsx`: existe y NO contiene literales hex de color.
  */
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
@@ -65,7 +65,7 @@ describe('Design tokens cableados en apps/web (DESIGN.md §1–§5)', () => {
   });
 
   it('el_app_shell_existe_y_no_usa_literales_hex_de_color', () => {
-    const appShellPath = resolverDesdeWeb('src/app/AppShell.tsx');
+    const appShellPath = resolverDesdeWeb('src/components/layout/AppShell.tsx');
     expect(existsSync(appShellPath)).toBe(true);
 
     const source = readFileSync(appShellPath, 'utf8');
