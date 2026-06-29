@@ -12,11 +12,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { hoyISO, mananaISO } from './fecha';
-import { useAsignarFecha, type AsignarFechaError } from './useAsignarFecha';
-import type { components } from '@/api-client';
-
-type Reserva = components['schemas']['Reserva'];
+import { hoyISO, mananaISO } from '../lib/fecha';
+import { useAsignarFecha, type AsignarFechaError } from '../api/useAsignarFecha';
+import type { Reserva } from '../model/types';
 
 /**
  * Diálogo de la acción "Añadir fecha" (US-005 · UC-04) sobre una consulta en
