@@ -23,9 +23,9 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { RequireAuth } from '@/app/RequireAuth';
+import { RequireAuth } from '@/features/auth';
 import { AppShell } from '@/app/AppShell';
-import { SessionProvider, establecerAccessTokenEnMemoria } from '@/auth/session';
+import { SessionProvider, establecerAccessTokenEnMemoria } from '@/features/auth';
 
 // El SDK generado se DOBLA: ningún test toca la red. El logout responde 204.
 const postMock = vi.fn();

@@ -24,7 +24,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { SessionProvider } from '@/auth/session';
+import { SessionProvider } from '@/features/auth';
 import { LoginPage } from '../LoginPage';
 
 // El SDK generado se DOBLA: ningún test toca la red. La fase GREEN hará que

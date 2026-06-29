@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/api-client';
-import { useSessionActions } from '@/auth/session';
+import { useSessionActions } from '../model/session';
 
 /**
  * Orquestación del cierre de sesión en el frontend (US-002, UC-02).

@@ -3,10 +3,10 @@
  * Tasks 2.1 y 2.2: guard de ruta protegida contra la ABSTRACCION de sesion.
  *
  * Contrato de produccion que la fase GREEN (frontend-developer) debe crear:
- *  - `@/auth/session` -> `SessionProvider` ({ value }: { value: Session }) y `useSession()`.
+ *  - `@/features/auth` -> `SessionProvider` ({ value }: { value: Session }) y `useSession()`.
  *    La sesion REAL la puebla US-001; aqui se INYECTA via SessionProvider (no se
  *    asume implementacion concreta de auth).
- *  - `@/app/RequireAuth` -> `RequireAuth` (componente de ruta que lee `useSession()`,
+ *  - `@/features/auth` -> `RequireAuth` (componente de ruta que lee `useSession()`,
  *    deja pasar al <Outlet/> si hay sesion valida y, si no, redirige a `/login`
  *    preservando la ruta solicitada via `state.from` o `?redirect=`).
  *
@@ -18,8 +18,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 // Modulos de produccion aun inexistentes (RED esperado):
-import { RequireAuth } from '@/app/RequireAuth';
-import { SessionProvider, useSessionActions } from '@/auth/session';
+import { RequireAuth } from '@/features/auth';
+import { SessionProvider, useSessionActions } from '@/features/auth';
 
 const sesionAnonima = { status: 'unauthenticated' } as const;
 const sesionValida = {

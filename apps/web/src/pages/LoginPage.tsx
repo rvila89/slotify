@@ -6,7 +6,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, CalendarDays, Eye, EyeOff, Info, Lock, Mail, Sparkles } from 'lucide-react';
 import { apiClient } from '@/api-client';
-import { useSessionActions } from '@/auth/session';
+import { useSessionActions } from '@/features/auth';
 import heroMasia from '@/assets/login/hero-masia.webp';
 import googleIcon from '@/assets/login/google.jpg';
 import appleIcon from '@/assets/login/apple.jpg';

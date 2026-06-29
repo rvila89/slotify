@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import App from '@/App';
-import { SessionProvider } from '@/auth/session';
+import { SessionProvider } from '@/features/auth';
 
 const sesionValida = {
   status: 'authenticated',

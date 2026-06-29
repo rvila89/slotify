@@ -6,7 +6,7 @@
  * tasks.md Fase 3: 3.6. REQ 6 (happy) y REQ 7 (degradado por red).
  *
  * Contrato de producción que la fase GREEN (frontend-developer) debe crear:
- *   - `@/auth/useLogout` → `useLogout()` que devuelve
+ *   - `@/features/auth` → `useLogout()` que devuelve
  *     `{ cerrarSesion: () => Promise<void>; aviso: string | null; pendiente: boolean }`.
  *   - `cerrarSesion()` llama a `apiClient.POST('/auth/logout')` (SDK generado),
  *     limpia el access token + la sesión EN MEMORIA (`session.tsx`, sin storage) y
@@ -15,7 +15,7 @@
  *     sesión de memoria, expone un `aviso` y deja al usuario sin acceso (redirige a
  *     `/login`). El refresh en cookie caducará por su TTL.
  *
- * RED: `@/auth/useLogout` aún no existe → el import del símbolo de producción falla
+ * RED: `@/features/auth` aún no existe → el import del símbolo de producción falla
  * y la batería está en ROJO (no por configuración del runner).
  *
  * `useNavigate` se DOBLA con un spy para observar la redirección sin desmontar el
@@ -29,9 +29,9 @@ import {
   SessionProvider,
   establecerAccessTokenEnMemoria,
   obtenerAccessTokenEnMemoria,
-} from '@/auth/session';
+} from '@/features/auth';
 // Símbolo de producción aún inexistente (RED esperado):
-import { useLogout } from '@/auth/useLogout';
+import { useLogout } from '@/features/auth';
 
 // El SDK generado se DOBLA: ningún test toca la red.
 const postMock = vi.fn();

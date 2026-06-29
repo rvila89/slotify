@@ -1,5 +1,5 @@
 import type { Middleware } from 'openapi-fetch';
-import { obtenerAccessTokenEnMemoria } from './session';
+import { obtenerAccessTokenEnMemoria } from '../model/session';
 
 /**
  * Middleware que adjunta el access token EN MEMORIA como `Authorization: Bearer`.

@@ -9,7 +9,7 @@
  * El cliente generado (`@/api-client`) NO se edita a mano (hook
  * `protect-generated-client`): el interceptor se monta como MIDDLEWARE de
  * `openapi-fetch` (`apiClient.use(...)`). Contrato de producción asumido que la
- * fase GREEN debe crear en `@/auth/refresh-interceptor`:
+ * fase GREEN debe crear en `@/features/auth`:
  *   - `crearMiddlewareRefresh({ refrescar, onSesionExpirada })` → middleware con
  *     `onResponse({ response })`:
  *       · 401 → llama `refrescar()`; si resuelve `true` la sesión se renovó;
@@ -17,11 +17,11 @@
  *         redirigir a /login).
  *       · respuestas no-401 → no toca nada.
  *
- * RED: el módulo `@/auth/refresh-interceptor` aún no existe → ROJO por símbolo de
+ * RED: el módulo `@/features/auth` aún no existe → ROJO por símbolo de
  * producción ausente (no por configuración del runner).
  */
 import { describe, expect, it, vi } from 'vitest';
-import { crearMiddlewareRefresh } from '@/auth/refresh-interceptor';
+import { crearMiddlewareRefresh } from '@/features/auth';
 
 const respuesta = (status: number) => ({ status }) as Response;
 

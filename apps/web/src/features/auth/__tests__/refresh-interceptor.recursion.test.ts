@@ -23,7 +23,7 @@
  * el fallo es determinista (assert), no un timeout indefinido.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { crearMiddlewareRefresh } from '@/auth/refresh-interceptor';
+import { crearMiddlewareRefresh } from '@/features/auth';
 
 const peticion = (url: string) => ({ url }) as Request;
 const respuesta = (status: number) => ({ status }) as Response;

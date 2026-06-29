@@ -9,14 +9,14 @@
  *  - El item activo se marca con `aria-current="page"` (NavLink de React Router).
  *  - Cada seccion no construida renderiza un placeholder con `data-testid=
  *    "section-placeholder"` que incluye el nombre de la seccion (ver task 2.5).
- *  - `@/auth/session` -> `SessionProvider` para INYECTAR la sesion valida.
+ *  - `@/features/auth` -> `SessionProvider` para INYECTAR la sesion valida.
  */
 import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from '@/App';
-import { SessionProvider } from '@/auth/session';
+import { SessionProvider } from '@/features/auth';
 
 const sesionValida = {
   status: 'authenticated',

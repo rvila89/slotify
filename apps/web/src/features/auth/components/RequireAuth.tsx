@@ -1,5 +1,5 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { useSession } from '@/auth/session';
+import { useSession } from '../model/session';
 
 /**
  * Guard de ruta protegida (US-000A).

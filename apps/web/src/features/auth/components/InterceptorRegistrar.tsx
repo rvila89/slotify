@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/api-client';
-import { establecerAccessTokenEnMemoria, useSessionActions } from '@/auth/session';
-import { middlewareAuthHeader } from '@/auth/api-middleware';
-import { crearMiddlewareRefresh } from '@/auth/refresh-interceptor';
+import { establecerAccessTokenEnMemoria, useSessionActions } from '../model/session';
+import { middlewareAuthHeader } from '../api/api-middleware';
+import { crearMiddlewareRefresh } from '../api/refresh-interceptor';
 
 /**
  * Registra los middlewares del cliente HTTP generado (`apiClient.use`) sin editar

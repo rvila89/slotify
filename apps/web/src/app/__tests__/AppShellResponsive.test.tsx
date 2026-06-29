@@ -14,7 +14,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from '@/App';
-import { SessionProvider } from '@/auth/session';
+import { SessionProvider } from '@/features/auth';
 
 const sesionValida = {
   status: 'authenticated',

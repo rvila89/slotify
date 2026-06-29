@@ -5,21 +5,21 @@
  * memoria sin almacenamiento persistente"). tasks.md Fase 3: 3.7. REQ 10.
  *
  * Contrato de producción que la fase GREEN (frontend-developer) debe cumplir,
- * evolucionando `@/auth/session` desde el scaffolding de US-000A (que solo exponía
+ * evolucionando `@/features/auth` desde el scaffolding de US-000A (que solo exponía
  * `SessionProvider`/`useSession`):
  *   - `SessionProvider` pasa a AUTOGESTIONAR el estado de sesión (en memoria).
  *   - `useSessionActions()` expone `iniciarSesion(accessToken, usuario)` y
  *     `cerrarSesion()`; `iniciarSesion` puebla la sesión SIN escribir en
  *     localStorage/sessionStorage; `cerrarSesion` la limpia.
  *
- * RED: `useSessionActions` aún no existe en `@/auth/session` → el import del símbolo
+ * RED: `useSessionActions` aún no existe en `@/features/auth` → el import del símbolo
  * de producción falla y la batería está en ROJO (no por configuración del runner).
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 // Símbolos de producción aún inexistentes (RED esperado):
-import { SessionProvider, useSession, useSessionActions } from '@/auth/session';
+import { SessionProvider, useSession, useSessionActions } from '@/features/auth';
 
 const TOKEN = 'access.jwt.en-memoria';
 
