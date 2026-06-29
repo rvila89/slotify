@@ -402,8 +402,9 @@ export interface paths {
          * Ejecutar una transición de estado (UC-04, UC-06, UC-10, UC-23, UC-25, UC-28)
          * @description Aplica una transición de la máquina de estados de la reserva. El backend valida la
          *     transición contra la tabla declarativa de transiciones y sus guardas. Cubre, entre otras:
-         *     2.a→2.b (asignar fecha), 2.b→2.c (pendiente invitados), →2.z (descartar por cliente),
-         *     iniciar evento, finalizar evento y archivar.
+         *     2.b→2.c (pendiente invitados), →2.z (descartar por cliente), iniciar evento, finalizar
+         *     evento y archivar. NOTA [US-005]: la asignación de fecha (transición 2.a→2.b/2.d) NO se
+         *     hace aquí, sino en el endpoint dedicado `POST /reservas/{id}/fecha` (design.md §D-2).
          */
         post: {
             parameters: {
@@ -432,6 +433,117 @@ export interface paths {
                 };
                 409: components["responses"]["Conflict"];
                 /** @description Transición no permitida o guarda no satisfecha */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reservas/{id}/fecha": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asignar fecha a una consulta exploratoria — transición 2.a→2.b/2.d (UC-04 / US-005)
+         * @description [US-005] Transición de un agregado RESERVA **existente** en sub-estado `2a` (consulta
+         *     exploratoria) hacia `2b` (consulta con fecha + bloqueo blando) o `2d` (cola), asignando
+         *     `fechaEvento` y disparando el bloqueo atómico de fecha en la **misma transacción**
+         *     (`SELECT … FOR UPDATE` + `UNIQUE(tenant_id, fecha)`; sin Redis ni locks distribuidos).
+         *
+         *     Difiere de `POST /reservas` (US-003/004, alta de un lead nuevo): aquí se **muta** un
+         *     agregado ya en `2a`; el núcleo de determinación de sub-estado, bloqueo y cola se reutiliza
+         *     (`determinarAltaConFecha` + `bloquearEnTx`, US-004/US-040).
+         *
+         *     Determinación del sub-estado destino:
+         *     - fecha **LIBRE** → `2b`, crea `FechaBloqueada` blanda, `ttlExpiracion = now() + ttl_consulta_dias`.
+         *     - fecha bloqueada por una consulta en `2b` → se **ofrece cola**: `409` con
+         *       `colaDisponible=true`; el cliente reenvía con `aceptarCola=true` para entrar en `2d`
+         *       (`posicionCola`, `consultaBloqueanteId`). La RESERVA permanece en `2a` hasta confirmar.
+         *     - fecha bloqueada por `2c`/`2v`/`pre_reserva`/`reserva_confirmada` o posteriores → `409`
+         *       con `colaDisponible=false` (no disponible, sin cola). La RESERVA permanece en `2a`.
+         *     - **carrera D4** (otra transición ganó el bloqueo, `P2002`) → se re-deriva a oferta de cola
+         *       (`409 colaDisponible=true`); con `aceptarCola=true` el reintento entra directo a `2d`.
+         *
+         *     Flujo interactivo de la cola (FA-01) SIN estado servidor intermedio: la 1ª llamada informa
+         *     (`409` + `colaDisponible`), la 2ª con `aceptarCola=true` confirma `2d`.
+         *
+         *     Tras el COMMIT de `2a→2b` se registra/envía (post-commit, **no bloqueante**) la comunicación
+         *     de confirmación de bloqueo provisional (extensión de E1, motor US-045): un fallo de envío no
+         *     revierte la transición ni el bloqueo.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description ID de la reserva */
+                    id: components["parameters"]["IdReserva"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AsignarFechaRequest"];
+                };
+            };
+            responses: {
+                /**
+                 * @description Transición aplicada. Devuelve la RESERVA actualizada:
+                 *     - `2b`: `subEstado='2b'`, `fechaEvento`, `ttlExpiracion` (bloqueo blando creado).
+                 *     - `2d`: `subEstado='2d'`, `fechaEvento`, `posicionCola`, `consultaBloqueanteId`
+                 *       (entrada en cola; requiere `aceptarCola=true`).
+                 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Reserva"];
+                    };
+                };
+                400: components["responses"]["ValidationError"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                /**
+                 * @description Fecha no asignable de inmediato; la RESERVA permanece en `2a`. El cuerpo añade
+                 *     `colaDisponible` y `motivo` al envelope de error estándar:
+                 *     - `colaDisponible=true` → bloqueada por una consulta en `2b` (o carrera D4): se ofrece
+                 *       cola; reintentar con `aceptarCola=true` para entrar en `2d`.
+                 *     - `colaDisponible=false` → bloqueada por `2c`/`2v`/`pre_reserva`/`reserva_confirmada`+:
+                 *       no disponible, sin cola.
+                 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AsignarFechaConflictoError"];
+                    };
+                };
+                /**
+                 * @description Guarda de origen no satisfecha: la RESERVA NO está en sub-estado `2a` (p. ej. ya tiene
+                 *     fecha, está en cola, en un estado terminal `2x/2y/2z` o más avanzada). No se muta
+                 *     (F5-02: 409 = concurrencia, 422 = transición/guarda inválida).
+                 */
                 422: {
                     headers: {
                         [name: string]: unknown;
@@ -2085,7 +2197,8 @@ export interface components {
             subEstadoDestino?: components["schemas"]["SubEstadoConsulta"];
             /**
              * Format: date
-             * @description Obligatorio en la transición 2.a→2.b (US-005): asigna la fecha y dispara el bloqueo atómico.
+             * @deprecated
+             * @description DEPRECADO (US-005): usa `POST /reservas/{id}/fecha` para asignar la fecha y disparar el bloqueo atómico. Se mantiene por compatibilidad; no realiza la asignación de fecha.
              */
             fechaEvento?: string | null;
             /** @description Obligatorio en cancelaciones/descartes */
@@ -2101,12 +2214,27 @@ export interface components {
             visitaRealizada: boolean;
             notas?: string;
         };
+        AsignarFechaRequest: {
+            /**
+             * Format: date
+             * @description OBLIGATORIO. Fecha del evento (YYYY-MM-DD). Debe ser ESTRICTAMENTE FUTURA (> hoy, día natural): el servidor rechaza con 400 la fecha de HOY o anterior, sin mutar la RESERVA (regla unificada `validarFechaFutura`, US-040; coherente con US-004; divergencia aprobada en Gate frente a la ficha US-005 que admitía ≥ hoy).
+             */
+            fechaEvento: string;
+            /** @description OPCIONAL. Resuelve el flujo interactivo de cola (FA-01) sin estado servidor intermedio. Si la fecha está bloqueada por una consulta en `2b` (o en carrera D4): con `false`/ausente el servidor responde `409 colaDisponible=true` (informa y ofrece cola) y la RESERVA sigue en `2a`; con `true` el reintento confirma la entrada en cola (`2d`). No tiene efecto si la fecha está libre (→ `2b`) ni si está bloqueada por un estado no encolable (→ `409 colaDisponible=false`). */
+            aceptarCola?: boolean;
+        };
         ColaItem: {
             /** Format: uuid */
             idReserva?: string;
             codigo?: string;
             posicionCola?: number;
             clienteNombre?: string;
+        };
+        AsignarFechaConflictoError: components["schemas"]["ErrorResponse"] & {
+            /** @description `true` cuando la fecha está bloqueada por una consulta en `2b` (o carrera D4): se ofrece cola, reintentar con `aceptarCola=true` para entrar en `2d`. `false` cuando está bloqueada por `2c`/`2v`/`pre_reserva`/`reserva_confirmada`+: no disponible. */
+            colaDisponible: boolean;
+            /** @description Mensaje informativo para la UI sobre por qué la fecha no se pudo asignar. */
+            motivo: string;
         };
         Cliente: {
             /** Format: uuid */
@@ -2506,6 +2634,15 @@ export interface components {
         };
         /** @description Conflicto de estado o de concurrencia (p. ej. fecha ya bloqueada) */
         Conflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description Autenticado pero sin rol/permiso suficiente para la operación */
+        Forbidden: {
             headers: {
                 [name: string]: unknown;
             };
