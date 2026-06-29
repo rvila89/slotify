@@ -63,6 +63,17 @@ Toda mutación de bloqueo pasa por `bloquearFecha()` y `liberarFecha()`. **No im
   code-review y en QA** ejecutando los flujos en 3 viewports (390 / 768 / 1280).
   No se entrega una pantalla "solo desktop"; si el diseño de Figma no trae
   versión móvil, se diseña la adaptación con los tokens del proyecto.
+- **Estructura del frontend por dominio (regla dura).** `apps/web/src` se organiza
+  estilo *Bulletproof React*: cada dominio en `features/<dominio>/` con segmentos
+  `api/ components/ lib/ model/ pages/` y un **barrel `index.ts`** que es su única
+  API pública. Las páginas complejas son su propia carpeta y co-localizan sus
+  partes (`schema.ts`, `constants.ts`, `components/` privados). Lo compartido vive
+  en `components/ui`, `components/layout`, `hooks/`, `lib/`. Lo imponen ESLint
+  (`eslint-plugin-boundaries` + `no-restricted-imports` + `max-lines` ≤300):
+  una feature solo se importa por su barrel `@/features/<dominio>`, la capa
+  compartida no importa de `features/`, y `pnpm lint` falla si se viola. Ejemplo
+  canónico vivo: `apps/web/src/features/reservas/`. Detalle en
+  `docs/frontend-standards.md` §Estructura.
 
 ---
 

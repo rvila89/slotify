@@ -24,7 +24,8 @@ Antes de construir cualquier UI con diseño de referencia:
 Implementa con shadcn/ui + Tailwind usando los tokens reales. Consumir Figma es un paso **obligatorio y explícito** de toda US con UI, nunca una nota diferida.
 
 ## Reglas
-- **Stack**: Vite (SPA, sin SSR) + React 18 + TS strict + Tailwind + shadcn/ui. Estructura por dominio de feature (`reservas/`, `calendario/`, …), no por tipo técnico.
+- **Stack**: Vite (SPA, sin SSR) + React 18 + TS strict + Tailwind + shadcn/ui.
+- **Estructura por dominio (regla dura, estilo Bulletproof React)**: cada dominio en `features/<dominio>/` con segmentos `api/ components/ lib/ model/ pages/` y un **barrel `index.ts`** como única API pública; las páginas complejas son su propia carpeta y co-localizan `schema.ts`/`constants.ts`/`components/` privados (no metas todo en el componente de página). Compartido en `components/ui`, `components/layout`, `hooks/`, `lib/`. Una feature **solo** se importa por su barrel `@/features/<dominio>` (imports internos relativos); lo compartido no importa de `features/`; archivos ≤300 líneas. Lo imponen `eslint-plugin-boundaries` + `no-restricted-imports` + `max-lines` (`pnpm lint` falla). Ejemplo canónico: `apps/web/src/features/reservas/`. Detalle en `docs/frontend-standards.md` §Estructura.
 - **Datos de servidor**: TanStack Query (`useQuery`/`useMutation`) sobre el **cliente generado** (`apps/web/src/api-client/`). Estado UI local con `useState`.
 - **Cliente API**: generado con `pnpm generate:api`. **Nunca lo edites a mano**; si está desfasado, pide regeneración al `contract-engineer`.
 - **Formularios**: React Hook Form + Zod. Mapea errores backend (400/409/422) a mensajes de formulario **en español**.

@@ -51,26 +51,64 @@ El frontend de Slotify es una **SPA pura** servida como **archivos estáticos de
 
 ## Estructura del proyecto
 
+Organización **por dominio de feature** (estilo *Bulletproof React*), no por tipo
+técnico de fichero. Cada feature es **autónoma** y se consume **solo por su barrel**
+(`index.ts`); las páginas complejas **co-localizan** sus partes (schema, constantes,
+sub-componentes). Alineada con los módulos del backend en [c4-diagrams.md](./c4-diagrams.md).
+
 ```
 apps/web/
 ├── src/
-│   ├── api/               # Cliente OpenAPI generado + wrappers de TanStack Query (hooks)
-│   ├── components/        # Componentes UI reutilizables (incl. shadcn/ui en ui/)
-│   ├── features/          # Carpetas por dominio: reservas/, calendario/, presupuestos/,
-│   │                      #   facturacion/, clientes/, comunicaciones/, dashboard/
-│   ├── pages/             # Componentes de página enrutados
-│   ├── hooks/             # Hooks reutilizables (useAuth, useTenant...)
-│   ├── lib/               # Utilidades (formato de fechas/importes, helpers)
-│   ├── routes.tsx         # Definición de rutas (incl. rutas protegidas)
-│   ├── App.tsx
-│   └── main.tsx           # Entry point: providers (QueryClient, Auth, Router)
-├── tests/                 # Tests e2e Playwright
-├── index.html
-├── vite.config.ts
-└── tsconfig.json
+│   ├── api-client/        # Cliente OpenAPI GENERADO (no se edita; eslint ignore)
+│   ├── features/          # Dominios: reservas/, auth/, calendario/, presupuestos/…
+│   │   └── <dominio>/
+│   │       ├── api/        # hooks TanStack Query sobre el cliente generado
+│   │       ├── components/ # componentes del dominio usados por 2+ páginas
+│   │       ├── lib/        # helpers puros del dominio
+│   │       ├── model/      # tipos del dominio (alias de api-client) + tipos locales
+│   │       ├── pages/      # vistas de ruta; una página compleja = carpeta propia
+│   │       │   └── <Pagina>/
+│   │       │       ├── <Pagina>Page.tsx   # solo orquesta (estado + composición)
+│   │       │       ├── schema.ts          # Zod + valores iniciales
+│   │       │       ├── constants.ts
+│   │       │       └── components/         # sub-componentes PRIVADOS de la página
+│   │       └── index.ts    # API PÚBLICA del dominio (único punto de import externo)
+│   ├── components/
+│   │   ├── ui/            # shadcn/ui (compartido, agnóstico de dominio)
+│   │   └── layout/        # chrome de la app (AppShell, Sidebar…) — compone features
+│   ├── hooks/             # hooks transversales (sesión, tenant)
+│   ├── lib/               # utilidades puras agnósticas (cn, formatters)
+│   ├── pages/             # páginas aún no migradas a feature (p. ej. LoginPage)
+│   ├── App.tsx            # árbol de rutas + provider de estado de servidor
+│   └── main.tsx           # entry point: SessionProvider → Router → App
+├── index.html · vite.config.ts · tsconfig.json · eslint.config.js
 ```
 
-> Organización **por features de dominio** (alineada con los módulos del backend en [c4-diagrams.md](./c4-diagrams.md)), no por tipo técnico de fichero.
+### ¿Dónde va cada cosa?
+
+| Artefacto | Ubicación |
+|-----------|-----------|
+| Componente usado por **2+ páginas** del dominio | `features/<d>/components/` |
+| Componente usado **solo por una página** | `features/<d>/pages/<Pagina>/components/` |
+| Componente genérico (2+ dominios / agnóstico) | `components/ui/` |
+| Chrome de la app (shell, nav) | `components/layout/` |
+| Hook de datos de un dominio | `features/<d>/api/` |
+| Hook transversal (sesión, tenant) | `hooks/` |
+| Schema Zod + constantes de un formulario | junto a su página |
+| Tipo del dominio / alias de API | `features/<d>/model/types.ts` (desde `@/api-client`) |
+| Helper puro de dominio | `features/<d>/lib/` |
+| Helper puro agnóstico | `lib/` |
+
+### Reglas duras de estructura (ESLint)
+
+- Una feature **solo** se importa por su barrel `@/features/<dominio>` — nunca por
+  un archivo interno (`@/features/<dominio>/api/…`). Dentro del dominio, imports **relativos**.
+- `components/`, `hooks/` y `lib/` (capa compartida) **no** importan de `features/`.
+  El chrome `components/layout/` y la capa de rutas (`App.tsx`, `pages/`) sí componen features.
+- Tamaño de archivo **≤ 300 líneas** de código: si crece, pártelo (extrae schema,
+  sub-componentes, helpers).
+- Lo imponen `eslint-plugin-boundaries`, `no-restricted-imports` y `max-lines` en
+  `apps/web/eslint.config.js`; **`pnpm lint` falla** si se viola.
 
 ## Cliente de API (OpenAPI)
 
@@ -88,18 +126,17 @@ apps/web/
 - **Tras una mutación** (p. ej. transición de estado de una reserva), invalidar las queries afectadas para refrescar la UI.
 
 ```tsx
-// src/api/reservas.ts
-export function useReserva(id: string) {
-  return useQuery({ queryKey: ['reserva', id], queryFn: () => api.reservas.detalle(id) });
-}
+// src/features/reservas/api/useReserva.ts (arrow functions, regla dura)
+export const useReserva = (id: string) =>
+  useQuery({ queryKey: ['reserva', id], queryFn: () => apiClient.GET('/reservas/{id}', { params: { path: { id } } }) });
 
-export function useTransicionarReserva() {
+export const useTransicionarReserva = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: TransicionInput) => api.reservas.transicionar(input.id, input.body),
-    onSuccess: (_, { id }) => qc.invalidateQueries({ queryKey: ['reserva', id] }),
+    mutationFn: (input: TransicionInput) => apiClient.POST('/reservas/{id}/fecha', { params: { path: { id: input.id } }, body: input.body }),
+    onSuccess: (_data, { id }) => qc.invalidateQueries({ queryKey: ['reserva', id] }),
   });
-}
+};
 ```
 
 ## Autenticación en el frontend
