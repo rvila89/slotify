@@ -3,8 +3,10 @@ import { useForm, type UseFormSetError } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  ArrowRight,
   Calendar,
   CalendarCheck,
   CalendarX,
@@ -353,6 +355,24 @@ export const NuevaConsultaPage = () => {
           una consulta exploratoria sin fecha.
         </p>
       </header>
+
+      {/* Enlace de conveniencia a la ficha del lead recién creado (`/reservas/:id`).
+          Para una consulta exploratoria (2a) es el punto de entrada a la acción
+          "Añadir fecha" (US-005), mientras el listado navegable (US-042) no exista. */}
+      {reserva && (
+        <Link
+          to={`/reservas/${reserva.idReserva}`}
+          data-testid="enlace-ver-ficha"
+          className={cn(
+            'inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[12px]',
+            'border border-border-default bg-surface-muted px-4 py-3 font-body text-sm font-bold',
+            'text-text-primary transition-colors hover:bg-surface-subtle sm:w-auto',
+          )}
+        >
+          Ver ficha de la consulta {reserva.codigo}
+          <ArrowRight aria-hidden className="size-4" />
+        </Link>
+      )}
 
       {/* Aviso del resultado de la fecha (solo cuando se envió fecha): 2b / 2d / 2a. */}
       {resultado?.conFecha && reserva?.subEstado === '2b' && (

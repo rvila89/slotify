@@ -1,0 +1,41 @@
+/**
+ * Helpers de fecha compartidos por el dominio de reservas (US-004 alta y US-005
+ * transición). Las fechas en formato `YYYY-MM-DD` comparan lexicográficamente
+ * == cronológicamente, lo que evita problemas de zona horaria al validar
+ * "estrictamente futura" (regla de fecha unificada del proyecto, `> hoy`).
+ */
+const aISODate = (d: Date): string => {
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mes}-${dia}`;
+};
+
+/** Hoy en formato ISO `YYYY-MM-DD` (zona local). */
+export const hoyISO = (): string => aISODate(new Date());
+
+/**
+ * Mañana en ISO. Es el `min` del selector de fecha: bloquea HOY y días
+ * pasados, dejando solo fechas estrictamente futuras (D-1, decisión humana
+ * aprobada `> hoy`).
+ */
+export const mananaISO = (): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return aISODate(d);
+};
+
+/** Formatea una fecha ISO `YYYY-MM-DD` a texto largo en español. */
+export const formatearFecha = (iso: string): string =>
+  new Date(`${iso}T00:00:00`).toLocaleDateString('es-ES', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+/** Formatea una fecha-hora ISO (date-time) a fecha larga en español. */
+export const formatearFechaHora = (iso: string): string =>
+  new Date(iso).toLocaleDateString('es-ES', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });

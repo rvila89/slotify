@@ -4,6 +4,7 @@ import { LoginPage } from './pages/LoginPage';
 import { RequireAuth } from './app/RequireAuth';
 import { AppShell } from './app/AppShell';
 import { NuevaConsultaPage } from './reservas/NuevaConsultaPage';
+import { FichaConsultaPage } from './reservas/FichaConsultaPage';
 import { SectionPlaceholder } from './app/SectionPlaceholder';
 import { NotFound } from './app/NotFound';
 import { InterceptorRegistrar } from './auth/InterceptorRegistrar';
@@ -40,6 +41,7 @@ const App = () => (
         <Route path="/calendario" element={<SectionPlaceholder nombre="Calendario" />} />
         <Route path="/reservas" element={<SectionPlaceholder nombre="Reservas" />} />
         <Route path="/reservas/nueva" element={<NuevaConsultaPage />} />
+        <Route path="/reservas/:id" element={<FichaConsultaPage />} />
         <Route path="/metricas" element={<SectionPlaceholder nombre="Métricas" />} />
         <Route path="*" element={<NotFound />} />
       </Route>

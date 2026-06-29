@@ -159,3 +159,45 @@ const clasificarEstadoFecha = (estado: EstadoFecha): ClaveReglaAlta => {
  */
 export const determinarAltaConFecha = (estado: EstadoFecha): ResultadoAlta =>
   REGLAS_ALTA_CON_FECHA[clasificarEstadoFecha(estado)];
+
+// ---------------------------------------------------------------------------
+// Guarda de ORIGEN de la transición «añadir fecha» (US-005 / UC-04 / §D-3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Forma declarativa de un origen de transición: `(estado, subEstado)` desde el que
+ * la operación «añadir fecha» es legal. A diferencia de las ENTRADAS_INICIALES (que
+ * describen la creación del agregado), aquí se describe el ÚNICO punto de partida
+ * VÁLIDO para mutar un agregado que YA existe hacia `2.b`/`2.d`.
+ */
+interface OrigenTransicion {
+  estado: EstadoReserva;
+  subEstado: SubEstadoConsulta | null;
+}
+
+/**
+ * Tabla declarativa de ORÍGENES válidos de la transición «añadir fecha» (US-005,
+ * skill `state-machine`, NO condicionales dispersos). Solo la consulta exploratoria
+ * `consulta/2a` puede recibir una `fecha_evento`; el destino concreto (`2b`/`2d`/
+ * permanece) lo resuelve `determinarAltaConFecha` según la disponibilidad de la
+ * fecha. El resto de sub-estados de consulta (`2b/2c/2d/2v`), los terminales
+ * (`2x/2y/2z`) y cualquier estado distinto de `consulta` (incluidos
+ * `reserva_cancelada`/`reserva_completada`, inmutables) NO son orígenes legales.
+ */
+const ORIGENES_TRANSICION_ANADIR_FECHA: ReadonlyArray<OrigenTransicion> = [
+  { estado: 'consulta', subEstado: '2a' },
+];
+
+/**
+ * Guarda declarativa: ¿es `(estado, subEstado)` un ORIGEN legal de la transición
+ * «añadir fecha» (US-005)? Consulta la tabla `ORIGENES_TRANSICION_ANADIR_FECHA`:
+ * solo `consulta/2a` lo es. Se evalúa ANTES de abrir la transacción para rechazar
+ * sin efectos las transiciones desde sub-estados/estados no permitidos.
+ */
+export const esOrigenValidoParaAnadirFecha = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): boolean =>
+  ORIGENES_TRANSICION_ANADIR_FECHA.some(
+    (origen) => origen.estado === estado && origen.subEstado === subEstado,
+  );

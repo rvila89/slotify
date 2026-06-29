@@ -160,7 +160,10 @@ const montar = (
     email?: ReturnType<typeof crearEmailFake>;
   } = {},
 ) => {
-  const repos = crearReposFake(estadoFecha, opciones.reserva ?? reservaOrigen());
+  const repos = crearReposFake(
+    estadoFecha,
+    'reserva' in opciones ? (opciones.reserva ?? null) : reservaOrigen(),
+  );
   const uow = crearUowFake(repos);
   const email = opciones.email ?? crearEmailFake();
   const tenantSettings = {

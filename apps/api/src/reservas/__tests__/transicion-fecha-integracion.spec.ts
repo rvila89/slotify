@@ -23,6 +23,8 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
 import {
   CanalEntrada,
+  CodigoEmail,
+  EstadoComunicacion,
   EstadoReserva,
   SubEstadoConsulta,
   TipoBloqueo,
@@ -47,6 +49,7 @@ const FECHA_COLA = new Date('2027-04-02T00:00:00.000Z');
 const FECHA_NO_DISP = new Date('2027-04-03T00:00:00.000Z');
 const FECHA_GUARDA = new Date('2027-04-04T00:00:00.000Z');
 const FECHA_TENANT = new Date('2027-04-05T00:00:00.000Z');
+const FECHA_E1_PREVIA = new Date('2027-04-06T00:00:00.000Z');
 const hoyUtc = (): Date => {
   const n = new Date();
   return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
@@ -57,6 +60,7 @@ const FECHAS = [
   FECHA_NO_DISP,
   FECHA_GUARDA,
   FECHA_TENANT,
+  FECHA_E1_PREVIA,
   hoyUtc(),
 ];
 
@@ -77,13 +81,13 @@ const comando = (
   ...over,
 });
 
-/** Inserta una RESERVA en un estado/sub-estado dado (origen de la transición). */
-const sembrarReserva = async (params: {
+/** Inserta una RESERVA con su CLIENTE y devuelve ambos ids (origen de la transición). */
+const sembrarReservaConCliente = async (params: {
   estado: EstadoReserva;
   subEstado: SubEstadoConsulta | null;
   fechaEvento?: Date;
   tenantId?: string;
-}): Promise<string> => {
+}): Promise<{ reservaId: string; clienteId: string }> => {
   const cliente = await prisma.cliente.create({
     data: {
       tenantId: params.tenantId ?? TENANT,
@@ -102,7 +106,18 @@ const sembrarReserva = async (params: {
       ...(params.fechaEvento !== undefined ? { fechaEvento: params.fechaEvento } : {}),
     },
   });
-  return reserva.idReserva;
+  return { reservaId: reserva.idReserva, clienteId: cliente.idCliente };
+};
+
+/** Inserta una RESERVA en un estado/sub-estado dado (origen de la transición). */
+const sembrarReserva = async (params: {
+  estado: EstadoReserva;
+  subEstado: SubEstadoConsulta | null;
+  fechaEvento?: Date;
+  tenantId?: string;
+}): Promise<string> => {
+  const { reservaId } = await sembrarReservaConCliente(params);
+  return reservaId;
 };
 
 /** Inserta una RESERVA bloqueante + su FECHA_BLOQUEADA (arrange de cola/no-disp). */
@@ -217,6 +232,55 @@ describe('Transición sobre fecha LIBRE → 2.b + bloqueo blando atómico (3.2)'
     const nuevos = audit?.datosNuevos as { subEstado?: string } | null;
     expect(anteriores?.subEstado).toBe('2a');
     expect(nuevos?.subEstado).toBe('2b');
+  });
+});
+
+// ===========================================================================
+// BUG 2 (US-005 QA) — Colisión de COMUNICACION E1 en el camino normal: el alta
+// (US-003/004) crea SIEMPRE una E1 (reserva, E1); la transición sobre una reserva
+// que YA tiene su E1 debe HACER UPSERT (no `create`), evitando el P2002 del UNIQUE
+// parcial `uq_comunicacion_reserva_codigo`. Tras la operación debe existir EXACTAMENTE
+// UNA fila (reserva, E1) con el contenido de la confirmación de bloqueo provisional.
+// ===========================================================================
+
+describe('Transición sobre reserva 2.a CON E1 previa → UPSERT de la E1 sin P2002 (BUG 2)', () => {
+  it('debe_transicionar_a_2b_sin_P2002_y_dejar_exactamente_una_E1_con_la_confirmacion_de_bloqueo', async () => {
+    const { reservaId, clienteId } = await sembrarReservaConCliente({
+      estado: EstadoReserva.consulta,
+      subEstado: SubEstadoConsulta.s2a,
+    });
+
+    // Replica el estado real tras el alta: la RESERVA ya tiene su E1 (respuesta
+    // inicial automática enviada en US-003/004).
+    await prisma.comunicacion.create({
+      data: {
+        tenantId: TENANT,
+        reservaId,
+        clienteId,
+        codigoEmail: CodigoEmail.E1,
+        asunto: 'Respuesta inicial a tu consulta',
+        cuerpo: 'Gracias por tu interés. Te enviamos el dossier inicial.',
+        destinatarioEmail: 'origen@us005-int.test',
+        estado: EstadoComunicacion.enviado,
+        fechaEnvio: new Date('2026-06-01T08:00:00.000Z'),
+      },
+    });
+
+    // (a) La transición tiene éxito (no P2002 sobre uq_comunicacion_reserva_codigo).
+    await useCase.ejecutar(comando(reservaId, { fechaEvento: FECHA_E1_PREVIA }));
+
+    const reserva = await prisma.reserva.findUnique({ where: { idReserva: reservaId } });
+    expect(reserva?.subEstado).toBe(SubEstadoConsulta.s2b);
+
+    // (b) Existe EXACTAMENTE UNA fila (reserva, E1): el upsert reutilizó la previa.
+    const e1s = await prisma.comunicacion.findMany({
+      where: { reservaId, codigoEmail: CodigoEmail.E1 },
+    });
+    expect(e1s).toHaveLength(1);
+
+    // (c) Su contenido refleja la confirmación de bloqueo provisional.
+    expect(e1s[0]?.asunto).toBe('Hemos reservado provisionalmente tu fecha');
+    expect(e1s[0]?.cuerpo).toContain('bloqueado provisionalmente la fecha');
   });
 });
 
