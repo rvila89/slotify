@@ -141,6 +141,6 @@
       archive/PR
 
 ## 12. Archivar change + abrir PR (OBLIGATORIO — archive — dueño: `spec-author`)
-- [ ] 12.1 `openspec archive us-039-consultar-calendario` (solo tras gate final y
+- [x] 12.1 `openspec archive us-039-consultar-calendario` (solo tras gate final y
       code-review APTO; el hook `require-code-review` lo bloquea sin APTO)
-- [ ] 12.2 Actualizar `openspec/specs/` y abrir PR
+- [x] 12.2 Actualizar `openspec/specs/` y abrir PR
