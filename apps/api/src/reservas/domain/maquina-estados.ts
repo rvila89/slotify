@@ -233,3 +233,42 @@ export const esOrigenValidoParaPendienteInvitados = (
   ORIGENES_TRANSICION_PENDIENTE_INVITADOS.some(
     (origen) => origen.estado === estado && origen.subEstado === subEstado,
   );
+
+// ---------------------------------------------------------------------------
+// Guarda de ORIGEN de la transición «programar visita» (US-008 / UC-07 / §D-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Conjunto declarativo de ORÍGENES válidos de la transición «programar visita al
+ * espacio» (`{2a,2b,2c} → 2v`, US-008, skill `state-machine`, NO condicionales
+ * dispersos). A diferencia de US-005 (origen estricto `2.a`) y US-007 (origen
+ * estricto `2.b`), esta transición admite TRES orígenes de consulta ACTIVA
+ * (`2a/2b/2c`): la consulta exploratoria, la consulta con fecha bloqueada y la
+ * pendiente de invitados. La cola `2.d` NO es origen (debe promoverse primero,
+ * UC-12; se rechaza con un mensaje específico en la aplicación); el propio destino
+ * `2.v` (ya programada) tampoco; los terminales (`2x/2y/2z`) y cualquier estado
+ * distinto de `consulta` (incluidos `reserva_cancelada`/`reserva_completada`,
+ * inmutables) son orígenes inválidos. Tres transiciones permitidas:
+ * `{consulta,2a}`, `{consulta,2b}`, `{consulta,2c}` → `{consulta,2v}`.
+ */
+export const ORIGENES_TRANSICION_PROGRAMAR_VISITA: ReadonlyArray<OrigenTransicion> = [
+  { estado: 'consulta', subEstado: '2a' },
+  { estado: 'consulta', subEstado: '2b' },
+  { estado: 'consulta', subEstado: '2c' },
+];
+
+/**
+ * Guarda declarativa: ¿es `(estado, subEstado)` un ORIGEN legal de la transición
+ * «programar visita» (US-008)? Consulta la tabla
+ * `ORIGENES_TRANSICION_PROGRAMAR_VISITA`: solo `consulta/{2a,2b,2c}` lo es. Se
+ * evalúa ANTES de mutar para rechazar sin efectos cualquier otro sub-estado/estado.
+ * El caso `2.d` (cola) se distingue en la aplicación para devolver 409 (UC-12); el
+ * resto de no-orígenes mapea a 422.
+ */
+export const esOrigenValidoParaProgramarVisita = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): boolean =>
+  ORIGENES_TRANSICION_PROGRAMAR_VISITA.some(
+    (origen) => origen.estado === estado && origen.subEstado === subEstado,
+  );

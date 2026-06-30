@@ -21,13 +21,18 @@ export class TenantSettingsPrismaAdapter implements TenantSettingsPort {
       await this.prisma.fijarTenant(tx, tenantId);
       return tx.tenantSettings.findUnique({
         where: { tenantId },
-        select: { ttlConsultaDias: true, ttlPrereservaDias: true },
+        select: {
+          ttlConsultaDias: true,
+          ttlPrereservaDias: true,
+          maxDiasProgramarVisita: true,
+        },
       });
     });
     return fila
       ? {
           ttlConsultaDias: fila.ttlConsultaDias,
           ttlPrereservaDias: fila.ttlPrereservaDias,
+          maxDiasProgramarVisita: fila.maxDiasProgramarVisita,
         }
       : null;
   }

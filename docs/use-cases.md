@@ -369,27 +369,56 @@ flowchart TD
 | **Nombre** | Programar Visita al Espacio |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema, Cliente |
-| **Descripción** | El gestor programa una visita al espacio cuando el cliente lo solicita antes de decidir |
-| **Precondiciones** | - Consulta en sub-estado 2.a, 2.b o 2.c<br>- Cliente ha solicitado visita<br>- Fecha de visita ≤ 7 días desde solicitud |
-| **Postcondiciones** | - Consulta pasa a sub-estado 2.v<br>- Fecha del evento bloqueada hasta día posterior a la visita<br>- Visita registrada con fecha/hora<br>- Recordatorio programado para el gestor |
+| **Descripción** | El Gestor programa una visita presencial al espacio para un cliente interesado y transiciona la consulta al sub-estado `2.v`. La transición bloquea la fecha del evento hasta el día posterior a la visita y envía automáticamente el email E6 de confirmación al cliente. Implementado en **US-008** (change `2026-06-30-us-008-programar-visita-espacio`). |
+| **Precondiciones** | - Consulta en `sub_estado ∈ {'2a','2b','2c'}` (guarda de origen; `2d` y terminales producen error sin efectos)<br>- Para `2a`: `fecha_evento` debe estar definida (NOT NULL)<br>- `fecha_visita ∈ [hoy + 1 día, hoy + TENANT_SETTINGS.max_dias_programar_visita]` (ventana por defecto de 7 días)<br>- Gestor autenticado con rol gestor sobre el tenant |
+| **Postcondiciones** | - Consulta pasa a `sub_estado = '2v'`<br>- `visita_programada_fecha = fecha_visita`, `visita_programada_hora = hora_visita`, `visita_realizada = false`<br>- `FECHA_BLOQUEADA`: si origen `2b`/`2c` (ya tenía fila activa) → UPDATE del `ttl_expiracion` a `visita + 1 día (23:59:59)`; si origen `2a` (sin bloqueo) → INSERT nueva fila `tipo_bloqueo='blando'`, `ttl_expiracion = visita + 1 día (23:59:59)`. `tipo_bloqueo` permanece/es `'blando'`<br>- `AUDIT_LOG` con `accion='transicion'`, `entidad='RESERVA'`, `datos_anteriores.sub_estado` (origen), `datos_nuevos.sub_estado='2v'`, `datos_nuevos.visita_programada_fecha`<br>- Las cuatro operaciones son **all-or-nothing** en una única transacción<br>- Post-commit: email E6 (confirmación de visita con fecha y hora) enviado al cliente; registrado en `COMUNICACION` con `codigo_email='E6'`, `estado='enviado'`, `reserva_id`, `cliente_id` |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
+| **US** | US-008 |
+| **Endpoint** | `POST /reservas/{id}/visita` — body `{ "fecha": "YYYY-MM-DD", "hora": "HH:mm" }` |
+| **Entidades afectadas** | RESERVA (UPDATE sub_estado + campos visita), FECHA_BLOQUEADA (INSERT o UPDATE ttl_expiracion), COMUNICACION (INSERT E6), AUDIT_LOG — sin migración de columnas (campos de visita + sub-estado `2v` + setting ya existentes desde US-000) |
 
-**Flujo Básico:**
-1. El gestor abre la ficha de consulta
-2. El gestor selecciona "Programar visita"
-3. El sistema muestra formulario de programación
-4. El gestor introduce fecha y hora de la visita
-5. El sistema valida la fecha de visita
-6. El sistema cambia el sub-estado a 2.v
-7. El sistema registra `visita_programada_fecha`
-8. El sistema bloquea la fecha del evento hasta día posterior a la visita
-9. El sistema programa recordatorio para el día de la visita
-10. El sistema envía email E6 al cliente confirmando visita
-11. El sistema registra la transición en audit log
+**Flujo Básico (desde 2.b):**
+1. El gestor abre la ficha de consulta `2.b` en la pantalla de la reserva
+2. El gestor selecciona "Programar visita" (acción habilitada para `2a`/`2b`/`2c` con `fecha_evento` definida; deshabilitada/oculta en `2d`, terminales y `2a` sin `fecha_evento`)
+3. El gestor introduce `fecha_visita` (selector limitado a `[mañana, hoy + max_dias_programar_visita]`) y hora, y confirma
+4. El sistema valida la guarda de origen: `sub_estado ∈ {'2a','2b','2c'}`
+5. El sistema valida la ventana de fecha: `fecha_visita ∈ [hoy + 1, hoy + TENANT_SETTINGS.max_dias_programar_visita]` (setting nunca hardcodeado)
+6. El sistema resuelve el plan de bloqueo vía `resolverPlanBloqueo({ fase: '2.v', visitaFecha })` → `{ ttl = visita +1 día (23:59:59), accion: 'insert' | 'update' }` según si hay fila activa en `FECHA_BLOQUEADA`
+7. En una única transacción all-or-nothing serializada por `SELECT … FOR UPDATE` sobre la fila bloqueante de `FECHA_BLOQUEADA`:
+   - Actualiza la RESERVA: `sub_estado = '2v'`, `visita_programada_fecha`, `visita_programada_hora`, `visita_realizada = false`
+   - UPDATE (o INSERT si origen `2a`) de `FECHA_BLOQUEADA`: `ttl_expiracion = visita + 1 día (23:59:59)`; `tipo_bloqueo = 'blando'`
+   - Registra `AUDIT_LOG` con `accion = 'transicion'`, `datos_anteriores.sub_estado = '2b'`, `datos_nuevos.sub_estado = '2v'`, `datos_nuevos.visita_programada_fecha`
+8. Post-commit (no bloqueante): dispara E6 vía el motor de email de US-045; registra en `COMUNICACION` con `codigo_email = 'E6'`, `estado = 'enviado'`; un fallo del proveedor no revierte la transición (queda trazado en `COMUNICACION`)
+9. El sistema responde `200` con `subEstado = '2v'`, `visitaProgramadaFecha`, `visitaProgramadaHora`, `visitaRealizada = false`, `ttlExpiracion` (nuevo)
 
 **Flujos Alternativos:**
-- **FA-01**: Consulta en cola (2.d) → NO permitido, debe ser promovida primero
+- **FA-01** (consulta en cola — `2d`): el sistema responde **409** con mensaje "No es posible programar una visita para una consulta en cola. La consulta debe ser promovida primero (UC-12)"; la RESERVA no se modifica. La acción está deshabilitada en UI para `2d`.
+- **FA-02** (origen `2a` sin `fecha_evento`): el sistema informa de que debe introducirse primero la fecha del evento; la acción queda bloqueada hasta que `fecha_evento` esté definida. Responde **422** sin efectos.
+- **FA-03** (fecha de visita ≤ hoy): el sistema responde **422** "La fecha de visita debe ser un día futuro"; la RESERVA no se modifica.
+- **FA-04** (fecha de visita > hoy + `max_dias_programar_visita`): el sistema responde **422** "La visita debe programarse dentro de los próximos {N} días"; la RESERVA no se modifica.
+- **FA-05** (estado terminal — `2x`/`2y`/`2z`/`reserva_cancelada`/`reserva_completada`): el sistema responde **422**; los terminales son inmutables; la RESERVA no se modifica.
+- **FA-06** (concurrencia — barrido A4 vs transición a `2v`): la serialización por `SELECT … FOR UPDATE` sobre la fila bloqueante garantiza que la primera transacción en commitear gana y la otra opera sobre un estado ya cambiado respetando las guardas; nunca estado inconsistente.
+
+```mermaid
+flowchart TD
+    A[Gestor: Programar visita en 2.a/2.b/2.c] --> B{Guarda de origen: sub_estado ∈ 2a|2b|2c?}
+    B -->|2d| C[409 — Promover primero UC-12]
+    B -->|Terminal| D[422 — Estado inmutable]
+    B -->|2a sin fecha_evento| E[422 — Introducir fecha_evento primero]
+    B -->|Válido| F{fecha_visita ∈ hoy+1..hoy+N?}
+    F -->|≤ hoy| G[422 — Fecha futura obligatoria]
+    F -->|> hoy+N| H[422 — Fuera de ventana]
+    F -->|Válida| I[Tx SELECT…FOR UPDATE sobre fila bloqueante]
+    I --> J[UPDATE RESERVA: 2v + campos visita + visita_realizada=false]
+    J --> K{Origen tenía FECHA_BLOQUEADA?}
+    K -->|2b ó 2c| L[UPDATE FECHA_BLOQUEADA: ttl = visita +1 día]
+    K -->|2a sin bloqueo| M[INSERT FECHA_BLOQUEADA: blando, ttl = visita +1 día]
+    L --> N[AUDIT_LOG transicion: 2v + visita_programada_fecha]
+    M --> N
+    N --> O[200 — subEstado=2v + visitaProgramadaFecha/Hora + ttlExpiracion]
+    O --> P[Post-commit: E6 motor US-045 → COMUNICACION E6 enviado]
+```
 
 ---
 
@@ -1739,4 +1768,4 @@ Este análisis ha identificado **36 casos de uso** que cubren completamente la f
 
 ---
 
-*Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.1 (28/06/2026): refleja US-004 — alta de consulta con fecha (UC-03): actualiza §3 UC-03 — flujo básico paso 3 (`fecha_evento > hoy`, estrictamente futura) y FA-01 (rechaza hoy y pasado con 400 en servidor; divergencia intencional Gate 1 decisión A; trazabilidad a `design.md §D-1`). Corrección transversal: UC-04 precondiciones alineadas con la regla real de `bloquearFecha()` / `validarFechaFutura` (`> hoy`; inconsistencia preexistente respecto a la ficha original).*
+*Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.2 (30/06/2026): refleja US-008 — programar visita al espacio (UC-07): reemplaza la ficha original de UC-07 con la especificación completa implementada: guarda de origen multi-estado `{2a,2b,2c}→2v`; precondición `fecha_evento` NOT NULL para `2a`; ventana `fecha_visita ∈ [hoy+1, hoy+max_dias_programar_visita]` (setting del tenant); INSERT-o-UPDATE de `FECHA_BLOQUEADA` (`ttl=visita+1 día`) según origen; atomicidad RESERVA+FECHA_BLOQUEADA+AUDIT_LOG en una única transacción; E6 post-commit vía motor US-045; US, endpoint `POST /reservas/{id}/visita`, entidades afectadas, flujos alternativos FA-01..FA-06 y diagrama Mermaid. A19/A20 (recordatorios al gestor) fuera de alcance de esta US (slice de jobs separado). Sin migración de columnas (campos de visita + sub-estado `2v` + `max_dias_programar_visita` ya existentes desde US-000). Versión 1.1 (28/06/2026): refleja US-004 — alta de consulta con fecha (UC-03): actualiza §3 UC-03 — flujo básico paso 3 (`fecha_evento > hoy`, estrictamente futura) y FA-01 (rechaza hoy y pasado con 400 en servidor; divergencia intencional Gate 1 decisión A; trazabilidad a `design.md §D-1`). Corrección transversal: UC-04 precondiciones alineadas con la regla real de `bloquearFecha()` / `validarFechaFutura` (`> hoy`; inconsistencia preexistente respecto a la ficha original).*

@@ -94,16 +94,21 @@ export const AnadirFechaDialog = ({ reservaId, abierto, onAbiertoChange, onResue
 
   const fechaSeleccionada = watch('fechaEvento');
 
+  // `mutation.reset` es una referencia estable en TanStack Query v5; el objeto
+  // `mutation` completo NO lo es (se recrea en cada render), por lo que NO debe
+  // entrar en las deps del efecto (provocaría un bucle de render infinito).
+  const { reset: resetMutation } = mutation;
+
   // Al cerrar el diálogo se resetea todo su estado interno para no arrastrar
   // fechas/errores entre aperturas.
   useEffect(() => {
     if (!abierto) {
       setPaso('form');
       setErrorAsignacion(null);
-      mutation.reset();
+      resetMutation();
       reset({ fechaEvento: '' });
     }
-  }, [abierto, mutation, reset]);
+  }, [abierto, resetMutation, reset]);
 
   const manejarError = (err: AsignarFechaError) => {
     if (err.tipo === 'cola-disponible') {

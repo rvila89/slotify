@@ -721,37 +721,30 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Programar visita al espacio (UC-07)
-         * @description Transiciona la consulta a sub-estado `2.v` y fija fecha/hora de visita.
+         * Programar visita al espacio — transición 2.a/2.b/2.c→2.v (UC-07 / US-008)
+         * @description [US-008] Transición de un agregado RESERVA **existente** en sub-estado `2a`
+         *     (exploratoria con `fechaEvento` definida), `2b` (con fecha + bloqueo blando) o `2c`
+         *     (pendiente de invitados) hacia `2v` (visita programada). En una **única transacción**
+         *     (`SELECT … FOR UPDATE` sobre la fila bloqueante + `UNIQUE(tenant_id, fecha)`; sin Redis
+         *     ni locks distribuidos) ejecuta, all-or-nothing:
+         *     1. RESERVA → `subEstado='2v'`, `visitaProgramadaFecha=fecha`, `visitaProgramadaHora=hora`,
+         *        `visitaRealizada=false`.
+         *     2. **INSERT-o-UPDATE** (upsert por `UNIQUE(tenant_id, fechaEvento)`) de `FechaBloqueada`
+         *        con `ttlExpiracion = visitaProgramadaFecha + 1 día (23:59:59)` y `tipoBloqueo='blando'`:
+         *        si venía de `2b`/`2c` (fila existente) se **actualiza** el TTL; si venía de `2a` (sin
+         *        bloqueo) se **crea** la fila. El TTL deriva de la fecha de visita, **no** del setting
+         *        `ttl_consulta_dias` (reutiliza la primitiva `resolverPlanBloqueo({ fase: '2.v' })`,
+         *        US-040). El setting `TENANT_SETTINGS.max_dias_programar_visita` solo acota la **ventana
+         *        de entrada** de `fecha`, no el TTL.
+         *     3. `AUDIT_LOG accion='transicion'` (`datos_anteriores.sub_estado` ∈ {2a,2b,2c},
+         *        `datos_nuevos.sub_estado='2v'`, `datos_nuevos.visita_programada_fecha`).
+         *
+         *     Tras el COMMIT se dispara (post-commit, **no bloqueante**, motor de email US-045) el email
+         *     **E6** de confirmación de visita y se registra en `COMUNICACION` (`codigo_email='E6'`,
+         *     `estado='enviado'`, `reservaId`, `clienteId`): un fallo de envío **no** revierte la
+         *     transición ni el bloqueo (design.md §D-6).
          */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description ID de la reserva */
-                    id: components["parameters"]["IdReserva"];
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["ProgramarVisitaRequest"];
-                };
-            };
-            responses: {
-                /** @description Visita programada */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Reserva"];
-                    };
-                };
-                400: components["responses"]["ValidationError"];
-            };
-        };
+        post: operations["programarVisita"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2307,10 +2300,16 @@ export interface components {
             motivo?: string;
         };
         ProgramarVisitaRequest: {
-            /** Format: date */
-            visitaFecha: string;
-            /** @example 17:30 */
-            visitaHora: string;
+            /**
+             * Format: date
+             * @description OBLIGATORIO. Fecha de la visita (YYYY-MM-DD). Debe ser FUTURA (≥ hoy + 1 día) y estar dentro de la ventana [hoy + 1, hoy + TENANT_SETTINGS.max_dias_programar_visita]. Fuera de rango → 422 (la RESERVA no se muta). El TTL del bloqueo se deriva de esta fecha + 1 día.
+             */
+            fecha: string;
+            /**
+             * @description OBLIGATORIO. Hora de la visita en formato 24h `HH:mm`.
+             * @example 17:30
+             */
+            hora: string;
         };
         ResultadoVisitaRequest: {
             visitaRealizada: boolean;
@@ -2351,6 +2350,13 @@ export interface components {
         };
         BloqueoNoVigenteError: components["schemas"]["ErrorResponse"] & {
             /** @description Motivo por el que la transición a `2c` no es posible: la RESERVA no tiene fecha bloqueada activa, o el bloqueo ya expiró (`ttl_expiracion < ahora`). */
+            motivo: string;
+        };
+        ProgramarVisitaConflictoError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Motivo por el que la visita no se puede programar: la RESERVA está en cola (`subEstado='2d'`) y debe promoverse primero (UC-12).
+             * @example No es posible programar una visita para una consulta en cola. La consulta debe ser promovida primero (UC-12).
+             */
             motivo: string;
         };
         Cliente: {
@@ -2792,4 +2798,72 @@ export interface components {
     pathItems: never;
 }
 export type $defs = Record<string, never>;
-export type operations = Record<string, never>;
+export interface operations {
+    programarVisita: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProgramarVisitaRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Transición aplicada. Devuelve la RESERVA actualizada: `subEstado='2v'`,
+             *     `visitaProgramadaFecha`, `visitaProgramadaHora`, `visitaRealizada=false` y el nuevo
+             *     `ttlExpiracion` del bloqueo (= fecha de visita + 1 día 23:59:59).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Reserva"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Consulta en cola (`subEstado='2d'`): no es posible programar una visita directamente;
+             *     la consulta debe ser **promovida primero** (`POST /reservas/{id}/promover`, UC-12). La
+             *     RESERVA no se modifica. El cuerpo añade `motivo` al envelope de error estándar (F5-02:
+             *     409 = conflicto/precondición de estado; 422 = guarda de transición/validación inválida).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgramarVisitaConflictoError"];
+                };
+            };
+            /**
+             * @description No se puede transicionar a `2v`. Casos (la RESERVA NO se modifica):
+             *     - **Guarda de origen**: el sub-estado de origen no es `2a`/`2b`/`2c` (p. ej. `2v` ya
+             *       programada, o un terminal `2x`/`2y`/`2z`/`reserva_cancelada`/`reserva_completada`,
+             *       inmutables).
+             *     - **`2a` sin `fechaEvento`**: debe introducirse la fecha del evento antes de programar
+             *       la visita.
+             *     - **Fecha fuera de ventana**: `fecha ≤ hoy` (debe ser futura) o
+             *       `fecha > hoy + TENANT_SETTINGS.max_dias_programar_visita` (fuera del límite).
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+}

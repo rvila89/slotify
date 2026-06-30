@@ -60,13 +60,18 @@ export const PendienteInvitadosDialog = ({
   const [error, setError] = useState<PendienteInvitadosError | null>(null);
   const mutation = usePendienteInvitados();
 
+  // `mutation.reset` es una referencia estable en TanStack Query v5; el objeto
+  // `mutation` completo NO lo es (se recrea en cada render), por lo que NO debe
+  // entrar en las deps del efecto (provocaría un bucle de render infinito).
+  const { reset: resetMutation } = mutation;
+
   // Al cerrar el diálogo se resetea su estado interno para no arrastrar errores.
   useEffect(() => {
     if (!abierto) {
       setError(null);
-      mutation.reset();
+      resetMutation();
     }
-  }, [abierto, mutation]);
+  }, [abierto, resetMutation]);
 
   const confirmar = () => {
     setError(null);

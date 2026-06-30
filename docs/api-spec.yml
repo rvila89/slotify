@@ -511,8 +511,30 @@ paths:
       - { $ref: '#/components/parameters/IdReserva' }
     post:
       tags: [Reservas]
-      summary: Programar visita al espacio (UC-07)
-      description: Transiciona la consulta a sub-estado `2.v` y fija fecha/hora de visita.
+      summary: Programar visita al espacio — transición 2.a/2.b/2.c→2.v (UC-07 / US-008)
+      operationId: programarVisita
+      description: |
+        [US-008] Transición de un agregado RESERVA **existente** en sub-estado `2a`
+        (exploratoria con `fechaEvento` definida), `2b` (con fecha + bloqueo blando) o `2c`
+        (pendiente de invitados) hacia `2v` (visita programada). En una **única transacción**
+        (`SELECT … FOR UPDATE` sobre la fila bloqueante + `UNIQUE(tenant_id, fecha)`; sin Redis
+        ni locks distribuidos) ejecuta, all-or-nothing:
+        1. RESERVA → `subEstado='2v'`, `visitaProgramadaFecha=fecha`, `visitaProgramadaHora=hora`,
+           `visitaRealizada=false`.
+        2. **INSERT-o-UPDATE** (upsert por `UNIQUE(tenant_id, fechaEvento)`) de `FechaBloqueada`
+           con `ttlExpiracion = visitaProgramadaFecha + 1 día (23:59:59)` y `tipoBloqueo='blando'`:
+           si venía de `2b`/`2c` (fila existente) se **actualiza** el TTL; si venía de `2a` (sin
+           bloqueo) se **crea** la fila. El TTL deriva de la fecha de visita, **no** del setting
+           `ttl_consulta_dias` (reutiliza la primitiva `resolverPlanBloqueo({ fase: '2.v' })`,
+           US-040). El setting `TENANT_SETTINGS.max_dias_programar_visita` solo acota la **ventana
+           de entrada** de `fecha`, no el TTL.
+        3. `AUDIT_LOG accion='transicion'` (`datos_anteriores.sub_estado` ∈ {2a,2b,2c},
+           `datos_nuevos.sub_estado='2v'`, `datos_nuevos.visita_programada_fecha`).
+
+        Tras el COMMIT se dispara (post-commit, **no bloqueante**, motor de email US-045) el email
+        **E6** de confirmación de visita y se registra en `COMUNICACION` (`codigo_email='E6'`,
+        `estado='enviado'`, `reservaId`, `clienteId`): un fallo de envío **no** revierte la
+        transición ni el bloqueo (design.md §D-6).
       requestBody:
         required: true
         content:
@@ -521,12 +543,45 @@ paths:
               $ref: '#/components/schemas/ProgramarVisitaRequest'
       responses:
         '200':
-          description: Visita programada
+          description: |
+            Transición aplicada. Devuelve la RESERVA actualizada: `subEstado='2v'`,
+            `visitaProgramadaFecha`, `visitaProgramadaHora`, `visitaRealizada=false` y el nuevo
+            `ttlExpiracion` del bloqueo (= fecha de visita + 1 día 23:59:59).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Reserva' }
         '400':
+          # Cuerpo mal formado: `fecha`/`hora` ausentes o con formato inválido (no `date` / `HH:mm`).
+          # La validación de dominio (ventana de fecha / guarda de origen) se reporta como 422.
           $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            Consulta en cola (`subEstado='2d'`): no es posible programar una visita directamente;
+            la consulta debe ser **promovida primero** (`POST /reservas/{id}/promover`, UC-12). La
+            RESERVA no se modifica. El cuerpo añade `motivo` al envelope de error estándar (F5-02:
+            409 = conflicto/precondición de estado; 422 = guarda de transición/validación inválida).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgramarVisitaConflictoError' }
+        '422':
+          description: |
+            No se puede transicionar a `2v`. Casos (la RESERVA NO se modifica):
+            - **Guarda de origen**: el sub-estado de origen no es `2a`/`2b`/`2c` (p. ej. `2v` ya
+              programada, o un terminal `2x`/`2y`/`2z`/`reserva_cancelada`/`reserva_completada`,
+              inmutables).
+            - **`2a` sin `fechaEvento`**: debe introducirse la fecha del evento antes de programar
+              la visita.
+            - **Fecha fuera de ventana**: `fecha ≤ hoy` (debe ser futura) o
+              `fecha > hoy + TENANT_SETTINGS.max_dias_programar_visita` (fuera del límite).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
     patch:
       tags: [Reservas]
       summary: Registrar resultado de visita (UC-08)
@@ -1526,12 +1581,26 @@ components:
             DEPRECADO (US-005): usa `POST /reservas/{id}/fecha` para asignar la fecha y disparar el
             bloqueo atómico. Se mantiene por compatibilidad; no realiza la asignación de fecha.
         motivo: { type: string, description: 'Obligatorio en cancelaciones/descartes' }
+    # [US-008] Cuerpo de POST /reservas/{id}/visita: transición 2.a/2.b/2.c→2.v sobre una RESERVA
+    # existente. `fecha`/`hora` de la visita presencial. El servidor valida (defensivo) que `fecha`
+    # esté en la ventana [hoy+1, hoy+max_dias_programar_visita]; fuera de rango → 422.
     ProgramarVisitaRequest:
       type: object
-      required: [visitaFecha, visitaHora]
+      required: [fecha, hora]
+      additionalProperties: false
       properties:
-        visitaFecha: { type: string, format: date }
-        visitaHora: { type: string, example: '17:30' }
+        fecha:
+          type: string
+          format: date
+          description: >-
+            OBLIGATORIO. Fecha de la visita (YYYY-MM-DD). Debe ser FUTURA (≥ hoy + 1 día) y estar
+            dentro de la ventana [hoy + 1, hoy + TENANT_SETTINGS.max_dias_programar_visita]. Fuera de
+            rango → 422 (la RESERVA no se muta). El TTL del bloqueo se deriva de esta fecha + 1 día.
+        hora:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: '17:30'
+          description: 'OBLIGATORIO. Hora de la visita en formato 24h `HH:mm`.'
     ResultadoVisitaRequest:
       type: object
       required: [visitaRealizada]
@@ -1633,6 +1702,27 @@ components:
               description: >-
                 Motivo por el que la transición a `2c` no es posible: la RESERVA no tiene fecha
                 bloqueada activa, o el bloqueo ya expiró (`ttl_expiracion < ahora`).
+
+    # -------- Transición 2.a/2.b/2.c→2.v (US-008) --------
+    # [US-008] Error 409 de POST /reservas/{id}/visita: consulta en cola (2.d). Mismo patrón que
+    # BloqueoNoVigenteError de US-007 (allOf ErrorResponse + campo de dominio `motivo`): conserva el
+    # envelope NestJS (statusCode/message) y añade `motivo` con el mensaje UC-12. No reutiliza
+    # BloqueoNoVigenteError por claridad semántica (aquí el conflicto es el estado de cola, no un
+    # bloqueo expirado). 409 = precondición de estado (cola); las guardas de origen / ventana → 422.
+    ProgramarVisitaConflictoError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [motivo]
+          properties:
+            motivo:
+              type: string
+              example: >-
+                No es posible programar una visita para una consulta en cola. La consulta debe ser
+                promovida primero (UC-12).
+              description: >-
+                Motivo por el que la visita no se puede programar: la RESERVA está en cola
+                (`subEstado='2d'`) y debe promoverse primero (UC-12).
 
     # -------- Cliente --------
     Cliente:

@@ -1,24 +1,27 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { CalendarPlus, Mail, User, Users } from 'lucide-react';
+import { CalendarPlus, User } from 'lucide-react';
 import { useReserva } from '../../api/useReserva';
 import { AnadirFechaDialog } from '../../components/AnadirFechaDialog';
 import { PendienteInvitadosDialog } from '../../components/PendienteInvitadosDialog';
-import { bloqueoVigente, formatearFecha } from '../../lib/fecha';
+import { ProgramarVisitaDialog } from '../../components/ProgramarVisitaDialog';
+import { MAX_DIAS_PROGRAMAR_VISITA_DEFAULT, formatearFecha } from '../../lib/fecha';
 import { Badge } from './components/Badge';
 import { Dato } from './components/Dato';
+import { AccionesConsulta } from './components/AccionesConsulta';
 import { AvisosTransicion } from './components/AvisosTransicion';
 import { AvisoPendienteInvitados } from './components/AvisoPendienteInvitados';
+import { AvisoVisitaProgramada } from './components/AvisoVisitaProgramada';
 import type { PendienteInvitadosResultado, Reserva } from '../../model/types';
 
 const claseSeccion =
   'flex flex-col gap-6 rounded-[20px] border border-border-default/20 bg-surface-subtle/30 p-4 sm:p-6 lg:p-8';
 
 /**
- * Ficha de consulta (US-005 · UC-04). Muestra el detalle de una RESERVA y, en
- * sub-estado `2a` (exploratoria), ofrece la acción "Añadir fecha" que dispara la
- * transición `2.a → 2.b/2.d` vía el diálogo de dominio. Los avisos del desenlace
- * (2b/2d) y los fragmentos visuales (badge, datos) viven en `components/`.
+ * Ficha de consulta (US-005/US-007/US-008 · UC-04/06/07). Muestra el detalle de una
+ * RESERVA y, según su sub-estado, ofrece las acciones de transición (Añadir fecha,
+ * Pendiente de invitados, Programar visita) vía diálogos de dominio. Los avisos del
+ * desenlace y los fragmentos visuales viven en `components/`.
  */
 export const FichaConsultaPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -26,12 +29,15 @@ export const FichaConsultaPage = () => {
 
   const [dialogoAbierto, setDialogoAbierto] = useState(false);
   const [dialogoInvitadosAbierto, setDialogoInvitadosAbierto] = useState(false);
+  const [dialogoVisitaAbierto, setDialogoVisitaAbierto] = useState(false);
   // RESERVA resultante de la transición de fecha (US-005): alimenta el aviso 2b/2d.
   const [resultado, setResultado] = useState<Reserva | null>(null);
   // Resultado de la transición 2.b → 2.c (US-007): alimenta su aviso (TTL + cola).
   const [resultadoInvitados, setResultadoInvitados] = useState<PendienteInvitadosResultado | null>(
     null,
   );
+  // RESERVA resultante de la transición a 2.v (US-008): alimenta su aviso (visita + TTL).
+  const [resultadoVisita, setResultadoVisita] = useState<Reserva | null>(null);
 
   if (isLoading) {
     return (
@@ -58,11 +64,6 @@ export const FichaConsultaPage = () => {
     ? `${cliente.nombre ?? ''} ${cliente.apellidos ?? ''}`.trim() || 'Cliente'
     : 'Cliente';
   const subEstado = reserva.subEstado;
-  const esExploratoria = subEstado === '2a';
-  // US-007 (D-1): la acción "pendiente de invitados" solo aplica a consultas en
-  // `2b` con bloqueo de fecha vigente (ttlExpiracion > ahora). El servidor revalida
-  // de forma defensiva (409 BloqueoNoVigenteError / 422 guarda de origen).
-  const puedePendienteInvitados = subEstado === '2b' && bloqueoVigente(reserva.ttlExpiracion);
 
   return (
     <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-6">
@@ -74,8 +75,7 @@ export const FichaConsultaPage = () => {
           <Badge subEstado={subEstado} />
         </div>
         <p className="font-body text-sm text-text-secondary sm:text-base">
-          Ficha del lead. Revisa los datos y, si es una consulta exploratoria, añade una fecha de
-          evento para intentar reservarla.
+          Ficha del lead. Revisa los datos y gestiona la consulta según su estado.
         </p>
       </header>
 
@@ -85,6 +85,13 @@ export const FichaConsultaPage = () => {
         <AvisoPendienteInvitados
           resultado={resultadoInvitados}
           onCerrar={() => setResultadoInvitados(null)}
+        />
+      )}
+
+      {resultadoVisita && (
+        <AvisoVisitaProgramada
+          reserva={resultadoVisita}
+          onCerrar={() => setResultadoVisita(null)}
         />
       )}
 
@@ -107,6 +114,12 @@ export const FichaConsultaPage = () => {
             etiqueta="Fecha del evento"
             valor={reserva.fechaEvento ? formatearFecha(reserva.fechaEvento) : 'Sin asignar'}
           />
+          {reserva.visitaProgramadaFecha && (
+            <Dato
+              etiqueta="Visita programada"
+              valor={`${formatearFecha(reserva.visitaProgramadaFecha)}${reserva.visitaProgramadaHora ? ` · ${reserva.visitaProgramadaHora}` : ''}`}
+            />
+          )}
           {typeof reserva.posicionCola === 'number' && (
             <Dato etiqueta="Posición en cola" valor={`${reserva.posicionCola}`} />
           )}
@@ -123,53 +136,21 @@ export const FichaConsultaPage = () => {
           </h2>
         </div>
 
-        {esExploratoria ? (
-          <div className="flex flex-col gap-3">
-            <p className="font-body text-sm text-text-secondary">
-              Esta consulta es exploratoria (sin fecha). Añade una fecha para intentar bloquearla;
-              si está ocupada, podrás entrar en la cola de espera.
-            </p>
-            <button
-              type="button"
-              data-testid="boton-anadir-fecha"
-              onClick={() => {
-                setResultado(null);
-                setDialogoAbierto(true);
-              }}
-              className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-10 font-display text-base text-brand-foreground transition hover:opacity-95 sm:w-auto sm:px-16"
-            >
-              <CalendarPlus aria-hidden className="size-5" />
-              Añadir fecha
-            </button>
-          </div>
-        ) : puedePendienteInvitados ? (
-          <div className="flex flex-col gap-3">
-            <p className="font-body text-sm text-text-secondary">
-              Esta consulta tiene una fecha bloqueada provisionalmente. Si el cliente tiene
-              intención firme, márcala como pendiente de número de invitados: se ampliará el plazo
-              del bloqueo y se vaciará su cola de espera.
-            </p>
-            <button
-              type="button"
-              data-testid="boton-pendiente-invitados"
-              onClick={() => {
-                setResultadoInvitados(null);
-                setDialogoInvitadosAbierto(true);
-              }}
-              className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-10 font-display text-base text-brand-foreground transition hover:opacity-95 sm:w-auto sm:px-16"
-            >
-              <Users aria-hidden className="size-5" />
-              Marcar como pendiente de invitados
-            </button>
-          </div>
-        ) : (
-          <p className="flex items-start gap-3 font-body text-sm text-text-secondary">
-            <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
-            No hay acciones disponibles para esta consulta en su estado actual. La acción "Añadir
-            fecha" requiere una consulta exploratoria (2a) y "Marcar como pendiente de invitados"
-            una consulta con fecha (2b) y bloqueo vigente.
-          </p>
-        )}
+        <AccionesConsulta
+          reserva={reserva}
+          onAnadirFecha={() => {
+            setResultado(null);
+            setDialogoAbierto(true);
+          }}
+          onPendienteInvitados={() => {
+            setResultadoInvitados(null);
+            setDialogoInvitadosAbierto(true);
+          }}
+          onProgramarVisita={() => {
+            setResultadoVisita(null);
+            setDialogoVisitaAbierto(true);
+          }}
+        />
       </section>
 
       {id && (
@@ -187,6 +168,16 @@ export const FichaConsultaPage = () => {
           abierto={dialogoInvitadosAbierto}
           onAbiertoChange={setDialogoInvitadosAbierto}
           onResuelto={setResultadoInvitados}
+        />
+      )}
+
+      {id && (
+        <ProgramarVisitaDialog
+          reservaId={id}
+          maxDias={MAX_DIAS_PROGRAMAR_VISITA_DEFAULT}
+          abierto={dialogoVisitaAbierto}
+          onAbiertoChange={setDialogoVisitaAbierto}
+          onResuelto={setResultadoVisita}
         />
       )}
     </div>
