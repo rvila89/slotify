@@ -4,6 +4,14 @@
  * == cronológicamente, lo que evita problemas de zona horaria al validar
  * "estrictamente futura" (regla de fecha unificada del proyecto, `> hoy`).
  */
+/**
+ * Días máximos por defecto para programar una visita (US-008). Espejo del default
+ * de `TENANT_SETTINGS.max_dias_programar_visita` (7). El servidor es la fuente de
+ * verdad de la ventana (responde 422 fuera de rango); este valor solo acota el
+ * picker en cliente para el caso feliz mientras el setting no se exponga por API.
+ */
+export const MAX_DIAS_PROGRAMAR_VISITA_DEFAULT = 7;
+
 const aISODate = (d: Date): string => {
   const mes = String(d.getMonth() + 1).padStart(2, '0');
   const dia = String(d.getDate()).padStart(2, '0');
@@ -21,6 +29,19 @@ export const hoyISO = (): string => aISODate(new Date());
 export const mananaISO = (): string => {
   const d = new Date();
   d.setDate(d.getDate() + 1);
+  return aISODate(d);
+};
+
+/**
+ * Hoy + `dias` días en ISO `YYYY-MM-DD`. Es el `max` del selector de la fecha
+ * de visita (US-008): la visita debe programarse dentro de la ventana
+ * `[hoy + 1, hoy + TENANT_SETTINGS.max_dias_programar_visita]`. El servidor es
+ * la fuente de verdad de la ventana (responde 422 si la fecha cae fuera); este
+ * límite de cliente solo acota el picker para el caso feliz.
+ */
+export const hoyMasDiasISO = (dias: number): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + dias);
   return aISODate(d);
 };
 

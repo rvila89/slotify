@@ -25,11 +25,14 @@ import {
 import { UnidadDeTrabajoPrismaAdapter } from './infrastructure/unidad-de-trabajo.prisma.adapter';
 import { UnidadDeTrabajoTransicionPrismaAdapter } from './infrastructure/transicion-fecha-uow.prisma.adapter';
 import { UnidadDeTrabajoPendienteInvitadosPrismaAdapter } from './infrastructure/transicion-pendiente-invitados-uow.prisma.adapter';
+import { UnidadDeTrabajoProgramarVisitaPrismaAdapter } from './infrastructure/programar-visita-uow.prisma.adapter';
 import { ConfirmacionBloqueoEmailAdapter } from './infrastructure/confirmacion-bloqueo-email.adapter';
+import { ConfirmacionVisitaEmailAdapter } from './infrastructure/confirmacion-visita-email.adapter';
 import { TarifaEstimadaAdapter } from './infrastructure/tarifa-estimada.adapter';
 import { AltaConsultaController } from './interface/alta-consulta.controller';
 import { TransicionFechaController } from './interface/transicion-fecha.controller';
 import { PendienteInvitadosController } from './interface/pendiente-invitados.controller';
+import { ProgramarVisitaController } from './interface/programar-visita.controller';
 import { ObtenerReservaController } from './interface/obtener-reserva.controller';
 import {
   TransicionFechaUseCase,
@@ -44,6 +47,11 @@ import {
   TransicionPendienteInvitadosUseCase,
   type UnidadDeTrabajoPendienteInvitadosPort,
 } from './application/transicion-pendiente-invitados.use-case';
+import {
+  ProgramarVisitaUseCase,
+  type EnviarConfirmacionVisitaPort,
+  type UnidadDeTrabajoProgramarVisitaPort,
+} from './application/programar-visita.use-case';
 import { ReservaDetalleQueryPrismaAdapter } from './infrastructure/reserva-detalle-query.prisma.adapter';
 import {
   AuditLogPort,
@@ -74,7 +82,9 @@ import {
   RESERVA_ESTADO_PORT,
   TARIFA_ESTIMADA_PORT,
   TENANT_SETTINGS_PORT,
+  CONFIRMACION_VISITA_EMAIL_PORT,
   UNIDAD_DE_TRABAJO_PENDIENTE_INVITADOS_PORT,
+  UNIDAD_DE_TRABAJO_PROGRAMAR_VISITA_PORT,
   UNIDAD_DE_TRABAJO_PORT,
   UNIDAD_DE_TRABAJO_TRANSICION_PORT,
 } from './reservas.tokens';
@@ -85,6 +95,7 @@ import {
     AltaConsultaController,
     TransicionFechaController,
     PendienteInvitadosController,
+    ProgramarVisitaController,
     ObtenerReservaController,
   ],
   providers: [
@@ -181,6 +192,39 @@ import {
         }),
     },
     {
+      provide: UNIDAD_DE_TRABAJO_PROGRAMAR_VISITA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new UnidadDeTrabajoProgramarVisitaPrismaAdapter(prisma),
+    },
+    {
+      provide: CONFIRMACION_VISITA_EMAIL_PORT,
+      inject: [DespacharEmailService, PrismaService],
+      useFactory: (motor: DespacharEmailService, prisma: PrismaService) =>
+        new ConfirmacionVisitaEmailAdapter(motor, prisma),
+    },
+    {
+      provide: ProgramarVisitaUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_PROGRAMAR_VISITA_PORT,
+        CLOCK_PORT,
+        TENANT_SETTINGS_PORT,
+        CONFIRMACION_VISITA_EMAIL_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoProgramarVisitaPort,
+        clock: ClockPort,
+        tenantSettings: TenantSettingsPort,
+        confirmacionVisita: EnviarConfirmacionVisitaPort,
+      ) =>
+        new ProgramarVisitaUseCase({
+          unidadDeTrabajo,
+          clock,
+          tenantSettings,
+          confirmacionVisita,
+        }),
+    },
+    {
       provide: RESERVA_DETALLE_QUERY_PORT,
       inject: [PrismaService],
       useFactory: (prisma: PrismaService) =>
@@ -259,6 +303,7 @@ import {
     AltaConsultaUseCase,
     TransicionFechaUseCase,
     TransicionPendienteInvitadosUseCase,
+    ProgramarVisitaUseCase,
     ObtenerReservaUseCase,
   ],
 })

@@ -18,6 +18,8 @@ export type AsignarFechaRequest = components['schemas']['AsignarFechaRequest'];
 export type AsignarFechaConflictoError = components['schemas']['AsignarFechaConflictoError'];
 export type PendienteInvitadosResponse = components['schemas']['PendienteInvitadosResponse'];
 export type BloqueoNoVigenteError = components['schemas']['BloqueoNoVigenteError'];
+export type ProgramarVisitaRequest = components['schemas']['ProgramarVisitaRequest'];
+export type ProgramarVisitaConflictoError = components['schemas']['ProgramarVisitaConflictoError'];
 export type ErrorResponse = components['schemas']['ErrorResponse'];
 
 /**

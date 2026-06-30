@@ -12,3 +12,8 @@ export type {
   PendienteInvitadosError,
   PendienteInvitadosVars,
 } from './api/usePendienteInvitados';
+export { useProgramarVisita } from './api/useProgramarVisita';
+export type {
+  ProgramarVisitaError,
+  ProgramarVisitaVars,
+} from './api/useProgramarVisita';

@@ -37,3 +37,11 @@ export const RESERVA_DETALLE_QUERY_PORT = Symbol('ReservaDetalleQueryPort');
 export const UNIDAD_DE_TRABAJO_PENDIENTE_INVITADOS_PORT = Symbol(
   'UnidadDeTrabajoPendienteInvitadosPort',
 );
+
+// US-008 — transición «programar visita» (2.a/2.b/2.c → 2.v)
+export const UNIDAD_DE_TRABAJO_PROGRAMAR_VISITA_PORT = Symbol(
+  'UnidadDeTrabajoProgramarVisitaPort',
+);
+export const CONFIRMACION_VISITA_EMAIL_PORT = Symbol(
+  'ConfirmacionVisitaEmailPort',
+);

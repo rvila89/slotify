@@ -23,6 +23,7 @@
 import {
   BloquearFechaService,
   resolverPlanBloqueo,
+  ttlVisitaMasUnDia,
   FechaEnPasadoError,
   TenantMismatchError,
   ValidacionBloqueoError,
@@ -159,7 +160,9 @@ describe('Mapa canónico fase → (tipo, ttl, modo) — resolverPlanBloqueo', ()
 
     expect(plan.modo).toBe('insert');
     expect(plan.tipo).toBe('blando');
-    expect(plan.ttl?.getTime()).toBe(addDays(visita, 1).getTime());
+    // US-008 (§D-2): el TTL de la fase 2.v es el FIN del día (23:59:59 UTC)
+    // posterior a la visita, no la medianoche exacta de visita+1día.
+    expect(plan.ttl?.getTime()).toBe(ttlVisitaMasUnDia(visita).getTime());
   });
 
   it('debe_resolver_pre_reserva_a_blando_con_ttl_ahora_mas_ttl_prereserva_dias', () => {
@@ -260,7 +263,8 @@ describe('BloquearFechaService aplica el plan vía el repositorio', () => {
 
     const args = repo.bloquear.mock.calls[0][0];
     expect(args.plan.tipo).toBe('blando');
-    expect(args.plan.ttl?.getTime()).toBe(addDays(visita, 1).getTime());
+    // US-008 (§D-2): visita + 1 día a las 23:59:59 UTC (fin del día posterior).
+    expect(args.plan.ttl?.getTime()).toBe(ttlVisitaMasUnDia(visita).getTime());
   });
 
   it('no_debe_mutar_la_reserva_solo_invoca_el_repositorio_de_bloqueo', async () => {

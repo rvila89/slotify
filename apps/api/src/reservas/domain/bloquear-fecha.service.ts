@@ -37,6 +37,12 @@ export type FaseBloqueo = '2.b' | '2.c' | '2.v' | 'pre_reserva' | 'reserva_confi
 export interface TenantSettingsBloqueo {
   ttlConsultaDias: number;
   ttlPrereservaDias: number;
+  /**
+   * Ventana de ENTRADA (en días) para programar una visita (US-008): la fecha de
+   * visita debe caer en `[hoy+1, hoy+maxDiasProgramarVisita]`. Opcional en el tipo
+   * común (no todas las fases lo necesitan); el use-case de programar visita lo exige.
+   */
+  maxDiasProgramarVisita?: number;
 }
 
 /**
@@ -219,6 +225,26 @@ const DIA_MS = 24 * 60 * 60 * 1000;
 const sumarDias = (base: Date, dias: number): Date =>
   new Date(base.getTime() + dias * DIA_MS);
 
+/**
+ * TTL del bloqueo blando de la fase `2.v` (US-008 / §D-2): el FIN del día NATURAL
+ * (UTC) POSTERIOR a la fecha de la visita, es decir `visita + 1 día` a las
+ * `23:59:59`. Función pura (una sola fuente de verdad del cálculo del TTL de visita),
+ * reutilizada por `resolverPlanBloqueo`. NO deriva del setting
+ * `max_dias_programar_visita` (que solo acota la ventana de ENTRADA): el TTL deriva
+ * de la fecha de visita elegida.
+ */
+export const ttlVisitaMasUnDia = (visitaProgramadaFecha: Date): Date =>
+  new Date(
+    Date.UTC(
+      visitaProgramadaFecha.getUTCFullYear(),
+      visitaProgramadaFecha.getUTCMonth(),
+      visitaProgramadaFecha.getUTCDate() + 1,
+      23,
+      59,
+      59,
+    ),
+  );
+
 /** Día natural en UTC (epoch del inicio del día) para comparar fechas. */
 const inicioDiaUtc = (d: Date): number =>
   Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
@@ -284,10 +310,14 @@ export const resolverPlanBloqueo = (input: ResolverPlanBloqueoInput): PlanBloque
           'La fase 2.v requiere una visita_programada_fecha válida',
         );
       }
+      // TTL = fin del día (23:59:59 UTC) POSTERIOR a la visita (§D-2). El `modo` es
+      // `insert` en el mapa canónico; la transición de US-008 (§D-2) refina la
+      // ACCIÓN observable a insert-o-update (upsert) según el origen tenga o no fila
+      // de bloqueo, conservando este TTL como única fuente de verdad del cálculo.
       return {
         modo: 'insert',
         tipo: 'blando',
-        ttl: sumarDias(visitaProgramadaFecha, 1),
+        ttl: ttlVisitaMasUnDia(visitaProgramadaFecha),
       };
     case 'pre_reserva':
       return {
