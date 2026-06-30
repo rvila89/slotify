@@ -1,7 +1,7 @@
 ---
 id: US-006
 estado: backlog
-branch: null
+branch: feature/us-006-extender-plazo-bloqueo
 pr: null
 ---
 

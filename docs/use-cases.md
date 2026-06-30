@@ -288,21 +288,52 @@ flowchart TD
 | **Nombre** | Extender Plazo de Bloqueo |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor extiende manualmente el TTL de bloqueo de una fecha antes de que expire |
-| **Precondiciones** | - Consulta con bloqueo activo (2.b, 2.c, 2.v, pre_reserva)<br>- TTL aún no expirado |
-| **Postcondiciones** | - TTL extendido en días especificados<br>- Recordatorios reprogramados<br>- Acción registrada en audit log |
+| **Descripción** | El gestor extiende manualmente el TTL del bloqueo blando activo de una RESERVA antes de que expire, indicando N días enteros (≥ 1). El sistema prorroga `RESERVA.ttl_expiracion` y `FECHA_BLOQUEADA.ttl_expiracion` al mismo nuevo valor en una única transacción, sin cambiar estado, sub_estado, tipo_bloqueo ni fecha. Los recordatorios automáticos (A3/A4/A5) se reprograman implícitamente porque el barrido periódico los reevalúa contra el nuevo `ttl_expiracion`. |
+| **Precondiciones** | - RESERVA con `sub_estado ∈ {2b, 2c, 2v}` O `estado = 'pre_reserva'`<br>- Fila activa en `FECHA_BLOQUEADA` con `tipo_bloqueo = 'blando'`<br>- `ttl_expiracion > ahora` (bloqueo aún vigente)<br>- Gestor autenticado con rol gestor sobre el tenant |
+| **Postcondiciones** | - `RESERVA.ttl_expiracion = ttl_expiracion_actual + N días` (base = valor actual, no `now()`)<br>- `FECHA_BLOQUEADA.ttl_expiracion` actualizada al mismo nuevo valor en la misma transacción<br>- `estado`, `sub_estado`, `tipo_bloqueo` y `fecha` permanecen sin cambios<br>- `AUDIT_LOG` con `accion = 'actualizar'`, `entidad = 'RESERVA'`, `datos_anteriores.ttl_expiracion` y `datos_nuevos.ttl_expiracion`<br>- Recordatorios A3/A4/A5 reprogramados implícitamente vía barrido periódico (US-012) |
 | **Prioridad** | Media |
 | **Frecuencia** | Media |
+| **US** | US-006 |
+| **Endpoint** | `POST /reservas/{id}/extender-bloqueo` — body `{ "dias": <integer ≥ 1> }` |
+| **Entidades afectadas** | RESERVA (UPDATE `ttl_expiracion`), FECHA_BLOQUEADA (UPDATE `ttl_expiracion`), AUDIT_LOG — sin migración (columnas y enums ya existentes desde US-000/US-040/US-004) |
 
 **Flujo Básico:**
-1. El gestor abre la ficha de consulta/reserva
-2. El gestor selecciona "Extender bloqueo"
-3. El sistema muestra la fecha actual de expiración
-4. El gestor indica los días adicionales
-5. El sistema calcula la nueva fecha de expiración
-6. El sistema actualiza el TTL
-7. El sistema reprograma los recordatorios automáticos
-8. El sistema registra la extensión en audit log
+1. El gestor abre la ficha de consulta/pre-reserva con bloqueo blando activo (`2b`/`2c`/`2v`/`pre_reserva`) y TTL vigente
+2. El gestor selecciona "Extender bloqueo" (acción visible y habilitada solo en esos estados con TTL vigente)
+3. El sistema muestra la fecha de expiración actual (`ttl_expiracion`)
+4. El gestor introduce N días de extensión (entero ≥ 1) y confirma
+5. El sistema valida la guarda de precondición declarativa (`esEstadoConBloqueoBlandoExtensible`) y la presencia de la fila blanda vigente (`ttl_expiracion > ahora`)
+6. El sistema valida que `dias` es entero ≥ 1
+7. El sistema calcula `nuevoTtl = ttl_expiracion_actual + N días` (base = TTL actual, no `now()`)
+8. En una única transacción con `SELECT … FOR UPDATE` sobre la fila bloqueante: UPDATE `RESERVA.ttl_expiracion = nuevoTtl` + UPDATE `FECHA_BLOQUEADA.ttl_expiracion = nuevoTtl` + INSERT `AUDIT_LOG accion='actualizar'`
+9. El sistema devuelve la RESERVA con el nuevo `ttlExpiracion`; la UI muestra la nueva fecha de expiración
+
+**Flujos Alternativos:**
+- **FA-01** (TTL ya expirado): `RESERVA.ttl_expiracion < ahora` → el sistema responde `409` indicando que el bloqueo ha expirado; la RESERVA y su `FECHA_BLOQUEADA` no se modifican. La extensión no puede resucitar un bloqueo ya expirado-y-procesado por el barrido.
+- **FA-02** (sin fila bloqueante activa): la RESERVA no tiene fila activa en `FECHA_BLOQUEADA` → el sistema responde `409`; sin mutación.
+- **FA-03** (bloqueo firme — `reserva_confirmada`): `tipo_bloqueo = 'firme'` (sin TTL) → el sistema responde `409` indicando que el bloqueo firme no tiene TTL extensible; sin mutación.
+- **FA-04** (estado sin bloqueo activo extensible — guarda de precondición): la RESERVA está en `2a` o en un estado terminal (`2x`, `2y`, `2z`, `reserva_cancelada`, `reserva_completada`) → el sistema responde `422`; sin mutación. La UI no muestra la acción para estos estados.
+- **FA-05** (valor de extensión inválido): `dias` es 0, negativo o no entero → el sistema responde `422` ("El número de días de extensión debe ser un entero positivo (≥ 1)"); sin mutación.
+- **FA-06** (RESERVA inexistente / cross-tenant): `404`.
+- **FA-07** (sin sesión / rol insuficiente): `401`/`403`.
+- **FA-08** (concurrencia con el barrido de expiración US-012): la extensión y el barrido se serializan por el `SELECT … FOR UPDATE` sobre la fila bloqueante; el estado final es determinista (extensión aplicada y bloqueo vigente, o bloqueo expirado y extensión rechazada), sin estados intermedios.
+
+```mermaid
+flowchart TD
+    A[Gestor selecciona Extender bloqueo + N días] --> B{esEstadoConBloqueoBlandoExtensible?}
+    B -->|No — 2a / terminal| C[422 — Sin bloqueo activo extensible]
+    B -->|Sí| D{Fila activa en FECHA_BLOQUEADA con ttl > ahora?}
+    D -->|Sin fila bloqueante| E[409 — Sin bloqueo activo]
+    D -->|TTL expirado| F[409 — Bloqueo expirado]
+    D -->|tipo_bloqueo = firme| G[409 — Bloqueo firme sin TTL]
+    D -->|Bloqueo blando vigente| H{días entero ≥ 1?}
+    H -->|No| I[422 — Valor de extensión inválido]
+    H -->|Sí| J[Tx SELECT…FOR UPDATE sobre fila bloqueante]
+    J --> K[UPDATE RESERVA: ttl_expiracion = ttl_actual + N días]
+    K --> L[UPDATE FECHA_BLOQUEADA: mismo nuevo ttl_expiracion]
+    L --> M[INSERT AUDIT_LOG: actualizar, datos_anteriores/nuevos.ttl_expiracion]
+    M --> N[200 — RESERVA con nuevo ttlExpiracion]
+```
 
 ---
 

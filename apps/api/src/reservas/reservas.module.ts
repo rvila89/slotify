@@ -26,6 +26,7 @@ import { UnidadDeTrabajoPrismaAdapter } from './infrastructure/unidad-de-trabajo
 import { UnidadDeTrabajoTransicionPrismaAdapter } from './infrastructure/transicion-fecha-uow.prisma.adapter';
 import { UnidadDeTrabajoPendienteInvitadosPrismaAdapter } from './infrastructure/transicion-pendiente-invitados-uow.prisma.adapter';
 import { UnidadDeTrabajoProgramarVisitaPrismaAdapter } from './infrastructure/programar-visita-uow.prisma.adapter';
+import { UnidadDeTrabajoExtenderBloqueoPrismaAdapter } from './infrastructure/extender-bloqueo-uow.prisma.adapter';
 import { ConfirmacionBloqueoEmailAdapter } from './infrastructure/confirmacion-bloqueo-email.adapter';
 import { ConfirmacionVisitaEmailAdapter } from './infrastructure/confirmacion-visita-email.adapter';
 import { TarifaEstimadaAdapter } from './infrastructure/tarifa-estimada.adapter';
@@ -33,6 +34,7 @@ import { AltaConsultaController } from './interface/alta-consulta.controller';
 import { TransicionFechaController } from './interface/transicion-fecha.controller';
 import { PendienteInvitadosController } from './interface/pendiente-invitados.controller';
 import { ProgramarVisitaController } from './interface/programar-visita.controller';
+import { ExtenderBloqueoController } from './interface/extender-bloqueo.controller';
 import { ObtenerReservaController } from './interface/obtener-reserva.controller';
 import {
   TransicionFechaUseCase,
@@ -52,6 +54,10 @@ import {
   type EnviarConfirmacionVisitaPort,
   type UnidadDeTrabajoProgramarVisitaPort,
 } from './application/programar-visita.use-case';
+import {
+  ExtenderBloqueoUseCase,
+  type UnidadDeTrabajoExtenderBloqueoPort,
+} from './application/extender-bloqueo.use-case';
 import { ReservaDetalleQueryPrismaAdapter } from './infrastructure/reserva-detalle-query.prisma.adapter';
 import {
   AuditLogPort,
@@ -83,6 +89,7 @@ import {
   TARIFA_ESTIMADA_PORT,
   TENANT_SETTINGS_PORT,
   CONFIRMACION_VISITA_EMAIL_PORT,
+  UNIDAD_DE_TRABAJO_EXTENDER_BLOQUEO_PORT,
   UNIDAD_DE_TRABAJO_PENDIENTE_INVITADOS_PORT,
   UNIDAD_DE_TRABAJO_PROGRAMAR_VISITA_PORT,
   UNIDAD_DE_TRABAJO_PORT,
@@ -96,6 +103,7 @@ import {
     TransicionFechaController,
     PendienteInvitadosController,
     ProgramarVisitaController,
+    ExtenderBloqueoController,
     ObtenerReservaController,
   ],
   providers: [
@@ -225,6 +233,24 @@ import {
         }),
     },
     {
+      provide: UNIDAD_DE_TRABAJO_EXTENDER_BLOQUEO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new UnidadDeTrabajoExtenderBloqueoPrismaAdapter(prisma),
+    },
+    {
+      provide: ExtenderBloqueoUseCase,
+      inject: [UNIDAD_DE_TRABAJO_EXTENDER_BLOQUEO_PORT, CLOCK_PORT],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoExtenderBloqueoPort,
+        clock: ClockPort,
+      ) =>
+        new ExtenderBloqueoUseCase({
+          unidadDeTrabajo,
+          clock,
+        }),
+    },
+    {
       provide: RESERVA_DETALLE_QUERY_PORT,
       inject: [PrismaService],
       useFactory: (prisma: PrismaService) =>
@@ -304,6 +330,7 @@ import {
     TransicionFechaUseCase,
     TransicionPendienteInvitadosUseCase,
     ProgramarVisitaUseCase,
+    ExtenderBloqueoUseCase,
     ObtenerReservaUseCase,
   ],
 })

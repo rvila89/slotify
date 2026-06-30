@@ -272,3 +272,53 @@ export const esOrigenValidoParaProgramarVisita = (
   ORIGENES_TRANSICION_PROGRAMAR_VISITA.some(
     (origen) => origen.estado === estado && origen.subEstado === subEstado,
   );
+
+// ---------------------------------------------------------------------------
+// Guarda de PRECONDICIÓN «bloqueo blando extensible» (US-006 / UC-05 / §D-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Forma declarativa de un estado con bloqueo blando EXTENSIBLE. A diferencia de los
+ * `OrigenTransicion` (orígenes de una transición origen→destino), aquí cada entrada
+ * describe una PRECONDICIÓN sobre el estado actual del agregado: el conjunto de
+ * `(estado, subEstado)` en los que existe —por modelo— un bloqueo blando con TTL
+ * susceptible de prórroga. La vigencia real del TTL (`ttl_expiracion > ahora`) y la
+ * presencia de la fila blanda en `FECHA_BLOQUEADA` se comprueban en el use-case bajo
+ * el lock; esta tabla es la defensa rápida de estado previa a la BD.
+ */
+interface EstadoBloqueoExtensible {
+  estado: EstadoReserva;
+  subEstado: SubEstadoConsulta | null;
+}
+
+/**
+ * Tabla declarativa de ESTADOS con bloqueo blando extensible (US-006, skill
+ * `state-machine`, NO condicionales dispersos). Regla multi-estado del Gate (§D-1):
+ * extensible ⇔ `subEstado ∈ {2b, 2c, 2v}` (consulta con fecha bloqueada, pendiente de
+ * invitados o visita programada) O `estado = 'pre_reserva'` (sin sub-estado). NO son
+ * extensibles: `2a` (exploratoria, sin fecha), la cola `2d` (sin bloqueo blando
+ * propio), los terminales (`2x/2y/2z`/`reserva_cancelada`/`reserva_completada`,
+ * inmutables) y `reserva_confirmada` (bloqueo FIRME, sin TTL que extender). Una sola
+ * fuente de verdad sobre qué significa "tener bloqueo blando vigente extensible".
+ */
+const ESTADOS_BLOQUEO_BLANDO_EXTENSIBLE: ReadonlyArray<EstadoBloqueoExtensible> = [
+  { estado: 'consulta', subEstado: '2b' },
+  { estado: 'consulta', subEstado: '2c' },
+  { estado: 'consulta', subEstado: '2v' },
+  { estado: 'pre_reserva', subEstado: null },
+];
+
+/**
+ * Guarda declarativa de PRECONDICIÓN: ¿tiene `(estado, subEstado)` un bloqueo blando
+ * extensible (US-006)? Consulta la tabla `ESTADOS_BLOQUEO_BLANDO_EXTENSIBLE`:
+ * `consulta/{2b,2c,2v}` O `pre_reserva` lo son. Se evalúa ANTES de tocar la BD para
+ * rechazar con 422 los estados sin bloqueo activo extensible (`2a`/cola/terminales/
+ * `reserva_confirmada`); la vigencia del TTL y la fila blanda se validan bajo el lock.
+ */
+export const esEstadoConBloqueoBlandoExtensible = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): boolean =>
+  ESTADOS_BLOQUEO_BLANDO_EXTENSIBLE.some(
+    (entrada) => entrada.estado === estado && entrada.subEstado === subEstado,
+  );

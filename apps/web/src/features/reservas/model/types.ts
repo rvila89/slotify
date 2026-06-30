@@ -20,6 +20,8 @@ export type PendienteInvitadosResponse = components['schemas']['PendienteInvitad
 export type BloqueoNoVigenteError = components['schemas']['BloqueoNoVigenteError'];
 export type ProgramarVisitaRequest = components['schemas']['ProgramarVisitaRequest'];
 export type ProgramarVisitaConflictoError = components['schemas']['ProgramarVisitaConflictoError'];
+export type ExtenderBloqueoRequest = components['schemas']['ExtenderBloqueoRequest'];
+export type ExtenderBloqueoConflictoError = components['schemas']['ExtenderBloqueoConflictoError'];
 export type ErrorResponse = components['schemas']['ErrorResponse'];
 
 /**

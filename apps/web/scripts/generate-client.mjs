@@ -16,13 +16,17 @@ const specPath = resolve(webRoot, '../../docs/api-spec.yml');
 const outDir = resolve(webRoot, 'src/api-client');
 const schemaPath = resolve(outDir, 'schema.d.ts');
 
+// En Windows el binario es `pnpm.cmd`; execFileSync no resuelve el `.cmd` por sí solo.
+const pnpmBin = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+
 mkdirSync(outDir, { recursive: true });
 
 console.log(`🚀 openapi-typescript: ${specPath} -> schema.d.ts`);
 execFileSync(
-  'pnpm',
+  pnpmBin,
   ['exec', 'openapi-typescript', specPath, '-o', schemaPath],
-  { stdio: 'inherit', cwd: webRoot },
+  // shell: true es necesario en Windows para ejecutar `pnpm.cmd` vía execFileSync.
+  { stdio: 'inherit', cwd: webRoot, shell: process.platform === 'win32' },
 );
 
 const banner = `/**

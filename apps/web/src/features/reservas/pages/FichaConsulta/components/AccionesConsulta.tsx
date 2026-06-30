@@ -1,5 +1,5 @@
-import { CalendarClock, CalendarPlus, Info, Mail, Users } from 'lucide-react';
-import { bloqueoVigente } from '../../../lib/fecha';
+import { CalendarClock, CalendarPlus, Info, Mail, Timer, Users } from 'lucide-react';
+import { bloqueoVigente, puedeExtenderBloqueo } from '../../../lib/fecha';
 import type { Reserva } from '../../../model/types';
 
 /**
@@ -11,6 +11,7 @@ import type { Reserva } from '../../../model/types';
  *  - `2b` con bloqueo vigente: "Pendiente de invitados" (US-007) y "Programar visita".
  *  - `2c`: "Programar visita".
  *  - `2d` (cola): "Programar visita" deshabilitada con mensaje UC-12.
+ *  - `2b/2c/2v` o `pre_reserva` con TTL vigente: "Extender bloqueo" (US-006).
  *  - terminales (`2x/2y/2z`) u otros: sin acciones.
  *
  * Las comprobaciones de cliente solo habilitan/deshabilitan; el servidor revalida de
@@ -26,6 +27,7 @@ type Props = {
   onAnadirFecha: () => void;
   onPendienteInvitados: () => void;
   onProgramarVisita: () => void;
+  onExtenderBloqueo: () => void;
 };
 
 export const AccionesConsulta = ({
@@ -33,6 +35,7 @@ export const AccionesConsulta = ({
   onAnadirFecha,
   onPendienteInvitados,
   onProgramarVisita,
+  onExtenderBloqueo,
 }: Props) => {
   const subEstado = reserva.subEstado;
   const esExploratoria = subEstado === '2a';
@@ -44,6 +47,12 @@ export const AccionesConsulta = ({
     subEstado === '2a' || subEstado === '2b' || subEstado === '2c';
   const puedeProgramarVisita = origenVisitaValido && (subEstado !== '2a' || tieneFechaEvento);
   const enCola = subEstado === '2d';
+  // US-006 (D-1): "extender bloqueo" aplica a `2b/2c/2v` o `pre_reserva` con TTL vigente.
+  const puedeExtender = puedeExtenderBloqueo({
+    estado: reserva.estado,
+    subEstado: reserva.subEstado,
+    ttlExpiracion: reserva.ttlExpiracion,
+  });
 
   const botonVisita = (
     <button
@@ -135,13 +144,36 @@ export const AccionesConsulta = ({
         </div>
       )}
 
-      {/* Terminales u otros estados sin acciones disponibles. */}
-      {!esExploratoria && !puedePendienteInvitados && !puedeProgramarVisita && !enCola && (
-        <p className={claseTextoInfo}>
-          <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
-          No hay acciones disponibles para esta consulta en su estado actual.
-        </p>
+      {/* US-006: extender el plazo del bloqueo blando vigente (2b/2c/2v/pre_reserva). */}
+      {puedeExtender && (
+        <div className="flex flex-col gap-3">
+          <p className="font-body text-sm text-text-secondary">
+            Amplía el plazo del bloqueo de la fecha mientras el cliente decide, sin liberarla ni
+            disparar la expiración automática. No se notifica al cliente.
+          </p>
+          <button
+            type="button"
+            data-testid="boton-extender-bloqueo"
+            onClick={onExtenderBloqueo}
+            className={claseBotonAccion}
+          >
+            <Timer aria-hidden className="size-5" />
+            Extender bloqueo
+          </button>
+        </div>
       )}
+
+      {/* Terminales u otros estados sin acciones disponibles. */}
+      {!esExploratoria &&
+        !puedePendienteInvitados &&
+        !puedeProgramarVisita &&
+        !enCola &&
+        !puedeExtender && (
+          <p className={claseTextoInfo}>
+            <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
+            No hay acciones disponibles para esta consulta en su estado actual.
+          </p>
+        )}
     </div>
   );
 };

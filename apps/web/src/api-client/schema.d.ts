@@ -675,33 +675,32 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Extender plazo de bloqueo (UC-05)
-         * @description Amplía el `ttl_expiracion` del bloqueo blando vigente según la política del tenant.
+         * Extender plazo del bloqueo blando — prórroga pura del TTL (UC-05 / US-006)
+         * @description [US-006] **Override manual del Gestor** que extiende el `ttlExpiracion` del **bloqueo
+         *     blando vigente** de un agregado RESERVA **existente** antes de que expire, **sin liberar la
+         *     fecha** ni disparar la promoción de cola. Aplica cuando hay bloqueo blando activo:
+         *     `subEstado ∈ {2b, 2c, 2v}` O `estado = 'pre_reserva'`, con `ttlExpiracion > ahora` y **fila
+         *     activa en `FechaBloqueada`** (`tipoBloqueo = 'blando'`).
+         *
+         *     A diferencia de US-005/007/008 —que son **transiciones de máquina de estados** (cambian
+         *     `subEstado`)— esta operación es una **prórroga pura del TTL**: **NO** cambia `estado`,
+         *     `subEstado`, `tipoBloqueo` ni `fecha`. En una **única transacción** (`SELECT … FOR UPDATE`
+         *     sobre la fila bloqueante + `UNIQUE(tenant_id, fecha)`; sin Redis ni locks distribuidos)
+         *     ejecuta, all-or-nothing:
+         *     1. RESERVA → `ttlExpiracion = ttlExpiracion_actual + dias` (la base es el `ttlExpiracion`
+         *        **actual**, no `now()`; `dias` lo indica el gestor, **no** se deriva de
+         *        `ttl_consulta_dias`).
+         *     2. **UPDATE** del `ttl_expiracion` de la fila de `FechaBloqueada` de esa RESERVA al **mismo
+         *        nuevo valor** (no inserta; la fila ya existe).
+         *     3. `AUDIT_LOG accion='actualizar'`, `entidad='RESERVA'`, con
+         *        `datos_anteriores.ttl_expiracion` (valor previo) y `datos_nuevos.ttl_expiracion` (nuevo).
+         *
+         *     Los recordatorios automáticos (A3/A4/A5) se **reprograman implícitamente**: se derivan del
+         *     `ttlExpiracion` y los dispara el barrido periódico (patrón estado-en-fila + barrido,
+         *     `architecture.md §2.5`; barrido US-012). No se introduce ni se toca ningún scheduler. No se
+         *     envía email al cliente al extender (UC-05 no lo describe).
          */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description ID de la reserva */
-                    id: components["parameters"]["IdReserva"];
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Bloqueo extendido */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Reserva"];
-                    };
-                };
-                404: components["responses"]["NotFound"];
-            };
-        };
+        post: operations["extenderBloqueo"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2315,6 +2314,13 @@ export interface components {
             visitaRealizada: boolean;
             notas?: string;
         };
+        ExtenderBloqueoRequest: {
+            /**
+             * @description OBLIGATORIO. Número ENTERO de días a añadir al `ttlExpiracion` ACTUAL del bloqueo blando (≥ 1). `0`, negativo o no entero → 422 sin mutar nada ("El número de días de extensión debe ser un entero positivo (≥ 1)").
+             * @example 7
+             */
+            dias: number;
+        };
         AsignarFechaRequest: {
             /**
              * Format: date
@@ -2350,6 +2356,10 @@ export interface components {
         };
         BloqueoNoVigenteError: components["schemas"]["ErrorResponse"] & {
             /** @description Motivo por el que la transición a `2c` no es posible: la RESERVA no tiene fecha bloqueada activa, o el bloqueo ya expiró (`ttl_expiracion < ahora`). */
+            motivo: string;
+        };
+        ExtenderBloqueoConflictoError: components["schemas"]["ErrorResponse"] & {
+            /** @description Motivo por el que el bloqueo no se puede extender: el TTL ya expiró (`ttl_expiracion < ahora`), el bloqueo es firme (`reserva_confirmada`, sin TTL), o la RESERVA no tiene una fila bloqueante blanda vigente en `FechaBloqueada`. */
             motivo: string;
         };
         ProgramarVisitaConflictoError: components["schemas"]["ErrorResponse"] & {
@@ -2799,6 +2809,76 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    extenderBloqueo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtenderBloqueoRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Extensión aplicada. Devuelve la RESERVA actualizada con el **nuevo** `ttlExpiracion`
+             *     (= `ttlExpiracion` anterior + `dias`); `estado`, `subEstado`, `tipoBloqueo` y `fecha`
+             *     permanecen sin cambios.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Reserva"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description **Conflicto con el estado del bloqueo en BD** (D-3); la RESERVA no se modifica. El cuerpo
+             *     añade `motivo` al envelope de error estándar. Casos:
+             *     - **TTL ya expirado** (`ttlExpiracion < ahora`): el bloqueo ya caducó; una extensión no
+             *       puede "deshacer" una expiración ya ejecutada por el barrido.
+             *     - **Bloqueo firme** (`estado = 'reserva_confirmada'`, `tipoBloqueo = 'firme'`, **sin
+             *       TTL**): no hay TTL que extender.
+             *     - **Sin fila bloqueante blanda vigente**: la RESERVA no tiene una fila activa en
+             *       `FechaBloqueada` para `(tenant_id, fechaEvento)`.
+             *     (F5-02: 409 = conflicto/precondición de bloqueo; 422 = guarda de estado / validación.)
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtenderBloqueoConflictoError"];
+                };
+            };
+            /**
+             * @description **Precondición de estado no extensible o cuerpo inválido** (D-3); la RESERVA no se muta.
+             *     Casos:
+             *     - **Estado sin bloqueo activo extensible**: `subEstado = '2a'` (sin fecha bloqueada) o un
+             *       estado terminal (`2x`/`2y`/`2z`/`reserva_cancelada`/`reserva_completada`). El predicado
+             *       declarativo `esEstadoConBloqueoBlandoExtensible` rechaza estos estados antes de tocar BD.
+             *     - **`dias` inválido**: `0`, negativo o no entero (validación de cuerpo defensiva en
+             *       servidor): "El número de días de extensión debe ser un entero positivo (≥ 1)".
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     programarVisita: {
         parameters: {
             query?: never;
