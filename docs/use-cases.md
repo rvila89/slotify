@@ -1243,28 +1243,69 @@ flowchart TD
 | Campo | Descripción |
 |-------|-------------|
 | **ID** | UC-29 |
-| **Nombre** | Consultar Calendario |
+| **Nombre** | Consultar Calendario (Visualizar el Calendario de Disponibilidad) |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor visualiza el calendario con los estados de disponibilidad de cada fecha |
+| **Descripción** | El gestor visualiza el calendario mensual con el estado de disponibilidad de cada fecha mediante un código de colores canónico, incluyendo indicador de cola cuando hay leads en espera. **Vista de lectura pura**: no muta estado. El calendario es la página de inicio del sistema tras el login (sidebar → primera opción). |
 | **Precondiciones** | - El gestor está autenticado |
-| **Postcondiciones** | - Calendario mostrado con código de colores |
+| **Postcondiciones** | - Calendario mostrado con código de colores canónico (SlotifyGeneralSpecs §11.3); sin mutación de `RESERVA` ni `FECHA_BLOQUEADA` |
 | **Prioridad** | Crítica |
 | **Frecuencia** | Muy alta |
+| **US** | US-039 |
+| **Endpoint** | `GET /calendario` — query `desde` (date), `hasta` (date), `vista` (`mes`\|`semana`\|`dia`\|`lista`); respuesta 200 `CalendarioResponse` (`rango` + `fechas[]` agregadas por fecha ocupada del tenant); 401 sin sesión; 422 rango inválido |
+| **Entidades afectadas** | RESERVA (lectura), FECHA_BLOQUEADA (lectura), TENANT (aislamiento RLS) — sin migración (no hay cambios de esquema) |
+
+**Código de colores canónico (SlotifyGeneralSpecs §11.3):**
+
+| Estado / sub_estado de la reserva bloqueante | Color |
+|----------------------------------------------|-------|
+| Consulta activa: `2a`, `2b`, `2c`, `2v` | Gris |
+| `pre_reserva` | Ámbar |
+| `reserva_confirmada`, `evento_en_curso`, `post_evento` | Verde |
+| `reserva_completada` | Azul |
+| `reserva_cancelada` | Rojo |
+| Fecha libre (sin bloqueo activo) | Sin color (celda neutra — ausente en la respuesta) |
+
+Sub-estados terminales (`2x`/`2y`/`2z`) no aparecen: su bloqueo ya fue liberado. `evento_en_curso` y `post_evento` heredan el verde de `reserva_confirmada`; la diferenciación de detalle solo se ve en la ficha de reserva.
 
 **Flujo Básico:**
-1. El gestor accede a la sección Calendario
-2. El sistema muestra vista mensual por defecto
-3. El sistema colorea cada fecha según su estado:
-   - Gris: consulta activa
-   - Ámbar: pre-reserva
-   - Verde: reserva confirmada
-   - Azul: histórico
-   - Rojo: cancelada
-   - Indicador 🔁: tiene cola de espera
-4. El gestor puede cambiar la vista (mes/semana/día/lista)
-5. El gestor puede navegar entre periodos
-6. El gestor puede hacer clic en una fecha para ver detalles
+1. El gestor accede a la sección Calendario (o inicia sesión → redirección automática al Calendario como página de inicio)
+2. El frontend calcula el rango del período activo según la vista seleccionada y llama a `GET /calendario?desde=...&hasta=...&vista=mes`
+3. El sistema agrega, por cada fecha con `FECHA_BLOQUEADA` activa del tenant, el color derivado del par `(estado, sub_estado)` de la reserva bloqueante y el conteo de cola (`enCola`)
+4. El sistema filtra obligatoriamente por `tenant_id` del JWT + RLS; ningún dato de otro tenant es alcanzable
+5. El sistema responde con `CalendarioResponse`: `rango` + `fechas[]` (solo fechas ocupadas; las fechas libres no aparecen en la respuesta)
+6. El frontend renderiza el calendario (react-big-calendar) con el código de colores: cada fecha con bloqueo activo muestra su celda coloreada; si `enCola ≥ 1`, superpone el indicador `🔁 N en cola` sobre la celda
+7. El gestor puede cambiar la vista (mes/semana/día/lista) y navegar entre períodos; el código de colores es idéntico en todas las vistas (el rango recalculado origina una nueva llamada a `GET /calendario`)
+8. El gestor puede hacer clic en una fecha con bloqueo activo → el frontend muestra un popover con los campos ya presentes en la respuesta (cliente, sub_estado, TTL restante, enlace a la ficha completa) sin segunda llamada a la API
+9. El gestor puede hacer clic en el indicador `🔁` de una fecha → el frontend navega a la vista de cola de esa fecha (UC-11 / US-017), fuera del alcance de esta US
+
+**Flujos Alternativos:**
+- **FA-01 (mes sin reservas / fechas libres):** el sistema responde 200 con `fechas: []`; el calendario sigue siendo navegable e interactivo sin errores.
+- **FA-02 (mes pasado — histórico):** el sistema devuelve `reserva_completada` (azul) y `reserva_cancelada` (rojo) si tienen fila en `RESERVA`; las consultas terminales (`2x`/`2y`/`2z`) no aparecen (bloqueo ya liberado).
+- **FA-03 (sin sesión):** el sistema responde 401; el frontend redirige al login.
+- **FA-04 (rango inválido):** `desde > hasta` o fechas malformadas → el sistema responde 422.
+- **FA-05 (aislamiento multi-tenant):** la query filtra siempre por `tenant_id` del JWT; con un JWT de otro tenant no aparecen datos del primero.
+
+```mermaid
+flowchart TD
+    A[Gestor accede al Calendario] --> B[Frontend calcula rango según vista]
+    B --> C[GET /calendario?desde=..hasta=..vista=..]
+    C --> D{Autenticado con JWT válido?}
+    D -->|No| E[401 → redirige a login]
+    D -->|Sí| F{Rango válido?}
+    F -->|No| G[422 — rango inválido]
+    F -->|Sí| H[Query RLS: FECHA_BLOQUEADA + RESERVA por tenant_id]
+    H --> I[Agrega por fecha: color + estado + subEstado + enCola + cliente + ttlRestante]
+    I --> J[200 CalendarioResponse: rango + fechas-ocupadas]
+    J --> K[Frontend renderiza celdas coloreadas]
+    K --> L{enCola >= 1?}
+    L -->|Sí| M[Superpone indicador 🔁 N en cola]
+    L -->|No| N[Celda sin indicador de cola]
+    M --> O{Clic en celda?}
+    N --> O
+    O -->|Clic en celda con bloqueo| P[Popover: cliente + subEstado + TTL + enlace ficha]
+    O -->|Clic en indicador 🔁| Q[Navega a vista de cola UC-11/US-017]
+```
 
 ---
 
@@ -1799,4 +1840,4 @@ Este análisis ha identificado **36 casos de uso** que cubren completamente la f
 
 ---
 
-*Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.2 (30/06/2026): refleja US-008 — programar visita al espacio (UC-07): reemplaza la ficha original de UC-07 con la especificación completa implementada: guarda de origen multi-estado `{2a,2b,2c}→2v`; precondición `fecha_evento` NOT NULL para `2a`; ventana `fecha_visita ∈ [hoy+1, hoy+max_dias_programar_visita]` (setting del tenant); INSERT-o-UPDATE de `FECHA_BLOQUEADA` (`ttl=visita+1 día`) según origen; atomicidad RESERVA+FECHA_BLOQUEADA+AUDIT_LOG en una única transacción; E6 post-commit vía motor US-045; US, endpoint `POST /reservas/{id}/visita`, entidades afectadas, flujos alternativos FA-01..FA-06 y diagrama Mermaid. A19/A20 (recordatorios al gestor) fuera de alcance de esta US (slice de jobs separado). Sin migración de columnas (campos de visita + sub-estado `2v` + `max_dias_programar_visita` ya existentes desde US-000). Versión 1.1 (28/06/2026): refleja US-004 — alta de consulta con fecha (UC-03): actualiza §3 UC-03 — flujo básico paso 3 (`fecha_evento > hoy`, estrictamente futura) y FA-01 (rechaza hoy y pasado con 400 en servidor; divergencia intencional Gate 1 decisión A; trazabilidad a `design.md §D-1`). Corrección transversal: UC-04 precondiciones alineadas con la regla real de `bloquearFecha()` / `validarFechaFutura` (`> hoy`; inconsistencia preexistente respecto a la ficha original).*
+*Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.3 (30/06/2026): refleja US-039 — visualizar el Calendario de Disponibilidad (UC-29): reemplaza la ficha original de UC-29 con la especificación completa implementada: vista de lectura pura (sin mutación); endpoint `GET /calendario` (query `desde`/`hasta`/`vista`; respuesta `CalendarioResponse` con `rango` + `fechas[]` agregadas por fecha ocupada, incluyendo `color`/`estado`/`subEstado`/`reservaId`/`cliente`/`ttlRestante`/`enCola`; 401 sin sesión; 422 rango inválido); código de colores canónico (SlotifyGeneralSpecs §11.3) como tabla de datos declarativa; indicador `🔁 N en cola` sobre la celda bloqueante; popover de detalle al clic sin segunda llamada; aislamiento multi-tenant + RLS; calendar en react-big-calendar como página de inicio del App Shell; US, endpoint y entidades afectadas (`RESERVA`/`FECHA_BLOQUEADA` — lectura); flujos alternativos FA-01..FA-05 y diagrama Mermaid. Sin migración de esquema (no hay cambios en `RESERVA` ni `FECHA_BLOQUEADA`). Versión 1.2 (30/06/2026): refleja US-008 — programar visita al espacio (UC-07): reemplaza la ficha original de UC-07 con la especificación completa implementada: guarda de origen multi-estado `{2a,2b,2c}→2v`; precondición `fecha_evento` NOT NULL para `2a`; ventana `fecha_visita ∈ [hoy+1, hoy+max_dias_programar_visita]` (setting del tenant); INSERT-o-UPDATE de `FECHA_BLOQUEADA` (`ttl=visita+1 día`) según origen; atomicidad RESERVA+FECHA_BLOQUEADA+AUDIT_LOG en una única transacción; E6 post-commit vía motor US-045; US, endpoint `POST /reservas/{id}/visita`, entidades afectadas, flujos alternativos FA-01..FA-06 y diagrama Mermaid. A19/A20 (recordatorios al gestor) fuera de alcance de esta US (slice de jobs separado). Sin migración de columnas (campos de visita + sub-estado `2v` + `max_dias_programar_visita` ya existentes desde US-000). Versión 1.1 (28/06/2026): refleja US-004 — alta de consulta con fecha (UC-03): actualiza §3 UC-03 — flujo básico paso 3 (`fecha_evento > hoy`, estrictamente futura) y FA-01 (rechaza hoy y pasado con 400 en servidor; divergencia intencional Gate 1 decisión A; trazabilidad a `design.md §D-1`). Corrección transversal: UC-04 precondiciones alineadas con la regla real de `bloquearFecha()` / `validarFechaFutura` (`> hoy`; inconsistencia preexistente respecto a la ficha original).*
