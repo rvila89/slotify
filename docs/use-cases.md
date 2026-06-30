@@ -314,42 +314,50 @@ flowchart TD
 | **Nombre** | Transicionar a Pendiente de Invitados |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | Cuando el cliente confirma fecha pero aún no tiene el número final de invitados, se extiende el bloqueo |
-| **Precondiciones** | - Consulta en sub-estado 2.a o 2.b<br>- Cliente ha confirmado interés en la fecha |
-| **Postcondiciones** | - Consulta pasa a sub-estado 2.c<br>- Bloqueo extendido +3 días<br>- Si había cola, se vacía (consultas pasan a 2.y)<br>- Email enviado solicitando información faltante |
+| **Descripción** | El Gestor marca una consulta con fecha bloqueada (`2.b`) como "pendiente de número de invitados" cuando el cliente tiene intención firme sobre la fecha pero aún no confirma el aforo. El sistema extiende el bloqueo, vacía atómicamente la cola de espera y registra la transición. |
+| **Precondiciones** | - Consulta en `sub_estado = '2b'` (única origen legal del happy path; D-1 de US-007)<br>- Fila activa en `FECHA_BLOQUEADA` para `(tenant_id, fecha_evento)` (`tipo_bloqueo = 'blando'`)<br>- `ttl_expiracion > ahora` (bloqueo vigente)<br>- Gestor autenticado con rol gestor sobre el tenant |
+| **Postcondiciones** | - Consulta pasa a `sub_estado = '2c'`<br>- `ttl_expiracion = ttl_expiracion_actual + TENANT_SETTINGS.ttl_consulta_dias` (+3 días por defecto, derivado del setting, nunca hardcodeado)<br>- Fila en `FECHA_BLOQUEADA` actualizada al mismo nuevo `ttl_expiracion`<br>- Todas las RESERVA con `consulta_bloqueante_id = id de esta RESERVA` y `sub_estado = '2d'` pasan a `sub_estado = '2y'` (vaciado de cola, mecánica A16); `posicion_cola = NULL` y `consulta_bloqueante_id = NULL`<br>- Las cuatro operaciones ocurren en una **única transacción** all-or-nothing (serializada por `SELECT … FOR UPDATE` sobre la fila bloqueante de `FECHA_BLOQUEADA`)<br>- `AUDIT_LOG` con `accion = 'transicion'` para la RESERVA principal y para cada RESERVA descartada de la cola<br>- **Email de solicitud de nº de invitados (UC-06 paso 7): fuera de alcance en MVP** (gap de spec D-7: §9.3 no asigna E-code a este email; pendiente de decisión del product owner — catalogar nuevo E-code o gestión manual desde el log de comunicaciones) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
+| **US** | US-007 |
+| **Endpoint** | `POST /reservas/{id}/pendiente-invitados` — body vacío o `{}` |
+| **Entidades afectadas** | RESERVA (UPDATE estado + TTL), FECHA_BLOQUEADA (UPDATE TTL), AUDIT_LOG — sin migración de columnas (sub-estados `2c`/`2y` y campos de cola/TTL existen desde US-000/US-040/US-004) |
 
 **Flujo Básico:**
-1. El gestor abre la ficha de consulta
-2. El gestor selecciona "Marcar como pendiente de invitados"
-3. El sistema cambia el sub-estado a 2.c
-4. El sistema extiende el bloqueo por 3 días adicionales
-5. El sistema verifica si hay consultas en cola para esta fecha
-6. Si hay cola: el sistema vacía la cola (todas pasan a 2.y)
-7. El sistema envía email al cliente solicitando nº de invitados
-8. Si hubo vaciado de cola: el sistema notifica a cada cliente en cola
-9. El sistema registra la transición en audit log
+1. El gestor abre la ficha de consulta `2.b` en la pantalla de la reserva
+2. El gestor selecciona "Marcar como pendiente de invitados" (acción visible y habilitada solo cuando hay bloqueo activo en `2.b`) y confirma
+3. El sistema valida la guarda de origen: la RESERVA está en `sub_estado = '2b'`
+4. El sistema valida la precondición de bloqueo: existe fila activa en `FECHA_BLOQUEADA` con `ttl_expiracion > ahora`
+5. El sistema resuelve el plan de extensión vía `resolverPlanBloqueo({ fase: '2.c' })` → `ttl = ttl_expiracion_actual + ttl_consulta_dias`
+6. En una única transacción all-or-nothing serializada por `SELECT … FOR UPDATE` sobre la fila bloqueante de `FECHA_BLOQUEADA`:
+   - Actualiza la RESERVA: `sub_estado = '2c'`, nuevo `ttl_expiracion`
+   - Actualiza la fila de `FECHA_BLOQUEADA` al mismo nuevo `ttl_expiracion`
+   - Actualiza todas las RESERVA en `2d` con `consulta_bloqueante_id = id de esta RESERVA`: `sub_estado = '2y'`, `posicion_cola = NULL`, `consulta_bloqueante_id = NULL` (si la cola está vacía, el UPDATE afecta a 0 filas, sin error)
+   - Registra `AUDIT_LOG` con `accion = 'transicion'` para la RESERVA principal y para cada RESERVA descartada
+7. El sistema responde `200` con `subEstado = '2c'`, `ttlExpiracion` (nuevo) y `consultasDescartadas` (recuento de RESERVA de cola pasadas a `2.y`)
 
 **Flujos Alternativos:**
-- **FA-01**: La consulta no tenía fecha bloqueada → Error, no se permite la transición
+- **FA-01** (sin fecha bloqueada): la RESERVA no tiene fila activa en `FECHA_BLOQUEADA` → el sistema responde `409` indicando que la transición a `2.c` requiere fecha bloqueada activa; la RESERVA no se modifica. La UI puede deshabilitar la acción preventivamente; la validación es también defensiva en servidor.
+- **FA-02** (TTL expirado): la RESERVA está en `2.b` pero `ttl_expiracion < ahora` → el sistema responde `409` indicando que el bloqueo ha expirado; la RESERVA no se modifica.
+- **FA-03** (guarda de origen — RESERVA no en `2.b`): la RESERVA está en `2.a`, `2.c`, `2.v`, un estado terminal (`2.x`, `2.y`, `2.z`) o `reserva_cancelada`/`reserva_completada` → el sistema responde `422`; la RESERVA no se modifica, ni su `FECHA_BLOQUEADA`, ni ninguna consulta de cola. Los terminales son inmutables.
+- **FA-04** (concurrencia): dos peticiones simultáneas de transición a `2.c` sobre la misma RESERVA → exactamente una aplica el cambio; la otra observa que la RESERVA ya no está en `2.b` y recibe la guarda de origen (`422`). Sin doble extensión de TTL ni doble vaciado de cola.
 
 ```mermaid
-stateDiagram-v2
-    [*] --> consulta_2b: Fecha confirmada
-    consulta_2b --> consulta_2c: Cliente confirma<br>pero falta nº invitados
-    
-    state consulta_2c {
-        [*] --> Extensión: +3 días bloqueo
-        Extensión --> VaciarCola: ¿Hay cola?
-        VaciarCola --> NotificarCola: Sí
-        VaciarCola --> EmailCliente: No
-        NotificarCola --> EmailCliente
-    }
-    
-    consulta_2c --> pre_reserva: Info completa
-    consulta_2c --> consulta_2x: TTL agotado
+flowchart TD
+    A[Gestor: Marcar como pendiente de invitados en 2.b] --> B{Guarda de origen: RESERVA en 2.b?}
+    B -->|No 2.b| C[422 — Transición inválida sin efectos]
+    B -->|Sí| D{Fila activa en FECHA_BLOQUEADA y ttl > ahora?}
+    D -->|Sin bloqueo| E[409 — Sin fecha bloqueada activa]
+    D -->|TTL expirado| F[409 — Bloqueo expirado]
+    D -->|Bloqueo vigente| G[Tx SELECT…FOR UPDATE sobre fila bloqueante]
+    G --> H[UPDATE RESERVA: 2c + ttl_expiracion + ttl_consulta_dias]
+    H --> I[UPDATE FECHA_BLOQUEADA: mismo nuevo ttl_expiracion]
+    I --> J[UPDATE RESERVA 2d → 2y + posicion_cola=NULL + consulta_bloqueante_id=NULL]
+    J --> K[AUDIT_LOG transicion RESERVA principal + cada descartada]
+    K --> L[200 — subEstado=2c + ttlExpiracion + consultasDescartadas]
 ```
+
+> **Gap de spec D-7 (abierto, pendiente de decisión del product owner):** UC-06 paso 7 describe el envío de un email al cliente solicitando el número de invitados, pero `§9.3` no le asigna código `E` (E1–E8). La regla del proyecto prohíbe referenciar emails fuera del catálogo E1–E8. Este email **no se implementa en MVP**; queda registrado como gap de spec hasta que el PO decida: (a) catalogarlo como nuevo E-code, o (b) gestionarlo manualmente desde el log de comunicaciones. Los emails automáticos de vaciado de cola a los clientes en `2.d` (A16) también son solo diseñados en MVP: la mecánica del vaciado sí se implementa; los emails de cola no. Fuente: `design.md §D-7`; `US-007 §Notas de alcance`.
 
 ---
 

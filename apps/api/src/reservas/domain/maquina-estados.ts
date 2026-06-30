@@ -201,3 +201,35 @@ export const esOrigenValidoParaAnadirFecha = (
   ORIGENES_TRANSICION_ANADIR_FECHA.some(
     (origen) => origen.estado === estado && origen.subEstado === subEstado,
   );
+
+// ---------------------------------------------------------------------------
+// Guarda de ORIGEN de la transición «pendiente de invitados» (US-007 / UC-06 / §D-3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tabla declarativa de ORÍGENES válidos de la transición «marcar como pendiente de
+ * invitados» (`2.b → 2.c`, US-007, skill `state-machine`, NO condicionales
+ * dispersos). Origen ESTRICTO `consulta/2b` (D-1 aprobado): "2.a con bloqueo" ≡ 2.b
+ * en el modelo del proyecto, así que NO se admite `2.a` como origen para evitar un
+ * estado fantasma. El resto de sub-estados de consulta (`2a/2c/2d/2v`), los
+ * terminales (`2x/2y/2z`) y cualquier estado distinto de `consulta` (incluidos
+ * `reserva_cancelada`/`reserva_completada`, inmutables) NO son orígenes legales.
+ * Una sola transición permitida: `{consulta, 2b} → {consulta, 2c}`.
+ */
+const ORIGENES_TRANSICION_PENDIENTE_INVITADOS: ReadonlyArray<OrigenTransicion> = [
+  { estado: 'consulta', subEstado: '2b' },
+];
+
+/**
+ * Guarda declarativa: ¿es `(estado, subEstado)` un ORIGEN legal de la transición
+ * «pendiente de invitados» (US-007)? Consulta la tabla
+ * `ORIGENES_TRANSICION_PENDIENTE_INVITADOS`: solo `consulta/2b` lo es. Se evalúa
+ * ANTES de mutar para rechazar sin efectos cualquier otro sub-estado/estado (422).
+ */
+export const esOrigenValidoParaPendienteInvitados = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): boolean =>
+  ORIGENES_TRANSICION_PENDIENTE_INVITADOS.some(
+    (origen) => origen.estado === estado && origen.subEstado === subEstado,
+  );

@@ -39,3 +39,16 @@ export const formatearFechaHora = (iso: string): string =>
     month: 'long',
     year: 'numeric',
   });
+
+/**
+ * Indica si un bloqueo de fecha sigue vigente: hay `ttlExpiracion` y es posterior
+ * a ahora. Gate de la acción "Marcar como pendiente de invitados" (US-007 · D-1):
+ * solo aplica a consultas en `2.b` con bloqueo vigente. El servidor revalida de
+ * forma defensiva (409 BloqueoNoVigenteError), por lo que esta comprobación de
+ * cliente es solo para habilitar/deshabilitar la acción, no la fuente de verdad.
+ */
+export const bloqueoVigente = (ttlExpiracion?: string | null): boolean => {
+  if (!ttlExpiracion) return false;
+  const expira = new Date(ttlExpiracion).getTime();
+  return Number.isFinite(expira) && expira > Date.now();
+};

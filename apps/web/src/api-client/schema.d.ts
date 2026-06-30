@@ -560,6 +560,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/pendiente-invitados": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Marcar consulta como pendiente de invitados — transición 2.b→2.c (UC-06 / US-007)
+         * @description [US-007] Transición de un agregado RESERVA **existente** en sub-estado `2b` (consulta con
+         *     fecha + bloqueo blando vigente) hacia `2c` (pendiente de número de invitados). En una
+         *     **única transacción** (`SELECT … FOR UPDATE` sobre la fila bloqueante + `UNIQUE(tenant_id,
+         *     fecha)`; sin Redis ni locks distribuidos) ejecuta las **cuatro** operaciones, all-or-nothing:
+         *     1. RESERVA → `subEstado='2c'` y `ttlExpiracion = ttlExpiracion_actual + ttl_consulta_dias`
+         *        (extensión derivada de `TENANT_SETTINGS.ttl_consulta_dias`, **nunca hardcodeada**;
+         *        reutiliza la primitiva atómica `resolverPlanBloqueo({ fase: '2.c' }) → extend`, US-040).
+         *     2. **UPDATE** del `ttl_expiracion` de la fila de `FechaBloqueada` de esa RESERVA al mismo
+         *        nuevo valor (no inserta; la fila ya existe, a diferencia de US-005).
+         *     3. **Vaciado atómico de la cola (A16)**: todas las RESERVA con
+         *        `consultaBloqueanteId = id de esta RESERVA` y `subEstado='2d'` pasan a `subEstado='2y'`
+         *        (descartada por cola, **terminal**), con `posicionCola=null` y `consultaBloqueanteId=null`.
+         *        Si la cola está vacía afecta a 0 filas y la transición se completa igualmente.
+         *     4. `AUDIT_LOG accion='transicion'` de la principal (`2b→2c`) y de cada descartada (`2d→2y`).
+         *
+         *     El cuerpo es vacío (`{}`): la acción no toma parámetros; el TTL se deriva del setting del
+         *     tenant. Los **emails automáticos** de descarte de cola (A16) y el email de solicitud de
+         *     invitados de UC-06 paso 7 quedan **fuera de alcance en MVP** (📐 solo diseñados / gap de
+         *     spec sin E-code); solo se implementa la mecánica de la transición.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description ID de la reserva */
+                    id: components["parameters"]["IdReserva"];
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["PendienteInvitadosRequest"];
+                };
+            };
+            responses: {
+                /**
+                 * @description Transición aplicada. Devuelve la RESERVA actualizada (`subEstado='2c'`, `ttlExpiracion`
+                 *     extendido) y `consultasDescartadas`: recuento de RESERVA de cola pasadas a `2y`
+                 *     (feedback para la UI; 0 si no había cola).
+                 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PendienteInvitadosResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                /**
+                 * @description Bloqueo no vigente: la RESERVA NO tiene una fila activa en `FechaBloqueada` para
+                 *     `(tenant_id, fechaEvento)`, o su `ttl_expiracion < ahora` (bloqueo expirado). La RESERVA
+                 *     no se modifica. El cuerpo añade `motivo` al envelope de error estándar (F5-02: 409 =
+                 *     conflicto/precondición de bloqueo; 422 = guarda de transición inválida).
+                 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BloqueoNoVigenteError"];
+                    };
+                };
+                /**
+                 * @description Guarda de origen no satisfecha: la RESERVA NO está en sub-estado `2b` (p. ej. `2a`, `2c`,
+                 *     `2v` o un estado terminal `2x/2y/2z`/`reserva_cancelada`/`reserva_completada`, inmutables).
+                 *     No se muta la RESERVA, ni su `FechaBloqueada`, ni ninguna RESERVA de cola (F5-02: 409 =
+                 *     concurrencia/precondición, 422 = transición/guarda inválida).
+                 */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/extender-bloqueo": {
         parameters: {
             query?: never;
@@ -2234,6 +2336,21 @@ export interface components {
             /** @description `true` cuando la fecha está bloqueada por una consulta en `2b` (o carrera D4): se ofrece cola, reintentar con `aceptarCola=true` para entrar en `2d`. `false` cuando está bloqueada por `2c`/`2v`/`pre_reserva`/`reserva_confirmada`+: no disponible. */
             colaDisponible: boolean;
             /** @description Mensaje informativo para la UI sobre por qué la fecha no se pudo asignar. */
+            motivo: string;
+        };
+        /** @description Cuerpo vacío. La transición 2.b→2.c no requiere parámetros (TTL derivado del setting del tenant). */
+        PendienteInvitadosRequest: Record<string, never>;
+        PendienteInvitadosResponse: {
+            /** @description RESERVA actualizada: subEstado=`2c`, ttlExpiracion extendido. */
+            reserva: components["schemas"]["Reserva"];
+            /**
+             * @description Recuento de RESERVA de cola (`subEstado='2d'`) que el vaciado A16 pasó a `2y` (terminal). `0` cuando la consulta no bloqueaba ninguna cola.
+             * @example 3
+             */
+            consultasDescartadas: number;
+        };
+        BloqueoNoVigenteError: components["schemas"]["ErrorResponse"] & {
+            /** @description Motivo por el que la transición a `2c` no es posible: la RESERVA no tiene fecha bloqueada activa, o el bloqueo ya expiró (`ttl_expiracion < ahora`). */
             motivo: string;
         };
         Cliente: {

@@ -237,6 +237,16 @@ export const esFechaEstrictamenteFutura = (fecha: Date, ahora: Date): boolean =>
   return inicioDiaUtc(fecha) > inicioDiaUtc(ahora);
 };
 
+/**
+ * Primitiva PURA de extensión del TTL (US-007 / §D-4). Calcula el TTL absoluto del
+ * bloqueo blando SOBRE EL TTL ACTUAL de la RESERVA (`base`), NO sobre `now()`: una
+ * consulta con bloqueo aún vigente SUMA los días al vencimiento existente. Una sola
+ * fuente de verdad reutilizada por el use-case y el adaptador (UPDATE de RESERVA +
+ * FECHA_BLOQUEADA al mismo valor). No muta `base` (devuelve una `Date` nueva).
+ */
+export const extenderTtl = (base: Date, deltaDias: number): Date =>
+  sumarDias(base, deltaDias);
+
 export interface ResolverPlanBloqueoInput {
   fase: FaseBloqueo;
   ahora: Date;

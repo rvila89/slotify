@@ -24,10 +24,12 @@ import {
 } from './application/alta-consulta.use-case';
 import { UnidadDeTrabajoPrismaAdapter } from './infrastructure/unidad-de-trabajo.prisma.adapter';
 import { UnidadDeTrabajoTransicionPrismaAdapter } from './infrastructure/transicion-fecha-uow.prisma.adapter';
+import { UnidadDeTrabajoPendienteInvitadosPrismaAdapter } from './infrastructure/transicion-pendiente-invitados-uow.prisma.adapter';
 import { ConfirmacionBloqueoEmailAdapter } from './infrastructure/confirmacion-bloqueo-email.adapter';
 import { TarifaEstimadaAdapter } from './infrastructure/tarifa-estimada.adapter';
 import { AltaConsultaController } from './interface/alta-consulta.controller';
 import { TransicionFechaController } from './interface/transicion-fecha.controller';
+import { PendienteInvitadosController } from './interface/pendiente-invitados.controller';
 import { ObtenerReservaController } from './interface/obtener-reserva.controller';
 import {
   TransicionFechaUseCase,
@@ -38,6 +40,10 @@ import {
   ObtenerReservaUseCase,
   type ReservaDetalleQueryPort,
 } from './application/obtener-reserva.query';
+import {
+  TransicionPendienteInvitadosUseCase,
+  type UnidadDeTrabajoPendienteInvitadosPort,
+} from './application/transicion-pendiente-invitados.use-case';
 import { ReservaDetalleQueryPrismaAdapter } from './infrastructure/reserva-detalle-query.prisma.adapter';
 import {
   AuditLogPort,
@@ -68,6 +74,7 @@ import {
   RESERVA_ESTADO_PORT,
   TARIFA_ESTIMADA_PORT,
   TENANT_SETTINGS_PORT,
+  UNIDAD_DE_TRABAJO_PENDIENTE_INVITADOS_PORT,
   UNIDAD_DE_TRABAJO_PORT,
   UNIDAD_DE_TRABAJO_TRANSICION_PORT,
 } from './reservas.tokens';
@@ -77,6 +84,7 @@ import {
   controllers: [
     AltaConsultaController,
     TransicionFechaController,
+    PendienteInvitadosController,
     ObtenerReservaController,
   ],
   providers: [
@@ -144,6 +152,30 @@ import {
         new TransicionFechaUseCase({
           unidadDeTrabajo,
           confirmacionBloqueo,
+          clock,
+          tenantSettings,
+        }),
+    },
+    {
+      provide: UNIDAD_DE_TRABAJO_PENDIENTE_INVITADOS_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new UnidadDeTrabajoPendienteInvitadosPrismaAdapter(prisma),
+    },
+    {
+      provide: TransicionPendienteInvitadosUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_PENDIENTE_INVITADOS_PORT,
+        CLOCK_PORT,
+        TENANT_SETTINGS_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoPendienteInvitadosPort,
+        clock: ClockPort,
+        tenantSettings: TenantSettingsPort,
+      ) =>
+        new TransicionPendienteInvitadosUseCase({
+          unidadDeTrabajo,
           clock,
           tenantSettings,
         }),
@@ -226,6 +258,7 @@ import {
     LiberarFechasEnLoteService,
     AltaConsultaUseCase,
     TransicionFechaUseCase,
+    TransicionPendienteInvitadosUseCase,
     ObtenerReservaUseCase,
   ],
 })
