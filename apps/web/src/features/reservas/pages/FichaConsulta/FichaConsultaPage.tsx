@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { CalendarPlus, Mail, User } from 'lucide-react';
+import { CalendarPlus, Mail, User, Users } from 'lucide-react';
 import { useReserva } from '../../api/useReserva';
 import { AnadirFechaDialog } from '../../components/AnadirFechaDialog';
-import { formatearFecha } from '../../lib/fecha';
+import { PendienteInvitadosDialog } from '../../components/PendienteInvitadosDialog';
+import { bloqueoVigente, formatearFecha } from '../../lib/fecha';
 import { Badge } from './components/Badge';
 import { Dato } from './components/Dato';
 import { AvisosTransicion } from './components/AvisosTransicion';
-import type { Reserva } from '../../model/types';
+import { AvisoPendienteInvitados } from './components/AvisoPendienteInvitados';
+import type { PendienteInvitadosResultado, Reserva } from '../../model/types';
 
 const claseSeccion =
   'flex flex-col gap-6 rounded-[20px] border border-border-default/20 bg-surface-subtle/30 p-4 sm:p-6 lg:p-8';
@@ -23,8 +25,13 @@ export const FichaConsultaPage = () => {
   const { data: reserva, isLoading, isError } = useReserva(id);
 
   const [dialogoAbierto, setDialogoAbierto] = useState(false);
-  // RESERVA resultante de una transición exitosa: alimenta el aviso 2b/2d.
+  const [dialogoInvitadosAbierto, setDialogoInvitadosAbierto] = useState(false);
+  // RESERVA resultante de la transición de fecha (US-005): alimenta el aviso 2b/2d.
   const [resultado, setResultado] = useState<Reserva | null>(null);
+  // Resultado de la transición 2.b → 2.c (US-007): alimenta su aviso (TTL + cola).
+  const [resultadoInvitados, setResultadoInvitados] = useState<PendienteInvitadosResultado | null>(
+    null,
+  );
 
   if (isLoading) {
     return (
@@ -52,6 +59,10 @@ export const FichaConsultaPage = () => {
     : 'Cliente';
   const subEstado = reserva.subEstado;
   const esExploratoria = subEstado === '2a';
+  // US-007 (D-1): la acción "pendiente de invitados" solo aplica a consultas en
+  // `2b` con bloqueo de fecha vigente (ttlExpiracion > ahora). El servidor revalida
+  // de forma defensiva (409 BloqueoNoVigenteError / 422 guarda de origen).
+  const puedePendienteInvitados = subEstado === '2b' && bloqueoVigente(reserva.ttlExpiracion);
 
   return (
     <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-6">
@@ -69,6 +80,13 @@ export const FichaConsultaPage = () => {
       </header>
 
       {resultado && <AvisosTransicion resultado={resultado} onCerrar={() => setResultado(null)} />}
+
+      {resultadoInvitados && (
+        <AvisoPendienteInvitados
+          resultado={resultadoInvitados}
+          onCerrar={() => setResultadoInvitados(null)}
+        />
+      )}
 
       <section className={claseSeccion} aria-labelledby="ficha-cliente">
         <div id="ficha-cliente" className="flex items-center gap-3">
@@ -124,11 +142,32 @@ export const FichaConsultaPage = () => {
               Añadir fecha
             </button>
           </div>
+        ) : puedePendienteInvitados ? (
+          <div className="flex flex-col gap-3">
+            <p className="font-body text-sm text-text-secondary">
+              Esta consulta tiene una fecha bloqueada provisionalmente. Si el cliente tiene
+              intención firme, márcala como pendiente de número de invitados: se ampliará el plazo
+              del bloqueo y se vaciará su cola de espera.
+            </p>
+            <button
+              type="button"
+              data-testid="boton-pendiente-invitados"
+              onClick={() => {
+                setResultadoInvitados(null);
+                setDialogoInvitadosAbierto(true);
+              }}
+              className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-10 font-display text-base text-brand-foreground transition hover:opacity-95 sm:w-auto sm:px-16"
+            >
+              <Users aria-hidden className="size-5" />
+              Marcar como pendiente de invitados
+            </button>
+          </div>
         ) : (
           <p className="flex items-start gap-3 font-body text-sm text-text-secondary">
             <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
-            La acción "Añadir fecha" solo está disponible para consultas exploratorias (sub-estado
-            2a). Esta consulta ya está en otro estado.
+            No hay acciones disponibles para esta consulta en su estado actual. La acción "Añadir
+            fecha" requiere una consulta exploratoria (2a) y "Marcar como pendiente de invitados"
+            una consulta con fecha (2b) y bloqueo vigente.
           </p>
         )}
       </section>
@@ -139,6 +178,15 @@ export const FichaConsultaPage = () => {
           abierto={dialogoAbierto}
           onAbiertoChange={setDialogoAbierto}
           onResuelto={setResultado}
+        />
+      )}
+
+      {id && (
+        <PendienteInvitadosDialog
+          reservaId={id}
+          abierto={dialogoInvitadosAbierto}
+          onAbiertoChange={setDialogoInvitadosAbierto}
+          onResuelto={setResultadoInvitados}
         />
       )}
     </div>

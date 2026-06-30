@@ -16,7 +16,19 @@ export type TipoEvento = components['schemas']['TipoEvento'];
 export type DuracionHoras = components['schemas']['DuracionHoras'];
 export type AsignarFechaRequest = components['schemas']['AsignarFechaRequest'];
 export type AsignarFechaConflictoError = components['schemas']['AsignarFechaConflictoError'];
+export type PendienteInvitadosResponse = components['schemas']['PendienteInvitadosResponse'];
+export type BloqueoNoVigenteError = components['schemas']['BloqueoNoVigenteError'];
 export type ErrorResponse = components['schemas']['ErrorResponse'];
+
+/**
+ * Resultado de la transición 2.b → 2.c (US-007), usado por la ficha y su aviso de
+ * éxito: la RESERVA actualizada (`subEstado='2c'`, `ttlExpiracion` extendido) y el
+ * recuento de consultas de cola descartadas (A16).
+ */
+export type PendienteInvitadosResultado = {
+  reserva: Reserva;
+  consultasDescartadas: number;
+};
 
 /** Resultado de un alta de consulta, usado por la página y sus avisos (2b/2d/2a/E1). */
 export type ResultadoAlta = {

@@ -32,3 +32,8 @@ export const CONFIRMACION_BLOQUEO_EMAIL_PORT = Symbol(
 
 // US-005 — lectura de la ficha (GET /reservas/{id} → ReservaDetalle)
 export const RESERVA_DETALLE_QUERY_PORT = Symbol('ReservaDetalleQueryPort');
+
+// US-007 — transición «pendiente de invitados» (2.b → 2.c)
+export const UNIDAD_DE_TRABAJO_PENDIENTE_INVITADOS_PORT = Symbol(
+  'UnidadDeTrabajoPendienteInvitadosPort',
+);

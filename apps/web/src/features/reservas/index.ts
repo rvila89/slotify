@@ -7,3 +7,8 @@ export { FichaConsultaPage } from './pages/FichaConsulta/FichaConsultaPage';
 export { useReserva, reservaQueryKey } from './api/useReserva';
 export { useAsignarFecha } from './api/useAsignarFecha';
 export type { AsignarFechaError, AsignarFechaVars } from './api/useAsignarFecha';
+export { usePendienteInvitados } from './api/usePendienteInvitados';
+export type {
+  PendienteInvitadosError,
+  PendienteInvitadosVars,
+} from './api/usePendienteInvitados';
