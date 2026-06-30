@@ -20,6 +20,7 @@ playwright/.cache/
 
 # Entorno (secretos — nunca versionar; ver .env.example)
 .env
+.env.test
 .env.local
 .env.*.local
 
