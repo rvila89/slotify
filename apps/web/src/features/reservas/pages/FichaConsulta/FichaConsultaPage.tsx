@@ -5,6 +5,7 @@ import { useReserva } from '../../api/useReserva';
 import { AnadirFechaDialog } from '../../components/AnadirFechaDialog';
 import { PendienteInvitadosDialog } from '../../components/PendienteInvitadosDialog';
 import { ProgramarVisitaDialog } from '../../components/ProgramarVisitaDialog';
+import { ExtenderBloqueoDialog } from '../../components/ExtenderBloqueoDialog';
 import { MAX_DIAS_PROGRAMAR_VISITA_DEFAULT, formatearFecha } from '../../lib/fecha';
 import { Badge } from './components/Badge';
 import { Dato } from './components/Dato';
@@ -12,16 +13,18 @@ import { AccionesConsulta } from './components/AccionesConsulta';
 import { AvisosTransicion } from './components/AvisosTransicion';
 import { AvisoPendienteInvitados } from './components/AvisoPendienteInvitados';
 import { AvisoVisitaProgramada } from './components/AvisoVisitaProgramada';
+import { AvisoBloqueoExtendido } from './components/AvisoBloqueoExtendido';
 import type { PendienteInvitadosResultado, Reserva } from '../../model/types';
 
 const claseSeccion =
   'flex flex-col gap-6 rounded-[20px] border border-border-default/20 bg-surface-subtle/30 p-4 sm:p-6 lg:p-8';
 
 /**
- * Ficha de consulta (US-005/US-007/US-008 · UC-04/06/07). Muestra el detalle de una
- * RESERVA y, según su sub-estado, ofrece las acciones de transición (Añadir fecha,
- * Pendiente de invitados, Programar visita) vía diálogos de dominio. Los avisos del
- * desenlace y los fragmentos visuales viven en `components/`.
+ * Ficha de consulta (US-005/US-007/US-008/US-006 · UC-04/06/07/05). Muestra el detalle
+ * de una RESERVA y, según su sub-estado, ofrece las acciones de transición (Añadir
+ * fecha, Pendiente de invitados, Programar visita) y el override de extensión del
+ * bloqueo (Extender bloqueo) vía diálogos de dominio. Los avisos del desenlace y los
+ * fragmentos visuales viven en `components/`.
  */
 export const FichaConsultaPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -30,6 +33,7 @@ export const FichaConsultaPage = () => {
   const [dialogoAbierto, setDialogoAbierto] = useState(false);
   const [dialogoInvitadosAbierto, setDialogoInvitadosAbierto] = useState(false);
   const [dialogoVisitaAbierto, setDialogoVisitaAbierto] = useState(false);
+  const [dialogoExtenderAbierto, setDialogoExtenderAbierto] = useState(false);
   // RESERVA resultante de la transición de fecha (US-005): alimenta el aviso 2b/2d.
   const [resultado, setResultado] = useState<Reserva | null>(null);
   // Resultado de la transición 2.b → 2.c (US-007): alimenta su aviso (TTL + cola).
@@ -38,6 +42,8 @@ export const FichaConsultaPage = () => {
   );
   // RESERVA resultante de la transición a 2.v (US-008): alimenta su aviso (visita + TTL).
   const [resultadoVisita, setResultadoVisita] = useState<Reserva | null>(null);
+  // RESERVA resultante de la extensión del bloqueo (US-006): alimenta su aviso (nuevo TTL).
+  const [resultadoExtension, setResultadoExtension] = useState<Reserva | null>(null);
 
   if (isLoading) {
     return (
@@ -92,6 +98,13 @@ export const FichaConsultaPage = () => {
         <AvisoVisitaProgramada
           reserva={resultadoVisita}
           onCerrar={() => setResultadoVisita(null)}
+        />
+      )}
+
+      {resultadoExtension && (
+        <AvisoBloqueoExtendido
+          reserva={resultadoExtension}
+          onCerrar={() => setResultadoExtension(null)}
         />
       )}
 
@@ -150,6 +163,10 @@ export const FichaConsultaPage = () => {
             setResultadoVisita(null);
             setDialogoVisitaAbierto(true);
           }}
+          onExtenderBloqueo={() => {
+            setResultadoExtension(null);
+            setDialogoExtenderAbierto(true);
+          }}
         />
       </section>
 
@@ -178,6 +195,16 @@ export const FichaConsultaPage = () => {
           abierto={dialogoVisitaAbierto}
           onAbiertoChange={setDialogoVisitaAbierto}
           onResuelto={setResultadoVisita}
+        />
+      )}
+
+      {id && (
+        <ExtenderBloqueoDialog
+          reservaId={id}
+          ttlActual={reserva.ttlExpiracion}
+          abierto={dialogoExtenderAbierto}
+          onAbiertoChange={setDialogoExtenderAbierto}
+          onResuelto={setResultadoExtension}
         />
       )}
     </div>

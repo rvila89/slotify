@@ -17,3 +17,8 @@ export type {
   ProgramarVisitaError,
   ProgramarVisitaVars,
 } from './api/useProgramarVisita';
+export { useExtenderBloqueo } from './api/useExtenderBloqueo';
+export type {
+  ExtenderBloqueoError,
+  ExtenderBloqueoVars,
+} from './api/useExtenderBloqueo';

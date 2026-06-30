@@ -113,6 +113,22 @@ Es la decisión técnica más importante del MVP y la que más diverge de la arq
 
 **Sin endpoint HTTP propio (D-7):** `bloquearFecha()` es infraestructura de dominio invocada por las transiciones de estado de la reserva (A1/A2/A6/A18). No se expone como endpoint directo porque el bloqueo debe ocurrir en la misma transacción que la transición de estado; un endpoint aislado rompería la atomicidad reserva↔bloqueo.
 
+**US-006 — extensión manual del TTL (prórroga pura sin transición de estado):**
+
+US-006 no es una transición de máquina de estados (no cambia `estado`, `sub_estado`, `tipo_bloqueo` ni `fecha`): es una **prórroga directa del TTL del bloqueo blando** ya existente, aplicable cuando `sub_estado ∈ {2b, 2c, 2v}` O `estado = 'pre_reserva'`.
+
+- **Guarda de precondición declarativa**: `esEstadoConBloqueoBlandoExtensible(estado, subEstado)` — tabla de datos en `maquina-estados.ts` (mismo estilo que `ORIGENES_TRANSICION_*`), no condicionales dispersos. Rechaza `2a`, terminales y `reserva_confirmada` antes de tocar la BD. La condición real en runtime es la presencia de fila blanda vigente en `FECHA_BLOQUEADA` con `ttl_expiracion > ahora`; el predicado de estado es defensa rápida previa.
+
+- **Atomicidad de las tres operaciones**: UPDATE `RESERVA.ttl_expiracion = ttl_actual + N días` + UPDATE `FECHA_BLOQUEADA.ttl_expiracion` al mismo valor + INSERT `AUDIT_LOG accion='actualizar'`, en una única transacción con `SELECT … FOR UPDATE` sobre la fila bloqueante (mismo punto de serialización que US-005/007/008). Un fallo parcial hace rollback completo.
+
+- **Concurrencia frente al barrido de expiración (US-012)**: si la extensión llega antes de que el barrido expire el bloqueo, el barrido ve el TTL ya extendido; si el barrido ya procesó la expiración, la extensión observa `ttl_expiracion < ahora` y se rechaza con `409`. La serialización por `SELECT … FOR UPDATE` garantiza que no hay estados intermedios ni "resurrección" de un bloqueo ya expirado.
+
+- **Reprogramación implícita de recordatorios A3/A4/A5**: al cambiar `ttl_expiracion`, el barrido periódico (§2.5; US-012, pendiente) reevalúa los recordatorios contra el nuevo valor en su siguiente pasada. No se introduce ningún scheduler ni tabla de jobs adicional.
+
+- **Sin migración**: `ttl_expiracion` (RESERVA y FechaBloqueada), `tipo_bloqueo` y `accion = 'actualizar'` en `AUDIT_LOG` existen desde US-000/US-040/US-004.
+
+- **Nuevo endpoint**: `POST /reservas/{id}/extender-bloqueo` body `{ dias: integer ≥ 1 }` — respuestas `200` (TTL extendido), `409` (TTL expirado / sin fila bloqueante activa / bloqueo firme), `422` (estado sin bloqueo extensible o `dias` inválido), `404`/`401`/`403`.
+
 **US-007 — extensiones del núcleo crítico (transición 2.b → 2.c + vaciado de cola A16):**
 
 - **Guarda de origen `{consulta, 2b} → {consulta, 2c}`**: añadida a la tabla declarativa de `maquina-estados.ts` (mismo patrón que `ORIGENES_TRANSICION_ANADIR_FECHA` de US-005). Cualquier origen distinto de `2.b` —incluidos terminales `2.x`/`2.y`/`2.z` (inmutables)— se rechaza antes de entrar en la transacción.

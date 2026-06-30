@@ -45,3 +45,8 @@ export const UNIDAD_DE_TRABAJO_PROGRAMAR_VISITA_PORT = Symbol(
 export const CONFIRMACION_VISITA_EMAIL_PORT = Symbol(
   'ConfirmacionVisitaEmailPort',
 );
+
+// US-006 — extensión manual del TTL del bloqueo blando
+export const UNIDAD_DE_TRABAJO_EXTENDER_BLOQUEO_PORT = Symbol(
+  'UnidadDeTrabajoExtenderBloqueoPort',
+);

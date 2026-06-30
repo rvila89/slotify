@@ -73,3 +73,33 @@ export const bloqueoVigente = (ttlExpiracion?: string | null): boolean => {
   const expira = new Date(ttlExpiracion).getTime();
   return Number.isFinite(expira) && expira > Date.now();
 };
+
+/**
+ * Sub-estados de consulta con bloqueo blando extensible (US-006 · D-1). Tabla de
+ * datos declarativa (espejo del predicado `esEstadoConBloqueoBlandoExtensible` del
+ * backend), no condicionales dispersos: `2b/2c/2v` mantienen un bloqueo blando con
+ * TTL; `2a` (sin fecha) y los terminales (`2d` cola, `2x/2y/2z`) quedan fuera.
+ */
+const SUB_ESTADOS_BLOQUEO_EXTENSIBLE = ['2b', '2c', '2v'] as const;
+
+/**
+ * Indica si una RESERVA puede ofrecer la acción "Extender bloqueo" (US-006 · D-1).
+ * La extensión solo aplica a un bloqueo BLANDO con TTL VIGENTE: sub-estado de
+ * consulta ∈ {2b, 2c, 2v} O estado = `pre_reserva`, y `ttlExpiracion > ahora`.
+ * Se excluyen `2a` (sin fecha), terminales y `reserva_confirmada` (bloqueo firme,
+ * sin TTL). Es la defensa rápida de cliente para habilitar/mostrar la acción; el
+ * servidor revalida de forma defensiva (409 ExtenderBloqueoConflictoError / 422).
+ */
+export const puedeExtenderBloqueo = (reserva: {
+  estado?: string;
+  subEstado?: string | null;
+  ttlExpiracion?: string | null;
+}): boolean => {
+  const estadoExtensible =
+    (reserva.estado === 'consulta' &&
+      SUB_ESTADOS_BLOQUEO_EXTENSIBLE.includes(
+        reserva.subEstado as (typeof SUB_ESTADOS_BLOQUEO_EXTENSIBLE)[number],
+      )) ||
+    reserva.estado === 'pre_reserva';
+  return estadoExtensible && bloqueoVigente(reserva.ttlExpiracion);
+};
