@@ -54,3 +54,6 @@ export const UNIDAD_DE_TRABAJO_EXTENDER_BLOQUEO_PORT = Symbol(
 // US-012 — barrido de expiración por TTL (cross-tenant read + UoW por RESERVA)
 export const CANDIDATAS_EXPIRACION_PORT = Symbol('CandidatasExpiracionPort');
 export const EXPIRACION_RESERVA_PORT = Symbol('ExpiracionReservaPort');
+
+// US-018 — promoción automática del primero en cola (UoW atómica de promoción)
+export const PROMOCION_COLA_UOW_PORT = Symbol('PromocionColaUoWPort');

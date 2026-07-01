@@ -508,7 +508,7 @@ flowchart TD
 | **Actores Secundarios** | Gestor |
 | **Descripción** | El sistema expira automáticamente una consulta o pre-reserva cuando su TTL de bloqueo blando se agota sin avance. Implementado en **US-012** mediante job asíncrono de barrido periódico (`POST /cron/barrido-expiracion`), con scheduler registrado dinámicamente vía `SchedulerRegistry`; expresión por defecto `'0 * * * *'` (cada hora), configurable por `CRON_BARRIDO_EXPIRACION`. |
 | **Precondiciones** | - RESERVA con `ttl_expiracion < now()` **Y** (`sub_estado ∈ {2b, 2c, 2v}` **O** `estado = 'pre_reserva'`)<br>- El bloqueo es blando (`tipo_bloqueo = 'blando'`); los bloqueos firmes no tienen TTL y no son candidatos<br>- El job de barrido se dispara con frecuencia configurable por `CRON_BARRIDO_EXPIRACION` (default cada hora, `'0 * * * *'`); si `CRON_TOKEN` está ausente, el disparo automático se desactiva (el endpoint sigue disponible para invocación manual/externa) |
-| **Postcondiciones** | - RESERVA transiciona al estado terminal por TTL: `2b/2c/2v → 2x`; `pre_reserva → reserva_cancelada` (mapa declarativo `MAPA_EXPIRACION_TTL` / `resolverExpiracionTtl`)<br>- Fila de `FECHA_BLOQUEADA` eliminada vía `liberarFecha()` (US-041, causa `TTL`), idempotente (0 filas = éxito silencioso)<br>- Si la RESERVA tenía cola activa (`2b`/`2v`): seam `PromocionColaPort` disparado exactamente una vez (la lógica FIFO + re-bloqueo queda diferida a US-018)<br>- `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`<br>- El fallo de una candidata no aborta el lote (fallo aislado por RESERVA)<br>- Respuesta `BarridoExpiracionResponse`: `candidatas`, `expiradas`, `promocionesDisparadas`, `fallos` |
+| **Postcondiciones** | - RESERVA transiciona al estado terminal por TTL: `2b/2c/2v → 2x`; `pre_reserva → reserva_cancelada` (mapa declarativo `MAPA_EXPIRACION_TTL` / `resolverExpiracionTtl`)<br>- Fila de `FECHA_BLOQUEADA` eliminada vía `liberarFecha()` (US-041, causa `TTL`), idempotente (0 filas = éxito silencioso)<br>- Si la RESERVA tenía cola activa (`2b`/`2v`): seam `PromocionColaPort` disparado exactamente una vez; el adaptador real `PromocionColaPrismaAdapter` (US-018) ejecuta la promoción FIFO completa: `2d → 2b`, re-bloqueo atómico, reordenación y alerta interna al gestor<br>- `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`<br>- El fallo de una candidata no aborta el lote (fallo aislado por RESERVA)<br>- Respuesta `BarridoExpiracionResponse`: `candidatas`, `expiradas`, `promocionesDisparadas`, `fallos` |
 | **Prioridad** | Crítica |
 | **Frecuencia** | Media (barrido automático cada hora por defecto; configurable con `CRON_BARRIDO_EXPIRACION`) |
 | **US** | US-012 |
@@ -543,7 +543,7 @@ flowchart TD
     H --> I[liberarFecha causa=TTL — DELETE idempotente FECHA_BLOQUEADA]
     I --> J[AUDIT_LOG transicion]
     J --> K{Cola activa en 2b/2v?}
-    K -->|Sí| L[Dispara PromocionColaPort — stub hasta US-018]
+    K -->|Sí| L[Dispara PromocionColaPort — adaptador real US-018: FIFO + re-bloqueo + reordenación]
     K -->|No| M[Siguiente candidata]
     L --> M
     G --> N[Fallo aislado → rollback solo esa Tx, resto continúa]
@@ -610,50 +610,59 @@ flowchart TD
 |-------|-------------|
 | **ID** | UC-12 |
 | **Nombre** | Promover Consulta de la Cola |
-| **Actor Principal** | Sistema / Gestor |
-| **Actores Secundarios** | - |
-| **Descripción** | Una consulta en cola es promovida a sub-estado 2.b, obteniendo el bloqueo de la fecha |
-| **Precondiciones** | - Consulta en sub-estado 2.d<br>- Fecha ha sido liberada (bloqueante expiró, canceló, o gestor promueve manualmente) |
-| **Postcondiciones** | - Consulta promovida pasa a 2.b con TTL de 3 días<br>- Resto de la cola reordenada<br>- Email enviado al cliente promovido |
+| **Actor Principal** | Sistema |
+| **Actores Secundarios** | Gestor (notificado internamente; la promoción manual queda para US-019) |
+| **Descripción** | Cuando se libera una `FECHA_BLOQUEADA` con cola activa, el sistema promueve automáticamente la primera consulta en cola (`2.d → 2.b`), re-crea el bloqueo, reordena el resto FIFO y alerta internamente al gestor. Implementado en **US-018**. |
+| **Precondiciones** | - Al menos una RESERVA en `sub_estado = '2d'` con `posicion_cola = 1` para `(tenant_id, fecha)` — se verifica dentro de la transacción bajo lock<br>- La `FECHA_BLOQUEADA` de esa fecha fue liberada por `liberarFecha()` (DELETE commiteado) antes del disparo del seam `PromocionColaPort` |
+| **Postcondiciones** | - La consulta con `posicion_cola = 1` pasa a `sub_estado = '2b'`; `posicion_cola = NULL`; `consulta_bloqueante_id = NULL`<br>- Se re-crea la fila de `FECHA_BLOQUEADA` (blando, `now() + ttl_consulta_dias`) para la promovida mediante `bloquearFecha()`<br>- El resto de la cola decrementa posición en 1 y re-apunta `consulta_bloqueante_id` a la nueva bloqueante<br>- `AUDIT_LOG` con `accion = 'transicion'` por cada RESERVA modificada, `origen: promocion_automatica`<br>- Alerta interna registrada para el gestor (sin email al cliente en MVP; superficie de notificaciones diferida a US-044)<br>- Idempotente: si la guarda detecta que ya no hay candidato `posicion_cola = 1` en `2d`, aborta limpio sin cambios |
 | **Prioridad** | Crítica |
 | **Frecuencia** | Media |
+| **US** | US-018 |
+| **Entidades afectadas** | RESERVA (UPDATE promovida + UPDATE restantes), FECHA_BLOQUEADA (INSERT vía `bloquearFecha()`), AUDIT_LOG — sin migración nueva (reutiliza `posicion_cola`, `consulta_bloqueante_id`, `ttl_expiracion` existentes desde US-000/US-004) |
 
-**Flujo Básico (automático):**
-1. El sistema detecta que la consulta bloqueante ha expirado (2.b → 2.x)
-2. El sistema identifica la primera consulta en cola (posicion_cola = 1)
-3. El sistema cambia su sub-estado de 2.d a 2.b
-4. El sistema limpia `posicion_cola` y `consulta_bloqueante_id`
-5. El sistema aplica bloqueo de 3 días
-6. El sistema reordena el resto de la cola (posiciones bajan)
-7. El sistema actualiza `consulta_bloqueante_id` del resto para apuntar al nuevo bloqueante
-8. El sistema envía email al cliente promovido: "¡La fecha está disponible!"
-9. El sistema registra la promoción en audit log
+**Flujo Básico (automático — A15):**
+1. El barrido de expiración (UC-09 / US-012) o cualquier otra operación que invoque `liberarFecha()` hace DELETE de la `FECHA_BLOQUEADA` de `(tenant, fecha)` y commite; si detecta cola activa, dispara `PromocionColaPort.promoverPrimeroEnCola({ tenantId, fecha })` exactamente una vez (post-commit)
+2. El adaptador real `PromocionColaPrismaAdapter` (US-018) recibe `{ tenantId, fecha }` y abre una transacción bajo `SET LOCAL app.tenant_id` (RLS)
+3. Adquiere `SELECT … FOR UPDATE` sobre las RESERVA en `sub_estado = '2d'` de `(tenant, fecha)` — este es el **punto de serialización**; la fila de `FECHA_BLOQUEADA` ya no existe en este momento
+4. Guarda "ya promovida": verifica que exista candidato con `posicion_cola = 1` en `2d`; si no (otra TX ya promovió), aborta limpio sin cambios (idempotencia)
+5. Función pura de dominio (`resolverPromocionCola`) calcula el plan: mutaciones de la promovida + decrementos de posición + nuevo `consulta_bloqueante_id` del resto; valida contigüidad de posiciones
+6. En la misma transacción:
+   - Muta la promovida: `sub_estado = '2b'`, `posicion_cola = NULL`, `consulta_bloqueante_id = NULL`, `ttl_expiracion = now() + ttl_consulta_dias`
+   - Re-crea `FECHA_BLOQUEADA` vía `bloquearFecha()` (blando, `now() + ttl_consulta_dias`)
+   - Reordena el resto: decrementa `posicion_cola` (orden ascendente para respetar `reserva_cola_posicion_key`), apunta `consulta_bloqueante_id` a la promovida
+7. Registra `AUDIT_LOG` con `accion = 'transicion'` por cada RESERVA modificada (`origen: promocion_automatica`)
+8. Registra alerta interna para el gestor: "Consulta [código] promovida a bloqueo de la fecha [fecha]; contactar al cliente" (dentro de la misma transacción, sin acoplamiento al puerto de comunicaciones US-045)
+9. El gestor visualiza la alerta en el dashboard (superficie US-044); contacta al cliente manualmente
 
-**Flujo Alternativo (manual por gestor):**
-1. El gestor accede a la vista de cola de una fecha
-2. El gestor selecciona una consulta específica (cualquier posición)
-3. El gestor selecciona "Promover a bloqueante"
-4. El sistema solicita confirmación
-5. El sistema expira la consulta bloqueante actual (si aún estaba activa)
-6. Continúa desde paso 3 del flujo básico
+**Flujos Alternativos:**
+- **FA-01** (guarda "ya promovida" — carrera RC-1 / RC-3): `posicion_cola = 1` en `2d` ya no existe bajo lock → abortar limpio sin cambios, sin error. Cubre doble disparo del cron (RC-1) y coordinación con la futura promoción manual US-019 (RC-3)
+- **FA-02** (cola vacía): no hay RESERVA en `2d` para `(tenant, fecha)` → la función retorna inmediatamente sin mutaciones (éxito silencioso; `liberarFecha()` ya procesó la liberación)
+- **FA-03** (contigüidad rota en la cola): la función pura detecta hueco en posiciones → aborta con error de dominio; el lote de expiración registra el fallo de forma aislada (el resto del lote continúa)
+
+> **Nota — Flujo manual (US-019, fuera de alcance de US-018):** la promoción manual por el gestor (seleccionar cualquier posición, no solo `posicion_cola = 1`) es de **US-019**. US-018 solo deja el contrato de guarda listo (D-3/D-6 del design): la guarda "ya promovida" y el FIFO estricto coordinan automático y manual vía el mismo `SELECT … FOR UPDATE` sobre RESERVA `2d`; quien toma el lock primero completa la promoción; el otro aborta limpio.
+
+> **Nota — Notificación al cliente (US-044):** el email "¡La fecha está disponible!" (UC-12 paso original) está marcado como `Solo diseñado` en la ficha US-018. En MVP se registra solo la alerta interna al gestor. La superficie de notificaciones/dashboard es de **US-044**.
 
 ```mermaid
 sequenceDiagram
-    participant S as Sistema
-    participant CB as Consulta Bloqueante
-    participant C1 as Cola Posición 1
-    participant C2 as Cola Posición 2
-    participant E as Email Service
-    
-    Note over CB: TTL expira
-    S->>CB: Cambiar estado a 2.x
-    S->>S: Liberar fecha
-    S->>C1: Promover a 2.b
-    S->>C1: Asignar TTL 3 días
-    S->>C2: posicion_cola = 1
-    S->>C2: consulta_bloqueante_id = C1
-    S->>E: Email a C1 "Fecha disponible"
-    Note over C1: Ahora es bloqueante
+    participant LF as liberarFecha() (US-041)
+    participant S as PromocionColaPrismaAdapter (US-018)
+    participant DB as PostgreSQL
+    participant C1 as Cola Posición 1 (2.d)
+    participant C2 as Cola Posición 2 (2.d)
+
+    LF->>DB: DELETE FECHA_BLOQUEADA (commit)
+    LF->>S: PromocionColaPort.promoverPrimeroEnCola({ tenantId, fecha })
+    S->>DB: BEGIN TX + SET LOCAL app.tenant_id
+    S->>DB: SELECT … FOR UPDATE — RESERVA sub_estado='2d' de (tenant, fecha)
+    S->>S: Guarda "ya promovida": ¿existe posicion_cola=1 en 2d?
+    S->>S: resolverPromocionCola — calcula plan FIFO
+    S->>C1: UPDATE sub_estado=2b, posicion_cola=NULL, consulta_bloqueante_id=NULL
+    S->>DB: INSERT FECHA_BLOQUEADA vía bloquearFecha() (blando, now+ttl)
+    S->>C2: UPDATE posicion_cola=1, consulta_bloqueante_id=C1.id
+    S->>DB: AUDIT_LOG por cada RESERVA (origen: promocion_automatica)
+    S->>DB: Alerta interna al gestor (en misma TX)
+    S->>DB: COMMIT
 ```
 
 ---
@@ -1377,7 +1386,7 @@ flowchart TD
 | **Actores Secundarios** | - |
 | **Descripción** | El sistema elimina atómicamente el bloqueo de una fecha cuando expira el TTL, el cliente descarta la consulta, o se cancela una reserva confirmada. Complemento de UC-30. Implementado por `liberarFecha()` (US-041). |
 | **Precondiciones** | - Existe fila en `FECHA_BLOQUEADA` para `(tenant_id, fecha)` o la operación es idempotente (0 filas es éxito)<br>- Si `tipo_bloqueo = 'firme'`: la `RESERVA` referenciada debe estar en `reserva_cancelada` |
-| **Postcondiciones** | - La fila `(tenant_id, fecha)` ya no existe en `FECHA_BLOQUEADA`<br>- Si había cola activa (`sub_estado = '2d'`), se ha invocado `PromocionColaPort` (promoción efectiva diferida a US-018; la cola permanece en `2.d` hasta que US-018 complete)<br>- Acción registrada en `AUDIT_LOG` con causa |
+| **Postcondiciones** | - La fila `(tenant_id, fecha)` ya no existe en `FECHA_BLOQUEADA`<br>- Si había cola activa (`sub_estado = '2d'`), se ha invocado `PromocionColaPort` exactamente una vez: el adaptador real `PromocionColaPrismaAdapter` (US-018) ejecuta la mecánica A15 completa (`2d → 2b`, re-bloqueo, reordenación FIFO, alerta interna al gestor)<br>- Acción registrada en `AUDIT_LOG` con causa |
 | **Prioridad** | Crítica |
 | **Frecuencia** | Alta |
 | **Sin endpoint HTTP propio (D-7 / US-041)** | El actor es el Sistema; la liberación es efecto de transiciones de estado y del cron de barrido, no una acción de usuario. No se añade ningún endpoint a `api-spec.yml`. |
@@ -1404,7 +1413,7 @@ flowchart TD
 **Exactamente-una-vez ante liberaciones concurrentes:**
 Si dos workers liberan la misma `(tenant_id, fecha)` simultáneamente, el motor garantiza que exactamente uno obtiene `rows = 1` (y dispara la promoción) y el otro obtiene `rows = 0` (éxito silencioso sin promoción). No hay doble promoción.
 
-**Deuda documentada (US-018):** la promoción efectiva de cola (reordenación FIFO + email al lead promovido) está diferida a US-018. Hasta entonces, `PromocionColaPort` se resuelve con un adaptador stub no-op auditado. La cola permanece en `2.d`; no hay estado "fecha libre + cola huérfana" observable como definitivo.
+**Deuda cerrada (US-018):** la promoción efectiva de cola (reordenación FIFO + re-bloqueo atómico + alerta interna al gestor) está implementada por `PromocionColaPrismaAdapter` (US-018). El stub no-op fue sustituido; la cola ya no permanece en `2.d` indefinidamente tras una liberación con cola activa.
 
 ---
 

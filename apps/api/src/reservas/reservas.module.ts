@@ -66,6 +66,12 @@ import {
 } from './application/expirar-consultas-vencidas.service';
 import { CandidatasExpiracionPrismaAdapter } from './infrastructure/candidatas-expiracion.prisma.adapter';
 import { ExpiracionReservaUoWPrismaAdapter } from './infrastructure/expiracion-reserva-uow.prisma.adapter';
+import {
+  PromoverPrimeroEnColaService,
+  type PromocionColaUoWPort,
+} from './application/promover-primero-en-cola.service';
+import { PromocionColaUoWPrismaAdapter } from './infrastructure/promocion-cola-uow.prisma.adapter';
+import { PromocionColaPrismaAdapter } from './infrastructure/promocion-cola.prisma.adapter';
 import { BarridoExpiracionController } from './interface/barrido-expiracion.controller';
 import { BarridoExpiracionScheduler } from './interface/barrido-expiracion.scheduler';
 import { CronTokenGuard } from '../shared/auth/cron-token.guard';
@@ -85,7 +91,6 @@ import { TenantSettingsPrismaAdapter } from './infrastructure/tenant-settings.pr
 import { SistemaClockAdapter } from './infrastructure/sistema-clock.adapter';
 import { ReservaEstadoPrismaAdapter } from './infrastructure/reserva-estado.prisma.adapter';
 import { ColaQueryPrismaAdapter } from './infrastructure/cola-query.prisma.adapter';
-import { PromocionColaStubAdapter } from './infrastructure/promocion-cola.stub.adapter';
 import { AuditLogPrismaAdapter } from './infrastructure/audit-log.prisma.adapter';
 import {
   AUDIT_LOG_PORT,
@@ -107,6 +112,7 @@ import {
   UNIDAD_DE_TRABAJO_TRANSICION_PORT,
   CANDIDATAS_EXPIRACION_PORT,
   EXPIRACION_RESERVA_PORT,
+  PROMOCION_COLA_UOW_PORT,
 } from './reservas.tokens';
 
 @Module({
@@ -295,7 +301,15 @@ import {
     { provide: CLOCK_PORT, useClass: SistemaClockAdapter },
     { provide: RESERVA_ESTADO_PORT, useClass: ReservaEstadoPrismaAdapter },
     { provide: COLA_QUERY_PORT, useClass: ColaQueryPrismaAdapter },
-    { provide: PROMOCION_COLA_PORT, useClass: PromocionColaStubAdapter },
+    // US-018 — el seam de promoción resuelve al adaptador REAL (sustituye al stub
+    // no-op de US-012/US-041). El stub `PromocionColaStubAdapter` queda importado solo
+    // para el test de binding (verifica que YA NO se resuelve a él).
+    {
+      provide: PROMOCION_COLA_PORT,
+      inject: [PromoverPrimeroEnColaService],
+      useFactory: (servicio: PromoverPrimeroEnColaService) =>
+        new PromocionColaPrismaAdapter(servicio),
+    },
     { provide: AUDIT_LOG_PORT, useClass: AuditLogPrismaAdapter },
     {
       provide: BloquearFechaService,
@@ -361,6 +375,23 @@ import {
         expiracion: ExpiracionReservaPort,
       ) => new ExpirarConsultasVencidasService({ candidatas, expiracion }),
     },
+    // US-018 — promoción automática del primero en cola (UoW atómica + caso de uso).
+    {
+      provide: PROMOCION_COLA_UOW_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new PromocionColaUoWPrismaAdapter(
+          prisma,
+          new FechaBloqueadaPrismaAdapter(prisma),
+          new TenantSettingsPrismaAdapter(prisma),
+        ),
+    },
+    {
+      provide: PromoverPrimeroEnColaService,
+      inject: [PROMOCION_COLA_UOW_PORT],
+      useFactory: (uow: PromocionColaUoWPort) =>
+        new PromoverPrimeroEnColaService({ uow }),
+    },
     CronTokenGuard,
     BarridoExpiracionScheduler,
   ],
@@ -375,6 +406,7 @@ import {
     ExtenderBloqueoUseCase,
     ObtenerReservaUseCase,
     ExpirarConsultasVencidasService,
+    PromoverPrimeroEnColaService,
   ],
 })
 export class ReservasModule {}

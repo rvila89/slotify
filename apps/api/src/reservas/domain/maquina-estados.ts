@@ -401,3 +401,64 @@ export const resolverExpiracionTtl = (
   );
   return transicion ? transicion.destino : null;
 };
+
+// ---------------------------------------------------------------------------
+// Transición de PROMOCIÓN de cola (US-018 / UC-12 / §D-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Destino resuelto de una promoción de cola: el `(estado, subEstado)` al que
+ * transiciona la RESERVA que estaba primera en cola (`posicion_cola = 1`) cuando la
+ * fecha se libera. Es el resultado puro de `resolverPromocionCola`; `null` (no
+ * representado aquí) indica que el origen NO es promovible (guarda de origen).
+ */
+export interface ResultadoPromocionCola {
+  estado: EstadoReserva;
+  subEstado: SubEstadoConsulta;
+}
+
+/**
+ * Entrada de la tabla declarativa de promoción de cola: `origen` candidato →
+ * `destino` promovido. Modela la transición como ESTRUCTURA DE DATOS (skill
+ * `state-machine`, NO condicionales dispersos).
+ */
+interface TransicionPromocionCola {
+  origen: { estado: EstadoReserva; subEstado: SubEstadoConsulta | null };
+  destino: ResultadoPromocionCola;
+}
+
+/**
+ * Tabla declarativa `MAPA_PROMOCION_COLA` (US-018, §D-2): mapea el ÚNICO origen
+ * promovible de la promoción automática de cola a su destino. Es la única fuente de
+ * verdad de qué se promueve y a dónde (no `if` dispersos):
+ *   { consulta, 2d } → { consulta, 2b }
+ *
+ * Solo el primero en cola (`2.d`) es promovible a la consulta con fecha bloqueada
+ * (`2.b`). Cualquier otro origen —el resto de sub-estados de consulta (`2a/2b/2c/2v`),
+ * los terminales (`2x/2y/2z`), y cualquier estado principal distinto de `consulta`—
+ * NO es promovible: `resolverPromocionCola` devuelve `null`. Mismo patrón que
+ * `MAPA_EXPIRACION_TTL` (US-012 §D-3).
+ */
+export const MAPA_PROMOCION_COLA: ReadonlyArray<TransicionPromocionCola> = [
+  {
+    origen: { estado: 'consulta', subEstado: '2d' },
+    destino: { estado: 'consulta', subEstado: '2b' },
+  },
+];
+
+/**
+ * Guarda + resolución declarativa de la promoción de cola (US-018, §D-2): función
+ * PURA que consulta `MAPA_PROMOCION_COLA` y devuelve el destino promovido del origen
+ * `(estado, subEstado)`, o `null` si NO es un origen promovible (guarda de origen
+ * ESTRICTA: solo `consulta/2d`). Al ser pura y re-evaluable, se invoca DENTRO de la
+ * transacción de la promoción (base de la idempotencia y de RC-1).
+ */
+export const resolverPromocionCola = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): ResultadoPromocionCola | null => {
+  const transicion = MAPA_PROMOCION_COLA.find(
+    (t) => t.origen.estado === estado && t.origen.subEstado === subEstado,
+  );
+  return transicion ? transicion.destino : null;
+};
