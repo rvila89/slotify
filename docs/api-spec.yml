@@ -1321,6 +1321,58 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /cron/barrido-expiracion:
+    post:
+      tags: [Cron]
+      operationId: barridoExpiracion
+      summary: Barrido de expiración de consultas por TTL agotado (UC-09 / US-012)
+      description: |
+        [US-012] Endpoint **interno protegido** invocado por el cron scheduler
+        (`@nestjs/schedule`) para expirar las consultas cuyo bloqueo blando ha agotado su
+        TTL (automatizaciones A4/A5/A21/A21b). Cierra el patrón obligatorio "estado en fila
+        + barrido periódico" (`CLAUDE.md §Jobs asíncronos`; skill `async-jobs`): NUNCA
+        Lambda/EventBridge ni timers exactos; el trabajo pendiente es estado en la BBDD
+        (`RESERVA.ttl_expiracion` + `estado`/`sub_estado`).
+
+        Autenticación **service-to-service** mediante la cabecera `X-Cron-Token` (comparada
+        con `CRON_TOKEN` del entorno vía `CronTokenGuard`), **NO** el JWT de usuario: sin
+        token válido devuelve `401`. El scheduler no ejecuta lógica de negocio, solo dispara
+        este endpoint (invocable también manualmente/por otro scheduler externo y testeable
+        por HTTP).
+
+        Selecciona todas las RESERVA con `ttl_expiracion < now()` **AND** (`sub_estado ∈
+        {'2b','2c','2v'}` **OR** `estado = 'pre_reserva'`) comparando **instantes**
+        (`timestamptz`), nunca fechas formateadas, y por cada una, en su **propia
+        transacción** serializada (`SELECT … FOR UPDATE` + `UNIQUE(tenant_id, fecha)`; sin
+        Redis ni locks distribuidos), bajo el **contexto RLS del tenant** de la RESERVA:
+        transiciona al estado terminal por TTL (`2b/2c/2v → 2x`, `pre_reserva →
+        reserva_cancelada`, mapa declarativo), libera la fila de `FECHA_BLOQUEADA`
+        (`liberarFecha()`, US-041, causa `TTL`) y, si la RESERVA tenía cola activa
+        (`2.b`/`2.v` con cola heredada), **dispara** el seam `PromocionColaPort` exactamente
+        una vez. La **reordenación FIFO + re-bloqueo de la promovida (A15) es de US-018**: el
+        seam es un stub no-op hasta entonces (deuda documentada); US-012 solo garantiza el
+        trigger.
+
+        **Idempotente** (D-4): las RESERVA ya terminales no son candidatas (la guarda de
+        origen las excluye) y el `DELETE` de `FECHA_BLOQUEADA` con 0 filas es éxito
+        silencioso; N ejecuciones sobre la misma RESERVA = 1 sola transición y 1 sola
+        auditoría (`accion='transicion'`, `entidad='RESERVA'`). El **fallo de una candidata
+        no aborta el lote** (fallo aislado por RESERVA); el resumen registra los fallos.
+      security:
+        - cronToken: []
+      responses:
+        '200':
+          description: |
+            Barrido ejecutado. Devuelve un **resumen** del barrido (sin datos de negocio
+            sensibles): candidatas evaluadas, expiradas efectivamente, promociones de cola
+            disparadas y fallos aislados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BarridoExpiracionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2302,6 +2354,42 @@ components:
         fechasLiberadas: { type: integer }
         consultasPromovidas: { type: integer }
         recordatoriosEnviados: { type: integer }
+
+    BarridoExpiracionResponse:
+      # [US-012 §D-2] Resumen del barrido de expiración por TTL. Recuentos agregados de un
+      # proceso de Sistema; no expone datos de negocio sensibles ni identificadores de RESERVA.
+      type: object
+      required: [candidatas, expiradas, promocionesDisparadas, fallos]
+      properties:
+        candidatas:
+          type: integer
+          minimum: 0
+          description: >-
+            Nº de RESERVA seleccionadas como candidatas (`ttl_expiracion < now()` AND
+            `sub_estado ∈ {2b,2c,2v}` OR `estado = 'pre_reserva'`), cross-tenant.
+          example: 5
+        expiradas:
+          type: integer
+          minimum: 0
+          description: >-
+            Nº de candidatas efectivamente expiradas (transicionadas a `2x` /
+            `reserva_cancelada` + fecha liberada) en esta ejecución. Menor que `candidatas`
+            cuando una candidata dejó de serlo bajo lock (idempotencia/US-006) o falló.
+          example: 4
+        promocionesDisparadas:
+          type: integer
+          minimum: 0
+          description: >-
+            Nº de veces que se disparó el seam de promoción de cola (US-018), una por cada
+            expiración con cola activa. La promoción real (A15) es de US-018.
+          example: 1
+        fallos:
+          type: integer
+          minimum: 0
+          description: >-
+            Nº de candidatas cuya expiración falló de forma aislada (rollback de su propia
+            transacción, sin afectar al resto del lote).
+          example: 0
 
     # -------- Comunes --------
     PaginationMetadata:
