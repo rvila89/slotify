@@ -37,6 +37,21 @@ export default {
           cola: 'var(--color-state-cola)',
           disponible: 'var(--color-state-disponible)',
         },
+        // Código de colores canónico del calendario (US-039 §11.3). El backend
+        // emite el nombre lógico (`gris|ambar|verde|azul|rojo`); el frontend lo
+        // mapea a estas clases. Idéntico en todas las vistas.
+        cal: {
+          gris: 'var(--color-cal-gris)',
+          'gris-foreground': 'var(--color-cal-gris-foreground)',
+          ambar: 'var(--color-cal-ambar)',
+          'ambar-foreground': 'var(--color-cal-ambar-foreground)',
+          verde: 'var(--color-cal-verde)',
+          'verde-foreground': 'var(--color-cal-verde-foreground)',
+          azul: 'var(--color-cal-azul)',
+          'azul-foreground': 'var(--color-cal-azul-foreground)',
+          rojo: 'var(--color-cal-rojo)',
+          'rojo-foreground': 'var(--color-cal-rojo-foreground)',
+        },
       },
       fontFamily: {
         display: 'var(--font-display)',

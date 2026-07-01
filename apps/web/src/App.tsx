@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginPage } from './pages/LoginPage';
 import { AppShell, SectionPlaceholder, NotFound } from './components/layout';
 import { NuevaConsultaPage, FichaConsultaPage } from './features/reservas';
+import { CalendarioPage } from './features/calendario';
 import { InterceptorRegistrar, RequireAuth } from './features/auth';
 
 // QueryClient para estado de servidor (TanStack Query) sobre el cliente API
@@ -34,10 +35,17 @@ const App = () => (
     <Route element={<RequireAuth />}>
       <Route element={<AppShell />}>
         <Route path="/" element={<Navigate to="/calendario" replace />} />
-        <Route path="/calendario" element={<SectionPlaceholder nombre="Calendario" />} />
+        <Route path="/calendario" element={<CalendarioPage />} />
         <Route path="/reservas" element={<SectionPlaceholder nombre="Reservas" />} />
         <Route path="/reservas/nueva" element={<NuevaConsultaPage />} />
         <Route path="/reservas/:id" element={<FichaConsultaPage />} />
+        {/* US-017 (cola de espera) — fuera de alcance de US-039. El indicador
+            🔁 del calendario enlaza a esta ruta estable; mientras US-017 no
+            exista, sirve un placeholder claramente marcado como delegación. */}
+        <Route
+          path="/reservas/:id/cola"
+          element={<SectionPlaceholder nombre="Cola de espera (US-017)" />}
+        />
         <Route path="/metricas" element={<SectionPlaceholder nombre="Métricas" />} />
         <Route path="*" element={<NotFound />} />
       </Route>

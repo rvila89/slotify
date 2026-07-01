@@ -1607,32 +1607,33 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Consultar calendario y disponibilidad (UC-29)
-         * @description Devuelve reservas y fechas bloqueadas del tenant en un rango, para las vistas mensual/semanal.
+         * Consultar calendario de disponibilidad (UC-29 / US-039)
+         * @description [US-039] Vista de **lectura pura** (no muta estado) de la disponibilidad de fechas del
+         *     tenant. Dado un rango `[desde, hasta]` y una `vista`, devuelve la **agregación por fecha
+         *     ocupada**: una entrada por cada fecha con bloqueo activo en `FECHA_BLOQUEADA`, con el
+         *     `color` semántico derivado del par `(estado, subEstado)` de la reserva bloqueante y el
+         *     conteo de cola. Las fechas **libres no aparecen** en `fechas` (la celda neutra es la
+         *     ausencia de entrada); por eso la respuesta es proporcional a las fechas ocupadas, no al
+         *     tamaño del rango.
+         *
+         *     La `vista` (`mes`|`semana`|`dia`|`lista`) es **informativa** (forma de render): el conjunto
+         *     de datos es el mismo para todas las vistas del mismo rango, lo que garantiza el código de
+         *     colores idéntico entre vistas (US-039 §Reglas de Validación). El detalle del popover
+         *     (cliente, subEstado, TTL, enlace) viaja ya en cada entrada: el clic en una celda **no**
+         *     dispara otra llamada (no hay endpoint de detalle separado).
+         *
+         *     Derivación del color (SlotifyGeneralSpecs §11.3, design.md §D-2):
+         *     - **gris** → consulta activa (`subEstado` ∈ {`2a`, `2b`, `2c`, `2v`}).
+         *     - **ambar** → `pre_reserva`.
+         *     - **verde** → `reserva_confirmada`, `evento_en_curso` o `post_evento` (heredan el verde).
+         *     - **azul** → `reserva_completada` (histórica).
+         *     - **rojo** → `reserva_cancelada`.
+         *     Los sub-estados terminales de consulta (`2x`/`2y`/`2z`) NO aparecen: su bloqueo ya fue
+         *     liberado, así que no entran en la query de fechas ocupadas.
+         *
+         *     Aislada por `tenant_id` del JWT (reforzada por RLS); ningún dato cross-tenant es visible.
          */
-        get: {
-            parameters: {
-                query: {
-                    desde: string;
-                    hasta: string;
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Disponibilidad del rango */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["CalendarioItem"][];
-                    };
-                };
-            };
-        };
+        get: operations["consultarCalendario"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2128,6 +2129,10 @@ export interface components {
         EstadoReserva: "consulta" | "pre_reserva" | "reserva_confirmada" | "evento_en_curso" | "post_evento" | "reserva_completada" | "reserva_cancelada";
         /** @enum {string} */
         SubEstadoConsulta: "2a" | "2b" | "2c" | "2d" | "2v" | "2x" | "2y" | "2z";
+        /** @enum {string} */
+        VistaCalendario: "mes" | "semana" | "dia" | "lista";
+        /** @enum {string} */
+        ColorCalendario: "gris" | "ambar" | "verde" | "azul" | "rojo";
         /** @enum {string} */
         CanalEntrada: "web" | "email" | "whatsapp" | "instagram" | "telefono";
         /** @enum {integer} */
@@ -2636,14 +2641,50 @@ export interface components {
             briefingEquipo?: string;
             fichaCerrada?: boolean;
         };
-        CalendarioItem: {
+        /** @description Rango efectivo agregado por el backend (eco de los query params `desde`/`hasta`). */
+        CalendarioRango: {
             /** Format: date */
-            fecha?: string;
-            /** Format: uuid */
-            reservaId?: string | null;
-            codigo?: string | null;
-            estado?: components["schemas"]["EstadoReserva"];
-            tipoBloqueo?: components["schemas"]["TipoBloqueo"] | null;
+            desde: string;
+            /** Format: date */
+            hasta: string;
+        };
+        /**
+         * @description Agregación de UNA fecha ocupada del tenant. Solo aparecen fechas con bloqueo activo en
+         *     `FECHA_BLOQUEADA`; las libres se omiten. Reúne el dato de pintado (`color`) y el del popover
+         *     de detalle (cliente, subEstado, ttlExpiracion, reservaId) en la misma entrada.
+         */
+        CalendarioFecha: {
+            /** Format: date */
+            fecha: string;
+            color: components["schemas"]["ColorCalendario"];
+            estado: components["schemas"]["EstadoReserva"];
+            subEstado?: components["schemas"]["SubEstadoConsulta"] | null;
+            /**
+             * Format: uuid
+             * @description ID de la reserva bloqueante; enlace a la ficha completa.
+             */
+            reservaId: string;
+            /** @description Nombre del cliente de la reserva bloqueante (detalle del popover). */
+            cliente: string;
+            /**
+             * Format: date-time
+             * @description Instante de expiración del bloqueo blando (mismo modelo que `Reserva.ttlExpiracion` /
+             *     `FechaBloqueada.ttlExpiracion`). El frontend deriva el "TTL restante" mostrado en el
+             *     popover (p. ej. "2 días"). `null` si no aplica (bloqueo firme / fecha histórica).
+             */
+            ttlExpiracion?: string | null;
+            /**
+             * @description Conteo de reservas en `subEstado='2d'` cuyo `consultaBloqueanteId` apunta a esta reserva
+             *     bloqueante (indicador `🔁 N en cola`). `0` cuando no hay cola.
+             * @default 0
+             */
+            enCola: number;
+        };
+        /** @description Respuesta agregada del calendario de disponibilidad (US-039, lectura pura). */
+        CalendarioResponse: {
+            rango: components["schemas"]["CalendarioRango"];
+            /** @description Una entrada por fecha ocupada del rango. Vacío si el rango no tiene bloqueos. */
+            fechas: components["schemas"]["CalendarioFecha"][];
         };
         FechaBloqueada: {
             /** Format: uuid */
@@ -2944,6 +2985,35 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+        };
+    };
+    consultarCalendario: {
+        parameters: {
+            query: {
+                /** @description Inicio del rango (inclusive). El frontend lo calcula según la vista y el período. */
+                desde: string;
+                /** @description Fin del rango (inclusive). El backend agrega sobre `[desde, hasta]`. */
+                hasta: string;
+                /** @description Vista solicitada (informativa; no altera el conjunto de datos del rango). */
+                vista?: components["schemas"]["VistaCalendario"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disponibilidad agregada del rango (solo fechas ocupadas). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarioResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
         };
     };
 }

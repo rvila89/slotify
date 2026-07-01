@@ -1,0 +1,120 @@
+/*
+ * Theming de react-big-calendar con los design tokens de Slotify (US-039).
+ * Sobre-escribe los colores por defecto de la librería para usar las CSS vars
+ * del proyecto (sin hex inline en componentes; los hex viven en index.css).
+ * Incluye ajustes responsive mobile-first: la rejilla nunca desborda en
+ * horizontal y los objetivos táctiles se mantienen accesibles.
+ */
+.rbc-calendar {
+  font-family: var(--font-body);
+  color: var(--color-text-primary);
+  height: 100%;
+}
+
+/* Cabeceras de día y rejilla con tokens cálidos del proyecto. */
+.rbc-month-view,
+.rbc-time-view,
+.rbc-agenda-view {
+  border-color: var(--color-border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.rbc-header,
+.rbc-time-header-content,
+.rbc-time-content,
+.rbc-month-row + .rbc-month-row,
+.rbc-day-bg + .rbc-day-bg,
+.rbc-timeslot-group,
+.rbc-time-header.rbc-overflowing,
+.rbc-time-content > * + * > *,
+.rbc-agenda-view table.rbc-agenda-table,
+.rbc-agenda-view table.rbc-agenda-table tbody > tr > td + td,
+.rbc-agenda-view table.rbc-agenda-table thead > tr > th {
+  border-color: var(--color-border-default);
+}
+
+.rbc-header {
+  padding: 0.5rem 0.25rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--color-text-secondary);
+}
+
+.rbc-off-range-bg {
+  background: var(--color-surface-muted);
+}
+
+/* "Hoy" resaltado con el tono de superficie sutil, no el azul por defecto. */
+.rbc-today {
+  background: var(--color-surface-subtle);
+}
+
+.rbc-date-cell {
+  padding: 0.25rem 0.4rem;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+/* Eventos: el color de fondo lo aporta la clase cal-* del eventPropGetter; aquí
+   solo radio, padding y tipografía. !important neutraliza el azul por defecto. */
+.rbc-event,
+.rbc-day-slot .rbc-event {
+  border: none !important;
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.rbc-event.rbc-selected,
+.rbc-day-slot .rbc-event.rbc-selected {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: 1px;
+}
+
+.rbc-event:focus {
+  outline: 2px solid var(--color-brand-primary);
+}
+
+.rbc-show-more {
+  color: var(--color-brand-primary);
+  font-weight: 600;
+  background: transparent;
+}
+
+/* Agenda / lista. */
+.rbc-agenda-view table.rbc-agenda-table tbody > tr > td {
+  padding: 0.6rem 0.75rem;
+}
+
+/* ── Responsive mobile-first ─────────────────────────────────────────────── */
+/* Evita el desbordamiento horizontal y compacta la rejilla en pantallas
+   pequeñas. El contenedor de la página ya hace `overflow` controlado. */
+.rbc-calendar,
+.rbc-month-view,
+.rbc-time-view,
+.rbc-agenda-view {
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  .rbc-header {
+    padding: 0.4rem 0.1rem;
+    font-size: 0.7rem;
+  }
+  .rbc-date-cell {
+    padding: 0.15rem 0.25rem;
+    font-size: 0.7rem;
+  }
+  .rbc-event,
+  .rbc-day-slot .rbc-event {
+    font-size: 0.62rem;
+    padding: 1px 5px;
+  }
+  /* La vista mes en móvil es densa: el indicador y nombre se truncan; la lista
+     (agenda) queda como fallback cómodo accesible desde la toolbar. */
+  .rbc-agenda-view table.rbc-agenda-table tbody > tr > td {
+    padding: 0.5rem 0.4rem;
+  }
+}

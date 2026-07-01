@@ -13,6 +13,10 @@ const prisma = new PrismaClient();
 // IDs fijos conocidos para tests
 const TENANT_ID = '00000000-0000-0000-0000-000000000001';
 const USUARIO_ID = '00000000-0000-0000-0000-000000000002';
+// Segundo tenant "vecino": existe SOLO para que los tests de aislamiento multi-tenant
+// puedan sembrar datos ajenos (FK tenant_id) y verificar que NO se filtran. Sin
+// settings/usuario/tarifas: es un tenant inerte de control (US-039 §Aislamiento).
+const OTRO_TENANT_ID = '00000000-0000-0000-0000-0000000000ff';
 
 // Mapeo mes -> temporada (Alta: 5-9; Media: 3,4,10,11; Baja: 12,1,2)
 const TEMPORADAS_POR_MES: Array<{ mes: number; temporada: Temporada }> = [
@@ -85,6 +89,22 @@ async function main(): Promise<void> {
     where: { idTenant: TENANT_ID },
     update: tenantData,
     create: { idTenant: TENANT_ID, ...tenantData },
+  });
+
+  // --- Segundo tenant de control (aislamiento multi-tenant) ---
+  const otroTenantData = {
+    nombre: 'Tenant Vecino (control de aislamiento)',
+    emailContacto: 'control@otro-tenant.test',
+    telefono: '+34 600 000 000',
+    direccion: '—',
+    nif: 'B00000000',
+    capacidadMaxima: 50,
+    activo: true,
+  };
+  await prisma.tenant.upsert({
+    where: { idTenant: OTRO_TENANT_ID },
+    update: otroTenantData,
+    create: { idTenant: OTRO_TENANT_ID, ...otroTenantData },
   });
 
   // --- TenantSettings ---

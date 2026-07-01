@@ -317,6 +317,87 @@ El motor garantiza **una `COMUNICACION` por `(reserva_id, codigo_email)`** con d
 1. **Consulta previa en transacción:** `buscarPorReservaYCodigo(reservaId, codigoEmail)` antes de insertar; si existe, no duplica.
 2. **Red de seguridad en BD:** índice UNIQUE parcial `comunicacion (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL` (migración `20260628120000_us045_comunicacion_idempotencia_indice`). Parcial porque `reserva_id` es nullable (emails `manual` sin reserva no aplican el constraint). Ante violación del UNIQUE, el motor traduce el error a `ComunicacionDuplicadaError` (no a 500).
 
+### 2.11 Módulo M2 Calendario: vista de disponibilidad de lectura agregada (US-039)
+
+El módulo `calendario` entrega la **primera vista funcional del App Shell** como página de inicio tras el login (UC-29 / US-039). Es una **vista de lectura pura**: no muta `RESERVA` ni `FECHA_BLOQUEADA`; agrega el estado de ocupación del tenant sobre el rango de fechas solicitado.
+
+#### Endpoint
+
+`GET /calendario` — query params `desde` (date), `hasta` (date), `vista` (`mes`|`semana`|`dia`|`lista`). El rango lo calcula el frontend según la vista y el período activo; el backend solo agrega sobre `[desde, hasta]`. La vista es informativa; el conjunto de datos es el mismo para todas las vistas del mismo rango, lo que garantiza el código de colores idéntico entre vistas.
+
+Respuestas: `200` (`CalendarioResponse`), `401` (sin sesión), `422` (rango inválido).
+
+#### Forma de la respuesta
+
+```jsonc
+{
+  "rango": { "desde": "2026-06-01", "hasta": "2026-06-30" },
+  "fechas": [
+    {
+      "fecha": "2026-06-12",
+      "color": "gris",           // gris|ambar|verde|azul|rojo
+      "estado": "consulta",
+      "subEstado": "2b",
+      "reservaId": "uuid",
+      "cliente": "Ana García",
+      "ttlRestante": "2 días",   // null si no aplica (bloqueo firme / histórica)
+      "enCola": 2                // conteo reservas en 2d; 0 si no hay cola
+    }
+  ]
+}
+```
+
+Las fechas **libres no aparecen** en `fechas` (la celda neutra es la ausencia de entrada).
+
+#### Arquitectura interna (hexagonal)
+
+```
+apps/api/src/calendario/
+  domain/
+    consultar-calendario.port.ts     Puerto de consulta (interfaz pura — sin NestJS ni Prisma)
+    derivar-color.ts                 Función pura de derivación de color (tabla de datos)
+  application/
+    obtener-calendario.use-case.ts   Agrega fechas ocupadas del rango; calcula enCola
+  infrastructure/
+    calendario.prisma.adapter.ts     Adaptador Prisma con filtro por tenant_id + RLS
+  interface/
+    calendario.controller.ts         GET /calendario (DTO de query, mapeo 200/401/422)
+  calendario.module.ts
+```
+
+**Regla de dependencia:** `domain/` no importa Prisma ni NestJS. La función `derivarColor(estado, subEstado)` es una **tabla de datos declarativa** — el mismo patrón que `determinarAltaConFecha` en `maquina-estados.ts` — que mapea el par `(estado, sub_estado)` al color semántico. Cambiar las reglas de color requiere solo editar la tabla, no lógica dispersa.
+
+#### Derivación del color (SlotifyGeneralSpecs §11.3)
+
+| Estado / sub_estado | Color |
+|---|---|
+| Consulta activa (`2a`, `2b`, `2c`, `2v`) | `gris` |
+| `pre_reserva` | `ambar` |
+| `reserva_confirmada`, `evento_en_curso`, `post_evento` | `verde` |
+| `reserva_completada` | `azul` |
+| `reserva_cancelada` | `rojo` |
+| Fecha libre (sin bloqueo activo) | sin color — no aparece en `fechas` |
+
+Sub-estados terminales (`2x`/`2y`/`2z`) no aparecen: su bloqueo en `FECHA_BLOQUEADA` ya fue liberado; `evento_en_curso` y `post_evento` heredan el verde de `reserva_confirmada`.
+
+El color es un **token semántico** cableado por US-000A; el backend emite el nombre lógico (`gris`, `ambar`, `verde`, `azul`, `rojo`) y el frontend mapea al token Tailwind correspondiente — nunca hex inline.
+
+#### Indicador de cola
+
+`enCola = COUNT(RESERVA WHERE sub_estado = '2d' AND consulta_bloqueante_id = <id de la reserva bloqueante>)` calculado en el backend dentro de la misma agregación. El frontend muestra `🔁 N en cola` solo si `enCola ≥ 1`, sobre la celda gris (sin cambiar el color base). El clic en `🔁` navega a la vista de cola (UC-11 / US-017), fuera del alcance de esta US.
+
+#### Multi-tenancy y RLS
+
+La query filtra siempre por `tenant_id` del JWT, reforzado por RLS activo en PostgreSQL (defensa en profundidad). Ninguna fila de otro tenant es alcanzable aunque el filtro de aplicación fallara.
+
+#### Frontend
+
+Feature `apps/web/src/features/calendario/` (Bulletproof React: `api/ components/ lib/ model/ pages/` + barrel `index.ts`). Librería de calendario: **react-big-calendar** (MIT, ligera, soporte de vistas mes/semana/día/lista/agenda). El calendario es la **página de inicio** del slot Calendario del App Shell (sidebar → primera opción). Mobile-first responsive (390/768/1280); la navegación lateral colapsa a drawer en `<lg`. El popover de detalle al clic en una celda con bloqueo activo usa los campos ya presentes en la respuesta agregada — sin segunda llamada a la API.
+
+#### Sin migración de esquema
+
+US-039 no añade ninguna entidad nueva ni modifica columnas: lee `RESERVA` y `FECHA_BLOQUEADA` (ya existentes desde US-000/US-040).
+
 ---
 
 ## 3. Arquitectura objetivo de producción (visión a escala)
@@ -586,6 +667,7 @@ El MVP tiene tres piezas, pero solo dos cuestan: el **frontend SPA** se sirve co
 
 ---
 
+*Documento de arquitectura v4.1, 30/06/2026. Cambios respecto a v4.0: añade §2.11 (módulo M2 Calendario — US-039, UC-29): endpoint `GET /calendario` (query `desde`/`hasta`/`vista`; respuesta `CalendarioResponse` con `rango` + `fechas[]` agregadas por fecha ocupada; 401/422); arquitectura interna hexagonal (`domain/` función pura `derivarColor` como tabla de datos + puerto de consulta; `application/` use-case `obtener-calendario`; `infrastructure/` adaptador Prisma con RLS; `interface/` controller); derivación del color canónico (SlotifyGeneralSpecs §11.3) como tabla declarativa; indicador `🔁 N en cola` calculado en backend; multi-tenancy + RLS; frontend `apps/web/src/features/calendario/` con react-big-calendar como página de inicio del App Shell, responsive 390/768/1280; sin migración de esquema (lectura pura de `RESERVA` y `FECHA_BLOQUEADA`).*
 *Documento de arquitectura v4.0, 30/06/2026. Cambios respecto a v3.9: refleja US-007 — transición `2.b → 2.c` (UC-06): documenta en §2.4 las extensiones del núcleo crítico: guarda de origen declarativa `{consulta, 2b} → {consulta, 2c}` en `maquina-estados.ts`; extensión atómica del TTL con `resolverPlanBloqueo({ fase: '2.c' })` (UPDATE de `FECHA_BLOQUEADA`, no INSERT); vaciado atómico de la cola A16 (`2.d → 2.y`) en la misma transacción serializada por `SELECT … FOR UPDATE` sobre la fila bloqueante; atomicidad all-or-nothing de las cuatro operaciones; auditoría dual (RESERVA principal + cada descartada); sin migración; gap de spec D-7 (email UC-06 paso 7 sin E-code, fuera de alcance MVP, abierto a decisión del PO); nuevo endpoint `POST /reservas/{id}/pendiente-invitados` (200/409/422/404).*
 *Documento de arquitectura v3.9, 29/06/2026. Cambios respecto a v3.8: (1) refleja US-045 — motor de email automático M10 Comunicaciones (UC-35): actualiza §2.3 (fila Email) con motor hexagonal `DespacharEmailService`, adaptadores `ResendEmailAdapter`/`FakeEmailAdapter`, catálogo de plantillas y variables de entorno (`EMAIL_TRANSPORT`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_SANDBOX`); marca DT-EMAIL-01 como RESUELTA en §2.9 (cableado E1 real, regresión cero US-003/004); añade DT-EMAIL-02 en §2.9 (deuda de cableado E2–E8 con mapa E→US: E2→US-014, E3→US-021/022/023, E4→US-027/028, E5→US-034, E6→US-008, E7→US-009, E8→US-035; adjuntos PDF, recordatorios y envío manual US-046 diferidos); añade §2.10 (módulo M10 Comunicaciones: arquitectura interna, flujo del motor, integración E1, catálogo+i18n, variables de entorno, idempotencia + migración índice UNIQUE parcial `20260628120000_us045_comunicacion_idempotencia_indice`). (2) Endurecimiento del default de `EMAIL_SANDBOX` (Bj3 resuelta): unset → sandbox activo; solo `EMAIL_SANDBOX=false` explícito habilita el envío real; actualiza fila `EMAIL_SANDBOX` en §2.10 con el default seguro y la dirección de prueba `delivered@resend.dev`; añade Bj3 como RESUELTA en §2.9 (doble barrera: zod env-validation + wiring de módulo; 3 tests nuevos). Integración del motor con el alta US-003/US-004: la fila COMUNICACION E1 nace en `borrador` dentro de la transacción del alta y se promueve post-commit vía `DespacharEmailService.finalizarEnvio`, incorporando la tarifa estimada de US-004 en el cuerpo.*
 *Documento de arquitectura v3.8, 28/06/2026. Cambios respecto a v3.7: refleja US-004 — alta de consulta con fecha (UC-03): documenta en §2.4 las extensiones del núcleo crítico: `bloquearEnTx` (atomicidad RESERVA+FECHA_BLOQUEADA), `determinarAltaConFecha` (tabla declarativa en máquina de estados, entradas `2b`/`2d`), `TarifaEstimadaPort` (tolerante a errores, no persistida), concurrencia D4 (retry + SELECT FOR UPDATE + índice UNIQUE parcial D-8), y divergencia intencional `fecha_evento > hoy` (Gate 1, decisión A) con trazabilidad a `design.md §D-1`.*

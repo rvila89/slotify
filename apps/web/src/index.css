@@ -44,6 +44,26 @@
   --color-state-cola: var(--taupe-300);
   --color-state-disponible: transparent;
 
+  /*
+   * Código de colores canónico del calendario (SlotifyGeneralSpecs §11.3,
+   * US-039 §Happy Path). Cinco tonos derivados del par (estado, sub_estado) por
+   * el backend (campo `color`): gris=consulta activa, ambar=pre_reserva,
+   * verde=confirmada/en_curso/post_evento, azul=completada, rojo=cancelada.
+   * Armonizados con la paleta cálida mediterránea (no son los 4 tokens de shell:
+   * son el eje semántico de ocupación del calendario, idéntico en todas las
+   * vistas mes/semana/día/lista). `*-foreground` = texto legible sobre el relleno.
+   */
+  --color-cal-gris: var(--taupe-500);
+  --color-cal-gris-foreground: var(--white);
+  --color-cal-ambar: #c98a2b;
+  --color-cal-ambar-foreground: var(--ink-900);
+  --color-cal-verde: #5f7d52;
+  --color-cal-verde-foreground: var(--white);
+  --color-cal-azul: #4a6d8c;
+  --color-cal-azul-foreground: var(--white);
+  --color-cal-rojo: #b3503c;
+  --color-cal-rojo-foreground: var(--white);
+
   /* --- Tipografía (familias) --- */
   --font-display: 'Epilogue', ui-sans-serif, system-ui, sans-serif;
   --font-body: 'Manrope', ui-sans-serif, system-ui, sans-serif;
