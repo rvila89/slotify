@@ -50,3 +50,7 @@ export const CONFIRMACION_VISITA_EMAIL_PORT = Symbol(
 export const UNIDAD_DE_TRABAJO_EXTENDER_BLOQUEO_PORT = Symbol(
   'UnidadDeTrabajoExtenderBloqueoPort',
 );
+
+// US-012 — barrido de expiración por TTL (cross-tenant read + UoW por RESERVA)
+export const CANDIDATAS_EXPIRACION_PORT = Symbol('CandidatasExpiracionPort');
+export const EXPIRACION_RESERVA_PORT = Symbol('ExpiracionReservaPort');

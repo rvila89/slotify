@@ -5,6 +5,7 @@
  * token (Symbol).
  */
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from '../shared/prisma/prisma.module';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { ComunicacionesModule } from '../comunicaciones/comunicaciones.module';
@@ -58,6 +59,16 @@ import {
   ExtenderBloqueoUseCase,
   type UnidadDeTrabajoExtenderBloqueoPort,
 } from './application/extender-bloqueo.use-case';
+import {
+  ExpirarConsultasVencidasService,
+  type CandidatasExpiracionPort,
+  type ExpiracionReservaPort,
+} from './application/expirar-consultas-vencidas.service';
+import { CandidatasExpiracionPrismaAdapter } from './infrastructure/candidatas-expiracion.prisma.adapter';
+import { ExpiracionReservaUoWPrismaAdapter } from './infrastructure/expiracion-reserva-uow.prisma.adapter';
+import { BarridoExpiracionController } from './interface/barrido-expiracion.controller';
+import { BarridoExpiracionScheduler } from './interface/barrido-expiracion.scheduler';
+import { CronTokenGuard } from '../shared/auth/cron-token.guard';
 import { ReservaDetalleQueryPrismaAdapter } from './infrastructure/reserva-detalle-query.prisma.adapter';
 import {
   AuditLogPort,
@@ -94,10 +105,17 @@ import {
   UNIDAD_DE_TRABAJO_PROGRAMAR_VISITA_PORT,
   UNIDAD_DE_TRABAJO_PORT,
   UNIDAD_DE_TRABAJO_TRANSICION_PORT,
+  CANDIDATAS_EXPIRACION_PORT,
+  EXPIRACION_RESERVA_PORT,
 } from './reservas.tokens';
 
 @Module({
-  imports: [PrismaModule, ComunicacionesModule, TarifasModule],
+  imports: [
+    ScheduleModule.forRoot(),
+    PrismaModule,
+    ComunicacionesModule,
+    TarifasModule,
+  ],
   controllers: [
     AltaConsultaController,
     TransicionFechaController,
@@ -105,6 +123,7 @@ import {
     ProgramarVisitaController,
     ExtenderBloqueoController,
     ObtenerReservaController,
+    BarridoExpiracionController,
   ],
   providers: [
     {
@@ -321,6 +340,29 @@ import {
       inject: [LiberarFechaService],
       useFactory: (servicio: LiberarFechaService) => new LiberarFechasEnLoteService(servicio),
     },
+    // US-012 — barrido de expiración por TTL.
+    {
+      provide: CANDIDATAS_EXPIRACION_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CandidatasExpiracionPrismaAdapter(prisma),
+    },
+    {
+      provide: EXPIRACION_RESERVA_PORT,
+      inject: [PrismaService, PROMOCION_COLA_PORT],
+      useFactory: (prisma: PrismaService, promocion: PromocionColaPort) =>
+        new ExpiracionReservaUoWPrismaAdapter(prisma, promocion),
+    },
+    {
+      provide: ExpirarConsultasVencidasService,
+      inject: [CANDIDATAS_EXPIRACION_PORT, EXPIRACION_RESERVA_PORT],
+      useFactory: (
+        candidatas: CandidatasExpiracionPort,
+        expiracion: ExpiracionReservaPort,
+      ) => new ExpirarConsultasVencidasService({ candidatas, expiracion }),
+    },
+    CronTokenGuard,
+    BarridoExpiracionScheduler,
   ],
   exports: [
     BloquearFechaService,
@@ -332,6 +374,7 @@ import {
     ProgramarVisitaUseCase,
     ExtenderBloqueoUseCase,
     ObtenerReservaUseCase,
+    ExpirarConsultasVencidasService,
   ],
 })
 export class ReservasModule {}

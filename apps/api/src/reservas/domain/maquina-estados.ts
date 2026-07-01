@@ -322,3 +322,82 @@ export const esEstadoConBloqueoBlandoExtensible = (
   ESTADOS_BLOQUEO_BLANDO_EXTENSIBLE.some(
     (entrada) => entrada.estado === estado && entrada.subEstado === subEstado,
   );
+
+// ---------------------------------------------------------------------------
+// Transición TERMINAL por EXPIRACIÓN de TTL (US-012 / UC-09 / §D-3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Destino terminal resuelto de una expiración por TTL: el `(estado, subEstado)` al
+ * que transiciona una RESERVA candidata cuando su `ttl_expiracion` vence. Es el
+ * resultado puro de `resolverExpiracionTtl`; `null` (no representado aquí) indica
+ * que el origen NO es candidato (guarda de origen), de modo que no se expira.
+ */
+export interface ResultadoExpiracionTtl {
+  estado: EstadoReserva;
+  subEstado: SubEstadoConsulta | null;
+}
+
+/**
+ * Entrada de la tabla declarativa de expiración por TTL: `origen` candidato →
+ * `destino` terminal. Modela la transición como ESTRUCTURA DE DATOS (skill
+ * `state-machine`, NO condicionales dispersos).
+ */
+interface TransicionExpiracionTtl {
+  origen: { estado: EstadoReserva; subEstado: SubEstadoConsulta | null };
+  destino: ResultadoExpiracionTtl;
+}
+
+/**
+ * Tabla declarativa `MAPA_EXPIRACION_TTL` (US-012, §D-3): mapea cada origen CANDIDATO
+ * a su destino terminal por expiración de TTL. Es la ÚNICA fuente de verdad de qué
+ * expira y a dónde (no `if` dispersos):
+ *   { consulta, 2b } → { consulta, 2x }
+ *   { consulta, 2c } → { consulta, 2x }
+ *   { consulta, 2v } → { consulta, 2x }
+ *   { pre_reserva, null } → { reserva_cancelada, null }
+ *
+ * El destino de expiración por TTL es SIEMPRE `2x` para las consultas con fecha
+ * (`2b/2c/2v`) — NUNCA `2y` (descarte por cola, US-007) ni `2z` (descarte por
+ * cliente, US-013) — y `reserva_cancelada` (sub_estado NULL) para `pre_reserva`
+ * (A5). Cualquier origen ausente de esta tabla —terminales `2x/2y/2z/
+ * reserva_cancelada/reserva_completada`, no-candidatos `2a`/`2d`, y el resto de
+ * estados activos— NO es candidato: `resolverExpiracionTtl` devuelve `null` y la
+ * RESERVA no se expira aunque su TTL esté vencido.
+ */
+export const MAPA_EXPIRACION_TTL: ReadonlyArray<TransicionExpiracionTtl> = [
+  {
+    origen: { estado: 'consulta', subEstado: '2b' },
+    destino: { estado: 'consulta', subEstado: '2x' },
+  },
+  {
+    origen: { estado: 'consulta', subEstado: '2c' },
+    destino: { estado: 'consulta', subEstado: '2x' },
+  },
+  {
+    origen: { estado: 'consulta', subEstado: '2v' },
+    destino: { estado: 'consulta', subEstado: '2x' },
+  },
+  {
+    origen: { estado: 'pre_reserva', subEstado: null },
+    destino: { estado: 'reserva_cancelada', subEstado: null },
+  },
+];
+
+/**
+ * Guarda + resolución declarativa de la expiración por TTL (US-012, §D-3): función
+ * PURA que consulta `MAPA_EXPIRACION_TTL` y devuelve el destino terminal del origen
+ * `(estado, subEstado)`, o `null` si NO es un origen candidato (los terminales y
+ * cualquier otro estado activo se excluyen devolviendo `null`, quedando inmutables
+ * aunque su TTL esté vencido). Al ser pura y re-evaluable, se invoca DENTRO de la
+ * transacción de cada RESERVA (base de la idempotencia y de RC-1).
+ */
+export const resolverExpiracionTtl = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): ResultadoExpiracionTtl | null => {
+  const transicion = MAPA_EXPIRACION_TTL.find(
+    (t) => t.origen.estado === estado && t.origen.subEstado === subEstado,
+  );
+  return transicion ? transicion.destino : null;
+};

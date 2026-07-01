@@ -163,6 +163,8 @@ US-006 no es una transición de máquina de estados (no cambia `estado`, `sub_es
 
 Los TTLs no se implementan con timers que disparan en el instante exacto, sino con el patrón **estado en la fila + barrido periódico**: cada reserva con bloqueo lleva `ttl_expiracion`; un cron invoca cada N minutos un endpoint protegido que barre las filas vencidas, las libera y dispara las promociones de cola. Si el cron se retrasa o cae, no hay pérdida de consistencia: al volver a ejecutarse barre lo pendiente. Es idempotente y trivial de testear (se llama a la función de barrido con una fecha simulada). Sustituye a Lambda + EventBridge sin perder corrección.
 
+**US-012 — barrido de expiración por TTL (implementado):** el primer barrido concreto materializado es `POST /cron/barrido-expiracion`, que gestiona la expiración de consultas y pre-reservas con TTL agotado. La autenticación es **service-to-service** mediante la cabecera `X-Cron-Token` (validada por `CronTokenGuard` contra `CRON_TOKEN` del entorno), independiente del JWT de usuario. La lectura de candidatas es **cross-tenant** (único punto legítimo del proceso de Sistema); cada mutación opera bajo `SET LOCAL app.tenant_id` de la RESERVA candidata (defensa en profundidad + RLS). Ver §2.12 para la arquitectura interna de este módulo.
+
 > **Nota de hosting:** en plataformas con proceso always-on (p. ej. Railway), el cron es trivial. En tiers gratuitos que duermen el servicio tras inactividad (p. ej. Render free), el barrido necesita un disparador externo que despierte el endpoint. Ver §5.
 
 ### 2.6 Organización interna del backend (capas + hexagonal + DDD)
@@ -397,6 +399,75 @@ Feature `apps/web/src/features/calendario/` (Bulletproof React: `api/ components
 #### Sin migración de esquema
 
 US-039 no añade ninguna entidad nueva ni modifica columnas: lee `RESERVA` y `FECHA_BLOQUEADA` (ya existentes desde US-000/US-040).
+
+### 2.12 Módulo de barrido de expiración por TTL (US-012 / UC-09)
+
+El módulo `cron` materializa el primer barrido periódico concreto del patrón "estado en fila + barrido periódico" descrito en §2.5. Gestiona la automatización A4/A5/A21/A21b: expira las RESERVA cuyo bloqueo blando ha agotado su TTL, libera la fecha y dispara el seam de promoción de cola.
+
+#### Scheduler y autenticación
+
+- **Disparador:** cron registrado dinámicamente vía `SchedulerRegistry` en `onModuleInit` (no decorador `@Cron` estático). Expresión por defecto `'0 * * * *'` (cada hora); configurable mediante la variable de entorno `CRON_BARRIDO_EXPIRACION`. Si `CRON_TOKEN` no está definido en el entorno, el disparo automático se desactiva (el endpoint sigue disponible para disparo manual o externo). La latencia máxima de liberación de una fecha vencida es ~1 h.
+- **Autenticación service-to-service:** cabecera `X-Cron-Token` (no JWT de usuario). El `CronTokenGuard` compara el valor contra `CRON_TOKEN` del entorno; sin token válido responde `401`. El securityScheme `cronToken` está declarado en `api-spec.yml`.
+- **Testabilidad:** el endpoint puede invocarse manualmente o por un scheduler externo vía HTTP; no hay lógica de barrido fuera del endpoint.
+
+#### Variables de entorno del módulo cron
+
+| Variable | Tipo | Reglas |
+|---|---|---|
+| `CRON_TOKEN` | string | Secreto compartido para `X-Cron-Token`. Si está ausente, el disparo automático se desactiva; el endpoint sigue accesible para disparo manual. |
+| `CRON_BARRIDO_EXPIRACION` | string (cron expression) | Expresión cron del barrido de expiración. **Default:** `'0 * * * *'` (cada hora). Ejemplos: `'*/15 * * * *'` (cada 15 min), `'0 */2 * * *'` (cada 2 h). |
+
+#### Selección de candidatas (cross-tenant)
+
+La consulta de candidatos es la **única lectura cross-tenant del sistema**: selecciona RESERVA con `ttl_expiracion < now()` AND (`sub_estado ∈ {'2b','2c','2v'}` OR `estado = 'pre_reserva'`), comparando instantes `timestamptz` (nunca fechas formateadas). Es el único punto legítimo donde el proceso de Sistema lee sin filtro de tenant; está documentado y acotado a esta operación de barrido.
+
+#### Procesamiento por RESERVA (transacciones aisladas)
+
+Por cada candidata, en su **propia transacción**, serializada por `SELECT … FOR UPDATE` sobre la fila `FECHA_BLOQUEADA` + `UNIQUE(tenant_id, fecha)`, bajo `SET LOCAL app.tenant_id` de la RESERVA (RLS del tenant candidato):
+
+1. **Mapa declarativo de expiración** (`MAPA_EXPIRACION_TTL` / `resolverExpiracionTtl`): tablas de datos, no condicionales dispersos. Transiciones: `2b/2c/2v → 2x`; `pre_reserva → reserva_cancelada`.
+2. **Liberación de fecha** vía `liberarFecha()` (US-041): DELETE idempotente de `FECHA_BLOQUEADA` con causa `TTL`. 0 filas afectadas = éxito silencioso (la fecha ya estaba libre); no lanza excepción.
+3. **Auditoría:** `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`.
+4. **Seam de promoción de cola:** si la RESERVA tenía cola activa (`2b`/`2v`), dispara `PromocionColaPort` exactamente una vez (exactamente-una-vez garantizado por `liberarFecha()`: solo la transacción con `rows = 1` lo dispara). La lógica FIFO + re-bloqueo de la promovida (A15) está diferida a **US-018**; hasta entonces es un stub no-op auditado.
+
+**Fallo aislado:** si el procesamiento de una candidata falla (rollback de su propia transacción), el resto del lote continúa sin interrupción. El resumen de respuesta registra el fallo.
+
+**Idempotencia (D-4):** RESERVA ya en estado terminal no son candidatas (la guarda de la consulta las excluye). N ejecuciones sobre la misma RESERVA producen como máximo 1 transición y 1 auditoría.
+
+#### Arquitectura interna (hexagonal)
+
+```
+apps/api/src/cron/
+  domain/
+    expiracion-ttl.port.ts         Puerto de expiración (interfaz pura — sin NestJS ni Prisma)
+    mapa-expiracion-ttl.ts         Tabla declarativa: sub_estado/estado → estado terminal (resolverExpiracionTtl)
+  application/
+    barrido-expiracion.use-case.ts Orquesta: selección cross-tenant → por candidata: Tx + resolverExpiracionTtl + liberarFecha + PromocionColaPort
+  infrastructure/
+    cron.prisma.adapter.ts         Adaptador Prisma: selección candidatas + transacción por RESERVA con SELECT…FOR UPDATE
+  interface/
+    cron.controller.ts             POST /cron/barrido-expiracion (CronTokenGuard, mapeo BarridoExpiracionResponse)
+  cron.module.ts
+```
+
+**Regla de dependencia:** `domain/` no importa Prisma ni NestJS. `resolverExpiracionTtl` es una función pura (el mismo patrón que `derivarColor` en `calendario/` y `determinarAltaConFecha` en `maquina-estados.ts`).
+
+#### Respuesta (`BarridoExpiracionResponse`)
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `candidatas` | integer | RESERVA seleccionadas como candidatas cross-tenant |
+| `expiradas` | integer | Candidatas efectivamente transicionadas y con fecha liberada |
+| `promocionesDisparadas` | integer | Veces que se disparó el seam `PromocionColaPort` (una por expiración con cola activa) |
+| `fallos` | integer | Candidatas cuya expiración falló de forma aislada |
+
+#### Multi-tenancy y RLS
+
+Cada mutación se ejecuta bajo `SET LOCAL app.tenant_id` del tenant de la RESERVA candidata. La lectura inicial es cross-tenant (proceso de Sistema); todas las escrituras están acotadas al tenant correcto. La defensa en profundidad (RLS en PostgreSQL) garantiza el aislamiento incluso ante un error de aplicación.
+
+#### Sin migración de esquema
+
+US-012 no añade entidades ni columnas nuevas: `ttl_expiracion` (en `RESERVA` y `FECHA_BLOQUEADA`), `estado`, `sub_estado` y `AUDIT_LOG` existen desde US-000/US-040/US-004.
 
 ---
 
@@ -667,6 +738,8 @@ El MVP tiene tres piezas, pero solo dos cuestan: el **frontend SPA** se sirve co
 
 ---
 
+*Documento de arquitectura v4.3, 01/07/2026. Cambios respecto a v4.2: actualiza §2.12 — scheduler del módulo `cron` pasa de `@Cron('*/5 * * * *')` estático a registro dinámico vía `SchedulerRegistry` en `onModuleInit`; expresión por defecto `'0 * * * *'` (cada hora), configurable con `CRON_BARRIDO_EXPIRACION`; si `CRON_TOKEN` está ausente el disparo automático se desactiva; latencia máxima de liberación de fecha vencida ahora ~1 h; añade tabla de variables de entorno del módulo cron (`CRON_TOKEN`, `CRON_BARRIDO_EXPIRACION`).*
+*Documento de arquitectura v4.2, 01/07/2026. Cambios respecto a v4.1: refleja US-012 — barrido de expiración por TTL (UC-09): amplía §2.5 (Procesos asíncronos) con descripción del primer barrido concreto materializado (`POST /cron/barrido-expiracion`, auth `X-Cron-Token`/`CronTokenGuard`, lectura cross-tenant, mutaciones bajo `SET LOCAL app.tenant_id`); añade §2.12 (módulo `cron`: arquitectura hexagonal interna, mapa declarativo `MAPA_EXPIRACION_TTL`/`resolverExpiracionTtl`, transiciones `2b/2c/2v → 2x` y `pre_reserva → reserva_cancelada`, liberación idempotente por `liberarFecha()` causa TTL, seam `PromocionColaPort` exactamente-una-vez stub hasta US-018, idempotencia D-4, fallo aislado por RESERVA, `BarridoExpiracionResponse`, sin migración de esquema).*
 *Documento de arquitectura v4.1, 30/06/2026. Cambios respecto a v4.0: añade §2.11 (módulo M2 Calendario — US-039, UC-29): endpoint `GET /calendario` (query `desde`/`hasta`/`vista`; respuesta `CalendarioResponse` con `rango` + `fechas[]` agregadas por fecha ocupada; 401/422); arquitectura interna hexagonal (`domain/` función pura `derivarColor` como tabla de datos + puerto de consulta; `application/` use-case `obtener-calendario`; `infrastructure/` adaptador Prisma con RLS; `interface/` controller); derivación del color canónico (SlotifyGeneralSpecs §11.3) como tabla declarativa; indicador `🔁 N en cola` calculado en backend; multi-tenancy + RLS; frontend `apps/web/src/features/calendario/` con react-big-calendar como página de inicio del App Shell, responsive 390/768/1280; sin migración de esquema (lectura pura de `RESERVA` y `FECHA_BLOQUEADA`).*
 *Documento de arquitectura v4.0, 30/06/2026. Cambios respecto a v3.9: refleja US-007 — transición `2.b → 2.c` (UC-06): documenta en §2.4 las extensiones del núcleo crítico: guarda de origen declarativa `{consulta, 2b} → {consulta, 2c}` en `maquina-estados.ts`; extensión atómica del TTL con `resolverPlanBloqueo({ fase: '2.c' })` (UPDATE de `FECHA_BLOQUEADA`, no INSERT); vaciado atómico de la cola A16 (`2.d → 2.y`) en la misma transacción serializada por `SELECT … FOR UPDATE` sobre la fila bloqueante; atomicidad all-or-nothing de las cuatro operaciones; auditoría dual (RESERVA principal + cada descartada); sin migración; gap de spec D-7 (email UC-06 paso 7 sin E-code, fuera de alcance MVP, abierto a decisión del PO); nuevo endpoint `POST /reservas/{id}/pendiente-invitados` (200/409/422/404).*
 *Documento de arquitectura v3.9, 29/06/2026. Cambios respecto a v3.8: (1) refleja US-045 — motor de email automático M10 Comunicaciones (UC-35): actualiza §2.3 (fila Email) con motor hexagonal `DespacharEmailService`, adaptadores `ResendEmailAdapter`/`FakeEmailAdapter`, catálogo de plantillas y variables de entorno (`EMAIL_TRANSPORT`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_SANDBOX`); marca DT-EMAIL-01 como RESUELTA en §2.9 (cableado E1 real, regresión cero US-003/004); añade DT-EMAIL-02 en §2.9 (deuda de cableado E2–E8 con mapa E→US: E2→US-014, E3→US-021/022/023, E4→US-027/028, E5→US-034, E6→US-008, E7→US-009, E8→US-035; adjuntos PDF, recordatorios y envío manual US-046 diferidos); añade §2.10 (módulo M10 Comunicaciones: arquitectura interna, flujo del motor, integración E1, catálogo+i18n, variables de entorno, idempotencia + migración índice UNIQUE parcial `20260628120000_us045_comunicacion_idempotencia_indice`). (2) Endurecimiento del default de `EMAIL_SANDBOX` (Bj3 resuelta): unset → sandbox activo; solo `EMAIL_SANDBOX=false` explícito habilita el envío real; actualiza fila `EMAIL_SANDBOX` en §2.10 con el default seguro y la dirección de prueba `delivered@resend.dev`; añade Bj3 como RESUELTA en §2.9 (doble barrera: zod env-validation + wiring de módulo; 3 tests nuevos). Integración del motor con el alta US-003/US-004: la fila COMUNICACION E1 nace en `borrador` dentro de la transacción del alta y se promueve post-commit vía `DespacharEmailService.finalizarEnvio`, incorporando la tarifa estimada de US-004 en el cuerpo.*

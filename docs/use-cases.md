@@ -506,21 +506,49 @@ flowchart TD
 | **Nombre** | Expirar Consulta Automáticamente |
 | **Actor Principal** | Sistema |
 | **Actores Secundarios** | Gestor |
-| **Descripción** | El sistema expira automáticamente una consulta cuando su TTL de bloqueo se agota sin avance |
-| **Precondiciones** | - Consulta con TTL activo (2.b, 2.c, 2.v, pre_reserva)<br>- TTL ha expirado<br>- No ha habido transición de estado |
-| **Postcondiciones** | - Consulta pasa a estado terminal (2.x o reserva_cancelada)<br>- Fecha liberada<br>- Si había cola, primer elemento promovido<br>- Notificaciones enviadas |
+| **Descripción** | El sistema expira automáticamente una consulta o pre-reserva cuando su TTL de bloqueo blando se agota sin avance. Implementado en **US-012** mediante job asíncrono de barrido periódico (`POST /cron/barrido-expiracion`), con scheduler registrado dinámicamente vía `SchedulerRegistry`; expresión por defecto `'0 * * * *'` (cada hora), configurable por `CRON_BARRIDO_EXPIRACION`. |
+| **Precondiciones** | - RESERVA con `ttl_expiracion < now()` **Y** (`sub_estado ∈ {2b, 2c, 2v}` **O** `estado = 'pre_reserva'`)<br>- El bloqueo es blando (`tipo_bloqueo = 'blando'`); los bloqueos firmes no tienen TTL y no son candidatos<br>- El job de barrido se dispara con frecuencia configurable por `CRON_BARRIDO_EXPIRACION` (default cada hora, `'0 * * * *'`); si `CRON_TOKEN` está ausente, el disparo automático se desactiva (el endpoint sigue disponible para invocación manual/externa) |
+| **Postcondiciones** | - RESERVA transiciona al estado terminal por TTL: `2b/2c/2v → 2x`; `pre_reserva → reserva_cancelada` (mapa declarativo `MAPA_EXPIRACION_TTL` / `resolverExpiracionTtl`)<br>- Fila de `FECHA_BLOQUEADA` eliminada vía `liberarFecha()` (US-041, causa `TTL`), idempotente (0 filas = éxito silencioso)<br>- Si la RESERVA tenía cola activa (`2b`/`2v`): seam `PromocionColaPort` disparado exactamente una vez (la lógica FIFO + re-bloqueo queda diferida a US-018)<br>- `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`<br>- El fallo de una candidata no aborta el lote (fallo aislado por RESERVA)<br>- Respuesta `BarridoExpiracionResponse`: `candidatas`, `expiradas`, `promocionesDisparadas`, `fallos` |
 | **Prioridad** | Crítica |
-| **Frecuencia** | Alta |
+| **Frecuencia** | Media (barrido automático cada hora por defecto; configurable con `CRON_BARRIDO_EXPIRACION`) |
+| **US** | US-012 |
+| **Endpoint** | `POST /cron/barrido-expiracion` — auth `X-Cron-Token` (no JWT); sin body |
 
 **Flujo Básico:**
-1. El sistema detecta que el TTL ha expirado
-2. El sistema cambia el sub-estado a 2.x (o reserva_cancelada si era pre_reserva)
-3. El sistema libera el bloqueo de la fecha
-4. El sistema verifica si hay consultas en cola para esta fecha
-5. Si hay cola: el sistema ejecuta UC-12 (promoción automática)
-6. El sistema envía email al cliente notificando expiración
-7. El sistema notifica al gestor
-8. El sistema registra la expiración en audit log
+1. El scheduler registrado dinámicamente vía `SchedulerRegistry` (expresión `CRON_BARRIDO_EXPIRACION`, default `'0 * * * *'`, cada hora) invoca `POST /cron/barrido-expiracion`; el `CronTokenGuard` valida la cabecera `X-Cron-Token` contra `CRON_TOKEN` del entorno. Si `CRON_TOKEN` está ausente, el disparo automático no se activa; el endpoint puede invocarse manualmente
+2. El barrido selecciona todas las RESERVA con `ttl_expiracion < now()` AND (`sub_estado ∈ {2b,2c,2v}` OR `estado = 'pre_reserva'`), comparando instantes (`timestamptz`), **cross-tenant** (proceso de Sistema, único punto legítimo de lectura global)
+3. Por cada candidata, en su propia transacción serializada (`SELECT … FOR UPDATE` sobre la fila `FECHA_BLOQUEADA` + `UNIQUE(tenant_id, fecha)`), bajo el contexto RLS del tenant de la RESERVA (`SET LOCAL app.tenant_id`):
+   - Resuelve el estado terminal via `resolverExpiracionTtl` (mapa declarativo): `2b/2c/2v → 2x`; `pre_reserva → reserva_cancelada`
+   - Llama a `liberarFecha()` (US-041): DELETE idempotente de `FECHA_BLOQUEADA`, causa `TTL`
+   - Registra `AUDIT_LOG` con `accion = 'transicion'`
+   - Si la RESERVA tenía cola activa: dispara el seam `PromocionColaPort` exactamente una vez
+4. Si la candidata ya fue procesada (estado terminal), se omite sin error (idempotencia)
+5. Si el procesamiento de una candidata falla, el rollback es aislado a esa RESERVA; el resto del lote continúa
+6. El barrido responde `200` con `BarridoExpiracionResponse`
+
+**Flujos Alternativos:**
+- **FA-01** (sin `X-Cron-Token` válido): el sistema devuelve `401` sin ejecutar ningún barrido
+- **FA-02** (candidata ya expirada/terminal bajo lock): la guarda de origen la excluye; 0 mutaciones, éxito silencioso (idempotencia)
+- **FA-03** (concurrencia con US-006 extensión de bloqueo): la serialización por `SELECT … FOR UPDATE` garantiza que extensión y barrido no se solapan; uno observa el estado del otro y actúa en consecuencia (extensión con TTL ya vigente / barrido rechazado por TTL recién extendido)
+
+```mermaid
+flowchart TD
+    A[Scheduler: cron dinámico, default cada hora → POST /cron/barrido-expiracion] --> B{X-Cron-Token válido?}
+    B -->|No| C[401 — Sin autorización]
+    B -->|Sí| D[Seleccionar candidatas: ttl_expiracion < now AND sub_estado ∈ 2b|2c|2v OR estado=pre_reserva — cross-tenant]
+    D --> E{¿Candidatas?}
+    E -->|Ninguna| F[200 — BarridoExpiracionResponse 0 candidatas]
+    E -->|N candidatas| G[Por cada candidata: Tx propia SELECT…FOR UPDATE + SET LOCAL tenant_id]
+    G --> H[resolverExpiracionTtl: 2b/2c/2v → 2x; pre_reserva → reserva_cancelada]
+    H --> I[liberarFecha causa=TTL — DELETE idempotente FECHA_BLOQUEADA]
+    I --> J[AUDIT_LOG transicion]
+    J --> K{Cola activa en 2b/2v?}
+    K -->|Sí| L[Dispara PromocionColaPort — stub hasta US-018]
+    K -->|No| M[Siguiente candidata]
+    L --> M
+    G --> N[Fallo aislado → rollback solo esa Tx, resto continúa]
+    M --> O[200 — BarridoExpiracionResponse candidatas/expiradas/promocionesDisparadas/fallos]
+```
 
 ---
 
