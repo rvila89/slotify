@@ -589,18 +589,44 @@ flowchart TD
 | **Nombre** | Visualizar Cola de Espera de una Fecha |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor visualiza las consultas en cola para una fecha específica, incluyendo la consulta bloqueante |
-| **Precondiciones** | - Fecha tiene consulta bloqueante (en 2.b) con cola asociada |
-| **Postcondiciones** | - Información de cola mostrada |
+| **Descripción** | El gestor visualiza, en una vista de **solo lectura**, la consulta bloqueante de una fecha y la cola FIFO de consultas en espera (`2.d`) asociadas. La vista no muta estado ni registra AUDIT_LOG. El acceso se produce desde el indicador `🔁 N en cola` del calendario (US-039), que navega con el `reservaId` de la bloqueante. |
+| **Precondiciones** | - Gestor autenticado con rol gestor sobre el tenant<br>- `{id}` es el `reservaId` de la consulta bloqueante (puede estar en `2b`, `2c` o `2v`)<br>- El indicador `🔁 N en cola` ya está visible en el calendario cuando existen ≥ 1 RESERVA en `2d` apuntando a la bloqueante (UC-29, US-039) |
+| **Postcondiciones** | - Información de cola proyectada sin mutación de estado<br>- Sin registro en AUDIT_LOG (lectura pura) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Alta |
+| **US** | US-017 |
+| **Endpoint** | `GET /reservas/{id}/cola` — `{id}` es el `reservaId` de la consulta bloqueante |
+| **Entidades leídas** | RESERVA (`posicion_cola`, `consulta_bloqueante_id`, `sub_estado`, `ttl_expiracion`, `fecha_creacion`, `visita_programada_fecha`), FECHA_BLOQUEADA, CLIENTE — sin migración nueva |
 
 **Flujo Básico:**
-1. El gestor hace clic en una fecha con indicador de cola (🔁) en el calendario
-2. El sistema muestra vista de fecha con cola:
-   - Consulta bloqueante (sub-estado, cliente, TTL restante)
-   - Lista ordenada de consultas en cola (posición, cliente, tiempo en cola)
-3. El gestor puede acceder a la ficha de cualquier consulta
+1. El gestor hace clic sobre el indicador `🔁 N en cola` en una celda del calendario
+2. El frontend navega a `/reservas/:id/cola` usando el `reservaId` de la bloqueante que `GET /calendario` ya provee en la respuesta de US-039
+3. El sistema ejecuta `GET /reservas/{id}/cola` (UC-11) y devuelve un read-model `ColaEsperaResponse` con dos secciones:
+   - **Bloqueante**: `{ idReserva, codigo, clienteNombre, subEstado (2b|2c|2v), ttlExpiracion (date-time|null), ttlRestante (legible|null), visitaProgramadaFecha (date|null, solo 2.v) }`
+   - **Cola**: lista de `ColaItem[]` ordenada ASC por `posicionCola` (FIFO), cada elemento `{ idReserva, codigo, clienteNombre, posicionCola, fechaCreacion, tiempoEnCola }`
+4. Los derivados temporales `ttlRestante` y `tiempoEnCola` se calculan en el backend sobre instantes `timestamptz` (`ttl_expiracion − now()` y `now() − fecha_creacion`), nunca sobre fechas formateadas, mitigando el off-by-one de zona horaria documentado
+5. El gestor puede acceder a la ficha completa de la bloqueante o de cualquier consulta de la cola mediante el `idReserva` de cada elemento (`GET /reservas/{id}`, US-005)
+
+**Flujos Alternativos:**
+- **FA-01** (bloqueante sin cola): existe `FECHA_BLOQUEADA` pero ninguna RESERVA en `2d` apunta a la bloqueante → la sección bloqueante se proyecta; la cola está vacía; la vista muestra "Sin consultas en espera para esta fecha"
+- **FA-02** (bloqueante en `2.c`): se proyecta `subEstado = '2c'` con el TTL correcto; la cola se muestra con el mismo formato
+- **FA-03** (bloqueante en `2.v`): se proyecta `subEstado = '2v'` con `visitaProgramadaFecha` y el TTL vigente; la cola igual
+- **FA-04** (reserva no bloqueante de ninguna fecha activa): no hay `FECHA_BLOQUEADA` con `reserva_id = {id}` → el sistema responde 200 con `{ estaBloqueada: false, bloqueante: null, cola: [] }` para que la vista muestre "Fecha disponible"; 404 solo para reserva inexistente o de otro tenant (RLS)
+- **FA-05** (cola de un único elemento): la sección cola contiene exactamente una entrada con `posicionCola = 1`
+
+```mermaid
+flowchart TD
+    A[Gestor clic indicador 🔁 en calendario] --> B[Frontend navega a /reservas/:id/cola]
+    B --> C[GET /reservas/{id}/cola — ObtenerColaEsperaUseCase]
+    C --> D{¿reserva existe y es del tenant?}
+    D -->|No| E[404 — No encontrada / RLS]
+    D -->|Sí| F{¿tiene FECHA_BLOQUEADA activa?}
+    F -->|No| G[200 — estaBloqueada:false, bloqueante:null, cola:[]]
+    F -->|Sí| H[Lee bloqueante + CLIENTE + cola 2d ORDER BY posicion_cola ASC]
+    H --> I[Calcula ttlRestante y tiempoEnCola sobre instantes timestamptz]
+    I --> J[200 — ColaEsperaResponse: sección bloqueante + cola FIFO]
+    J --> K[Gestor visualiza cola; puede navegar a ficha de cualquier RESERVA]
+```
 
 ---
 

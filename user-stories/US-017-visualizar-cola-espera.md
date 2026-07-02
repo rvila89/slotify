@@ -1,7 +1,7 @@
 ---
 id: US-017
-estado: backlog
-branch: null
+estado: done
+branch: feature/us-017-visualizar-cola-espera
 pr: null
 ---
 
