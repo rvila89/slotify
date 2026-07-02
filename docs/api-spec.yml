@@ -668,15 +668,40 @@ paths:
       - { $ref: '#/components/parameters/IdReserva' }
     get:
       tags: [Cola]
-      summary: Visualizar cola de espera de la fecha de una reserva bloqueante (UC-11)
+      summary: Visualizar cola de espera de la fecha de una reserva bloqueante (UC-11 / US-017)
+      description: |
+        Vista de **solo lectura** (US-017) que proyecta, para la RESERVA **bloqueante** `{id}`
+        (la que posee la `FECHA_BLOQUEADA` activa), un read model con dos secciones:
+        - **`bloqueante`**: cliente, `subEstado` (`2b`/`2c`/`2v`), `ttlExpiracion` (instante crudo)
+          y `ttlRestante` (legible derivado en backend), más `visitaProgramadaFecha` cuando está
+          en `2v`.
+        - **`cola`**: RESERVA en `subEstado='2d'` cuyo `consultaBloqueanteId` apunta a la
+          bloqueante, ordenadas **ASC por `posicionCola`** (FIFO), con `fechaCreacion` (instante
+          crudo) y `tiempoEnCola` (legible derivado en backend).
+
+        NO muta estado (no promueve, no saca de cola, no registra AUDIT_LOG). Los derivados
+        temporales (`ttlRestante = ttlExpiracion − now()`, `tiempoEnCola = now() − fechaCreacion`)
+        se calculan en backend sobre instantes `timestamptz`, nunca formateando fechas.
+
+        **FA-04** — si la reserva `{id}` existe en el tenant pero **no** posee una
+        `FECHA_BLOQUEADA` activa (no bloquea ninguna fecha), la respuesta es **200** con
+        `estaBloqueada=false`, `bloqueante=null` y `cola=[]` (la UI muestra "Fecha disponible").
+        El **404 se reserva exclusivamente** para reserva inexistente o de otro tenant (RLS).
       responses:
         '200':
-          description: Cola FIFO ordenada por posición
+          description: |
+            Read model de la cola. Incluye tanto el caso con bloqueante activa (con o sin cola)
+            como el caso FA-04 "fecha disponible" (`estaBloqueada=false`, `bloqueante=null`,
+            `cola=[]`).
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/ColaItem' }
+              schema: { $ref: '#/components/schemas/ColaEsperaResponse' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /reservas/{id}/promover:
     parameters:
@@ -1811,13 +1836,95 @@ components:
             colaDisponible=false`).
 
     # -------- Cola --------
+    # [US-017] Read model de la vista de cola de espera (UC-11). Superset del ColaItem original
+    # (idReserva/codigo/posicionCola/clienteNombre ya existían) + sección `bloqueante`. Lectura
+    # pura: no muta estado. Derivados temporales (ttlRestante/tiempoEnCola) se calculan en backend
+    # sobre instantes timestamptz; la respuesta expone también los instantes crudos
+    # (ttlExpiracion/fechaCreacion) para que el frontend pueda reformatear.
+    ColaEsperaResponse:
+      type: object
+      description: |
+        Proyección de solo lectura de la cola de espera de una fecha (US-017 / UC-11), agregada por
+        la RESERVA bloqueante. En FA-04 (la reserva no bloquea ninguna fecha activa):
+        `estaBloqueada=false`, `bloqueante=null`, `cola=[]`.
+      required: [estaBloqueada, bloqueante, cola]
+      properties:
+        estaBloqueada:
+          type: boolean
+          description: |
+            `true` cuando la reserva `{id}` posee una `FECHA_BLOQUEADA` activa (sección
+            `bloqueante` presente). `false` en FA-04 (fecha disponible): `bloqueante=null`,
+            `cola=[]`.
+        bloqueante:
+          nullable: true
+          description: |
+            Sección de la consulta bloqueante de la fecha. `null` en FA-04. La cola FIFO se proyecta
+            con el mismo formato en cualquier `subEstado` de la bloqueante.
+          allOf:
+            - $ref: '#/components/schemas/ColaBloqueante'
+        cola:
+          type: array
+          description: Cola de espera ordenada ASC por `posicionCola` (FIFO). `[]` si no hay cola o en FA-04.
+          items: { $ref: '#/components/schemas/ColaItem' }
+    ColaBloqueante:
+      type: object
+      description: Sección de la consulta bloqueante dentro de `ColaEsperaResponse` (US-017).
+      required: [idReserva, codigo, clienteNombre, subEstado]
+      properties:
+        idReserva:
+          type: string
+          format: uuid
+          description: ID de la RESERVA bloqueante; enlace a su ficha (`GET /reservas/{id}`, US-005).
+        codigo: { type: string, description: 'Código legible de la reserva (p. ej. `SLO-2026-0007`).' }
+        clienteNombre: { type: string, description: Nombre del cliente de la bloqueante. }
+        subEstado:
+          description: 'Sub-estado de la bloqueante: uno de `2b`, `2c`, `2v`.'
+          allOf:
+            - $ref: '#/components/schemas/SubEstadoConsulta'
+        ttlExpiracion:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            Instante crudo de expiración del bloqueo blando (mismo modelo que
+            `Reserva.ttlExpiracion`). `null` cuando la bloqueante no tiene TTL.
+        ttlRestante:
+          type: string
+          nullable: true
+          description: |
+            TTL restante legible derivado en backend (`ttlExpiracion − now()`, p. ej. "22 h",
+            "2 días"). `null` cuando `ttlExpiracion` es `null`.
+        visitaProgramadaFecha:
+          type: string
+          format: date
+          nullable: true
+          description: Fecha de la visita programada. Solo presente (no `null`) cuando `subEstado` es `2v`.
+    # [US-017] Elemento de la cola FIFO. Superset del ColaItem original: añade fechaCreacion
+    # (instante crudo) y tiempoEnCola (legible derivado en backend) para el "tiempo en cola".
     ColaItem:
       type: object
+      required: [idReserva, codigo, clienteNombre, posicionCola, fechaCreacion]
       properties:
-        idReserva: { type: string, format: uuid }
+        idReserva:
+          type: string
+          format: uuid
+          description: ID de la RESERVA en cola; enlace a su ficha (`GET /reservas/{id}`, US-005).
         codigo: { type: string }
-        posicionCola: { type: integer }
         clienteNombre: { type: string }
+        posicionCola:
+          type: integer
+          minimum: 1
+          description: Posición FIFO en la cola (1 = primera en promocionarse).
+        fechaCreacion:
+          type: string
+          format: date-time
+          description: Instante crudo de creación de la RESERVA en cola (`timestamptz`).
+        tiempoEnCola:
+          type: string
+          nullable: true
+          description: |
+            Tiempo en cola legible derivado en backend (`now() − fechaCreacion`, p. ej. "2 h",
+            "30 min").
     # [US-005] Error 409 de POST /reservas/{id}/fecha. Sigue el patrón de errores de dominio de
     # US-016 (allOf ErrorResponse + campos específicos): conserva el envelope NestJS
     # (`statusCode`/`message`) y añade los campos de dominio `colaDisponible`/`motivo` que dirigen el

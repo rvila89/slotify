@@ -1,8 +1,8 @@
 ---
 id: US-017
-estado: backlog
-branch: null
-pr: null
+estado: done
+branch: feature/us-017-visualizar-cola-espera
+pr: https://github.com/rvila89/slotify/pull/33
 ---
 
 # 🧾 Historia de Usuario: Visualizar Cola de Espera de una Fecha

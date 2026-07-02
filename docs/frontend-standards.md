@@ -60,7 +60,7 @@ sub-componentes). Alineada con los módulos del backend en [c4-diagrams.md](./c4
 apps/web/
 ├── src/
 │   ├── api-client/        # Cliente OpenAPI GENERADO (no se edita; eslint ignore)
-│   ├── features/          # Dominios: reservas/, auth/, calendario/, presupuestos/…
+│   ├── features/          # Dominios: reservas/, auth/, calendario/, cola-espera/…
 │   │   └── <dominio>/
 │   │       ├── api/        # hooks TanStack Query sobre el cliente generado
 │   │       ├── components/ # componentes del dominio usados por 2+ páginas

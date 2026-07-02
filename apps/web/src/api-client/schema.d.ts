@@ -787,7 +787,26 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Visualizar cola de espera de la fecha de una reserva bloqueante (UC-11) */
+        /**
+         * Visualizar cola de espera de la fecha de una reserva bloqueante (UC-11 / US-017)
+         * @description Vista de **solo lectura** (US-017) que proyecta, para la RESERVA **bloqueante** `{id}`
+         *     (la que posee la `FECHA_BLOQUEADA` activa), un read model con dos secciones:
+         *     - **`bloqueante`**: cliente, `subEstado` (`2b`/`2c`/`2v`), `ttlExpiracion` (instante crudo)
+         *       y `ttlRestante` (legible derivado en backend), más `visitaProgramadaFecha` cuando está
+         *       en `2v`.
+         *     - **`cola`**: RESERVA en `subEstado='2d'` cuyo `consultaBloqueanteId` apunta a la
+         *       bloqueante, ordenadas **ASC por `posicionCola`** (FIFO), con `fechaCreacion` (instante
+         *       crudo) y `tiempoEnCola` (legible derivado en backend).
+         *
+         *     NO muta estado (no promueve, no saca de cola, no registra AUDIT_LOG). Los derivados
+         *     temporales (`ttlRestante = ttlExpiracion − now()`, `tiempoEnCola = now() − fechaCreacion`)
+         *     se calculan en backend sobre instantes `timestamptz`, nunca formateando fechas.
+         *
+         *     **FA-04** — si la reserva `{id}` existe en el tenant pero **no** posee una
+         *     `FECHA_BLOQUEADA` activa (no bloquea ninguna fecha), la respuesta es **200** con
+         *     `estaBloqueada=false`, `bloqueante=null` y `cola=[]` (la UI muestra "Fecha disponible").
+         *     El **404 se reserva exclusivamente** para reserva inexistente o de otro tenant (RLS).
+         */
         get: {
             parameters: {
                 query?: never;
@@ -800,15 +819,22 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Cola FIFO ordenada por posición */
+                /**
+                 * @description Read model de la cola. Incluye tanto el caso con bloqueante activa (con o sin cola)
+                 *     como el caso FA-04 "fecha disponible" (`estaBloqueada=false`, `bloqueante=null`,
+                 *     `cola=[]`).
+                 */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["ColaItem"][];
+                        "application/json": components["schemas"]["ColaEsperaResponse"];
                     };
                 };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
             };
         };
         put?: never;
@@ -2144,9 +2170,10 @@ export interface paths {
          *     reserva_cancelada`, mapa declarativo), libera la fila de `FECHA_BLOQUEADA`
          *     (`liberarFecha()`, US-041, causa `TTL`) y, si la RESERVA tenía cola activa
          *     (`2.b`/`2.v` con cola heredada), **dispara** el seam `PromocionColaPort` exactamente
-         *     una vez. La **reordenación FIFO + re-bloqueo de la promovida (A15) es de US-018**: el
-         *     seam es un stub no-op hasta entonces (deuda documentada); US-012 solo garantiza el
-         *     trigger.
+         *     una vez. El adaptador real `PromocionColaPrismaAdapter` (US-018) materializa la
+         *     mecánica A15: `2d → 2b`, re-bloqueo atómico vía `bloquearFecha()` y reordenación
+         *     FIFO en una sola transacción, serializada por `SELECT … FOR UPDATE` sobre RESERVA
+         *     `2d` (la fila de `FECHA_BLOQUEADA` ya no existe en ese punto).
          *
          *     **Idempotente** (D-4): las RESERVA ya terminales no son candidatas (la guarda de
          *     origen las excluye) y el `DELETE` de `FECHA_BLOQUEADA` con 0 filas es éxito
@@ -2385,12 +2412,76 @@ export interface components {
             /** @description OPCIONAL. Resuelve el flujo interactivo de cola (FA-01) sin estado servidor intermedio. Si la fecha está bloqueada por una consulta en `2b` (o en carrera D4): con `false`/ausente el servidor responde `409 colaDisponible=true` (informa y ofrece cola) y la RESERVA sigue en `2a`; con `true` el reintento confirma la entrada en cola (`2d`). No tiene efecto si la fecha está libre (→ `2b`) ni si está bloqueada por un estado no encolable (→ `409 colaDisponible=false`). */
             aceptarCola?: boolean;
         };
+        /**
+         * @description Proyección de solo lectura de la cola de espera de una fecha (US-017 / UC-11), agregada por
+         *     la RESERVA bloqueante. En FA-04 (la reserva no bloquea ninguna fecha activa):
+         *     `estaBloqueada=false`, `bloqueante=null`, `cola=[]`.
+         */
+        ColaEsperaResponse: {
+            /**
+             * @description `true` cuando la reserva `{id}` posee una `FECHA_BLOQUEADA` activa (sección
+             *     `bloqueante` presente). `false` en FA-04 (fecha disponible): `bloqueante=null`,
+             *     `cola=[]`.
+             */
+            estaBloqueada: boolean;
+            /**
+             * @description Sección de la consulta bloqueante de la fecha. `null` en FA-04. La cola FIFO se proyecta
+             *     con el mismo formato en cualquier `subEstado` de la bloqueante.
+             */
+            bloqueante: components["schemas"]["ColaBloqueante"] | null;
+            /** @description Cola de espera ordenada ASC por `posicionCola` (FIFO). `[]` si no hay cola o en FA-04. */
+            cola: components["schemas"]["ColaItem"][];
+        };
+        /** @description Sección de la consulta bloqueante dentro de `ColaEsperaResponse` (US-017). */
+        ColaBloqueante: {
+            /**
+             * Format: uuid
+             * @description ID de la RESERVA bloqueante; enlace a su ficha (`GET /reservas/{id}`, US-005).
+             */
+            idReserva: string;
+            /** @description Código legible de la reserva (p. ej. `SLO-2026-0007`). */
+            codigo: string;
+            /** @description Nombre del cliente de la bloqueante. */
+            clienteNombre: string;
+            /** @description Sub-estado de la bloqueante: uno de `2b`, `2c`, `2v`. */
+            subEstado: components["schemas"]["SubEstadoConsulta"];
+            /**
+             * Format: date-time
+             * @description Instante crudo de expiración del bloqueo blando (mismo modelo que
+             *     `Reserva.ttlExpiracion`). `null` cuando la bloqueante no tiene TTL.
+             */
+            ttlExpiracion?: string | null;
+            /**
+             * @description TTL restante legible derivado en backend (`ttlExpiracion − now()`, p. ej. "22 h",
+             *     "2 días"). `null` cuando `ttlExpiracion` es `null`.
+             */
+            ttlRestante?: string | null;
+            /**
+             * Format: date
+             * @description Fecha de la visita programada. Solo presente (no `null`) cuando `subEstado` es `2v`.
+             */
+            visitaProgramadaFecha?: string | null;
+        };
         ColaItem: {
-            /** Format: uuid */
-            idReserva?: string;
-            codigo?: string;
-            posicionCola?: number;
-            clienteNombre?: string;
+            /**
+             * Format: uuid
+             * @description ID de la RESERVA en cola; enlace a su ficha (`GET /reservas/{id}`, US-005).
+             */
+            idReserva: string;
+            codigo: string;
+            clienteNombre: string;
+            /** @description Posición FIFO en la cola (1 = primera en promocionarse). */
+            posicionCola: number;
+            /**
+             * Format: date-time
+             * @description Instante crudo de creación de la RESERVA en cola (`timestamptz`).
+             */
+            fechaCreacion: string;
+            /**
+             * @description Tiempo en cola legible derivado en backend (`now() − fechaCreacion`, p. ej. "2 h",
+             *     "30 min").
+             */
+            tiempoEnCola?: string | null;
         };
         AsignarFechaConflictoError: components["schemas"]["ErrorResponse"] & {
             /** @description `true` cuando la fecha está bloqueada por una consulta en `2b` (o carrera D4): se ofrece cola, reintentar con `aceptarCola=true` para entrar en `2d`. `false` cuando está bloqueada por `2c`/`2v`/`pre_reserva`/`reserva_confirmada`+: no disponible. */
@@ -2825,7 +2916,7 @@ export interface components {
              */
             expiradas: number;
             /**
-             * @description Nº de veces que se disparó el seam de promoción de cola (US-018), una por cada expiración con cola activa. La promoción real (A15) es de US-018.
+             * @description Nº de veces que el seam `PromocionColaPort` fue disparado, una por cada expiración con cola activa. Con US-018 implementado, cada disparo ejecuta la mecánica A15 completa (2d → 2b, re-bloqueo, reordenación FIFO).
              * @example 1
              */
             promocionesDisparadas: number;
