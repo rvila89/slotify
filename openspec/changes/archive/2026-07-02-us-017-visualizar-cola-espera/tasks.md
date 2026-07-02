@@ -78,6 +78,6 @@
 - [x] 10.1 Tras code-review APTO + validación manual, presentar resultados y ESPERAR el OK humano antes de archive/PR
 
 ## 11. Archivar change + abrir PR (OBLIGATORIO — archive — `spec-author`)
-- [ ] 11.1 `openspec archive us-017-visualizar-cola-espera` (solo tras gate final y code-review APTO)
-- [ ] 11.2 Actualizar `openspec/specs/consultas/` con el delta archivado
-- [ ] 11.3 Abrir PR a `master` (GitHub MCP o `gh`); enlazar US-017 y reports
+- [x] 11.1 `openspec archive us-017-visualizar-cola-espera` (solo tras gate final y code-review APTO)
+- [x] 11.2 Actualizar `openspec/specs/consultas/` con el delta archivado
+- [x] 11.3 Abrir PR a `master` (GitHub MCP o `gh`); enlazar US-017 y reports
