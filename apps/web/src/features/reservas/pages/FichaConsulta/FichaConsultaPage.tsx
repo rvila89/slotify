@@ -6,6 +6,11 @@ import {
   GenerarPresupuestoDialog,
   type ConfirmarPresupuestoResponse,
 } from '@/features/presupuestos';
+import {
+  AvisoReservaConfirmada,
+  ConfirmarSenalDialog,
+  type ConfirmarSenalResponse,
+} from '@/features/confirmacion';
 import { useReserva } from '../../api/useReserva';
 import { AnadirFechaDialog } from '../../components/AnadirFechaDialog';
 import { PendienteInvitadosDialog } from '../../components/PendienteInvitadosDialog';
@@ -44,6 +49,7 @@ export const FichaConsultaPage = () => {
   const [dialogoResultadoAbierto, setDialogoResultadoAbierto] = useState(false);
   const [dialogoExtenderAbierto, setDialogoExtenderAbierto] = useState(false);
   const [dialogoPresupuestoAbierto, setDialogoPresupuestoAbierto] = useState(false);
+  const [dialogoSenalAbierto, setDialogoSenalAbierto] = useState(false);
   // RESERVA resultante de la transición de fecha (US-005): alimenta el aviso 2b/2d.
   const [resultado, setResultado] = useState<Reserva | null>(null);
   // Resultado de la transición 2.b → 2.c (US-007): alimenta su aviso (TTL + cola).
@@ -61,6 +67,8 @@ export const FichaConsultaPage = () => {
   // Resultado de la confirmación del presupuesto (US-014): alimenta su aviso (pre_reserva).
   const [resultadoPresupuesto, setResultadoPresupuesto] =
     useState<ConfirmarPresupuestoResponse | null>(null);
+  // Resultado de la confirmación de señal (US-021): alimenta su aviso (reserva_confirmada).
+  const [resultadoSenal, setResultadoSenal] = useState<ConfirmarSenalResponse | null>(null);
 
   if (isLoading) {
     return (
@@ -146,6 +154,13 @@ export const FichaConsultaPage = () => {
         />
       )}
 
+      {resultadoSenal && (
+        <AvisoReservaConfirmada
+          resultado={resultadoSenal}
+          onCerrar={() => setResultadoSenal(null)}
+        />
+      )}
+
       <section className={claseSeccion} aria-labelledby="ficha-cliente">
         <div id="ficha-cliente" className="flex items-center gap-3">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary">
@@ -214,6 +229,10 @@ export const FichaConsultaPage = () => {
             setResultadoPresupuesto(null);
             setDialogoPresupuestoAbierto(true);
           }}
+          onConfirmarSenal={() => {
+            setResultadoSenal(null);
+            setDialogoSenalAbierto(true);
+          }}
         />
       </section>
 
@@ -271,6 +290,15 @@ export const FichaConsultaPage = () => {
           abierto={dialogoPresupuestoAbierto}
           onAbiertoChange={setDialogoPresupuestoAbierto}
           onConfirmado={setResultadoPresupuesto}
+        />
+      )}
+
+      {id && (
+        <ConfirmarSenalDialog
+          reservaId={id}
+          abierto={dialogoSenalAbierto}
+          onAbiertoChange={setDialogoSenalAbierto}
+          onConfirmado={setResultadoSenal}
         />
       )}
     </div>

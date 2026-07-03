@@ -387,6 +387,42 @@ export const esOrigenValidoParaActivarPrereserva = (
   );
 
 // ---------------------------------------------------------------------------
+// Guarda de ORIGEN de la transición «confirmar pago de señal» (US-021 / UC-17 / §D-8)
+// ---------------------------------------------------------------------------
+
+/**
+ * Conjunto declarativo de ORÍGENES válidos de la transición «confirmar el pago de la
+ * señal» (`pre_reserva → reserva_confirmada`, US-021, skill `state-machine`, NO
+ * condicionales dispersos). A diferencia de US-014 (activar pre_reserva, origen
+ * multi-estado `{2a,2b,2c,2v}` de `consulta`), esta transición es MONO-estado y desde
+ * un estado PRINCIPAL: SOLO `pre_reserva` (sub_estado NULL) es origen válido; su destino
+ * único es `reserva_confirmada`. Cualquier sub-estado de `consulta` (`2a/2b/2c/2d/2v/
+ * 2x/2y/2z`) —una consulta aún no es pre-reserva—, el propio destino `reserva_confirmada`
+ * (ya confirmada) y posteriores (`evento_en_curso`/`post_evento`/`reserva_completada`) y
+ * `reserva_cancelada` (inmutable) NO son orígenes legales. Una sola transición permitida:
+ * `{pre_reserva, NULL} → {reserva_confirmada, NULL}`.
+ */
+export const ORIGENES_TRANSICION_CONFIRMAR_SENAL: ReadonlyArray<OrigenTransicion> = [
+  { estado: 'pre_reserva', subEstado: null },
+];
+
+/**
+ * Guarda declarativa: ¿es `(estado, subEstado)` un ORIGEN legal de la transición
+ * «confirmar pago de señal» (US-021)? Consulta la tabla
+ * `ORIGENES_TRANSICION_CONFIRMAR_SENAL`: solo `pre_reserva` (sub_estado NULL) lo es. Se
+ * evalúa ANTES de la tx y se re-evalúa DENTRO de la tx bajo el lock de FECHA_BLOQUEADA
+ * para rechazar sin efectos cualquier otro estado/sub-estado y para detectar el doble
+ * clic (la segunda confirmación observa `reserva_confirmada` y aborta con 409).
+ */
+export const esOrigenValidoParaConfirmarSenal = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): boolean =>
+  ORIGENES_TRANSICION_CONFIRMAR_SENAL.some(
+    (origen) => origen.estado === estado && origen.subEstado === subEstado,
+  );
+
+// ---------------------------------------------------------------------------
 // Guarda de PRECONDICIÓN «bloqueo blando extensible» (US-006 / UC-05 / §D-1)
 // ---------------------------------------------------------------------------
 

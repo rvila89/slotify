@@ -1,7 +1,7 @@
 ---
 id: US-021
-estado: backlog
-branch: null
+estado: in_progress
+branch: feature/us-021-confirmar-pago-senal-activar-reserva
 pr: null
 ---
 

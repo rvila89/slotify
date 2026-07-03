@@ -18,6 +18,7 @@ import { ReservasModule } from './reservas/reservas.module';
 import { CalendarioModule } from './calendario/calendario.module';
 import { ClientesModule } from './clientes/clientes.module';
 import { PresupuestosModule } from './presupuestos/presupuestos.module';
+import { ConfirmacionModule } from './confirmacion/confirmacion.module';
 import { TarifasModule } from './tarifas/tarifas.module';
 import { FacturacionModule } from './facturacion/facturacion.module';
 import { ComunicacionesModule } from './comunicaciones/comunicaciones.module';
@@ -39,6 +40,7 @@ import { ConfiguracionModule } from './configuracion/configuracion.module';
     CalendarioModule,
     ClientesModule,
     PresupuestosModule,
+    ConfirmacionModule,
     TarifasModule,
     FacturacionModule,
     ComunicacionesModule,
