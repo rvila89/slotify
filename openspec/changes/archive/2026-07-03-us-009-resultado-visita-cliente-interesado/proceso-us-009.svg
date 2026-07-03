@@ -1,0 +1,190 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1580" viewBox="0 0 1240 1580" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="hdr" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#4f46e5"/><stop offset="1" stop-color="#0ea5e9"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L7,3 L0,6 Z" fill="#94a3b8"/></marker>
+    <filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.12"/></filter>
+  </defs>
+  <rect width="1240" height="1580" fill="#f1f5f9"/>
+  <rect x="0" y="0" width="1240" height="96" fill="url(#hdr)"/>
+  <text x="40" y="44" fill="#ffffff" font-size="27" font-weight="700">US-009 - Registrar resultado de visita - cliente interesado (2.v a 2.b)</text>
+  <text x="40" y="74" fill="#e0e7ff" font-size="15">Proceso del harness: SDD - Gate - Contrato - TDD RED - Impl - QA - Code-review - Docs - Gate - Archive/PR    Slotify MVP</text>
+  <g transform="translate(40,112)">
+    <rect x="0" y="0" width="1160" height="118" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect x="0" y="0" width="6" height="118" rx="3" fill="#4f46e5"/>
+    <text x="22" y="26" font-size="15" font-weight="700" fill="#3730a3">RESUMEN EJECUTIVO</text>
+    <text x="22" y="50" font-size="13" fill="#334155">Transicion de la maquina de estados de la Reserva: el gestor marca la visita como realizada con resultado cliente interesado y la consulta</text>
+    <text x="22" y="68" font-size="13" fill="#334155">vuelve a 2.b con un TTL fresco. En UNA transaccion atomica (SELECT ... FOR UPDATE): Reserva (visita_realizada=true, sub_estado=2b, ttl fresco)</text>
+    <text x="22" y="86" font-size="13" fill="#334155">mas Fecha_Bloqueada (UPDATE del mismo TTL, sigue blando) mas Audit_Log. Tras el commit, email E7 no bloqueante. Endpoint PATCH visita.</text>
+    <text x="22" y="106" font-size="12.5" fill="#64748b">Orquestado por harness-orchestrator delegando en 7 subagentes. 2 gates humanos respetados. 3 tramos paralelizados. Resultado: PR 36, master intacta.</text>
+  </g>
+  <g transform="translate(40,242)">
+    <rect x="0" y="0" width="1160" height="52" rx="8" fill="#ffffff" filter="url(#sh)"/>
+    <text x="20" y="22" font-size="13" fill="#475569" font-weight="600">TOTALES</text>
+    <text x="20" y="42" font-size="14" fill="#0f172a">Fases: 10 (8 de agente + 2 gates)</text>
+    <text x="290" y="42" font-size="14" fill="#0f172a">Tiempo agentes: 73 min 43 s (4423 s)</text>
+    <text x="640" y="42" font-size="14" fill="#0f172a">Tokens subagentes: 861143</text>
+    <circle cx="945" cy="18" r="7" fill="#f59e0b"/><text x="959" y="23" font-size="12" fill="#475569">Gate humano</text>
+    <circle cx="945" cy="38" r="7" fill="#6366f1"/><text x="959" y="43" font-size="12" fill="#475569">Fase de agente</text>
+    <rect x="1075" y="12" width="22" height="12" rx="3" fill="#dcfce7" stroke="#22c55e"/><text x="1103" y="22" font-size="12" fill="#475569">Paralelo</text>
+  </g>
+  <g transform="translate(40,316)">
+    <rect width="1160" height="112" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect width="6" height="112" rx="3" fill="#6366f1"/>
+    <circle cx="34" cy="30" r="14" fill="#6366f1"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">1</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#0f172a">SDD - Especificacion</text>
+    <text x="60" y="45" font-size="13" fill="#4338ca" font-weight="600">agente: spec-author</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: openspec-propose, us-traceability, openspec-workflow</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">Crea la feature branch y redacta la especificacion del cambio. Valida con openspec strict.</text>
+    <text x="60" y="100" font-size="12.5" fill="#334155">Deja 4 decisiones abiertas (superficie de API, E7, migracion, A20) para el gate humano.</text>
+    <text x="720" y="83" font-size="11.5" fill="#0f766e" font-weight="600">Artefactos:</text>
+    <text x="720" y="100" font-size="11" fill="#475569">proposal.md, spec-delta (consultas+6, comunicaciones+2), design.md, tasks.md, branch</text>
+    <text x="1140" y="26" text-anchor="end" font-size="14" fill="#0f172a" font-weight="700">6 min 56 s</text>
+    <text x="1140" y="44" text-anchor="end" font-size="12" fill="#64748b">97353 tokens</text>
+  </g>
+  <g transform="translate(40,444)">
+    <rect width="1160" height="52" rx="10" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.5" filter="url(#sh)"/>
+    <circle cx="34" cy="26" r="14" fill="#f59e0b"/><text x="34" y="31" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">II</text>
+    <text x="60" y="24" font-size="15" font-weight="700" fill="#92400e">GATE 1 - Revision humana tras SDD (parada obligatoria)</text>
+    <text x="60" y="42" font-size="12.5" fill="#78350f">Aprobado por el usuario. Decision D-5: evolucionar el stub PATCH visita (no crear endpoint nuevo).</text>
+    <text x="1140" y="32" text-anchor="end" font-size="12" fill="#92400e" font-weight="600">humano - 0 tokens</text>
+  </g>
+  <g transform="translate(40,512)">
+    <rect width="1160" height="112" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect width="6" height="112" rx="3" fill="#0ea5e9"/>
+    <circle cx="34" cy="30" r="14" fill="#0ea5e9"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">2</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#0f172a">Contrato OpenAPI + SDK</text>
+    <text x="60" y="45" font-size="13" fill="#0369a1" font-weight="600">agente: contract-engineer</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: openapi-governance, contract-sync, sdk-codegen</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">Evoluciona el stub del endpoint (operationId registrarResultadoVisita, body resultado interesado).</text>
+    <text x="60" y="100" font-size="12.5" fill="#334155">Valida el contrato, regenera el SDK del front y CONGELA la frontera. Typecheck verde.</text>
+    <text x="720" y="83" font-size="11.5" fill="#0f766e" font-weight="600">Artefactos:</text>
+    <text x="720" y="100" font-size="11" fill="#475569">api-spec.yml evolucionado, SDK regenerado (api-client), contrato congelado</text>
+    <text x="1140" y="26" text-anchor="end" font-size="14" fill="#0f172a" font-weight="700">4 min 29 s</text>
+    <text x="1140" y="44" text-anchor="end" font-size="12" fill="#64748b">61219 tokens</text>
+  </g>
+  <g transform="translate(40,640)">
+    <rect width="1160" height="112" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect width="6" height="112" rx="3" fill="#ef4444"/>
+    <circle cx="34" cy="30" r="14" fill="#ef4444"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">3</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#0f172a">TDD - RED (tests primero)</text>
+    <text x="60" y="45" font-size="13" fill="#b91c1c" font-weight="600">agente: tdd-engineer</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: tdd-core, concurrency-locking, state-machine</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">Escribe los tests que fijan el contrato de implementacion (dominio, use-case, BD, concurrencia).</text>
+    <text x="60" y="100" font-size="12.5" fill="#334155">Verifica que fallan en ROJO por ausencia de codigo de produccion, no por errores triviales.</text>
+    <text x="720" y="83" font-size="11.5" fill="#0f766e" font-weight="600">Artefactos:</text>
+    <text x="720" y="100" font-size="11" fill="#475569">4 suites de tests (49 tests) en RED, evidencia del fallo esperado</text>
+    <text x="1140" y="26" text-anchor="end" font-size="14" fill="#0f172a" font-weight="700">6 min 17 s</text>
+    <text x="1140" y="44" text-anchor="end" font-size="12" fill="#64748b">137531 tokens</text>
+  </g>
+  <g transform="translate(40,764)">
+    <rect x="0" y="0" width="150" height="20" rx="10" fill="#dcfce7" stroke="#22c55e"/>
+    <text x="14" y="14" font-size="11.5" fill="#166534" font-weight="700">EN PARALELO</text>
+    <text x="164" y="14" font-size="12" fill="#64748b" font-weight="600">4 - IMPLEMENTACION (contrato ya congelado; capas independientes)</text>
+  </g>
+  <g transform="translate(40,790)">
+    <rect width="570" height="116" rx="10" fill="#ffffff" filter="url(#sh)" stroke="#bbf7d0" stroke-width="2"/>
+    <rect width="6" height="116" rx="3" fill="#22c55e"/>
+    <circle cx="34" cy="30" r="14" fill="#22c55e"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">4a</text>
+    <text x="60" y="26" font-size="15.5" font-weight="700" fill="#0f172a">Backend (pone tests en GREEN)</text>
+    <text x="60" y="45" font-size="12.5" fill="#15803d" font-weight="600">agente: backend-developer</text>
+    <text x="60" y="62" font-size="10.5" fill="#64748b">skills: hexagonal-ddd, atomic-date-lock, multi-tenancy-rls, async-jobs</text>
+    <text x="60" y="80" font-size="11.5" fill="#334155">Use-case + UoW (transaccion, FOR UPDATE), guarda mono-estado,</text>
+    <text x="60" y="95" font-size="11.5" fill="#334155">E7 post-commit. Pone los 49 tests en verde.</text>
+    <text x="60" y="111" font-size="10.5" fill="#0f766e">Artefactos: use-case, adapters Prisma, controller, DTO, module</text>
+    <text x="554" y="24" text-anchor="end" font-size="13" fill="#0f172a" font-weight="700">9 min 13 s</text>
+    <text x="554" y="40" text-anchor="end" font-size="11.5" fill="#64748b">129063 tokens</text>
+  </g>
+  <g transform="translate(630,790)">
+    <rect width="570" height="116" rx="10" fill="#ffffff" filter="url(#sh)" stroke="#bbf7d0" stroke-width="2"/>
+    <rect width="6" height="116" rx="3" fill="#14b8a6"/>
+    <circle cx="34" cy="30" r="14" fill="#14b8a6"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">4b</text>
+    <text x="60" y="26" font-size="15.5" font-weight="700" fill="#0f172a">Frontend</text>
+    <text x="60" y="45" font-size="12.5" fill="#0f766e" font-weight="600">agente: frontend-developer</text>
+    <text x="60" y="62" font-size="10.5" fill="#64748b">skills: frontend-feature, shadcn-tailwind, tanstack-forms, figma</text>
+    <text x="60" y="80" font-size="11.5" fill="#334155">Accion en ficha (gated a 2v), dialogo de confirmacion, hook</text>
+    <text x="60" y="95" font-size="11.5" fill="#334155">TanStack Query sobre el SDK. Mobile-first. Lint y typecheck OK.</text>
+    <text x="60" y="111" font-size="10.5" fill="#0f766e">Artefactos: hook, dialogo, aviso, barrel index.ts</text>
+    <text x="554" y="24" text-anchor="end" font-size="13" fill="#0f172a" font-weight="700">6 min 21 s</text>
+    <text x="554" y="40" text-anchor="end" font-size="11.5" fill="#64748b">67810 tokens</text>
+  </g>
+  <g transform="translate(40,922)">
+    <rect width="1160" height="112" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect width="6" height="112" rx="3" fill="#8b5cf6"/>
+    <circle cx="34" cy="30" r="14" fill="#8b5cf6"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">5</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#0f172a">QA (unit+BD, curl, E2E)</text>
+    <text x="60" y="45" font-size="13" fill="#6d28d9" font-weight="600">agente: qa-verifier</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: qa-mandatory-steps, db-state-verify</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">3 steps PASS: unit+BD (823 API + 49 web), curl 9/9, E2E Playwright 8/8 (responsive 390/768/1280).</text>
+    <text x="60" y="100" font-size="12.5" fill="#334155">Restaura la BD sin residuo. Fase mas larga: suite completa + navegador real.</text>
+    <text x="720" y="83" font-size="11.5" fill="#0f766e" font-weight="600">Artefactos:</text>
+    <text x="720" y="100" font-size="11" fill="#475569">3 reports (unit-db, curl, e2e-playwright), spec E2E, tasks.md marcado</text>
+    <text x="1140" y="26" text-anchor="end" font-size="14" fill="#0f172a" font-weight="700">25 min 17 s</text>
+    <text x="1140" y="44" text-anchor="end" font-size="12" fill="#64748b">135040 tokens</text>
+  </g>
+  <g transform="translate(40,1050)">
+    <rect x="0" y="0" width="150" height="20" rx="10" fill="#dcfce7" stroke="#22c55e"/>
+    <text x="14" y="14" font-size="11.5" fill="#166534" font-weight="700">EN PARALELO</text>
+    <text x="164" y="14" font-size="12" fill="#64748b" font-weight="600">6 y 7 - DOCS y CODE-REVIEW (independientes entre si)</text>
+  </g>
+  <g transform="translate(40,1076)">
+    <rect width="570" height="116" rx="10" fill="#ffffff" filter="url(#sh)" stroke="#bbf7d0" stroke-width="2"/>
+    <rect width="6" height="116" rx="3" fill="#f97316"/>
+    <circle cx="34" cy="30" r="14" fill="#f97316"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">6</text>
+    <text x="60" y="26" font-size="15.5" font-weight="700" fill="#0f172a">Docs</text>
+    <text x="60" y="45" font-size="12.5" fill="#c2410c" font-weight="600">agente: docs-keeper</text>
+    <text x="60" y="62" font-size="11" fill="#64748b">skill: doc-sync</text>
+    <text x="60" y="80" font-size="11.5" fill="#334155">Sincroniza la documentacion tecnica con el cambio</text>
+    <text x="60" y="95" font-size="11.5" fill="#334155">(caso de uso, modelo de datos, arquitectura, US).</text>
+    <text x="60" y="111" font-size="10.5" fill="#0f766e">Artefactos: use-cases, er-diagram, architecture, US-009</text>
+    <text x="554" y="24" text-anchor="end" font-size="13" fill="#0f172a" font-weight="700">3 min 33 s</text>
+    <text x="554" y="40" text-anchor="end" font-size="11.5" fill="#64748b">65938 tokens</text>
+  </g>
+  <g transform="translate(630,1076)">
+    <rect width="570" height="116" rx="10" fill="#ffffff" filter="url(#sh)" stroke="#bbf7d0" stroke-width="2"/>
+    <rect width="6" height="116" rx="3" fill="#e11d48"/>
+    <circle cx="34" cy="30" r="14" fill="#e11d48"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">7</text>
+    <text x="60" y="26" font-size="15.5" font-weight="700" fill="#0f172a">Code-review (obligatorio)</text>
+    <text x="60" y="45" font-size="12.5" fill="#be123c" font-weight="600">agente: code-reviewer</text>
+    <text x="60" y="62" font-size="11" fill="#64748b">skills: review-checklist, architecture-guardrails</text>
+    <text x="60" y="80" font-size="11.5" fill="#334155">Revisa el diff contra los guardrails. Veredicto: APTO.</text>
+    <text x="60" y="95" font-size="11.5" fill="#334155">Deuda enum descarta/descarte diferida a US-011.</text>
+    <text x="60" y="111" font-size="10.5" fill="#0f766e">Artefacto: informe code-review (Veredicto: APTO)</text>
+    <text x="554" y="24" text-anchor="end" font-size="13" fill="#0f172a" font-weight="700">7 min 22 s</text>
+    <text x="554" y="40" text-anchor="end" font-size="11.5" fill="#64748b">127994 tokens</text>
+  </g>
+  <g transform="translate(40,1216)">
+    <rect width="1160" height="66" rx="10" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.5" filter="url(#sh)"/>
+    <circle cx="34" cy="33" r="14" fill="#f59e0b"/><text x="34" y="38" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">II</text>
+    <text x="60" y="26" font-size="15" font-weight="700" fill="#92400e">GATE 2 - Revision humana final antes de archive/PR (parada obligatoria)</text>
+    <text x="60" y="44" font-size="12.5" fill="#78350f">El clasificador BLOQUEO el intento basado en mensaje del coordinador (sin autoridad de usuario).</text>
+    <text x="60" y="60" font-size="12.5" fill="#78350f">Desbloqueado solo tras el OK DIRECTO del usuario. Alineado con el incidente US-017 en memoria.</text>
+    <text x="1140" y="38" text-anchor="end" font-size="12" fill="#92400e" font-weight="600">humano - 0 tokens</text>
+  </g>
+  <g transform="translate(40,1300)">
+    <rect width="1160" height="112" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect width="6" height="112" rx="3" fill="#4338ca"/>
+    <circle cx="34" cy="30" r="14" fill="#4338ca"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">8</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#0f172a">Archive + PR</text>
+    <text x="60" y="45" font-size="13" fill="#3730a3" font-weight="600">agente: spec-author</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: openspec-archive, us-traceability</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">Commitea, archiva el change (specs +8) y pushea. El hook require-code-review permite (APTO).</text>
+    <text x="60" y="100" font-size="12.5" fill="#334155">Abre el PR 36 hacia master y enlaza pr en el frontmatter. master no tocada.</text>
+    <text x="720" y="83" font-size="11.5" fill="#0f766e" font-weight="600">Artefactos:</text>
+    <text x="720" y="100" font-size="11" fill="#475569">3 commits, change archivado, specs vivas actualizadas, PR 36 (OPEN)</text>
+    <text x="1140" y="26" text-anchor="end" font-size="14" fill="#0f172a" font-weight="700">4 min 15 s</text>
+    <text x="1140" y="44" text-anchor="end" font-size="12" fill="#64748b">39195 tokens</text>
+  </g>
+  <g stroke="#94a3b8" stroke-width="2" fill="none">
+    <line x1="20" y1="428" x2="20" y2="444" marker-end="url(#arrow)"/>
+    <line x1="20" y1="496" x2="20" y2="512" marker-end="url(#arrow)"/>
+    <line x1="20" y1="624" x2="20" y2="640" marker-end="url(#arrow)"/>
+    <line x1="20" y1="752" x2="20" y2="790" marker-end="url(#arrow)"/>
+    <line x1="20" y1="906" x2="20" y2="922" marker-end="url(#arrow)"/>
+    <line x1="20" y1="1034" x2="20" y2="1076" marker-end="url(#arrow)"/>
+    <line x1="20" y1="1192" x2="20" y2="1216" marker-end="url(#arrow)"/>
+    <line x1="20" y1="1282" x2="20" y2="1300" marker-end="url(#arrow)"/>
+  </g>
+  <text x="40" y="1456" font-size="12" fill="#94a3b8">Change: us-009-resultado-visita-cliente-interesado | Branch: feature/us-009-... | PR 36 | Generado 2026-07-03</text>
+  <text x="40" y="1476" font-size="12" fill="#94a3b8">Duraciones y tokens medidos por subagente (duration_ms / subagent_tokens). Barras normalizadas al maximo (QA, 25:17). Orquestador y gates no contabilizados.</text>
+  <text x="40" y="1496" font-size="12" fill="#94a3b8">Paralelizado (recuadro verde): 4a con 4b (backend con frontend) y 6 con 7 (docs con code-review). La tabla suma tiempos en serie; el reloj real es menor por el solape.</text>
+</svg>

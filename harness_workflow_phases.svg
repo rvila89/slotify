@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1720" viewBox="0 0 1240 1720" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="hdr" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#4f46e5"/><stop offset="1" stop-color="#0ea5e9"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L7,3 L0,6 Z" fill="#94a3b8"/></marker>
+    <filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.12"/></filter>
+  </defs>
+  <rect width="1240" height="1720" fill="#f1f5f9"/>
+  <rect x="0" y="0" width="1240" height="96" fill="url(#hdr)"/>
+  <text x="40" y="44" fill="#ffffff" font-size="26" font-weight="700">Slotify - Arnes de desarrollo de una User Story (SDD - TDD - Impl - QA - Review - Docs - Archive)</text>
+  <text x="40" y="74" fill="#e0e7ff" font-size="15">Fases del harness y agentes que las ejecutan    Slotify MVP</text>
+  <g transform="translate(40,112)">
+    <rect x="0" y="0" width="1160" height="122" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect x="0" y="0" width="6" height="122" rx="3" fill="#4f46e5"/>
+    <text x="22" y="26" font-size="15" font-weight="700" fill="#3730a3">RESUMEN EJECUTIVO</text>
+    <text x="22" y="50" font-size="13" fill="#334155">El harness lleva cada User Story de principio a fin con un flujo dirigido por especificacion (SDD) y guiado por tests (TDD). El orquestador</text>
+    <text x="22" y="68" font-size="13" fill="#334155">elige la siguiente US del backlog y delega cada fase en un subagente especializado, transfiriendo solo el contexto minimo y recogiendo un resumen.</text>
+    <text x="22" y="86" font-size="13" fill="#334155">Gates duros y secuenciales: SDD - Contrato - TDD-RED (no se implementa sin tests en rojo). El contrato OpenAPI congelado deja avanzar back y front en paralelo.</text>
+    <text x="22" y="106" font-size="12.5" fill="#64748b">Dos paradas de revision humana obligatorias (tras SDD y antes de archive/PR) y un code-review obligatorio con Veredicto APTO cierran el ciclo antes del PR.</text>
+  </g>
+  <g transform="translate(40,250)">
+    <rect x="0" y="0" width="1160" height="44" rx="8" fill="#eef2ff" stroke="#c7d2fe"/>
+    <text x="24" y="28" font-size="15" font-weight="700" fill="#3730a3">Entrada: "Implementa la siguiente US"</text>
+    <text x="1136" y="28" text-anchor="end" font-size="12" fill="#6366f1">disparador del harness</text>
+  </g>
+  <g transform="translate(40,314)">
+    <rect width="1160" height="96" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect width="6" height="96" rx="3" fill="#6366f1"/>
+    <circle cx="34" cy="30" r="14" fill="#6366f1"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">0</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#0f172a">Seleccion de US</text>
+    <text x="60" y="45" font-size="13" fill="#4338ca" font-weight="600">agente: harness-orchestrator</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: slotify-context, openspec-workflow</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">Lee el backlog y elige la primera US no completada cuyas dependencias esten hechas (orden por deps y criticidad).</text>
+    <text x="760" y="63" font-size="11.5" fill="#0f766e" font-weight="600">Entrega:</text>
+    <text x="760" y="83" font-size="11" fill="#475569">US seleccionada, plan de fases (TodoWrite)</text>
+  </g>
+  <g transform="translate(40,426)">
+    <rect width="1160" height="112" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect width="6" height="112" rx="3" fill="#6366f1"/>
+    <circle cx="34" cy="30" r="14" fill="#6366f1"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">1</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#0f172a">SDD - abrir change OpenSpec</text>
+    <text x="60" y="45" font-size="13" fill="#4338ca" font-weight="600">agente: spec-author</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: openspec-propose, slotify-domain, us-traceability</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">Step 0 = feature branch. Redacta proposal, spec-delta y tasks.md con los pasos obligatorios.</text>
+    <text x="60" y="100" font-size="12.5" fill="#334155">Valida con openspec validate strict.</text>
+    <text x="760" y="83" font-size="11.5" fill="#0f766e" font-weight="600">Entrega:</text>
+    <text x="760" y="100" font-size="11" fill="#475569">branch, proposal.md, spec-delta, design.md, tasks.md</text>
+  </g>
+  <g transform="translate(40,554)">
+    <rect width="1160" height="56" rx="10" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.5" filter="url(#sh)"/>
+    <circle cx="34" cy="28" r="14" fill="#f59e0b"/><text x="34" y="33" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">II</text>
+    <text x="60" y="26" font-size="15" font-weight="700" fill="#92400e">GATE 1 - Revision humana de artefactos (parada obligatoria)</text>
+    <text x="60" y="46" font-size="12.5" fill="#78350f">El flujo SE DETIENE: aprobar proposal + spec-delta + design ANTES de implementar. No avanza sin OK explicito.</text>
+    <text x="1136" y="34" text-anchor="end" font-size="12" fill="#92400e" font-weight="600">humano</text>
+  </g>
+  <g transform="translate(40,626)">
+    <rect width="1160" height="96" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect width="6" height="96" rx="3" fill="#0ea5e9"/>
+    <circle cx="34" cy="30" r="14" fill="#0ea5e9"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">2</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#0f172a">Contrato (si la US toca API)</text>
+    <text x="60" y="45" font-size="13" fill="#0369a1" font-weight="600">agente: contract-engineer</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: openapi-governance, contract-sync, sdk-codegen</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">Evoluciona docs/api-spec.yml, valida, regenera el SDK y sincroniza DTOs. Congela el contrato antes de implementar.</text>
+    <text x="820" y="63" font-size="11.5" fill="#0f766e" font-weight="600">Entrega:</text>
+    <text x="820" y="83" font-size="11" fill="#475569">api-spec.yml, SDK regenerado, contrato congelado</text>
+  </g>
+  <g transform="translate(40,738)">
+    <rect width="1160" height="96" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect width="6" height="96" rx="3" fill="#ef4444"/>
+    <circle cx="34" cy="30" r="14" fill="#ef4444"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">3</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#0f172a">TDD - RED (tests primero)</text>
+    <text x="60" y="45" font-size="13" fill="#b91c1c" font-weight="600">agente: tdd-engineer</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: tdd-core, concurrency-locking, state-machine</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">Escribe primero los tests (concurrencia del bloqueo, maquina de estados, tarifas) y verifica que fallan en ROJO.</text>
+    <text x="820" y="63" font-size="11.5" fill="#0f766e" font-weight="600">Entrega:</text>
+    <text x="820" y="83" font-size="11" fill="#475569">suites de tests en RED, contrato de implementacion</text>
+  </g>
+  <g transform="translate(40,846)">
+    <rect x="0" y="0" width="150" height="20" rx="10" fill="#dcfce7" stroke="#22c55e"/>
+    <text x="14" y="14" font-size="11.5" fill="#166534" font-weight="700">EN PARALELO</text>
+    <text x="164" y="14" font-size="12" fill="#64748b" font-weight="600">4 - IMPLEMENTACION (solo si el contrato ya esta congelado y las capas son independientes)</text>
+  </g>
+  <g transform="translate(40,872)">
+    <rect width="570" height="112" rx="10" fill="#ffffff" filter="url(#sh)" stroke="#bbf7d0" stroke-width="2"/>
+    <rect width="6" height="112" rx="3" fill="#22c55e"/>
+    <circle cx="34" cy="30" r="14" fill="#22c55e"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">4a</text>
+    <text x="60" y="26" font-size="15.5" font-weight="700" fill="#0f172a">Backend</text>
+    <text x="60" y="45" font-size="12.5" fill="#15803d" font-weight="600">agente: backend-developer</text>
+    <text x="60" y="62" font-size="10.5" fill="#64748b">skills: hexagonal-ddd, atomic-date-lock, multi-tenancy-rls, async-jobs</text>
+    <text x="60" y="80" font-size="11.5" fill="#334155">Implementa NestJS/Prisma hasta poner los tests en</text>
+    <text x="60" y="95" font-size="11.5" fill="#334155">VERDE. Respeta bloqueo atomico y multi-tenancy.</text>
+    <text x="60" y="110" font-size="10.5" fill="#0f766e">Entrega: dominio, use-case, adapters, controller, DTO</text>
+  </g>
+  <g transform="translate(630,872)">
+    <rect width="570" height="112" rx="10" fill="#ffffff" filter="url(#sh)" stroke="#bbf7d0" stroke-width="2"/>
+    <rect width="6" height="112" rx="3" fill="#14b8a6"/>
+    <circle cx="34" cy="30" r="14" fill="#14b8a6"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">4b</text>
+    <text x="60" y="26" font-size="15.5" font-weight="700" fill="#0f172a">Frontend</text>
+    <text x="60" y="45" font-size="12.5" fill="#0f766e" font-weight="600">agente: frontend-developer</text>
+    <text x="60" y="62" font-size="10.5" fill="#64748b">skills: figma-design-consume, frontend-feature, shadcn-tailwind, tanstack-forms</text>
+    <text x="60" y="80" font-size="11.5" fill="#334155">Construye la UI mobile-first consumiendo el SDK</text>
+    <text x="60" y="95" font-size="11.5" fill="#334155">generado (nunca a mano). El SDK es la frontera.</text>
+    <text x="60" y="110" font-size="10.5" fill="#0f766e">Entrega: paginas, componentes, hooks, formularios</text>
+  </g>
+  <g transform="translate(40,1000)">
+    <rect width="1160" height="96" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect width="6" height="96" rx="3" fill="#8b5cf6"/>
+    <circle cx="34" cy="30" r="14" fill="#8b5cf6"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">5</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#0f172a">QA (el agente ejecuta, nunca delega)</text>
+    <text x="60" y="45" font-size="13" fill="#6d28d9" font-weight="600">agente: qa-verifier</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: qa-mandatory-steps, db-state-verify</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">Unit + verificacion de BD, pruebas con curl y E2E con Playwright. Genera reports en la carpeta del change.</text>
+    <text x="820" y="63" font-size="11.5" fill="#0f766e" font-weight="600">Entrega:</text>
+    <text x="820" y="83" font-size="11" fill="#475569">reports unit-db, curl y e2e; BD restaurada</text>
+  </g>
+  <g transform="translate(40,1112)">
+    <rect width="1160" height="102" rx="10" fill="#f5f3ff" stroke="#8b5cf6" stroke-width="1.5" filter="url(#sh)"/>
+    <rect width="6" height="102" rx="3" fill="#7c3aed"/>
+    <circle cx="34" cy="30" r="14" fill="#7c3aed"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">6</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#4c1d95">Code Review - GATE DURO (obligatorio)</text>
+    <text x="60" y="45" font-size="13" fill="#6d28d9" font-weight="600">agente: code-reviewer</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: review-checklist, architecture-guardrails</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">Revisa el diff contra los guardrails y deja un informe con linea Veredicto: APTO o NO APTO.</text>
+    <text x="60" y="99" font-size="12" fill="#b91c1c" font-weight="600">NO APTO o bloqueantes = vuelve a Implementacion. Sin informe APTO no se archiva (hook require-code-review).</text>
+    <text x="900" y="83" font-size="11.5" fill="#0f766e" font-weight="600">Entrega:</text>
+    <text x="900" y="99" font-size="11" fill="#475569">informe code-review (APTO)</text>
+  </g>
+  <g transform="translate(40,1232)">
+    <rect width="1160" height="90" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect width="6" height="90" rx="3" fill="#f97316"/>
+    <circle cx="34" cy="30" r="14" fill="#f97316"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">7</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#0f172a">Docs</text>
+    <text x="60" y="45" font-size="13" fill="#c2410c" font-weight="600">agente: docs-keeper</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: doc-sync, slotify-domain</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">Sincroniza la documentacion tecnica (data-model, er-diagram, api-spec, standards). Puede ir en paralelo con el review.</text>
+    <text x="900" y="63" font-size="11.5" fill="#0f766e" font-weight="600">Entrega:</text>
+    <text x="900" y="83" font-size="11" fill="#475569">docs actualizados y coherentes</text>
+  </g>
+  <g transform="translate(40,1338)">
+    <rect width="1160" height="56" rx="10" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.5" filter="url(#sh)"/>
+    <circle cx="34" cy="28" r="14" fill="#f59e0b"/><text x="34" y="33" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">II</text>
+    <text x="60" y="26" font-size="15" font-weight="700" fill="#92400e">GATE 2 - Revision humana final (parada obligatoria)</text>
+    <text x="60" y="46" font-size="12.5" fill="#78350f">El flujo SE DETIENE: con code-review APTO + validacion manual, se espera el OK humano ANTES de archive / PR.</text>
+    <text x="1136" y="34" text-anchor="end" font-size="12" fill="#92400e" font-weight="600">humano</text>
+  </g>
+  <g transform="translate(40,1410)">
+    <rect width="1160" height="90" rx="10" fill="#ffffff" filter="url(#sh)"/>
+    <rect width="6" height="90" rx="3" fill="#4338ca"/>
+    <circle cx="34" cy="30" r="14" fill="#4338ca"/><text x="34" y="35" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">8</text>
+    <text x="60" y="26" font-size="17" font-weight="700" fill="#0f172a">Archive + PR</text>
+    <text x="60" y="45" font-size="13" fill="#3730a3" font-weight="600">agente: spec-author</text>
+    <text x="60" y="63" font-size="12" fill="#64748b">skills: openspec-archive, openspec-sync-specs</text>
+    <text x="60" y="83" font-size="12.5" fill="#334155">openspec archive del change, promueve openspec/specs y abre el PR (solo tras gate final y code-review APTO).</text>
+    <text x="900" y="63" font-size="11.5" fill="#0f766e" font-weight="600">Entrega:</text>
+    <text x="900" y="83" font-size="11" fill="#475569">change archivado, specs vivas, PR abierto</text>
+  </g>
+  <g transform="translate(40,1520)">
+    <rect x="360" y="0" width="440" height="44" rx="22" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5"/>
+    <text x="580" y="28" text-anchor="middle" font-size="15" font-weight="700" fill="#166534">US completada - PR a master</text>
+  </g>
+  <g stroke="#94a3b8" stroke-width="2" fill="none">
+    <line x1="620" y1="294" x2="620" y2="314" marker-end="url(#arrow)"/>
+    <line x1="620" y1="410" x2="620" y2="426" marker-end="url(#arrow)"/>
+    <line x1="620" y1="538" x2="620" y2="554" marker-end="url(#arrow)"/>
+    <line x1="620" y1="610" x2="620" y2="626" marker-end="url(#arrow)"/>
+    <line x1="620" y1="722" x2="620" y2="738" marker-end="url(#arrow)"/>
+    <line x1="620" y1="834" x2="620" y2="872" marker-end="url(#arrow)"/>
+    <line x1="620" y1="984" x2="620" y2="1000" marker-end="url(#arrow)"/>
+    <line x1="620" y1="1096" x2="620" y2="1112" marker-end="url(#arrow)"/>
+    <line x1="620" y1="1214" x2="620" y2="1232" marker-end="url(#arrow)"/>
+    <line x1="620" y1="1322" x2="620" y2="1338" marker-end="url(#arrow)"/>
+    <line x1="620" y1="1394" x2="620" y2="1410" marker-end="url(#arrow)"/>
+    <line x1="620" y1="1500" x2="620" y2="1520" marker-end="url(#arrow)"/>
+  </g>
+  <text x="40" y="1596" font-size="12" fill="#94a3b8">Flujo generico del harness (plantilla, no una US concreta). Solo se muestran las fases y sus agentes; se omiten hooks, openspec/config.yaml y la memoria en disco.</text>
+  <text x="40" y="1616" font-size="12" fill="#94a3b8">Gates duros y secuenciales: SDD - Contrato - TDD-RED. Paralelizable (recuadro verde): 4a con 4b (backend con frontend) y 6 con 7 (docs con code-review). Estado en disco: _backlog.json, tasks.md, reports/.</text>
+</svg>
