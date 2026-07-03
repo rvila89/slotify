@@ -16,6 +16,7 @@ import {
   Controller,
   Get,
   InternalServerErrorException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
@@ -45,6 +46,19 @@ class ErroresDePruebaController {
       message: 'La fecha seleccionada no está disponible y no admite lista de espera.',
       colaDisponible: false,
       motivo: 'La fecha seleccionada no está disponible y no admite lista de espera.',
+    });
+  }
+
+  @Get('datos-fiscales-incompletos')
+  datosFiscalesIncompletos(): never {
+    // Replica EXACTA de lo que lanza GenerarPresupuestoController para
+    // DatosFiscalesIncompletosError (US-014, FA-01, → 422).
+    throw new UnprocessableEntityException({
+      statusCode: 422,
+      error: 'Unprocessable Entity',
+      message: 'Faltan datos para generar el presupuesto: dniNif, direccionFiscal',
+      codigo: 'DATOS_FISCALES_INCOMPLETOS',
+      camposFaltantes: ['dniNif', 'direccionFiscal'],
     });
   }
 
@@ -103,5 +117,31 @@ describe('HttpExceptionFilter — propagación de campos de conflicto de fecha (
     expect(res.body).toEqual(
       expect.objectContaining({ statusCode: 500, error: expect.any(String) }),
     );
+  });
+});
+
+describe('HttpExceptionFilter — propagación de camposFaltantes (US-014, FA-01)', () => {
+  it('debe_propagar_camposFaltantes_como_array_en_el_422_de_datos_fiscales_incompletos', async () => {
+    const res = await request(app.getHttpServer()).get(
+      '/api/test-errores/datos-fiscales-incompletos',
+    );
+
+    expect(res.status).toBe(422);
+    expect(Array.isArray(res.body.camposFaltantes)).toBe(true);
+    expect(res.body).toEqual(
+      expect.objectContaining({
+        statusCode: 422,
+        error: 'Unprocessable Entity',
+        codigo: 'DATOS_FISCALES_INCOMPLETOS',
+        camposFaltantes: ['dniNif', 'direccionFiscal'],
+      }),
+    );
+  });
+
+  it('NO_debe_añadir_camposFaltantes_a_errores_que_no_lo_aportan', async () => {
+    const res = await request(app.getHttpServer()).get('/api/test-errores/error-generico');
+
+    expect(res.status).toBe(500);
+    expect(res.body).not.toHaveProperty('camposFaltantes');
   });
 });

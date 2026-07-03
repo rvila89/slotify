@@ -41,6 +41,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
     // excepción los aporta.
     let colaDisponible: boolean | undefined;
     let motivo: string | undefined;
+    // Campo opcional del error de datos fiscales incompletos (US-014,
+    // `DatosFiscalesIncompletosError` → 422): `camposFaltantes` (array de strings).
+    // El contrato OpenAPI (`PresupuestoDatosFiscalesError`) lo declara `required`;
+    // sin él la UI no puede resaltar los campos individuales. Mismo patrón opcional
+    // que `codigo`/`detalle`/`colaDisponible`/`motivo`: solo se incluye si la
+    // excepción lo aporta.
+    let camposFaltantes: string[] | undefined;
 
     if (exception instanceof HttpException) {
       statusCode = exception.getStatus();
@@ -55,6 +62,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
           detalle?: unknown;
           colaDisponible?: boolean;
           motivo?: string;
+          camposFaltantes?: string[];
         };
         message = b.message ?? exception.message;
         error = b.error ?? error;
@@ -62,6 +70,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         detalle = b.detalle;
         colaDisponible = b.colaDisponible;
         motivo = b.motivo;
+        camposFaltantes = b.camposFaltantes;
       }
     } else if (
       exception instanceof Prisma.PrismaClientKnownRequestError &&
@@ -83,6 +92,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       ...(detalle !== undefined ? { detalle } : {}),
       ...(colaDisponible !== undefined ? { colaDisponible } : {}),
       ...(motivo !== undefined ? { motivo } : {}),
+      ...(camposFaltantes !== undefined ? { camposFaltantes } : {}),
       path: request.url,
       timestamp: new Date().toISOString(),
     });

@@ -274,6 +274,47 @@ export const esOrigenValidoParaProgramarVisita = (
   );
 
 // ---------------------------------------------------------------------------
+// Guarda de ORIGEN de la transición «activar pre_reserva» (US-014 / UC-14 / §D-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Conjunto declarativo de ORÍGENES válidos de la transición «activar pre_reserva»
+ * al confirmar el presupuesto (`{2a,2b,2c,2v} → pre_reserva`, US-014, skill
+ * `state-machine`, NO condicionales dispersos). A diferencia de US-005 (origen
+ * estricto `2.a`) y US-007 (origen estricto `2.b`), esta transición admite CUATRO
+ * orígenes de consulta ACTIVA (`2a/2b/2c/2v`): la exploratoria, la consulta con fecha
+ * bloqueada, la pendiente de invitados y la visita programada. La cola `2.d` NO es
+ * origen (debe promoverse primero, UC-12; se rechaza con 409 en la aplicación); los
+ * terminales (`2x/2y/2z`), el propio destino `pre_reserva` (ya confirmada) y cualquier
+ * otro estado principal distinto de `consulta` (incluidos `reserva_cancelada`/
+ * `reserva_completada`, inmutables) son orígenes inválidos. Mismo patrón que
+ * `ORIGENES_TRANSICION_PROGRAMAR_VISITA` (US-008).
+ */
+export const ORIGENES_TRANSICION_ACTIVAR_PRERESERVA: ReadonlyArray<OrigenTransicion> = [
+  { estado: 'consulta', subEstado: '2a' },
+  { estado: 'consulta', subEstado: '2b' },
+  { estado: 'consulta', subEstado: '2c' },
+  { estado: 'consulta', subEstado: '2v' },
+];
+
+/**
+ * Guarda declarativa: ¿es `(estado, subEstado)` un ORIGEN legal de la transición
+ * «activar pre_reserva» (US-014)? Consulta la tabla
+ * `ORIGENES_TRANSICION_ACTIVAR_PRERESERVA`: solo `consulta/{2a,2b,2c,2v}` lo es. Se
+ * evalúa ANTES de invocar el motor de tarifa y de abrir la transacción para rechazar
+ * sin efectos cualquier otro sub-estado/estado. El caso `2.d` (cola) se distingue en
+ * la aplicación para devolver 409 (remite a UC-12); el resto de no-orígenes también
+ * mapea a 409 (conflicto de estado, F5-02).
+ */
+export const esOrigenValidoParaActivarPrereserva = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): boolean =>
+  ORIGENES_TRANSICION_ACTIVAR_PRERESERVA.some(
+    (origen) => origen.estado === estado && origen.subEstado === subEstado,
+  );
+
+// ---------------------------------------------------------------------------
 // Guarda de PRECONDICIÓN «bloqueo blando extensible» (US-006 / UC-05 / §D-1)
 // ---------------------------------------------------------------------------
 

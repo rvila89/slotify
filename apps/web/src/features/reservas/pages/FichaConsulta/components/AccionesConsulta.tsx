@@ -1,4 +1,5 @@
-import { CalendarClock, CalendarPlus, Info, Mail, Timer, Users } from 'lucide-react';
+import { CalendarClock, CalendarPlus, FileText, Info, Mail, Timer, Users } from 'lucide-react';
+import { motivoNoPuedeGenerar, puedeGenerarPresupuesto } from '@/features/presupuestos';
 import { bloqueoVigente, puedeExtenderBloqueo } from '../../../lib/fecha';
 import type { Reserva } from '../../../model/types';
 
@@ -28,6 +29,7 @@ type Props = {
   onPendienteInvitados: () => void;
   onProgramarVisita: () => void;
   onExtenderBloqueo: () => void;
+  onGenerarPresupuesto: () => void;
 };
 
 export const AccionesConsulta = ({
@@ -36,6 +38,7 @@ export const AccionesConsulta = ({
   onPendienteInvitados,
   onProgramarVisita,
   onExtenderBloqueo,
+  onGenerarPresupuesto,
 }: Props) => {
   const subEstado = reserva.subEstado;
   const esExploratoria = subEstado === '2a';
@@ -53,6 +56,15 @@ export const AccionesConsulta = ({
     subEstado: reserva.subEstado,
     ttlExpiracion: reserva.ttlExpiracion,
   });
+  // US-014 (§5.1): "Generar presupuesto" habilitado en `consulta` con
+  // `subEstado ∈ {2a,2b,2c,2v}`; deshabilitado en `2d`/terminales/`pre_reserva`+.
+  const puedePresupuesto = puedeGenerarPresupuesto({
+    estado: reserva.estado,
+    subEstado: reserva.subEstado,
+  });
+  // Solo se muestra la acción (habilitada o bloqueada) mientras la reserva sigue
+  // en fase de consulta; en `pre_reserva`+ desaparece (ya hay presupuesto/UC-15).
+  const mostrarPresupuesto = reserva.estado === 'consulta';
 
   const botonVisita = (
     <button
@@ -163,12 +175,53 @@ export const AccionesConsulta = ({
         </div>
       )}
 
+      {/* US-014: "Generar presupuesto" — habilitada en 2a/2b/2c/2v, bloqueada en 2d/terminales. */}
+      {mostrarPresupuesto && (
+        <div className="flex flex-col gap-3">
+          {puedePresupuesto ? (
+            <>
+              <p className="font-body text-sm text-text-secondary">
+                Genera el presupuesto con la tarifa vigente y activa la pre-reserva: se creará el
+                presupuesto, la fecha quedará bloqueada 7 días y se enviará al cliente por email.
+              </p>
+              <button
+                type="button"
+                data-testid="boton-generar-presupuesto"
+                onClick={onGenerarPresupuesto}
+                className={claseBotonAccion}
+              >
+                <FileText aria-hidden className="size-5" />
+                Generar presupuesto
+              </button>
+            </>
+          ) : (
+            <>
+              <p data-testid="aviso-presupuesto-bloqueado" className={claseTextoInfo}>
+                <Info aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
+                {motivoNoPuedeGenerar({ estado: reserva.estado, subEstado: reserva.subEstado })}
+              </p>
+              <button
+                type="button"
+                data-testid="boton-generar-presupuesto"
+                disabled
+                aria-disabled="true"
+                className={claseBotonAccion}
+              >
+                <FileText aria-hidden className="size-5" />
+                Generar presupuesto
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Terminales u otros estados sin acciones disponibles. */}
       {!esExploratoria &&
         !puedePendienteInvitados &&
         !puedeProgramarVisita &&
         !enCola &&
-        !puedeExtender && (
+        !puedeExtender &&
+        !mostrarPresupuesto && (
           <p className={claseTextoInfo}>
             <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
             No hay acciones disponibles para esta consulta en su estado actual.

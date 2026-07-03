@@ -279,13 +279,13 @@ Esta sección registra las decisiones tomadas conscientemente como deuda en US-0
 | DT-AUTH-03 | **Throttler en memoria por proceso.** `LoginThrottleGuard` usa un `Map` en memoria del proceso: los contadores no se comparten entre instancias y se reinician al rearrancar el proceso. Aceptado para el MVP de instancia única (Railway). Antes de cualquier despliegue multi-instancia debe migrarse a una solución compartida (Redis, BD o `@nestjs/throttler` con store distribuido). | Decisión §3 del change US-001; nota de escalabilidad del code-review | Antes de despliegue multi-instancia |
 | DT-AUTH-04 | **SDK del frontend genera `.d.ts` en lugar de `.ts`.** La configuración actual de `resolve.extensions` incluye `.d.ts`, lo que hace que el cliente generado sea un archivo de tipos, no un módulo importable directamente. Requiere workaround en el build del frontend. La corrección pasa por ajustar la config de codegen del `contract-engineer`. | Nota de codegen del code-review | Próxima iteración de codegen del `contract-engineer` |
 | DT-EMAIL-01 | **Adaptador de email stub (no-op) — RESUELTA.** El `EnviarEmailStubAdapter` se sustituye en US-045 por `ResendEmailAdapter` (producción) y `FakeEmailAdapter` (test/CI/dev, forzado). El motor `DespacharEmailService` centraliza render + envío + actualización de estado. `AltaConsultaUseCase` delega el envío post-commit en `DespacharEmailService.finalizarEnvio`: la `COMUNICACION` E1 nace en `borrador` dentro de la `$transaction` del alta y el motor la promueve a `enviado`+`fecha_envio` (éxito) o a `fallido`+AUDIT_LOG (fallo del proveedor), sin reintento y sin tumbar el HTTP 201. Regresión cero sobre US-003/004 (contrato del puerto `EnviarEmailPort` intacto, campos nuevos solo opcionales). | US-045 (28/06/2026). Cierre: motor hexagonal + Resend + FakeEmailAdapter en test/CI + cableado real de E1. | RESUELTA — US-045 (28/06/2026) |
-| DT-EMAIL-02 | **Cableado de triggers E2–E8 diferido a sus US.** El catálogo de plantillas declara E2–E8 como entradas diseñadas/inactivas (variables, adjuntos y metadatos declarados, sin render activo) pero sin trigger cableado. Mapa de deuda: E2→US-014 (`pre_reserva` + PDF presupuesto), E3→US-021/022/023 (`reserva_confirmada` + factura señal), E4→US-027/028 (liquidación facturada), E5→US-034 (`post_evento` con `fianza_eur > 0`), E6→US-008 (sub-estado `2.v` visita), E7→US-009 (resultado visita "interesado" → `2.b`), E8→US-035 (`iban_devolucion` registrado). Adjuntos PDF reales (presupuesto/factura/documento) y cron de recordatorios también diferidos. Envío manual de borradores: US-046. | Decisión de alcance del Gate SDD de US-045: el cableado de E2–E8 requiere triggers, PDFs y estados de US aún no implementadas; construirlos ahora sería spec especulativa. El motor ya está listo para recibirlos sin rediseño. | Cada US de trigger listada en la columna anterior + US-046 |
+| DT-EMAIL-02 | **Cableado de triggers E2–E8 diferido a sus US.** El catálogo de plantillas declara E2–E8 como entradas diseñadas/inactivas (variables, adjuntos y metadatos declarados, sin render activo) pero sin trigger cableado. Mapa de deuda actualizado: **E2 → RESUELTA — US-014** (trigger cableado en `POST /reservas/{id}/presupuesto`; activado post-commit de la transición `{2a,2b,2c,2v} → pre_reserva`; PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; idempotencia garantizada por índice UNIQUE parcial de US-045). Pendientes: E3→US-021/022/023 (`reserva_confirmada` + factura señal), E4→US-027/028 (liquidación facturada), E5→US-034 (`post_evento` con `fianza_eur > 0`), E6→US-008 (RESUELTA — trigger cableado en US-008), E7→US-009 (resultado visita "interesado" → `2.b`), E8→US-035 (`iban_devolucion` registrado). Adjuntos PDF reales (factura/documento) y cron de recordatorios también diferidos. Envío manual de borradores: US-046. | Decisión de alcance del Gate SDD de US-045: el cableado de E2–E8 requiere triggers, PDFs y estados de US aún no implementadas; construirlos ahora sería spec especulativa. El motor ya está listo para recibirlos sin rediseño. | E2: RESUELTA — US-014 (03/07/2026). E6: RESUELTA — US-008 (30/06/2026). E3, E4, E5, E7, E8: cada US de trigger listada + US-046 |
 | Bj3 | **Default inseguro de `EMAIL_SANDBOX` — RESUELTA.** Antes, si `EMAIL_SANDBOX` no estaba seteada, el sistema podía enviar emails reales (unset → `false`). Ahora el default es SEGURO con doble barrera: (1) validación zod en `env.validation.ts` — unset → `undefined !== 'false'` → `true` (sandbox activo); (2) cableado en `comunicaciones.module.ts` — trata como envío real solo el `false`/`'false'` explícito. Con `sandbox=true`, `resend.email.adapter.ts` reescribe el destinatario a `delivered@resend.dev`. El opt-in al envío real exige `EMAIL_SANDBOX=false` explícito en el entorno; cualquier otro valor, incluido unset, mantiene el sandbox activo. Cobertura: 3 tests nuevos en `env.validation.spec.ts` (unset→true, 'true'→true, 'false'→false). | Code-review de US-045, segunda pasada (29/06/2026). Detectada como deuda operativa de seguridad (baja→operativa). | RESUELTA — US-045 fix Bj3 (29/06/2026) |
 | DT-CODIGO-01 | **Generación de `codigo` no atómica (count+1) — RESUELTA.** La implementación inicial generaba el correlativo `YY-NNNN` con `count(*)+1` dentro de la transacción: dos altas concurrentes podían leer el mismo recuento y colisionar en el índice `reserva_codigo_key`. Resuelto con **retry-on-conflict** en `UnidadDeTrabajoPrismaAdapter.ejecutar()` (hasta 3 reintentos): ante `P2002` sobre `reserva_codigo_key`, el adaptador reabre la `$transaction` y reintenta; el siguiente intento re-lee el `count` con el ganador ya confirmado. El índice UNIQUE permanece como red de seguridad final. Conexo: el controlador ya no enmascara errores como 500; cualquier `P2002` no capturado por el caso de uso se propaga al `HttpExceptionFilter` global → 409. | Code-review de US-003 (señalado como tolerable para MVP; corregido en los fixes finales de US-003) | RESUELTA — US-003 fixes finales (28/06/2026) |
 
 ### 2.10 Módulo M10 Comunicaciones: motor de email automático (US-045)
 
-El módulo `comunicaciones` implementa un **motor de email hexagonal reutilizable** que sirve a todos los triggers del ciclo de vida de la reserva (E1–E8). Solo **E1** está cableado en US-045; E2–E8 se activarán en sus US respectivas (ver DT-EMAIL-02 en §2.9).
+El módulo `comunicaciones` implementa un **motor de email hexagonal reutilizable** que sirve a todos los triggers del ciclo de vida de la reserva (E1–E8). **E1** está cableado en US-045; **E2** se activó en US-014 (post-commit de la transición a `pre_reserva`, PDF adjunto); **E6** se activó en US-008 (post-commit de la transición a `2.v`); E3–E5, E7–E8 se activarán en sus US respectivas (ver DT-EMAIL-02 en §2.9).
 
 #### Arquitectura interna del módulo
 
@@ -502,6 +502,73 @@ Cada mutación se ejecuta bajo `SET LOCAL app.tenant_id` del tenant de la RESERV
 #### Sin migración de esquema
 
 US-012 no añade entidades ni columnas nuevas: `ttl_expiracion` (en `RESERVA` y `FECHA_BLOQUEADA`), `estado`, `sub_estado` y `AUDIT_LOG` existen desde US-000/US-040/US-004.
+
+### 2.13 Capability M11 Presupuestos: generación del presupuesto y activación de pre-reserva (US-014 / UC-14)
+
+La capability `presupuestos` cubre el **nodo de mayor complejidad del camino feliz**: coordina tres capabilities en **una única transacción** — crear PRESUPUESTO, transicionar RESERVA, actualizar FECHA_BLOQUEADA, vaciar la cola — y delega el cálculo al motor de tarifa (UC-16 / US-016). Es el primer agregado distinto de RESERVA con ciclo de vida propio (`borrador`/`enviado`/`aceptado`/`rechazado`) que se introduce en el MVP.
+
+#### Módulo backend
+
+```
+apps/api/src/presupuestos/
+  domain/
+    presupuesto.entity.ts            Entidad PRESUPUESTO con desglose fiscal congelado
+    pdf-presupuesto.port.ts          Puerto de generación de PDF (interfaz pura — sin Puppeteer)
+    presupuesto.repository.port.ts   Puerto de persistencia
+  application/
+    generar-presupuesto.use-case.ts  Orquestador UC-14: preview + confirmación (Unit of Work)
+  infrastructure/
+    presupuesto.prisma.adapter.ts    Repositorio Prisma con RLS
+    puppeteer-pdf.adapter.ts         Adaptador de generación PDF (Puppeteer/react-pdf)
+  interface/
+    presupuestos.controller.ts       POST /reservas/{id}/presupuesto/preview · POST /reservas/{id}/presupuesto
+  presupuestos.module.ts
+```
+
+**Regla de dependencia hexagonal:** `domain/` no importa Prisma ni Puppeteer ni NestJS. El módulo `presupuestos` no importa de `reservas/domain/` directamente: la coordinación transaccional se realiza a través del puerto de transición de RESERVA que el use-case de `presupuestos` invoca, respetando la regla de no-acoplamiento entre módulos de dominio.
+
+#### Dos endpoints y la partición preview/confirmación
+
+- **`POST /reservas/{id}/presupuesto/preview`** — calcula el **borrador** invocando el motor de tarifa (UC-16). No persiste ningún PRESUPUESTO, no muta la RESERVA ni la `FECHA_BLOQUEADA`, no envía ningún email. Acepta body opcional `{ extras?, descuento_eur?, precio_manual_eur? }` (para el caso `tarifa_a_consultar`). Responde con el desglose: base imponible, IVA 21%, extras, total, reparto 40%/60%/fianza, instrucciones de transferencia. Errores: `422` con `camposFaltantes` (datos fiscales incompletos), `422`/`409` por errores del motor de tarifa (`TARIFA_NO_CONFIGURADA`, `TEMPORADA_NO_CONFIGURADA`, `EXTRA_NO_ENCONTRADO`), `409` por guarda de origen o presupuesto ya existente.
+
+- **`POST /reservas/{id}/presupuesto`** — **confirma** el borrador. Body: `{ extras, descuento_eur?, descuento_motivo?, precio_manual_eur? }`. En una **única transacción** all-or-nothing serializada por `SELECT … FOR UPDATE` sobre la fila bloqueante: INSERT PRESUPUESTO (`version = 1`, `tarifa_congelada = true`, `estado = 'enviado'`) + UPDATE RESERVA (`→ pre_reserva`, `ttl_expiracion = now() + ttl_prereserva_dias`) + insert-o-update de FECHA_BLOQUEADA (`tipo_bloqueo = 'blando'`, nuevo TTL 7 días) + vaciado de cola A16 (`2d → 2y`) + AUDIT_LOG. Post-commit: generación del PDF y UPDATE de `PRESUPUESTO.pdf_url` (idempotente); disparo de E2 vía motor US-045. Errores: `201` (éxito), `409` (carrera `UNIQUE(tenant_id, fecha)`, presupuesto ya existente), `422` (guarda de origen, datos fiscales, precio manual requerido).
+
+#### Transacción única — garantía de atomicidad
+
+La transacción que sostiene la confirmación es **la más compleja del MVP** porque coordina dos agregados en la misma BD bajo el mismo `SELECT … FOR UPDATE`:
+
+1. **Serialización:** `FOR UPDATE` sobre la fila de `FECHA_BLOQUEADA` (si existe fila activa en `2b`/`2c`/`2v`) o sobre `UNIQUE(tenant_id, fecha)` (si origen es `2a`, protege el INSERT por colisión P2002).
+2. **INSERT PRESUPUESTO congelado:** desglose fiscal derivado del motor de tarifa; una vez confirmado, cambios en el tarifario no lo recalculan.
+3. **UPDATE RESERVA:** `estado → 'pre_reserva'`, `sub_estado → NULL`, `ttl_expiracion = now() + ttl_prereserva_dias`.
+4. **Insert-o-update FECHA_BLOQUEADA:** reutiliza `bloquearFecha(fase = 'pre_reserva')` de US-040 con la rama insert-o-update ya en `bloquearEnTx(tx, …)`. `tipo_bloqueo` permanece `'blando'` (el upgrade a `firme` ocurre en la confirmación de reserva, fuera de US-014).
+5. **Vaciado de cola A16:** reutiliza la mecánica de US-007 (UPDATE masivo `2d → 2y`); si la cola está vacía, 0 filas afectadas sin error.
+6. **AUDIT_LOG:** `accion='transicion'` por la RESERVA principal + una entrada por cada RESERVA descartada de la cola.
+
+Un fallo parcial hace rollback completo de las 6 operaciones.
+
+#### PDF y E2 fuera de la transacción crítica
+
+La generación del PDF (Puppeteer/react-pdf) y el envío del email E2 ocurren **post-commit** para no alargar la ventana del `FOR UPDATE`:
+
+- El adaptador `PdfPresupuestoPort` genera el PDF y devuelve la URL; un segundo UPDATE idempotente almacena `PRESUPUESTO.pdf_url`.
+- E2 se dispara vía `DespacharEmailService` (US-045), adjuntando el PDF por referencia a `pdf_url`. La idempotencia `(reserva_id, codigo_email)` de US-045 garantiza una sola E2 por RESERVA (protege del doble clic).
+- Un fallo del proveedor de email **no revierte** la pre-reserva; queda trazado en `COMUNICACION` (`estado = 'fallido'`) sin reintento en MVP. E2 pasa de `diseñada/inactiva` a **activa** a partir de US-014. Ver DT-EMAIL-02 en §2.9.
+
+#### Precio manual (>50 invitados)
+
+Cuando el motor de tarifa devuelve `tarifa_a_consultar = true`, la confirmación exige `precio_manual_eur` en el body; si no se proporciona, el sistema devuelve `422`. El `PRESUPUESTO.total` se fija al precio manual; `tarifa_id` queda a `null` en el AUDIT_LOG (no se almacena en el PRESUPUESTO).
+
+#### `HttpExceptionFilter` — propagación de `camposFaltantes` (US-014)
+
+US-014 actualiza el `HttpExceptionFilter` global para que propague el campo `camposFaltantes` (lista de nombres de campos fiscales faltantes) en el body del error `422`. Antes del cambio, los errores con payload estructurado podían perder ese detalle al pasar por el filtro.
+
+#### Multi-tenancy y RLS
+
+PRESUPUESTO no lleva `tenant_id` propio: el aislamiento se garantiza vía la FK a RESERVA (que sí lleva `tenant_id`) con RLS activo en PostgreSQL. El adaptador Prisma de presupuestos lee siempre a través de la RESERVA del tenant del JWT.
+
+#### Sin migración de esquema
+
+US-014 no añade entidades ni columnas nuevas al schema: la tabla `PRESUPUESTO` (con `fecha_envio` y `fecha_actualizacion`) ya existía desde US-000. La capability solo activa el uso productivo de esa tabla.
 
 ---
 

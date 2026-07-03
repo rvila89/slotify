@@ -252,17 +252,17 @@ erDiagram
     PRESUPUESTO {
         uuid id_presupuesto PK
         uuid reserva_id FK
-        int version
+        int version "UNIQUE(reserva_id, version)"
         decimal base_imponible
         decimal iva_porcentaje
         decimal iva_importe
         decimal total
-        decimal descuento_eur
-        string descuento_motivo
-        boolean tarifa_congelada
-        string pdf_url
+        decimal descuento_eur "nullable"
+        string descuento_motivo "nullable"
+        boolean tarifa_congelada "DEFAULT true"
+        string pdf_url "nullable, URL del PDF generado post-commit"
         enum estado "borrador | enviado | aceptado | rechazado"
-        timestamp fecha_envio
+        timestamp fecha_envio "nullable, solo cuando estado=enviado"
         timestamp fecha_creacion
         timestamp fecha_actualizacion
     }
@@ -540,7 +540,7 @@ Registro de bloqueo atómico de fecha. La restricción `UNIQUE(tenant_id, fecha)
 | `2.b` | blando | `now() + ttl_consulta_dias` (3 d) | insert |
 | `2.c` | blando | `ttl_actual + ttl_consulta_dias` (extensión) | extend |
 | `2.v` | blando | `visita_programada_fecha + 1 día (23:59:59)` | insert-o-update |
-| `pre_reserva` | blando | `now() + ttl_prereserva_dias` (7 d) | insert |
+| `pre_reserva` | blando | `now() + ttl_prereserva_dias` (7 d) | insert-o-update |
 | `reserva_confirmada` | firme | NULL | upgrade |
 
 Los días de TTL se leen de `TENANT_SETTINGS`; nunca se hardcodean.
@@ -625,21 +625,42 @@ Línea de extra de una reserva. Es la unidad que se factura. El precio se congel
 - En todos los casos, al generar la factura correspondiente se marcan los `RESERVA_EXTRA` con `factura_id` pendientes (`factura_id IS NULL`) de esa reserva.
 
 ### 3.11 PRESUPUESTO
-Versiones del presupuesto generado para una reserva. Cada versión congela la tarifa vigente.
+Versiones del presupuesto generado para una reserva (UC-14 / US-014). Cada versión congela el desglose fiscal derivado del motor de tarifa en el momento de la confirmación. La primera versión (`version = 1`) se crea en la misma transacción que la transición de la RESERVA a `pre_reserva`. Versiones posteriores corresponden a ediciones (UC-15).
+
+La restricción `UNIQUE(reserva_id, version)` garantiza que no existan dos presupuestos con la misma versión para la misma reserva.
+
+**No lleva `tenant_id` propio**: el aislamiento multi-tenant se garantiza vía la FK a `RESERVA`, que sí lleva `tenant_id`, con RLS activo.
+
+**Nota de implementación — `tarifa_id` ausente del schema (US-014):** el design D-5 preveía almacenar `tarifa_id` como referencia trazable a la `TARIFA` vigente usada. En la implementación se confirmó que el motor de tarifa (US-016) devuelve `tarifa_id` en su esquema canónico, pero la columna no se añadió al modelo de `PRESUPUESTO` en esta iteración; la referencia a la tarifa queda en el `AUDIT_LOG`. Deuda de trazabilidad pendiente de UC-15/US-015.
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
 | id_presupuesto | UUID PK | Identificador único |
-| reserva_id | UUID FK | Reserva asociada |
-| version | INT | Número de versión (1, 2, 3...) |
-| base_imponible | DECIMAL(10,2) | Base antes de IVA |
-| iva_porcentaje | DECIMAL(4,2) | Porcentaje IVA (21%) |
-| iva_importe | DECIMAL(10,2) | Importe de IVA |
-| total | DECIMAL(10,2) | Total con IVA |
-| descuento_eur | DECIMAL(10,2) | Descuento aplicado |
-| tarifa_congelada | BOOLEAN | Si la tarifa quedó congelada |
-| pdf_url | VARCHAR(500) | URL del PDF generado |
-| estado | ENUM | borrador, enviado, aceptado, rechazado |
+| reserva_id | UUID FK | Reserva asociada. FK → RESERVA |
+| version | INT | Número de versión (1, 2, 3…). Restricción `UNIQUE(reserva_id, version)` |
+| base_imponible | DECIMAL(10,2) | Base imponible antes de IVA. Derivada: `total / 1.21` |
+| iva_porcentaje | DECIMAL(4,2) | Porcentaje IVA (21 en MVP) |
+| iva_importe | DECIMAL(10,2) | Importe de IVA. Derivado: `total - base_imponible` |
+| total | DECIMAL(10,2) | Total con IVA incluido. Igual al `total_eur` del motor de tarifa (o precio manual si `tarifa_a_consultar = true`) menos `descuento_eur` |
+| descuento_eur | DECIMAL(10,2) | Descuento aplicado por el Gestor. Nullable |
+| descuento_motivo | VARCHAR | Motivo del descuento. Nullable |
+| tarifa_congelada | BOOLEAN | `DEFAULT true`. Una vez confirmado, un cambio del tarifario no recalcula este presupuesto |
+| pdf_url | VARCHAR(500) | URL del PDF generado (Puppeteer / react-pdf). Nullable hasta que el PDF se genera post-commit |
+| estado | ENUM | `borrador` \| `enviado` \| `aceptado` \| `rechazado`. Al confirmar en UC-14 se crea directamente con `estado = 'enviado'` |
+| fecha_envio | TIMESTAMP | No nulo solo cuando `estado = 'enviado'`. Nulo en `borrador`, `aceptado` y `rechazado` |
+| fecha_creacion | TIMESTAMP | `DEFAULT now()` |
+| fecha_actualizacion | TIMESTAMP | Actualizada automáticamente en cada mutación (`@updatedAt`) |
+
+**Flujo de creación en UC-14 (US-014):**
+1. El Gestor revisa el borrador (calculado por `POST /reservas/{id}/presupuesto/preview` — sin persistencia).
+2. Al confirmar (`POST /reservas/{id}/presupuesto`), en **una única transacción**: se inserta la fila PRESUPUESTO con `version = 1`, `tarifa_congelada = true`, `estado = 'enviado'`; se transiciona la RESERVA a `pre_reserva`; se hace insert-o-update del bloqueo en `FECHA_BLOQUEADA` a `now() + ttl_prereserva_dias`; se vacía la cola A16 (`2d → 2y`); se escribe `AUDIT_LOG`.
+3. Post-commit: se genera el PDF y se actualiza `pdf_url` (segundo UPDATE idempotente); se dispara E2 vía motor US-045.
+
+**Mapa de estados del PRESUPUESTO:**
+- `borrador` → estado transitorio de preview (nunca persiste en US-014 MVP; se usa en UC-15 para ediciones)
+- `enviado` → estado inicial al confirmar en UC-14; el PDF se adjunta en E2
+- `aceptado` → cuando el cliente acepta (UC-15/US-015, fuera de US-014)
+- `rechazado` → cuando el cliente rechaza (UC-15/US-015, fuera de US-014)
 
 ### 3.12 FACTURA
 Facturas de señal (40%), liquidación (60% + extras), fianza y complementarias.
@@ -722,7 +743,7 @@ Log de emails del ciclo de vida de la reserva (E1–E8) y emails manuales. El mo
 
 **Extensión de E1 en la transición 2.a → 2.b (US-005 / D-6):** tras el COMMIT de `2a → 2b`, el adaptador `ConfirmacionBloqueoEmailAdapter` hace un **UPSERT** de la fila `(reserva, E1)`: si ya existía una E1 del alta, la actualiza (mismo `id_comunicacion`); si no existe, la crea. El índice UNIQUE parcial impide duplicados. El envío es post-commit y no bloqueante: un fallo no revierte la RESERVA ni la `FECHA_BLOQUEADA` comprometidas. Este email no tiene código `E` propio en el catálogo (E1–E8): es una extensión de E1 adaptando el copy a "bloqueo provisional confirmado" (ver `data-model.md §3.16`).
 
-**Cobertura de emails E1–E8:** E1 activa (trigger cableado en US-003/004+US-045; extensión en US-005). E6 activa (trigger cableado en US-008 — post-commit de la transición `{2a|2b|2c}→2v`; registro en `COMUNICACION` con `codigo_email='E6'`, `estado='enviado'`, `reserva_id`, `cliente_id`). E2, E3, E4, E5, E7, E8 diseñadas/inactivas en el catálogo; su trigger se cablea en la US correspondiente: E2→US-014, E3→US-021/022/023, E4→US-027/028, E5→US-034, E7→US-009, E8→US-035. Ver [architecture.md §2.9 DT-EMAIL-02 y §2.10](./architecture.md).
+**Cobertura de emails E1–E8:** E1 activa (trigger cableado en US-003/004+US-045; extensión en US-005). E2 activa (trigger cableado en US-014 — post-commit de la confirmación `{2a|2b|2c|2v} → pre_reserva`; PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; registro en `COMUNICACION` con `codigo_email='E2'`, `estado='enviado'`; idempotencia garantizada por índice UNIQUE parcial de US-045). E6 activa (trigger cableado en US-008 — post-commit de la transición `{2a|2b|2c}→2v`; registro en `COMUNICACION` con `codigo_email='E6'`, `estado='enviado'`, `reserva_id`, `cliente_id`). E3, E4, E5, E7, E8 diseñadas/inactivas en el catálogo; su trigger se cablea en la US correspondiente: E3→US-021/022/023, E4→US-027/028, E5→US-034, E7→US-009, E8→US-035. Ver [architecture.md §2.9 DT-EMAIL-02 y §2.13](./architecture.md).
 
 ### 3.17 AUDIT_LOG
 Registro de auditoría de todas las acciones sobre reservas, facturas y autenticación.
@@ -822,7 +843,7 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 
 ---
 
-*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 3.2 (03/07/2026): refleja US-019 — Promoción Manual de Consulta en Cola (UC-12 flujo B): añade en §5.2 la descripción de la mecánica de promoción manual (locus de lock sobre `FECHA_BLOQUEADA`, expiración forzosa de la bloqueante `2b/2c/2v → 2x`, re-asignación de la fila de `FECHA_BLOQUEADA` por UPDATE, reordenación por cierre de hueco, coordinación con la automática US-018, política de arbitraje FIFO). Sin migración de esquema: US-019 no añade entidades, columnas ni índices; reutiliza `RESERVA`, `FECHA_BLOQUEADA` y `AUDIT_LOG` tal como existen desde US-000/US-004. Versión 3.1 (02/07/2026): refleja US-017 — visualización de la cola de espera de una fecha (UC-11): lectura pura, sin entidades, columnas ni índices nuevos. El read model `ColaEsperaLectura` (aplicación) proyecta la bloqueante (`sub_estado ∈ {2b,2c,2v}`, `ttl_expiracion`, `visita_programada_fecha`) y la cola FIFO (`sub_estado = '2d'`, `posicion_cola` ASC) leyendo las columnas de RESERVA y CLIENTE ya existentes desde US-000/US-004. Los derivados temporales `ttlRestante` (`ttl_expiracion − now()`) y `tiempoEnCola` (`now() − fecha_creacion`) se calculan en el backend sobre instantes `timestamptz`, reutilizando el patrón RLS de `ColaQueryPrismaAdapter` (US-018). El índice `reserva_cola_posicion_key` (US-004, §4.1) se aprovecha para el `ORDER BY posicion_cola ASC`. Versión 3.0 (01/07/2026): refleja US-018 — promoción automática de cola (UC-12): actualiza §5.2 — sustituye descripción del stub no-op por el adaptador real `PromocionColaPrismaAdapter`; documenta la mecánica A15 (transacción única: `2d → 2b`, re-bloqueo vía `bloquearFecha()`, reordenación FIFO, alerta interna al gestor) y el punto de serialización real (`SELECT … FOR UPDATE` sobre RESERVA `2d`, no sobre `FECHA_BLOQUEADA` que ya no existe tras el DELETE); cierra la deuda de consistencia eventual US-041/US-012 §5.2; actualiza §3.6 con el comportamiento real del seam. Sin entidades, columnas ni índices nuevos (reutiliza `posicion_cola`, `consulta_bloqueante_id`, `ttl_expiracion` existentes). Versión 2.9 (30/06/2026): refleja US-008 — programar visita al espacio (UC-07): corrige §3.6 mapa fase→TTL — el modo de `fase '2.v'` pasa de `insert` a `insert-o-update` (la transición desde `2b`/`2c` actualiza la fila existente; desde `2a` la inserta; implementado como upsert atómico) y añade nota explicativa; amplía §3.5 RESERVA — añade campo `visita_programada_hora` (TIME) que faltaba en la tabla del diccionario (ya estaba en el diagrama Mermaid) y nota de la transición `{2a,2b,2c}→2v` (guarda declarativa, precondición `fecha_evento` para `2a`, ventana `max_dias_programar_visita`, INSERT-o-UPDATE atómico, E6 post-commit, sin migración); actualiza §3.16 COMUNICACION — E6 pasa a activa (trigger cableado en US-008). Sin entidades, columnas ni índices nuevos.*
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 3.3 (03/07/2026): refleja US-014 — Generar Presupuesto y Activar Pre-reserva (UC-14): corrige §3.6 mapa fase→TTL — modo `pre_reserva` pasa de `insert` a `insert-o-update` (la transición desde `2b`/`2c`/`2v` actualiza la fila de `FECHA_BLOQUEADA` existente; desde `2a` la inserta; coherente con §3.11 y el flujo real de UC-14); actualiza §3.11 PRESUPUESTO — añade descripción del flujo de creación en UC-14 (borrador preview sin persistencia vía `POST /reservas/{id}/presupuesto/preview`; confirmación con transacción única PRESUPUESTO + RESERVA + FECHA_BLOQUEADA + cola A16 + AUDIT_LOG vía `POST /reservas/{id}/presupuesto`; PDF y E2 post-commit), mapa de estados del PRESUPUESTO (borrador/enviado/aceptado/rechazado), restricción `UNIQUE(reserva_id, version)`, campos `fecha_envio` y `fecha_actualizacion` añadidos al diagrama Mermaid y al diccionario, notas de nullable/defaults, ausencia de `tenant_id` y nota de deuda de `tarifa_id`; actualiza el diagrama Mermaid de PRESUPUESTO con anotaciones de constraints y campos faltantes. Sin entidades ni columnas nuevas (PRESUPUESTO ya existía en el modelo desde US-000; la tabla en BD ya tenía `fecha_envio` y `fecha_actualizacion`). Versión 3.2 (03/07/2026): refleja US-019 — Promoción Manual de Consulta en Cola (UC-12 flujo B): añade en §5.2 la descripción de la mecánica de promoción manual (locus de lock sobre `FECHA_BLOQUEADA`, expiración forzosa de la bloqueante `2b/2c/2v → 2x`, re-asignación de la fila de `FECHA_BLOQUEADA` por UPDATE, reordenación por cierre de hueco, coordinación con la automática US-018, política de arbitraje FIFO). Sin migración de esquema: US-019 no añade entidades, columnas ni índices; reutiliza `RESERVA`, `FECHA_BLOQUEADA` y `AUDIT_LOG` tal como existen desde US-000/US-004. Versión 3.1 (02/07/2026): refleja US-017 — visualización de la cola de espera de una fecha (UC-11): lectura pura, sin entidades, columnas ni índices nuevos. El read model `ColaEsperaLectura` (aplicación) proyecta la bloqueante (`sub_estado ∈ {2b,2c,2v}`, `ttl_expiracion`, `visita_programada_fecha`) y la cola FIFO (`sub_estado = '2d'`, `posicion_cola` ASC) leyendo las columnas de RESERVA y CLIENTE ya existentes desde US-000/US-004. Los derivados temporales `ttlRestante` (`ttl_expiracion − now()`) y `tiempoEnCola` (`now() − fecha_creacion`) se calculan en el backend sobre instantes `timestamptz`, reutilizando el patrón RLS de `ColaQueryPrismaAdapter` (US-018). El índice `reserva_cola_posicion_key` (US-004, §4.1) se aprovecha para el `ORDER BY posicion_cola ASC`. Versión 3.0 (01/07/2026): refleja US-018 — promoción automática de cola (UC-12): actualiza §5.2 — sustituye descripción del stub no-op por el adaptador real `PromocionColaPrismaAdapter`; documenta la mecánica A15 (transacción única: `2d → 2b`, re-bloqueo vía `bloquearFecha()`, reordenación FIFO, alerta interna al gestor) y el punto de serialización real (`SELECT … FOR UPDATE` sobre RESERVA `2d`, no sobre `FECHA_BLOQUEADA` que ya no existe tras el DELETE); cierra la deuda de consistencia eventual US-041/US-012 §5.2; actualiza §3.6 con el comportamiento real del seam. Sin entidades, columnas ni índices nuevos (reutiliza `posicion_cola`, `consulta_bloqueante_id`, `ttl_expiracion` existentes). Versión 2.9 (30/06/2026): refleja US-008 — programar visita al espacio (UC-07): corrige §3.6 mapa fase→TTL — el modo de `fase '2.v'` pasa de `insert` a `insert-o-update` (la transición desde `2b`/`2c` actualiza la fila existente; desde `2a` la inserta; implementado como upsert atómico) y añade nota explicativa; amplía §3.5 RESERVA — añade campo `visita_programada_hora` (TIME) que faltaba en la tabla del diccionario (ya estaba en el diagrama Mermaid) y nota de la transición `{2a,2b,2c}→2v` (guarda declarativa, precondición `fecha_evento` para `2a`, ventana `max_dias_programar_visita`, INSERT-o-UPDATE atómico, E6 post-commit, sin migración); actualiza §3.16 COMUNICACION — E6 pasa a activa (trigger cableado en US-008). Sin entidades, columnas ni índices nuevos.*
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 2.8 (29/06/2026): refleja US-005 — transición de consulta exploratoria a consulta con fecha (UC-04): añade en §3.5 RESERVA la nota de transición `2a → 2b/2d` (UPDATE de RESERVA existente, guarda `esOrigenValidoParaAnadirFecha`, reuso de `determinarAltaConFecha`, campos `posicion_cola`/`consulta_bloqueante_id`/`ttl_expiracion` ya existentes, AUDIT_LOG `accion='transicion'`, detalle vía `GET /reservas/{id}` — sin migración); amplía §3.16 COMUNICACION con el upsert de E1 en la transición `2a→2b` (D-6, `ConfirmacionBloqueoEmailAdapter`, post-commit no bloqueante, sin código E propio); extiende §5.3 con la regla de fecha unificada `esFechaEstrictamenteFutura` (US-040/US-004/US-005), el reuso de `bloquearEnTx` en la transición (D-4) y la garantía D4 concurrente con tests reales (`transicion-fecha-concurrencia.spec.ts`). Sin entidades ni columnas ni índices nuevos.*
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 2.7 (29/06/2026): refleja US-045 — motor de email automático (UC-35): actualiza §3.16 COMUNICACION (descripción del motor `DespacharEmailService`, campos completos, reglas de estado, idempotencia con índice UNIQUE parcial `(reserva_id, codigo_email) WHERE reserva_id IS NOT NULL` y migración `20260628120000_us045_comunicacion_idempotencia_indice`, cobertura E1–E8 con mapa E→US); añade índice en §4.1. Sin entidades ni columnas nuevas (solo el índice).*
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 2.6 (28/06/2026): refleja US-004 — alta de consulta con fecha (UC-03): divergencia intencional `fecha_evento > hoy` con trazabilidad US↔spec (§3.5 `fecha_evento`, §5.3 nota de divergencia; Gate 1 decisión A); método `bloquearEnTx` para atomicidad `RESERVA 2b + FECHA_BLOQUEADA` en la misma transacción (§5.3); índice UNIQUE parcial `reserva_cola_posicion_key` para unicidad de `posicion_cola` como defensa en profundidad D-8 (§4.1 índices). Versión 2.5 (28/06/2026): refleja los fixes finales de US-003: actualiza §3.5 — campo `codigo` con nota de generación retry-on-conflict y red de seguridad UNIQUE → 409; consistente con `data-model.md` v1.4 y DT-CODIGO-01 RESUELTA. Versión 2.4 (28/06/2026): refleja US-003 — alta de consulta exploratoria (UC-03): añade nota de persistencia del mapeo `SubEstadoConsulta` dominio `'2a'` ↔ Prisma `s2a` (prefijo `s`; detalle de infrastructure, sin cambio de modelo ni migración). Actualiza §3.5. Versión 2.3 (27/06/2026): refleja US-041 — documenta `liberarFecha()` (UC-31): DELETE serializado con `$executeRaw` + RLS + rows-affected como primitiva exactamente-una-vez, idempotencia (0 filas = éxito silencioso), guarda firme (`reserva_cancelada`), seam `PromocionColaPort` (implementación diferida a US-018), liberación en lote con transacciones independientes, AUDIT_LOG con causa (TTL/descarte/cancelacion), y decisión D-7 (sin endpoint HTTP). Actualiza §3.6, §3.17, §5.2 y §5.3. Versión 2.2 (27/06/2026): refleja US-040 — `reserva_id @unique` en `FECHA_BLOQUEADA`, check constraints `chk_firme_sin_ttl`/`chk_blando_con_ttl`, mapa canónico fase→(tipo,TTL,modo) y decisión de no exponer endpoint HTTP propio (D-7). Versión 2.1: elimina la entidad de recurrencia (fuera del MVP) y desarrolla el modelo de extras (catálogo vs línea, congelación al añadir, extras tardíos vía `origen` y `factura_id`). Versión 2.0: incorpora las decisiones de modelado consensuadas tras el contraste entre especificación funcional, casos de uso y la primera versión del ERD.*

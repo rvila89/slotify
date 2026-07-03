@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { CalendarPlus, User } from 'lucide-react';
+import {
+  AvisoPresupuestoConfirmado,
+  GenerarPresupuestoDialog,
+  type ConfirmarPresupuestoResponse,
+} from '@/features/presupuestos';
 import { useReserva } from '../../api/useReserva';
 import { AnadirFechaDialog } from '../../components/AnadirFechaDialog';
 import { PendienteInvitadosDialog } from '../../components/PendienteInvitadosDialog';
@@ -34,6 +39,7 @@ export const FichaConsultaPage = () => {
   const [dialogoInvitadosAbierto, setDialogoInvitadosAbierto] = useState(false);
   const [dialogoVisitaAbierto, setDialogoVisitaAbierto] = useState(false);
   const [dialogoExtenderAbierto, setDialogoExtenderAbierto] = useState(false);
+  const [dialogoPresupuestoAbierto, setDialogoPresupuestoAbierto] = useState(false);
   // RESERVA resultante de la transición de fecha (US-005): alimenta el aviso 2b/2d.
   const [resultado, setResultado] = useState<Reserva | null>(null);
   // Resultado de la transición 2.b → 2.c (US-007): alimenta su aviso (TTL + cola).
@@ -44,6 +50,9 @@ export const FichaConsultaPage = () => {
   const [resultadoVisita, setResultadoVisita] = useState<Reserva | null>(null);
   // RESERVA resultante de la extensión del bloqueo (US-006): alimenta su aviso (nuevo TTL).
   const [resultadoExtension, setResultadoExtension] = useState<Reserva | null>(null);
+  // Resultado de la confirmación del presupuesto (US-014): alimenta su aviso (pre_reserva).
+  const [resultadoPresupuesto, setResultadoPresupuesto] =
+    useState<ConfirmarPresupuestoResponse | null>(null);
 
   if (isLoading) {
     return (
@@ -108,6 +117,13 @@ export const FichaConsultaPage = () => {
         />
       )}
 
+      {resultadoPresupuesto && (
+        <AvisoPresupuestoConfirmado
+          resultado={resultadoPresupuesto}
+          onCerrar={() => setResultadoPresupuesto(null)}
+        />
+      )}
+
       <section className={claseSeccion} aria-labelledby="ficha-cliente">
         <div id="ficha-cliente" className="flex items-center gap-3">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary">
@@ -167,6 +183,10 @@ export const FichaConsultaPage = () => {
             setResultadoExtension(null);
             setDialogoExtenderAbierto(true);
           }}
+          onGenerarPresupuesto={() => {
+            setResultadoPresupuesto(null);
+            setDialogoPresupuestoAbierto(true);
+          }}
         />
       </section>
 
@@ -205,6 +225,15 @@ export const FichaConsultaPage = () => {
           abierto={dialogoExtenderAbierto}
           onAbiertoChange={setDialogoExtenderAbierto}
           onResuelto={setResultadoExtension}
+        />
+      )}
+
+      {id && (
+        <GenerarPresupuestoDialog
+          reservaId={id}
+          abierto={dialogoPresupuestoAbierto}
+          onAbiertoChange={setDialogoPresupuestoAbierto}
+          onConfirmado={setResultadoPresupuesto}
         />
       )}
     </div>

@@ -787,60 +787,69 @@ sequenceDiagram
 | **Nombre** | Generar Presupuesto (Activar Pre-reserva) |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor genera un presupuesto formal cuando el cliente ha confirmado todos los datos necesarios, activando el estado de pre-reserva |
-| **Precondiciones** | - Consulta en sub-estado 2.a, 2.b, 2.c o 2.v<br>- Datos completos: fecha, nº invitados, tipo evento, datos fiscales (DNI, dirección, CP, población, provincia) |
-| **Postcondiciones** | - Estado cambia a pre_reserva<br>- Fecha bloqueada 7 días<br>- Presupuesto PDF generado<br>- Si había cola, se vacía |
+| **Descripción** | El Gestor genera un presupuesto formal cuando el cliente ha confirmado todos los datos necesarios, activando la transición al estado `pre_reserva`. El flujo se divide en dos fases: **preview** (borrador editable, sin persistencia) y **confirmación** (transacción única que coordina PRESUPUESTO + RESERVA + FECHA_BLOQUEADA + cola + AUDIT_LOG). Implementado en **US-014** (change `us-014-generar-presupuesto-activar-prereserva`). |
+| **Precondiciones** | - RESERVA en `estado = 'consulta'`, `sub_estado ∈ {'2a','2b','2c','2v'}` (guarda declarativa `ORIGENES_TRANSICION_ACTIVAR_PRERESERVA`; `2d`, terminales y `pre_reserva`/posteriores se rechazan sin efectos)<br>- **No existe** PRESUPUESTO en `estado = 'enviado'` o `'aceptado'` para esa RESERVA (si existe, remitir a UC-15)<br>- Datos de reserva completos: `fecha_evento` (futura), `duracion_horas ∈ {4,8,12}`, `num_adultos_ninos_mayores4 ≥ 1`, `tipo_evento ∈ {boda,corporativo,privado,otro}`<br>- Datos fiscales del CLIENTE no nulos ni vacíos: `dni_nif`, `direccion`, `codigo_postal`, `poblacion`, `provincia` (si faltan, error enumera campos faltantes vía `camposFaltantes` en el cuerpo del 422, propagado por `HttpExceptionFilter`)<br>- Gestor autenticado con rol gestor sobre el tenant |
+| **Postcondiciones** | - PRESUPUESTO creado con `version = 1`, `tarifa_congelada = true`, `estado = 'enviado'`, `iva_porcentaje = 21`, desglose fiscal congelado<br>- RESERVA pasa a `estado = 'pre_reserva'`, `ttl_expiracion = now() + TENANT_SETTINGS.ttl_prereserva_dias` (7 días por defecto, nunca hardcodeado)<br>- FECHA_BLOQUEADA: si origen `2b`/`2c`/`2v` → UPDATE del `ttl_expiracion`; si origen `2a` → INSERT nueva fila; `tipo_bloqueo = 'blando'` en ambos casos<br>- Cola vaciada: todas las RESERVA con `consulta_bloqueante_id = id` y `sub_estado = '2d'` pasan a `'2y'`, `posicion_cola = NULL`, `consulta_bloqueante_id = NULL` (mecánica A16)<br>- `AUDIT_LOG accion='transicion'` para la RESERVA principal y para cada RESERVA descartada de la cola<br>- Post-commit: PDF generado (Puppeteer/react-pdf), `PRESUPUESTO.pdf_url` actualizado; E2 disparado vía motor US-045 (fallo del proveedor no revierte la pre-reserva; queda trazado en `COMUNICACION`) |
 | **Prioridad** | Crítica |
 | **Frecuencia** | Alta |
+| **US** | US-014 |
+| **Endpoints** | `POST /reservas/{id}/presupuesto/preview` (borrador sin persistencia) · `POST /reservas/{id}/presupuesto` (confirmación) |
+| **Entidades afectadas** | PRESUPUESTO (INSERT), RESERVA (UPDATE estado + TTL), FECHA_BLOQUEADA (INSERT o UPDATE ttl_expiracion), COMUNICACION (INSERT E2), AUDIT_LOG — sin migración nueva (PRESUPUESTO ya existía en el modelo desde US-000; columnas `fecha_envio` y `fecha_actualizacion` ya presentes) |
 
-**Flujo Básico:**
-1. El gestor abre la ficha de consulta
-2. El gestor verifica que los datos estén completos:
-   - Fecha del evento
-   - Nº de invitados (adultos + niños >4 años)
-   - Tipo de evento
-   - Datos fiscales del cliente
-3. El gestor hace clic en "Generar presupuesto"
-4. El sistema ejecuta el motor de tarifas (UC-16)
-5. El sistema genera el presupuesto PDF con:
-   - Desglose de alquiler según tarifa
-   - Extras seleccionados
-   - Total con IVA incluido
-   - Desglose de pagos: 40% señal + 60% liquidación + fianza
-   - Instrucciones de transferencia (beneficiario, concepto, IBAN)
-6. El sistema presenta el presupuesto como borrador editable
-7. El gestor revisa y puede ajustar cantidades/extras/descuentos
-8. El gestor confirma el presupuesto
-9. El sistema cambia estado a pre_reserva
-10. El sistema aplica bloqueo de 7 días
-11. El sistema verifica si hay cola y la vacía (consultas a 2.y)
-12. El sistema envía email E2 con presupuesto adjunto
-13. El sistema registra en audit log
+**Flujo Básico — fase preview:**
+1. El gestor abre la ficha de consulta en `sub_estado ∈ {2a,2b,2c,2v}` y hace clic en "Generar presupuesto"
+2. El frontend llama a `POST /reservas/{id}/presupuesto/preview` con body opcional `{ extras?, descuento_eur?, precio_manual_eur? }`
+3. El sistema valida la guarda de origen y los datos fiscales del cliente (sin efectos si algo falla)
+4. El sistema delega el cálculo al motor de tarifa (UC-16 / US-016): recibe `{ temporada, tarifa_a_consultar, precio_tarifa_eur, extras_total_eur, total_eur, tarifa_id }`
+5. El sistema devuelve el borrador con: base imponible, IVA 21%, extras, total, reparto 40%/60%/fianza, instrucciones de transferencia (IBAN, beneficiario, concepto del tenant). **Sin persistencia**: ninguna fila de PRESUPUESTO se crea, la RESERVA no se muta, `FECHA_BLOQUEADA` no se toca
+6. Si `tarifa_a_consultar = true` (>50 invitados): el sistema muestra la tarifa como "A consultar" y habilita un campo de precio total manual; la confirmación no está disponible hasta que el Gestor introduzca el precio
+7. El gestor revisa el borrador y puede ajustar extras y descuentos (nuevas llamadas a `preview`)
+
+**Flujo Básico — fase confirmación:**
+8. El gestor confirma el borrador (`POST /reservas/{id}/presupuesto` con body `{ extras, descuento_eur?, descuento_motivo?, precio_manual_eur? }`)
+9. El sistema vuelve a validar la guarda de origen y los datos fiscales
+10. El sistema llama al motor de tarifa (o usa `precio_manual_eur` si `tarifa_a_consultar = true`)
+11. En una **única transacción all-or-nothing** serializada por `SELECT … FOR UPDATE` sobre la fila de `FECHA_BLOQUEADA`:
+    - INSERT en PRESUPUESTO: `version = 1`, `tarifa_congelada = true`, `estado = 'enviado'`, `iva_porcentaje = 21`, `base_imponible`, `iva_importe`, `total`, `descuento_eur?`, `descuento_motivo?`, `fecha_envio = now()`
+    - UPDATE RESERVA: `estado = 'pre_reserva'`, `sub_estado = NULL`, `ttl_expiracion = now() + ttl_prereserva_dias`
+    - UPDATE (o INSERT si `2a`) de FECHA_BLOQUEADA: `ttl_expiracion = now() + ttl_prereserva_dias`, `tipo_bloqueo = 'blando'`
+    - UPDATE masivo de RESERVA en `2d` con `consulta_bloqueante_id = id`: `sub_estado = '2y'`, `posicion_cola = NULL`, `consulta_bloqueante_id = NULL` (vaciado cola A16; si cola vacía, 0 filas afectadas sin error)
+    - INSERT AUDIT_LOG `accion='transicion'` para la RESERVA principal y para cada RESERVA descartada
+12. Post-commit (no bloqueante): generación del PDF (Puppeteer/react-pdf) + UPDATE de `PRESUPUESTO.pdf_url`; disparo de E2 vía motor US-045 con el PDF adjunto por referencia a `pdf_url`. Un fallo en la generación del PDF o en el envío del email no revierte la pre-reserva
+13. El sistema responde `201` con: PRESUPUESTO (`id`, `version`, `total`, `pdf_url`, `estado`) + nuevo `estado`/`ttlExpiracion` de la RESERVA + `consultasDescartadas` (recuento)
 
 **Flujos Alternativos:**
-- **FA-01**: Datos fiscales incompletos → Sistema muestra error y solicita completar
-- **FA-02**: >50 invitados → Sistema marca "tarifa a consultar" y permite precio manual
-- **FA-03**: Gestor cancela → No hay cambio de estado
+- **FA-01** (datos fiscales incompletos): el sistema responde `422` con `camposFaltantes: ['dni_nif', ...]` enumerando los campos fiscales que faltan; sin efectos sobre PRESUPUESTO, RESERVA ni FECHA_BLOQUEADA. El `HttpExceptionFilter` propaga `camposFaltantes` en el body del error.
+- **FA-02** (`tarifa_a_consultar = true` — más de 50 invitados): el motor devuelve `tarifa_a_consultar = true` con importes a `null`; el sistema muestra "A consultar" y habilita precio manual. Al confirmar, `PRESUPUESTO.total` es el `precio_manual_eur` introducido por el Gestor; `tarifa_id` no se almacena (es `null`). Sin precio manual: `422` bloqueante.
+- **FA-03** (gestor cancela en fase borrador): no hay efectos; la RESERVA permanece en su sub-estado anterior; `FECHA_BLOQUEADA` no se modifica; ningún email se envía.
+- **FA-04** (guarda de origen — RESERVA en `2.d` o terminal): `422` sin efectos; la cola ni la bloqueante se modifican.
+- **FA-05** (PRESUPUESTO ya enviado/aceptado): `409` indicando que debe usarse la edición (UC-15); sin crear nuevo PRESUPUESTO.
+- **FA-06** (error de configuración del motor de tarifa — `TARIFA_NO_CONFIGURADA` / `TEMPORADA_NO_CONFIGURADA` / `EXTRA_NO_ENCONTRADO`): `422` con mensaje legible; sin crear PRESUPUESTO, sin mutar RESERVA.
+- **FA-07** (carrera de concurrencia — dos confirmaciones sobre la misma RESERVA, o la fecha fue bloqueada por otro tenant): el `SELECT … FOR UPDATE` + `UNIQUE(tenant_id, fecha)` lo serializa; el perdedor recibe `409` `FECHA_YA_BLOQUEADA` sin estado intermedio.
 
 ```mermaid
 flowchart TD
-    A[Consulta con datos completos] --> B{Validar datos fiscales}
-    B -->|Incompletos| C[Solicitar datos faltantes]
-    B -->|Completos| D[Ejecutar motor tarifas]
-    D --> E{>50 invitados?}
-    E -->|Sí| F[Precio manual]
-    E -->|No| G[Calcular tarifa automática]
-    F --> H[Generar PDF presupuesto]
-    G --> H
-    H --> I[Mostrar borrador editable]
-    I --> J{Gestor aprueba?}
-    J -->|No| K[Editar/Cancelar]
-    J -->|Sí| L[Cambiar a pre_reserva]
-    L --> M[Bloqueo 7 días]
-    M --> N{¿Hay cola?}
-    N -->|Sí| O[Vaciar cola a 2.y]
-    N -->|No| P[Enviar email E2]
-    O --> P
+    A[Gestor: Generar presupuesto en 2a/2b/2c/2v] --> B{Guarda de origen válida?}
+    B -->|2d / terminal / pre_reserva+| C[422 — Transición inválida]
+    B -->|Presupuesto enviado/aceptado ya existe| D[409 — Usar edición UC-15]
+    B -->|Válido| E{Datos fiscales completos?}
+    E -->|Incompletos| F[422 — camposFaltantes enumerados]
+    E -->|Completos| G[POST /presupuesto/preview → Motor tarifa UC-16]
+    G --> H{tarifa_a_consultar?}
+    H -->|Sí >50 inv| I[Mostrar borrador A consultar + campo precio manual]
+    H -->|No| J[Mostrar borrador con desglose base/IVA/extras/total]
+    I --> K{Precio manual introducido?}
+    K -->|No| L[Bloquea confirmación]
+    K -->|Sí| M
+    J --> M[POST /presupuesto — confirmar]
+    M --> N[Tx SELECT…FOR UPDATE fila bloqueante]
+    N --> O[INSERT PRESUPUESTO v1 enviado + congelado]
+    O --> P[UPDATE RESERVA → pre_reserva + ttl_prereserva_dias]
+    P --> Q[INSERT/UPDATE FECHA_BLOQUEADA → ttl = now + ttl_prereserva_dias blando]
+    Q --> R[UPDATE RESERVA 2d → 2y cola A16]
+    R --> S[AUDIT_LOG transicion RESERVA + descartadas]
+    S --> T[201 — PRESUPUESTO + nuevo estado RESERVA]
+    T --> U[Post-commit: PDF → pdf_url UPDATE + E2 motor US-045]
 ```
 
 ---
