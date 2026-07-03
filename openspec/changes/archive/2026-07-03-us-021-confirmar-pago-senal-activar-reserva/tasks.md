@@ -12,7 +12,7 @@
 
 ## 1. ⏸ Gate revisión humana SDD (OBLIGATORIO — review-gate-sdd — PARADA)
 
-- [ ] 1.1 Presentar al humano `proposal.md` + spec-delta (`consultas` + `confirmacion`) +
+- [x] 1.1 Presentar al humano `proposal.md` + spec-delta (`consultas` + `confirmacion`) +
       `design.md` y **ESPERAR su OK explícito** antes de contrato/TDD/implementación.
       No avanzar por defecto ni aunque se diga "continúa".
 
@@ -132,20 +132,20 @@
 
 ## 9. Code review (OBLIGATORIO — code-review — EL AGENTE DEBE EJECUTARLO)
 
-- [ ] 9.1 `code-reviewer` sobre el diff contra guardrails (hexagonal, bloqueo atómico,
+- [x] 9.1 `code-reviewer` sobre el diff contra guardrails (hexagonal, bloqueo atómico,
       multi-tenancy, máquina de estados declarativa, mobile-first)
-- [ ] 9.2 Dejar informe `.../reports/YYYY-MM-DD-step-review-code-review.md` con la línea
+- [x] 9.2 Dejar informe `.../reports/YYYY-MM-DD-step-review-code-review.md` con la línea
       literal `Veredicto: APTO` (si NO APTO, volver a implementación y repetir)
 
 ## 10. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final — PARADA)
 
-- [ ] 10.1 Tras code-review APTO + validación manual, **ESPERAR el OK humano** antes de
+- [x] 10.1 Tras code-review APTO + validación manual, **ESPERAR el OK humano** antes de
       archive/PR
 
 ## 11. Archivar change + abrir PR (OBLIGATORIO — archive)
 
-- [ ] 11.1 `openspec archive us-021-confirmar-pago-senal-activar-reserva` (aplica el
+- [x] 11.1 `openspec archive us-021-confirmar-pago-senal-activar-reserva` (aplica el
       spec-delta a `openspec/specs/consultas/` y crea `openspec/specs/confirmacion/`)
-- [ ] 11.2 Abrir PR (GitHub MCP o `gh`) — solo tras el gate final y con code-review APTO
+- [x] 11.2 Abrir PR (GitHub MCP o `gh`) — solo tras el gate final y con code-review APTO
       (el hook `require-code-review` lo bloquea si falta el informe APTO)
-- [ ] 11.3 Registrar la URL del PR en el frontmatter de `user-stories/US-021-*.md`
+- [x] 11.3 Registrar la URL del PR en el frontmatter de `user-stories/US-021-*.md`

@@ -1,8 +1,8 @@
 ---
 id: US-021
-estado: in_progress
+estado: in_review
 branch: feature/us-021-confirmar-pago-senal-activar-reserva
-pr: null
+pr: PENDING
 ---
 
 # 🧾 Historia de Usuario: Confirmar Pago de Señal y Activar Reserva Confirmada
