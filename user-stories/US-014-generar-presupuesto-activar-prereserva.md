@@ -2,7 +2,7 @@
 id: US-014
 estado: in-progress
 branch: feature/us-014-generar-presupuesto-activar-prereserva
-pr: null
+pr: https://github.com/rvila89/slotify/pull/35
 ---
 
 # 🧾 Historia de Usuario: Generar Presupuesto y Activar Pre-reserva
