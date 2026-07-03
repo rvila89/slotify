@@ -1,7 +1,7 @@
 ---
 id: US-010
-estado: backlog
-branch: null
+estado: in_review
+branch: feature/us-010-resultado-visita-reserva-inmediata
 pr: null
 ---
 

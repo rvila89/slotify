@@ -22,6 +22,11 @@ export type {
   RegistrarResultadoVisitaError,
   RegistrarResultadoVisitaVars,
 } from './api/useRegistrarResultadoVisita';
+export {
+  camposObligatoriosFaltantes,
+  ETIQUETA_CAMPO_OBLIGATORIO,
+} from './lib/datosObligatorios';
+export type { CampoObligatorio } from './lib/datosObligatorios';
 export { useExtenderBloqueo } from './api/useExtenderBloqueo';
 export type {
   ExtenderBloqueoError,

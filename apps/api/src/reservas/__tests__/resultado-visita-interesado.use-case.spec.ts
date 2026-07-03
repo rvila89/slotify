@@ -270,13 +270,17 @@ describe('RegistrarResultadoVisitaUseCase — guarda de origen mono-estado {2v} 
 });
 
 // ===========================================================================
-// 3.1 — Resultado no soportado por esta US → 422 sin mutar. Esta US solo cubre
-//        "interesado"; "reserva"/"descarte" (US-010/US-011) aún no se implementan.
+// 3.1 — Resultado no soportado por el flujo "interesado" → 422 sin mutar.
+//        AJUSTE US-010: `reserva_inmediata` YA está soportado (2.v→pre_reserva) y NO
+//        debe rechazarse aquí; su comportamiento se prueba en
+//        `resultado-visita-reserva-inmediata.use-case.spec.ts`. SOLO `descarta` (US-011,
+//        aún no implementada) y valores fuera del enum del contrato siguen dando 422.
+//        (Nombres canónicos del contrato: `reserva_inmediata`, `descarta`.)
 // ===========================================================================
 
-describe('RegistrarResultadoVisitaUseCase — resultado no soportado → 422 (3.1)', () => {
-  it.each(['reserva', 'descarte', 'cualquier-otro'] as const)(
-    'debe_rechazar_422_cuando_el_resultado_es_%s_no_soportado_en_esta_US',
+describe('RegistrarResultadoVisitaUseCase — resultado no soportado por "interesado" → 422 (3.1)', () => {
+  it.each(['descarta', 'cualquier-otro'] as const)(
+    'debe_rechazar_422_cuando_el_resultado_es_%s_no_soportado_en_el_flujo_interesado',
     async (resultado) => {
       const { useCase, repos } = montar({});
 

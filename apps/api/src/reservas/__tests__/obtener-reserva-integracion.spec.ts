@@ -12,7 +12,12 @@
  */
 import { Test, type TestingModule } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
-import { CanalEntrada, EstadoReserva, SubEstadoConsulta } from '@prisma/client';
+import {
+  CanalEntrada,
+  DuracionHoras,
+  EstadoReserva,
+  SubEstadoConsulta,
+} from '@prisma/client';
 import { ReservasModule } from '../reservas.module';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import {
@@ -37,6 +42,7 @@ const sembrarReserva = async (params: {
   estado: EstadoReserva;
   subEstado: SubEstadoConsulta | null;
   fechaEvento?: Date;
+  duracionHoras?: DuracionHoras;
   ttlExpiracion?: Date;
   posicionCola?: number;
   consultaBloqueanteId?: string;
@@ -60,6 +66,9 @@ const sembrarReserva = async (params: {
       subEstado: params.subEstado,
       canalEntrada: CanalEntrada.web,
       ...(params.fechaEvento !== undefined ? { fechaEvento: params.fechaEvento } : {}),
+      ...(params.duracionHoras !== undefined
+        ? { duracionHoras: params.duracionHoras }
+        : {}),
       ...(params.ttlExpiracion !== undefined ? { ttlExpiracion: params.ttlExpiracion } : {}),
       ...(params.posicionCola !== undefined ? { posicionCola: params.posicionCola } : {}),
       ...(params.consultaBloqueanteId !== undefined
@@ -141,6 +150,44 @@ describe('GET reserva — forma del ReservaDetalle por sub-estado', () => {
     expect(detalle.subEstado).toBe('2b');
     expect(detalle.fechaEvento).toEqual(FECHA_2B);
     expect(detalle.ttlExpiracion).toEqual(ttl);
+  });
+
+  it('duracionHoras_enum_h4_se_serializa_como_numero_4_no_null', async () => {
+    const reservaId = await sembrarReserva({
+      estado: EstadoReserva.consulta,
+      subEstado: SubEstadoConsulta.s2b,
+      fechaEvento: FECHA_2B,
+      duracionHoras: DuracionHoras.h4,
+    });
+
+    const detalle = await useCase.ejecutar({ tenantId: TENANT, reservaId });
+
+    // El enum Prisma `h4` DEBE traducirse a `4` (número), nunca `NaN` → null.
+    expect(detalle.duracionHoras).toBe(4);
+  });
+
+  it('duracionHoras_enum_h8_se_serializa_como_numero_8', async () => {
+    const reservaId = await sembrarReserva({
+      estado: EstadoReserva.consulta,
+      subEstado: SubEstadoConsulta.s2b,
+      fechaEvento: FECHA_2B,
+      duracionHoras: DuracionHoras.h8,
+    });
+
+    const detalle = await useCase.ejecutar({ tenantId: TENANT, reservaId });
+
+    expect(detalle.duracionHoras).toBe(8);
+  });
+
+  it('duracionHoras_null_permanece_null', async () => {
+    const reservaId = await sembrarReserva({
+      estado: EstadoReserva.consulta,
+      subEstado: SubEstadoConsulta.s2a,
+    });
+
+    const detalle = await useCase.ejecutar({ tenantId: TENANT, reservaId });
+
+    expect(detalle.duracionHoras).toBeNull();
   });
 
   it('reserva_2d_devuelve_posicionCola_y_consultaBloqueanteId', async () => {

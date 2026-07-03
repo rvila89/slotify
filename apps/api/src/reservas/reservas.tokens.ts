@@ -54,6 +54,12 @@ export const CONFIRMACION_RESULTADO_VISITA_EMAIL_PORT = Symbol(
   'ConfirmacionResultadoVisitaEmailPort',
 );
 
+// US-010 — carga del CLIENTE para la validación de datos obligatorios UC-14 (reserva
+// inmediata, 2.v → pre_reserva)
+export const CARGAR_CLIENTE_RESULTADO_VISITA_PORT = Symbol(
+  'CargarClienteResultadoVisitaPort',
+);
+
 // US-006 — extensión manual del TTL del bloqueo blando
 export const UNIDAD_DE_TRABAJO_EXTENDER_BLOQUEO_PORT = Symbol(
   'UnidadDeTrabajoExtenderBloqueoPort',

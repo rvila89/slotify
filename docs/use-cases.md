@@ -461,16 +461,16 @@ flowchart TD
 | **Nombre** | Registrar Resultado de Visita |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor registra el resultado de una visita programada. El flujo "cliente interesado" (2.v → 2.b) está implementado en **US-009**. Los flujos "reserva inmediata" (2.v → pre_reserva) y "descarte" (2.v → 2.z) están definidos en US-010 y US-011 respectivamente. |
+| **Descripción** | El gestor registra el resultado de una visita programada. El flujo "cliente interesado" (2.v → 2.b) está implementado en **US-009**; el flujo "reserva inmediata" (2.v → pre_reserva) está implementado en **US-010**. El flujo "descarte" (2.v → 2.z) está definido en US-011. |
 | **Precondiciones** | - Consulta en `sub_estado = '2v'` (guarda de origen; cualquier otro sub-estado produce 422 sin efectos)<br>- Gestor autenticado con rol gestor sobre el tenant |
-| **Postcondiciones** | **Flujo "cliente interesado" (US-009):** `visita_realizada = true`; `sub_estado = '2b'`; `ttl_expiracion = now() + TENANT_SETTINGS.ttl_consulta_dias` (TTL fresco, calculado desde el momento de la transición, nunca acumulado sobre el anterior ni derivado de `visita_programada_fecha`); `FECHA_BLOQUEADA.ttl_expiracion` actualizado al mismo valor (`tipo_bloqueo` permanece `blando`); `AUDIT_LOG accion='transicion'`; email E7 post-commit. Todo atómico. |
+| **Postcondiciones** | **Flujo "cliente interesado" (US-009):** `visita_realizada = true`; `sub_estado = '2b'`; `ttl_expiracion = now() + TENANT_SETTINGS.ttl_consulta_dias` (TTL fresco, calculado desde el momento de la transición, nunca acumulado sobre el anterior ni derivado de `visita_programada_fecha`); `FECHA_BLOQUEADA.ttl_expiracion` actualizado al mismo valor (`tipo_bloqueo` permanece `blando`); `AUDIT_LOG accion='transicion'`; email E7 post-commit. Todo atómico.<br>**Flujo "reserva inmediata" (US-010):** `visita_realizada = true`; `estado = 'pre_reserva'`; `sub_estado = NULL` (pre_reserva no tiene sub-estado de consulta); `ttl_expiracion = now() + TENANT_SETTINGS.ttl_prereserva_dias` (7 días, TTL fresco calculado desde el instante de la transición); `FECHA_BLOQUEADA.ttl_expiracion` actualizado al mismo valor (`tipo_bloqueo` permanece `blando`); cola A16 vaciada atómicamente (`2d → 2y`); `AUDIT_LOG accion='transicion'`; sin email propio (E2 se delega a UC-14). Precondición adicional: datos obligatorios UC-14 completos (ver FA-10). Todo atómico. |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
-| **US** | US-009 (cliente interesado — 2.v → 2.b); US-010 (reserva inmediata); US-011 (descarte) |
-| **Endpoint** | `PATCH /reservas/{id}/visita` — body `{ "resultado": "interesado" }` (operationId `registrarResultadoVisita`) |
-| **Entidades afectadas** | RESERVA (UPDATE `sub_estado`, `visita_realizada`, `ttl_expiracion`), FECHA_BLOQUEADA (UPDATE `ttl_expiracion`), COMUNICACION (INSERT E7), AUDIT_LOG — sin migración de columnas (todos los campos ya existían desde US-000/US-008) |
+| **US** | US-009 (cliente interesado — 2.v → 2.b); US-010 (reserva inmediata — 2.v → pre_reserva); US-011 (descarte) |
+| **Endpoint** | `PATCH /reservas/{id}/visita` — body `{ "resultado": "interesado" \| "reserva_inmediata" }` (operationId `registrarResultadoVisita`); polimórfico: el campo `resultado` determina la transición ejecutada |
+| **Entidades afectadas** | RESERVA (UPDATE `sub_estado`/`estado`, `visita_realizada`, `ttl_expiracion`), FECHA_BLOQUEADA (UPDATE `ttl_expiracion`), COMUNICACION (INSERT E7 — solo US-009), AUDIT_LOG — sin migración de columnas (todos los campos ya existían desde US-000/US-008) |
 
-**Flujo Básico (cliente confirma interés — US-009):**
+**Flujo Básico A — cliente confirma interés (US-009):**
 1. El gestor abre la ficha de consulta en `sub_estado = '2v'`
 2. El gestor selecciona "Registrar resultado de visita" → "Cliente interesado" (acción visible y habilitada solo en `2v`)
 3. El gestor confirma la acción en el diálogo `RegistrarResultadoVisitaDialog`
@@ -483,27 +483,53 @@ flowchart TD
 7. El sistema responde `200` con `subEstado = '2b'`, `visitaRealizada = true`, `ttlExpiracion` (nuevo TTL fresco)
 8. La UI de la ficha de reserva refleja el nuevo sub-estado y el TTL actualizado
 
+**Flujo Básico B — cliente quiere reservar inmediatamente (US-010 / UC-08 FA-08 / UC-14):**
+1. El gestor abre la ficha de consulta en `sub_estado = '2v'` con todos los datos obligatorios completos en RESERVA (`fecha_evento`, `duracion_horas`, `tipo_evento`, `num_adultos_ninos_mayores4`) y CLIENTE (`dni_nif`, `direccion`, `codigo_postal`, `poblacion`, `provincia`)
+2. El gestor selecciona "Registrar resultado de visita" → "Cliente quiere reservar ahora" (visible solo en `2v`)
+3. El gestor confirma la acción; el frontend verifica los datos obligatorios y bloquea la confirmación si faltan campos (mostrando la lista de `camposFaltantes`)
+4. El sistema valida en servidor la guarda de origen (`esOrigenValidoParaResultadoVisitaReservaInmediata`): solo `sub_estado = '2v'` es válido; cualquier otro produce 422 sin efectos
+5. El sistema valida los datos obligatorios UC-14 (patrón `CampoFiscalFaltante`): si falta algún campo → 422 con `camposFaltantes[]`, RESERVA intacta en `2v`
+6. En una única transacción all-or-nothing serializada por `SELECT … FOR UPDATE` sobre la fila bloqueante de `FECHA_BLOQUEADA`:
+   - Actualiza la RESERVA: `estado = 'pre_reserva'`, `sub_estado = NULL`, `visita_realizada = true`, `ttl_expiracion = now() + TENANT_SETTINGS.ttl_prereserva_dias`
+   - Actualiza `FECHA_BLOQUEADA.ttl_expiracion` al mismo valor; `tipo_bloqueo` permanece `blando` — UPDATE puro (la fila siempre existe al venir de `2.v`)
+   - Vacía la cola A16: todas las RESERVA con `consulta_bloqueante_id = id` y `sub_estado = '2d'` pasan a `sub_estado = '2y'`, `posicion_cola = NULL`, `consulta_bloqueante_id = NULL` (válido con 0 filas)
+   - Registra `AUDIT_LOG accion = 'transicion'` para la RESERVA principal (`datos_anteriores.sub_estado = '2v'`, `datos_nuevos.estado = 'pre_reserva'`, `datos_nuevos.sub_estado = NULL`, `datos_nuevos.visita_realizada = true`) y para cada consulta vaciada de la cola
+7. El sistema responde `200` con `estado = 'pre_reserva'`, `subEstado = null`, `visitaRealizada = true`, `ttlExpiracion` (now + 7 días)
+8. La UI refleja el nuevo estado `pre_reserva`, el TTL de 7 días y, si había cola, el feedback de cola vaciada
+
 **Flujos Alternativos:**
 - **FA-01** (visita_programada_fecha futura — no bloquea el registro): `visita_programada_fecha > hoy` **no** es una precondición de validación estricta; el sistema permite la acción igualmente. La transición procede y el TTL se calcula desde `now()`, no desde `visita_programada_fecha`.
 - **FA-02** (guarda de origen — RESERVA no en `2v`): el sistema responde **422** sin efectos sobre RESERVA, FECHA_BLOQUEADA ni COMUNICACION. La acción "Cliente interesado" está oculta/deshabilitada en UI para cualquier sub-estado distinto de `2v`.
 - **FA-03** (RESERVA en estado terminal — `2x`/`2y`/`2z`/`reserva_cancelada`/`reserva_completada`): el sistema responde **422**; los estados terminales son inmutables.
 - **FA-04** (RESERVA inexistente o de otro tenant): **404** por RLS.
 - **FA-05** (sin sesión o rol insuficiente): **401**/**403**.
-- **FA-06** (concurrencia con barrido US-012): si el barrido de expiración A21 commite primero, la RESERVA pasa a `2x` y el registro del resultado recibe la guarda de origen (422 — ya no está en `2v`); si el registro commite primero, US-012 no encuentra la RESERVA como candidata en `2v` y no actúa sobre ella. Nunca estado intermedio (`2b` sin `FECHA_BLOQUEADA` actualizada). Serialización por `SELECT … FOR UPDATE`.
-- **FA-07** (fallo del proveedor de email E7): no revierte la transición de estado; `COMUNICACION.estado = 'fallido'` queda registrado.
-- **FA-08**: Cliente quiere reservar inmediatamente con info completa → US-010 (transición directa a `pre_reserva` — fuera de alcance de UC-08 flujo "interesado").
-- **FA-09**: Cliente descarta → US-011 (transición a `2.z` + liberación de fecha — fuera de alcance de UC-08 flujo "interesado").
+- **FA-06** (concurrencia con barrido US-012 — flujo A): si el barrido de expiración A21 commite primero, la RESERVA pasa a `2x` y el registro del resultado recibe la guarda de origen (422 — ya no está en `2v`); si el registro commite primero, US-012 no encuentra la RESERVA como candidata en `2v` y no actúa sobre ella. Nunca estado intermedio (`2b` sin `FECHA_BLOQUEADA` actualizada). Serialización por `SELECT … FOR UPDATE`.
+- **FA-07** (fallo del proveedor de email E7 — flujo A): no revierte la transición de estado; `COMUNICACION.estado = 'fallido'` queda registrado.
+- **FA-08**: Cliente quiere reservar inmediatamente → flujo B (US-010, descrito arriba como Flujo Básico B).
+- **FA-09**: Cliente descarta → US-011 (transición a `2.z` + liberación de fecha — fuera de alcance).
+- **FA-10** (datos obligatorios incompletos — flujo B / US-010): si la RESERVA o el CLIENTE tienen campos faltantes del conjunto UC-14 (`fecha_evento`, `duracion_horas`, `tipo_evento`, `num_adultos_ninos_mayores4`, `dni_nif`, `direccion`, `codigo_postal`, `poblacion`, `provincia`) → el sistema responde **422** con `camposFaltantes[]`; la RESERVA permanece en `sub_estado = '2v'` sin ningún cambio (ni en `FECHA_BLOQUEADA` ni en la cola). La opción puede permitir completar los datos en el mismo paso antes de reintentar.
+- **FA-11** (cola vacía — flujo B / US-010): si no hay consultas en `2.d` apuntando a la RESERVA, el vaciado de cola A16 es una operación vacía (0 filas afectadas); la transición procede sin error.
+- **FA-12** (concurrencia — flujo B / US-010): (a) si otra transacción intenta insertar un nuevo bloqueo para la misma `(tenant_id, fecha_evento)` → `UNIQUE(tenant_id, fecha)` garantiza una sola fila; la insertadora recibe violación de unicidad (sin doble bloqueo); (b) si otra transacción modifica `posicion_cola` de una consulta en `2d` de esa cola → `SELECT … FOR UPDATE` serializa ambas transacciones; el estado final es coherente (ninguna RESERVA en `2d` con `consulta_bloqueante_id` apuntando a una RESERVA ya en `pre_reserva`).
 
 ```mermaid
 flowchart TD
     A[Gestor: Registrar resultado de visita en sub_estado=2v] --> B{Guarda de origen: RESERVA en 2v?}
     B -->|No — otro sub_estado o terminal| C[422 — Transición inválida sin efectos]
-    B -->|Sí| D[Tx SELECT…FOR UPDATE sobre fila bloqueante FECHA_BLOQUEADA]
-    D --> E[UPDATE RESERVA: sub_estado=2b + visita_realizada=true + ttl_expiracion=now+ttl_consulta_dias]
-    E --> F[UPDATE FECHA_BLOQUEADA: ttl_expiracion=nuevo valor, tipo_bloqueo permanece blando]
-    F --> G[INSERT AUDIT_LOG: transicion, datos_anteriores.sub_estado=2v, datos_nuevos.sub_estado=2b]
-    G --> H[200 — subEstado=2b + visitaRealizada=true + ttlExpiracion fresco]
-    H --> I[Post-commit: E7 motor US-045 → COMUNICACION E7 enviado/fallido]
+    B -->|Sí| D{resultado?}
+    D -->|interesado| E[Tx SELECT…FOR UPDATE sobre fila bloqueante FECHA_BLOQUEADA]
+    E --> F[UPDATE RESERVA: sub_estado=2b + visita_realizada=true + ttl=now+ttl_consulta_dias]
+    F --> G[UPDATE FECHA_BLOQUEADA: ttl_expiracion=nuevo valor, tipo_bloqueo permanece blando]
+    G --> H[INSERT AUDIT_LOG: transicion, datos_anteriores.sub_estado=2v, datos_nuevos.sub_estado=2b]
+    H --> I[200 — subEstado=2b + visitaRealizada=true + ttlExpiracion fresco]
+    I --> J[Post-commit: E7 motor US-045 → COMUNICACION E7 enviado/fallido]
+    D -->|reserva_inmediata| K{Datos obligatorios UC-14 completos?}
+    K -->|No — campos faltantes| L[422 — camposFaltantes, RESERVA intacta en 2v]
+    K -->|Sí| M[Tx SELECT…FOR UPDATE sobre fila bloqueante FECHA_BLOQUEADA]
+    M --> N[UPDATE RESERVA: estado=pre_reserva + sub_estado=NULL + visita_realizada=true + ttl=now+ttl_prereserva_dias]
+    N --> O[UPDATE FECHA_BLOQUEADA: ttl_expiracion=mismo valor, tipo_bloqueo permanece blando]
+    O --> P[Vaciado cola A16: 2d→2y, posicion_cola=NULL, consulta_bloqueante_id=NULL]
+    P --> Q[INSERT AUDIT_LOG: transicion RESERVA + por cada consulta vaciada]
+    Q --> R[200 — estado=pre_reserva + subEstado=null + visitaRealizada=true + ttlExpiracion 7d]
 ```
 
 ---
@@ -1980,4 +2006,5 @@ Este análisis ha identificado **36 casos de uso** que cubren completamente la f
 
 ---
 
+*Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.5 (03/07/2026): refleja US-010 — Registrar resultado de visita: reserva inmediata (2.v → pre_reserva / UC-08 FA-08 / UC-14): actualiza la ficha de UC-08 con la descripción del flujo B implementado (US-010), postcondiciones para "reserva inmediata" (`estado='pre_reserva'`, `sub_estado=NULL`, TTL de 7 días, cola A16 vaciada, sin email propio), endpoint polimórfico (`resultado: "interesado" | "reserva_inmediata"`), entidades afectadas ampliadas; añade el Flujo Básico B (pasos 1–8) con validación de datos obligatorios UC-14 + transacción RESERVA + FECHA_BLOQUEADA UPDATE + cola A16 + AUDIT_LOG; añade FA-10 (datos incompletos — 422 con `camposFaltantes`), FA-11 (cola vacía — válida), FA-12 (concurrencia D4 y vaciado de cola); actualiza el diagrama Mermaid con la rama `reserva_inmediata`. Sin migración de esquema (todos los campos ya existían desde US-000/US-008).*
 *Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.4 (03/07/2026): refleja US-019 — Promoción Manual de Consulta en Cola (UC-12 flujo B): actualiza la ficha de UC-12 con el actor dual (Sistema/Gestor), postcondiciones y entidades afectadas para el flujo manual; añade el flujo B completo (pasos 1–8 + FA-01..FA-07) con endpoint `POST /reservas/{id}/promover`, mecánica de expiración forzosa de la bloqueante (`2b/2c/2v → 2x`), re-asignación atómica de `FECHA_BLOQUEADA`, reordenación por cierre de hueco, AUDIT_LOG con `origen: 'promocion_manual'` y política de arbitraje (FIFO estricto, 409 al Gestor si el automático gana); añade diagrama de secuencia Mermaid del flujo B; actualiza la nota sobre US-019 (ya implementada, no futura); precisa la transición `consulta_2d → consulta_2b` en el diagrama §6 para distinguir automática (US-018) y manual (US-019); actualiza §5, §7, §8 con la referencia al flujo manual. Sin migración de esquema (US-019 no añade entidades ni columnas; reutiliza `RESERVA`, `FECHA_BLOQUEADA`, `AUDIT_LOG` y sus campos existentes). Versión 1.3 (30/06/2026): refleja US-039 — visualizar el Calendario de Disponibilidad (UC-29): reemplaza la ficha original de UC-29 con la especificación completa implementada: vista de lectura pura (sin mutación); endpoint `GET /calendario` (query `desde`/`hasta`/`vista`; respuesta `CalendarioResponse` con `rango` + `fechas[]` agregadas por fecha ocupada, incluyendo `color`/`estado`/`subEstado`/`reservaId`/`cliente`/`ttlRestante`/`enCola`; 401 sin sesión; 422 rango inválido); código de colores canónico (SlotifyGeneralSpecs §11.3) como tabla de datos declarativa; indicador `🔁 N en cola` sobre la celda bloqueante; popover de detalle al clic sin segunda llamada; aislamiento multi-tenant + RLS; calendar en react-big-calendar como página de inicio del App Shell; US, endpoint y entidades afectadas (`RESERVA`/`FECHA_BLOQUEADA` — lectura); flujos alternativos FA-01..FA-05 y diagrama Mermaid. Sin migración de esquema (no hay cambios en `RESERVA` ni `FECHA_BLOQUEADA`). Versión 1.2 (30/06/2026): refleja US-008 — programar visita al espacio (UC-07): reemplaza la ficha original de UC-07 con la especificación completa implementada: guarda de origen multi-estado `{2a,2b,2c}→2v`; precondición `fecha_evento` NOT NULL para `2a`; ventana `fecha_visita ∈ [hoy+1, hoy+max_dias_programar_visita]` (setting del tenant); INSERT-o-UPDATE de `FECHA_BLOQUEADA` (`ttl=visita+1 día`) según origen; atomicidad RESERVA+FECHA_BLOQUEADA+AUDIT_LOG en una única transacción; E6 post-commit vía motor US-045; US, endpoint `POST /reservas/{id}/visita`, entidades afectadas, flujos alternativos FA-01..FA-06 y diagrama Mermaid. A19/A20 (recordatorios al gestor) fuera de alcance de esta US (slice de jobs separado). Sin migración de columnas (campos de visita + sub-estado `2v` + `max_dias_programar_visita` ya existentes desde US-000). Versión 1.1 (28/06/2026): refleja US-004 — alta de consulta con fecha (UC-03): actualiza §3 UC-03 — flujo básico paso 3 (`fecha_evento > hoy`, estrictamente futura) y FA-01 (rechaza hoy y pasado con 400 en servidor; divergencia intencional Gate 1 decisión A; trazabilidad a `design.md §D-1`). Corrección transversal: UC-04 precondiciones alineadas con la regla real de `bloquearFecha()` / `validarFechaFutura` (`> hoy`; inconsistencia preexistente respecto a la ficha original).*

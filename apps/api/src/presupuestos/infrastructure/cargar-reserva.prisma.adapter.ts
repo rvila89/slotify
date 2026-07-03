@@ -13,14 +13,11 @@ import type {
   ReservaPresupuesto,
 } from '../application/generar-presupuesto.use-case';
 import type { EstadoReserva } from '../../reservas/domain/maquina-estados';
+import { duracionHorasPrismaANumero } from '../../reservas/infrastructure/duracion-horas.mapper';
 import {
   subEstadoPrismaADominio,
   type SubEstadoConsultaPrisma,
 } from '../../reservas/infrastructure/sub-estado-consulta.mapper';
-
-/** Traduce la `DuracionHoras` de Prisma (`h8`) al número de dominio (`8`). */
-const aDuracionNumero = (duracion: string | null): number | null =>
-  duracion === null ? null : Number(duracion.replace(/^h/, ''));
 
 @Injectable()
 export class CargarReservaPrismaAdapter {
@@ -46,7 +43,7 @@ export class CargarReservaPrismaAdapter {
           ? null
           : subEstadoPrismaADominio(fila.subEstado as SubEstadoConsultaPrisma),
       fechaEvento: fila.fechaEvento,
-      duracionHoras: aDuracionNumero(fila.duracionHoras),
+      duracionHoras: duracionHorasPrismaANumero(fila.duracionHoras),
       numAdultosNinosMayores4: fila.numAdultosNinosMayores4,
       numNinosMenores4: fila.numNinosMenores4,
       tipoEvento: fila.tipoEvento,

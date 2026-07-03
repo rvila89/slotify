@@ -28,6 +28,7 @@ import { UnidadDeTrabajoTransicionPrismaAdapter } from './infrastructure/transic
 import { UnidadDeTrabajoPendienteInvitadosPrismaAdapter } from './infrastructure/transicion-pendiente-invitados-uow.prisma.adapter';
 import { UnidadDeTrabajoProgramarVisitaPrismaAdapter } from './infrastructure/programar-visita-uow.prisma.adapter';
 import { UnidadDeTrabajoResultadoVisitaPrismaAdapter } from './infrastructure/registrar-resultado-visita-uow.prisma.adapter';
+import { CargarClienteResultadoVisitaPrismaAdapter } from './infrastructure/cargar-cliente-resultado-visita.prisma.adapter';
 import { UnidadDeTrabajoExtenderBloqueoPrismaAdapter } from './infrastructure/extender-bloqueo-uow.prisma.adapter';
 import { ConfirmacionBloqueoEmailAdapter } from './infrastructure/confirmacion-bloqueo-email.adapter';
 import { ConfirmacionVisitaEmailAdapter } from './infrastructure/confirmacion-visita-email.adapter';
@@ -66,6 +67,7 @@ import {
 } from './application/programar-visita.use-case';
 import {
   RegistrarResultadoVisitaUseCase,
+  type CargarClienteResultadoVisitaPort,
   type EnviarConfirmacionResultadoVisitaPort,
   type TenantSettingsResultadoVisitaPort,
   type UnidadDeTrabajoResultadoVisitaPort,
@@ -128,6 +130,7 @@ import {
   CONFIRMACION_VISITA_EMAIL_PORT,
   UNIDAD_DE_TRABAJO_RESULTADO_VISITA_PORT,
   CONFIRMACION_RESULTADO_VISITA_EMAIL_PORT,
+  CARGAR_CLIENTE_RESULTADO_VISITA_PORT,
   UNIDAD_DE_TRABAJO_EXTENDER_BLOQUEO_PORT,
   UNIDAD_DE_TRABAJO_PENDIENTE_INVITADOS_PORT,
   UNIDAD_DE_TRABAJO_PROGRAMAR_VISITA_PORT,
@@ -298,6 +301,13 @@ import {
       useFactory: (motor: DespacharEmailService, prisma: PrismaService) =>
         new ConfirmacionResultadoVisitaEmailAdapter(motor, prisma),
     },
+    // US-010 — carga del CLIENTE para la validación de datos obligatorios UC-14.
+    {
+      provide: CARGAR_CLIENTE_RESULTADO_VISITA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CargarClienteResultadoVisitaPrismaAdapter(prisma),
+    },
     {
       provide: RegistrarResultadoVisitaUseCase,
       inject: [
@@ -305,18 +315,21 @@ import {
         CLOCK_PORT,
         TENANT_SETTINGS_PORT,
         CONFIRMACION_RESULTADO_VISITA_EMAIL_PORT,
+        CARGAR_CLIENTE_RESULTADO_VISITA_PORT,
       ],
       useFactory: (
         unidadDeTrabajo: UnidadDeTrabajoResultadoVisitaPort,
         clock: ClockPort,
         tenantSettings: TenantSettingsResultadoVisitaPort,
         confirmacionResultado: EnviarConfirmacionResultadoVisitaPort,
+        cargarCliente: CargarClienteResultadoVisitaPort,
       ) =>
         new RegistrarResultadoVisitaUseCase({
           unidadDeTrabajo,
           clock,
           tenantSettings,
           confirmacionResultado,
+          cargarCliente,
         }),
     },
     {
