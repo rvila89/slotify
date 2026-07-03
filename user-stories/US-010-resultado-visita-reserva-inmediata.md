@@ -2,7 +2,7 @@
 id: US-010
 estado: in_review
 branch: feature/us-010-resultado-visita-reserva-inmediata
-pr: null
+pr: https://github.com/rvila89/slotify/pull/39
 ---
 
 # 🧾 Historia de Usuario: Registrar resultado de visita — reserva inmediata (2.v → pre_reserva)
