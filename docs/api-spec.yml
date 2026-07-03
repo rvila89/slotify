@@ -708,16 +708,84 @@ paths:
       - { $ref: '#/components/parameters/IdReserva' }
     post:
       tags: [Cola]
-      summary: Promover consulta de la cola (UC-12)
-      description: Promueve la primera consulta en cola (2.d→2.b) cuando la bloqueante se libera. Encadenamiento automático.
+      summary: Promover una consulta de la cola a bloqueante (UC-12 — automática US-018 / manual US-019)
+      operationId: promoverConsultaCola
+      description: |
+        Promueve una consulta en cola (`2.d → 2.b`) a bloqueante de su fecha. Dos modos que
+        comparten operación de dominio y superficie HTTP, discriminados por el body/actor
+        (decisión de contrato D-1, US-019):
+
+        - **Automática (US-018, actor Sistema, SIN body)**: encadenamiento FIFO cuando la
+          bloqueante se libera (`liberarFecha()`). El `{id}` es la **primera** de la cola
+          (`posicionCola = 1`). No expira ninguna bloqueante (la fecha ya está libre).
+        - **Manual (US-019, actor Gestor, body `PromoverManualRequest` con `confirmado: true`)**:
+          acción DELIBERADA y DESTRUCTIVA disparada desde la vista de cola (US-017). El `{id}`
+          es la RESERVA en `2.d` que el Gestor elige, **cualquier `posicionCola`** (no solo la
+          primera). Como parte indivisible de la operación: (1) **expira forzosamente** la
+          bloqueante activa a `2.x` (`ttlExpiracion → NULL`) si sigue viva; (2) promueve la
+          elegida a `2.b` (`posicionCola`/`consultaBloqueanteId → NULL`, `ttlExpiracion → now() +
+          tenant_settings.ttl_consulta_dias`); (3) **re-asigna** la fila de `FECHA_BLOQUEADA` a
+          la promovida (una sola fila activa por `(tenant, fecha)` en todo momento); (4)
+          **reordena la cola cerrando el hueco** (posiciones contiguas desde 1); (5) audita cada
+          RESERVA modificada con `origen: 'promocion_manual'` y el `usuarioId` del Gestor.
+
+        Todo en **una transacción** serializada por `SELECT … FOR UPDATE` sobre la fila de
+        `FECHA_BLOQUEADA`, bajo el contexto **RLS del tenant** del JWT (nunca del path). La
+        garantía anti-doble-promoción reside **exclusivamente en PostgreSQL** (`UNIQUE(tenant_id,
+        fecha)` + `FOR UPDATE`), NUNCA en locks distribuidos.
+
+        **Arbitraje (D-4, FIFO estricto + "gana quien toma el lock primero", decisión heredada de
+        US-018 §D-6, sin cesión al Gestor)**: si el barrido automático de US-018 —u otro Gestor—
+        adquiere el lock primero y ya promovió, la promoción manual **aborta sin cambios** con
+        **409** ("La cola ya fue actualizada automáticamente, por favor recarga la vista").
+
+        La promoción manual requiere **rol Gestor** del tenant (autorización por JWT); un actor
+        sin rol suficiente recibe **403**.
+      requestBody:
+        # Opcional para preservar la compatibilidad con la promoción AUTOMÁTICA de US-018 (sin
+        # body). Presente y con `confirmado: true` para la promoción MANUAL del Gestor (US-019).
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PromoverManualRequest' }
       responses:
         '200':
-          description: Consulta promovida
+          description: |
+            Consulta promovida a bloqueante (`2.b`). En la promoción manual, además, la bloqueante
+            anterior quedó expirada a `2.x` y la cola reordenada; el cuerpo devuelve la RESERVA
+            promovida.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Reserva' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          # [US-019 D-4] Autenticado pero sin rol Gestor del tenant para la promoción manual.
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          # Reserva `{id}` inexistente o de otro tenant (RLS).
+          $ref: '#/components/responses/NotFound'
         '409':
-          $ref: '#/components/responses/Conflict'
+          description: |
+            Conflicto de concurrencia/estado (mapeo F5-02: 409 = carrera perdida):
+            - **Carrera perdida (US-019 D-4)**: el barrido automático (US-018) u otro Gestor ya
+              actualizó la cola bajo el lock — "La cola ya fue actualizada automáticamente, por
+              favor recarga la vista".
+            - **Inconsistencia de bloqueo**: no existe una `FECHA_BLOQUEADA` activa para la fecha
+              de la consulta elegida (una consulta en `2.d` sin fecha bloqueada).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422':
+          description: |
+            Guarda de negocio inviolada (mapeo F5-02: 422 = transición/guarda inválida) sin efectos:
+            - **Consulta ya no en cola (FA-05)**: la RESERVA `{id}` no está en `sub_estado = '2d'`
+              (expiró, es terminal `2x`/`2y`/`2z`, o es la propia bloqueante) — "La consulta
+              seleccionada ya no está en cola".
+            - **Confirmación ausente**: la promoción manual llegó sin `confirmado: true`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /reservas/{id}/salir-cola:
     parameters:
@@ -1866,6 +1934,25 @@ components:
           type: array
           description: Cola de espera ordenada ASC por `posicionCola` (FIFO). `[]` si no hay cola o en FA-04.
           items: { $ref: '#/components/schemas/ColaItem' }
+    PromoverManualRequest:
+      # [US-019 / UC-12 FA manual] Body de la promoción MANUAL por el Gestor sobre POST
+      # /reservas/{id}/promover. El `{id}` de la ruta es la RESERVA en `2d` (cualquier
+      # `posicionCola`, no solo la primera) que el Gestor promueve a bloqueante. El body
+      # distingue la promoción manual (actor Gestor) de la automática de US-018 (actor Sistema,
+      # sin body). `confirmado: true` es la defensa en servidor de la acción DESTRUCTIVA
+      # (expira irreversiblemente la bloqueante actual a `2x`); el diálogo de confirmación de la
+      # UI (US-017) es la salvaguarda de UX. El `tenantId`/`usuarioId` del Gestor NUNCA viajan
+      # aquí: se derivan del JWT firmado.
+      type: object
+      required: [confirmado]
+      properties:
+        confirmado:
+          type: boolean
+          description: |
+            DEBE ser `true` para ejecutar la promoción manual. Confirma explícitamente la acción
+            destructiva (la bloqueante activa se expira forzosamente a `2x`, terminal e
+            irreversible). Si es `false` o falta, el servidor rechaza con 422 sin efectos.
+          example: true
     ColaBloqueante:
       type: object
       description: Sección de la consulta bloqueante dentro de `ColaEsperaResponse` (US-017).

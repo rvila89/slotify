@@ -636,15 +636,15 @@ flowchart TD
 |-------|-------------|
 | **ID** | UC-12 |
 | **Nombre** | Promover Consulta de la Cola |
-| **Actor Principal** | Sistema |
-| **Actores Secundarios** | Gestor (notificado internamente; la promoción manual queda para US-019) |
-| **Descripción** | Cuando se libera una `FECHA_BLOQUEADA` con cola activa, el sistema promueve automáticamente la primera consulta en cola (`2.d → 2.b`), re-crea el bloqueo, reordena el resto FIFO y alerta internamente al gestor. Implementado en **US-018**. |
+| **Actor Principal** | Sistema (promoción automática) / Gestor (promoción manual) |
+| **Actores Secundarios** | Gestor (notificado internamente en flujo automático; actor principal en flujo manual) |
+| **Descripción** | Cubre dos flujos complementarios: **(A) Automático** — cuando se libera una `FECHA_BLOQUEADA` con cola activa, el sistema promueve automáticamente la primera consulta en cola (`2.d → 2.b`, posición 1, FIFO), re-crea el bloqueo, reordena el resto y alerta al gestor; implementado en **US-018**. **(B) Manual** — el Gestor selecciona deliberadamente una consulta arbitraria de la cola (`2.d`, cualquier posición), expira forzosamente la bloqueante activa (`2b/2c/2v → 2x`), promueve la elegida (`2d → 2b`), re-asigna el bloqueo y reordena la cola cerrando el hueco; implementado en **US-019**. Ambos flujos se coordinan mediante `SELECT … FOR UPDATE` sobre `FECHA_BLOQUEADA` (guarda "ya promovida"): quien adquiere el lock primero completa la operación; el otro aborta limpio (409). |
 | **Precondiciones** | - Al menos una RESERVA en `sub_estado = '2d'` con `posicion_cola = 1` para `(tenant_id, fecha)` — se verifica dentro de la transacción bajo lock<br>- La `FECHA_BLOQUEADA` de esa fecha fue liberada por `liberarFecha()` (DELETE commiteado) antes del disparo del seam `PromocionColaPort` |
-| **Postcondiciones** | - La consulta con `posicion_cola = 1` pasa a `sub_estado = '2b'`; `posicion_cola = NULL`; `consulta_bloqueante_id = NULL`<br>- Se re-crea la fila de `FECHA_BLOQUEADA` (blando, `now() + ttl_consulta_dias`) para la promovida mediante `bloquearFecha()`<br>- El resto de la cola decrementa posición en 1 y re-apunta `consulta_bloqueante_id` a la nueva bloqueante<br>- `AUDIT_LOG` con `accion = 'transicion'` por cada RESERVA modificada, `origen: promocion_automatica`<br>- Alerta interna registrada para el gestor (sin email al cliente en MVP; superficie de notificaciones diferida a US-044)<br>- Idempotente: si la guarda detecta que ya no hay candidato `posicion_cola = 1` en `2d`, aborta limpio sin cambios |
+| **Postcondiciones** | **Flujo automático (US-018):** la consulta con `posicion_cola = 1` pasa a `sub_estado = '2b'`; `posicion_cola = NULL`; `consulta_bloqueante_id = NULL`; se re-crea la fila de `FECHA_BLOQUEADA` (blando, `now() + ttl_consulta_dias`) vía `bloquearFecha()`; el resto de la cola decrementa posición en 1 y re-apunta `consulta_bloqueante_id`; `AUDIT_LOG accion='transicion'` por cada RESERVA, `origen: 'promocion_automatica'`; alerta interna al gestor.<br>**Flujo manual (US-019):** la bloqueante activa (`2b`/`2c`/`2v`) pasa a `2x` (expiración forzosa, `ttl_expiracion → NULL`); la RESERVA elegida por el Gestor (cualquier `posicion_cola`) pasa a `2b`; la fila de `FECHA_BLOQUEADA` se re-asigna a la promovida (blando, `now() + ttl_consulta_dias`); la cola se reordena cerrando el hueco (`posicion_cola > P` decrementan 1; todas re-apuntan `consulta_bloqueante_id` a la promovida); `AUDIT_LOG accion='transicion'` por cada RESERVA modificada, `datos_nuevos.origen: 'promocion_manual'` para la promovida.<br>**Ambos flujos:** sin email al cliente en MVP (superficie de notificaciones diferida a US-044); idempotente (guarda "ya promovida" bajo lock aborta limpio si el estado ya cambió). |
 | **Prioridad** | Crítica |
 | **Frecuencia** | Media |
-| **US** | US-018 |
-| **Entidades afectadas** | RESERVA (UPDATE promovida + UPDATE restantes), FECHA_BLOQUEADA (INSERT vía `bloquearFecha()`), AUDIT_LOG — sin migración nueva (reutiliza `posicion_cola`, `consulta_bloqueante_id`, `ttl_expiracion` existentes desde US-000/US-004) |
+| **US** | US-018 (automático), US-019 (manual) |
+| **Entidades afectadas** | RESERVA (UPDATE promovida + UPDATE bloqueante expirada en manual + UPDATE restantes), FECHA_BLOQUEADA (INSERT en automático; UPDATE re-asignación en manual), AUDIT_LOG — sin migración nueva (reutiliza `posicion_cola`, `consulta_bloqueante_id`, `ttl_expiracion`, `sub_estado` existentes desde US-000/US-004) |
 
 **Flujo Básico (automático — A15):**
 1. El barrido de expiración (UC-09 / US-012) o cualquier otra operación que invoque `liberarFecha()` hace DELETE de la `FECHA_BLOQUEADA` de `(tenant, fecha)` y commite; si detecta cola activa, dispara `PromocionColaPort.promoverPrimeroEnCola({ tenantId, fecha })` exactamente una vez (post-commit)
@@ -660,14 +660,44 @@ flowchart TD
 8. Registra alerta interna para el gestor: "Consulta [código] promovida a bloqueo de la fecha [fecha]; contactar al cliente" (dentro de la misma transacción, sin acoplamiento al puerto de comunicaciones US-045)
 9. El gestor visualiza la alerta en el dashboard (superficie US-044); contacta al cliente manualmente
 
-**Flujos Alternativos:**
-- **FA-01** (guarda "ya promovida" — carrera RC-1 / RC-3): `posicion_cola = 1` en `2d` ya no existe bajo lock → abortar limpio sin cambios, sin error. Cubre doble disparo del cron (RC-1) y coordinación con la futura promoción manual US-019 (RC-3)
+**Flujos Alternativos — Flujo automático (US-018):**
+- **FA-01** (guarda "ya promovida" — carrera RC-1 / RC-3): `posicion_cola = 1` en `2d` ya no existe bajo lock → abortar limpio sin cambios, sin error. Cubre doble disparo del cron (RC-1) y coordinación con la promoción manual del Gestor (RC-3, US-019)
 - **FA-02** (cola vacía): no hay RESERVA en `2d` para `(tenant, fecha)` → la función retorna inmediatamente sin mutaciones (éxito silencioso; `liberarFecha()` ya procesó la liberación)
 - **FA-03** (contigüidad rota en la cola): la función pura detecta hueco en posiciones → aborta con error de dominio; el lote de expiración registra el fallo de forma aislada (el resto del lote continúa)
 
-> **Nota — Flujo manual (US-019, fuera de alcance de US-018):** la promoción manual por el gestor (seleccionar cualquier posición, no solo `posicion_cola = 1`) es de **US-019**. US-018 solo deja el contrato de guarda listo (D-3/D-6 del design): la guarda "ya promovida" y el FIFO estricto coordinan automático y manual vía el mismo `SELECT … FOR UPDATE` sobre RESERVA `2d`; quien toma el lock primero completa la promoción; el otro aborta limpio.
+**Flujo B: Promoción manual por el Gestor (US-019)**
 
-> **Nota — Notificación al cliente (US-044):** el email "¡La fecha está disponible!" (UC-12 paso original) está marcado como `Solo diseñado` en la ficha US-018. En MVP se registra solo la alerta interna al gestor. La superficie de notificaciones/dashboard es de **US-044**.
+El Gestor inicia la promoción desde la vista de cola de US-017 (`/reservas/:id/cola`). El endpoint es `POST /reservas/{id}/promover` con body `{ confirmado: true }`, donde `{id}` es la RESERVA en `2d` a promover (no la bloqueante). Rol requerido: Gestor. Códigos de respuesta: 200 (éxito), 403 (rol insuficiente), 404 (reserva no encontrada bajo RLS), 409 (carrera perdida: el automático se adelantó), 422 (consulta ya no en `2d`).
+
+1. El Gestor visualiza la cola de la fecha en la vista de US-017
+2. El Gestor selecciona una consulta de la cola (cualquier posición) y hace clic en "Promover a bloqueante"
+3. El sistema muestra un **diálogo de confirmación** (acción destructiva e irreversible: expira la bloqueante actual)
+4. El Gestor confirma la acción
+5. El sistema valida la guarda de origen: la RESERVA elegida está en `sub_estado = '2d'`
+6. El sistema valida que existe `FECHA_BLOQUEADA` activa para la `(tenant, fecha)` de la consulta elegida
+7. En una **única transacción** serializada por `SELECT … FOR UPDATE` sobre la fila de `FECHA_BLOQUEADA`:
+   - Adquiere el lock y re-evalúa la guarda "ya promovida" (si el estado ya cambió → aborta, 409)
+   - Expira la bloqueante activa: `sub_estado → '2x'`, `ttl_expiracion → NULL`
+   - Re-asigna la fila de `FECHA_BLOQUEADA`: `reserva_id → <promovida>`, `tipo_bloqueo = 'blando'`, `ttl_expiracion = now() + tenant_settings.ttl_consulta_dias`
+   - Promueve la RESERVA elegida: `sub_estado → '2b'`, `posicion_cola → NULL`, `consulta_bloqueante_id → NULL`, `ttl_expiracion = now() + tenant_settings.ttl_consulta_dias`
+   - Reordena la cola cerrando el hueco: RESERVA con `posicion_cola > P` decrementan 1; todas las restantes actualizan `consulta_bloqueante_id` a la promovida
+   - Registra `AUDIT_LOG` (`accion='transicion'`, `origen: 'promocion_manual'`, `usuario_id` del Gestor) para cada RESERVA modificada
+8. El sistema responde 200; el frontend invalida la query de cola (TanStack Query)
+
+**Flujos Alternativos — Flujo manual (US-019):**
+- **FA-01** (Gestor promueve la primera de la cola — `posicion_cola = 1`): el plan de reordenación es equivalente al decremento uniforme de US-018; el efecto es el mismo pero con expiración forzosa de la bloqueante previa
+- **FA-02** (bloqueante con TTL ya vencido pero no barrida): el sistema la detecta con `sub_estado ∈ {2b,2c,2v}` y `ttl_expiracion < now()`, la expira a `2x` e igualmente ejecuta la promoción elegida
+- **FA-03** (cola de un único elemento): R1 → `2x`; R2 → `2b`; `FECHA_BLOQUEADA.reserva_id → R2.id`; cola queda vacía
+- **FA-04** (Gestor cancela el diálogo de confirmación): no se realiza ningún cambio; la bloqueante sigue activa; la cola permanece inalterada
+- **FA-05** (consulta ya no en `2d` al confirmar): la guarda de origen detecta `sub_estado ≠ '2d'` → rechaza con 422 "La consulta seleccionada ya no está en cola"; sin mutaciones
+- **FA-06** (carrera manual vs automático — RC-A): el automático toma primero el `FOR UPDATE` sobre `FECHA_BLOQUEADA` (vía `liberarFecha()`), completa su promoción FIFO; el Gestor, al obtener el lock, detecta que el estado ya cambió → aborta con 409 "La cola ya fue actualizada automáticamente, por favor recarga la vista"
+- **FA-07** (dos Gestores simultáneos — RC-B): el primer Gestor en adquirir el lock completa la promoción; el segundo, al obtener el lock, detecta la bloqueante ya en `2x` o la consulta elegida ya no en posición válida → aborta con 409
+
+> **Política de arbitraje (US-018 §D-6, respetada):** FIFO estricto + "gana quien toma el lock primero". El sistema NO cede prioridad al Gestor: si el automático gana, el Gestor recibe 409, recarga y decide de nuevo. La garantía reside exclusivamente en PostgreSQL (`UNIQUE(tenant_id, fecha)` + `SELECT … FOR UPDATE`), nunca en locks distribuidos.
+
+> **Notificación al cliente (US-044):** el email "¡La fecha está disponible!" (UC-12 paso 8 original) está marcado como `Solo diseñado` en US-018 y US-019. En MVP se registra solo la traza en `AUDIT_LOG`. La superficie de notificaciones/dashboard es de **US-044**.
+
+**Flujo A — Diagrama de secuencia (promoción automática, US-018):**
 
 ```mermaid
 sequenceDiagram
@@ -689,6 +719,34 @@ sequenceDiagram
     S->>DB: AUDIT_LOG por cada RESERVA (origen: promocion_automatica)
     S->>DB: Alerta interna al gestor (en misma TX)
     S->>DB: COMMIT
+```
+
+**Flujo B — Diagrama de secuencia (promoción manual, US-019):**
+
+```mermaid
+sequenceDiagram
+    participant G as Gestor (UI cola US-017)
+    participant M as PromoverManualEnColaService (US-019)
+    participant DB as PostgreSQL
+    participant R1 as Bloqueante actual (2b/2c/2v)
+    participant Rp as RESERVA elegida (2d, pos P)
+    participant Rc as Cola restante (2d)
+
+    G->>M: POST /reservas/{id}/promover { confirmado: true }
+    M->>DB: BEGIN TX + SET LOCAL app.tenant_id
+    M->>DB: SELECT … FOR UPDATE sobre fila FECHA_BLOQUEADA (tenant, fecha)
+    M->>M: Guarda "ya promovida": ¿sigue elegida en 2d? ¿bloqueante coherente?
+    alt Estado ya cambió (carrera perdida)
+        M->>G: 409 — La cola ya fue actualizada automáticamente
+    else Invariantes OK
+        M->>R1: UPDATE sub_estado=2x, ttl_expiracion=NULL
+        M->>DB: UPDATE FECHA_BLOQUEADA: reserva_id=Rp.id, ttl=now+ttl_consulta_dias
+        M->>Rp: UPDATE sub_estado=2b, posicion_cola=NULL, consulta_bloqueante_id=NULL, ttl=now+ttl
+        M->>Rc: UPDATE posicion_cola-=1 (pos>P) + consulta_bloqueante_id=Rp.id (todas)
+        M->>DB: AUDIT_LOG por cada RESERVA (origen: promocion_manual, usuario_id Gestor)
+        M->>DB: COMMIT
+        M->>G: 200
+    end
 ```
 
 ---
@@ -1756,7 +1814,7 @@ flowchart TB
 | UC-09 | Expirar Consulta | Sistema | Alto | Crítica | Media |
 | UC-10 | Descartar Consulta | Gestor | Medio | Media | Baja |
 | UC-11 | Visualizar Cola | Gestor | Medio | Alta | Baja |
-| UC-12 | Promover de Cola | Sistema/Gestor | Crítico | Crítica | Alta |
+| UC-12 | Promover de Cola (automático US-018 / manual US-019) | Sistema/Gestor | Crítico | Crítica | Alta |
 | UC-13 | Salir de Cola | Cliente/Gestor | Bajo | Media | Baja |
 | UC-14 | Generar Presupuesto | Gestor | Crítico | Crítica | Alta |
 | UC-15 | Editar Presupuesto | Gestor | Medio | Media | Media |
@@ -1804,7 +1862,7 @@ stateDiagram-v2
     consulta_2c --> pre_reserva: Info completa
     consulta_2c --> consulta_2x: TTL expira
     
-    consulta_2d --> consulta_2b: Promoción
+    consulta_2d --> consulta_2b: Promoción automática FIFO (US-018) o manual por Gestor (US-019)
     consulta_2d --> consulta_2y: Bloqueante avanza
     consulta_2d --> consulta_2z: Cliente sale
     
@@ -1891,7 +1949,7 @@ Este análisis ha identificado **36 casos de uso** que cubren completamente la f
 
 1. **Flujo principal robusto**: Los casos de uso cubren el ciclo completo lead → archivo con todos los sub-estados y transiciones definidos en la especificación.
 
-2. **Gestión de cola implementada**: La mecánica de cola de espera (UC-11, UC-12, UC-13) está completamente definida con promoción automática y reordenación.
+2. **Gestión de cola implementada**: La mecánica de cola de espera (UC-11, UC-12, UC-13) está completamente definida. UC-12 cubre los dos flujos: promoción automática FIFO por el Sistema (US-018) y promoción manual por el Gestor de cualquier posición de la cola (US-019), con coordinación anti-doble-promoción via `SELECT … FOR UPDATE` sobre `FECHA_BLOQUEADA`.
 
 3. **Sub-procesos paralelos**: La gestión simultánea de pre-evento, liquidación y fianza (UC-20, UC-21, UC-22) está claramente especificada con sus interacciones.
 
@@ -1903,4 +1961,4 @@ Este análisis ha identificado **36 casos de uso** que cubren completamente la f
 
 ---
 
-*Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.3 (30/06/2026): refleja US-039 — visualizar el Calendario de Disponibilidad (UC-29): reemplaza la ficha original de UC-29 con la especificación completa implementada: vista de lectura pura (sin mutación); endpoint `GET /calendario` (query `desde`/`hasta`/`vista`; respuesta `CalendarioResponse` con `rango` + `fechas[]` agregadas por fecha ocupada, incluyendo `color`/`estado`/`subEstado`/`reservaId`/`cliente`/`ttlRestante`/`enCola`; 401 sin sesión; 422 rango inválido); código de colores canónico (SlotifyGeneralSpecs §11.3) como tabla de datos declarativa; indicador `🔁 N en cola` sobre la celda bloqueante; popover de detalle al clic sin segunda llamada; aislamiento multi-tenant + RLS; calendar en react-big-calendar como página de inicio del App Shell; US, endpoint y entidades afectadas (`RESERVA`/`FECHA_BLOQUEADA` — lectura); flujos alternativos FA-01..FA-05 y diagrama Mermaid. Sin migración de esquema (no hay cambios en `RESERVA` ni `FECHA_BLOQUEADA`). Versión 1.2 (30/06/2026): refleja US-008 — programar visita al espacio (UC-07): reemplaza la ficha original de UC-07 con la especificación completa implementada: guarda de origen multi-estado `{2a,2b,2c}→2v`; precondición `fecha_evento` NOT NULL para `2a`; ventana `fecha_visita ∈ [hoy+1, hoy+max_dias_programar_visita]` (setting del tenant); INSERT-o-UPDATE de `FECHA_BLOQUEADA` (`ttl=visita+1 día`) según origen; atomicidad RESERVA+FECHA_BLOQUEADA+AUDIT_LOG en una única transacción; E6 post-commit vía motor US-045; US, endpoint `POST /reservas/{id}/visita`, entidades afectadas, flujos alternativos FA-01..FA-06 y diagrama Mermaid. A19/A20 (recordatorios al gestor) fuera de alcance de esta US (slice de jobs separado). Sin migración de columnas (campos de visita + sub-estado `2v` + `max_dias_programar_visita` ya existentes desde US-000). Versión 1.1 (28/06/2026): refleja US-004 — alta de consulta con fecha (UC-03): actualiza §3 UC-03 — flujo básico paso 3 (`fecha_evento > hoy`, estrictamente futura) y FA-01 (rechaza hoy y pasado con 400 en servidor; divergencia intencional Gate 1 decisión A; trazabilidad a `design.md §D-1`). Corrección transversal: UC-04 precondiciones alineadas con la regla real de `bloquearFecha()` / `validarFechaFutura` (`> hoy`; inconsistencia preexistente respecto a la ficha original).*
+*Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.4 (03/07/2026): refleja US-019 — Promoción Manual de Consulta en Cola (UC-12 flujo B): actualiza la ficha de UC-12 con el actor dual (Sistema/Gestor), postcondiciones y entidades afectadas para el flujo manual; añade el flujo B completo (pasos 1–8 + FA-01..FA-07) con endpoint `POST /reservas/{id}/promover`, mecánica de expiración forzosa de la bloqueante (`2b/2c/2v → 2x`), re-asignación atómica de `FECHA_BLOQUEADA`, reordenación por cierre de hueco, AUDIT_LOG con `origen: 'promocion_manual'` y política de arbitraje (FIFO estricto, 409 al Gestor si el automático gana); añade diagrama de secuencia Mermaid del flujo B; actualiza la nota sobre US-019 (ya implementada, no futura); precisa la transición `consulta_2d → consulta_2b` en el diagrama §6 para distinguir automática (US-018) y manual (US-019); actualiza §5, §7, §8 con la referencia al flujo manual. Sin migración de esquema (US-019 no añade entidades ni columnas; reutiliza `RESERVA`, `FECHA_BLOQUEADA`, `AUDIT_LOG` y sus campos existentes). Versión 1.3 (30/06/2026): refleja US-039 — visualizar el Calendario de Disponibilidad (UC-29): reemplaza la ficha original de UC-29 con la especificación completa implementada: vista de lectura pura (sin mutación); endpoint `GET /calendario` (query `desde`/`hasta`/`vista`; respuesta `CalendarioResponse` con `rango` + `fechas[]` agregadas por fecha ocupada, incluyendo `color`/`estado`/`subEstado`/`reservaId`/`cliente`/`ttlRestante`/`enCola`; 401 sin sesión; 422 rango inválido); código de colores canónico (SlotifyGeneralSpecs §11.3) como tabla de datos declarativa; indicador `🔁 N en cola` sobre la celda bloqueante; popover de detalle al clic sin segunda llamada; aislamiento multi-tenant + RLS; calendar en react-big-calendar como página de inicio del App Shell; US, endpoint y entidades afectadas (`RESERVA`/`FECHA_BLOQUEADA` — lectura); flujos alternativos FA-01..FA-05 y diagrama Mermaid. Sin migración de esquema (no hay cambios en `RESERVA` ni `FECHA_BLOQUEADA`). Versión 1.2 (30/06/2026): refleja US-008 — programar visita al espacio (UC-07): reemplaza la ficha original de UC-07 con la especificación completa implementada: guarda de origen multi-estado `{2a,2b,2c}→2v`; precondición `fecha_evento` NOT NULL para `2a`; ventana `fecha_visita ∈ [hoy+1, hoy+max_dias_programar_visita]` (setting del tenant); INSERT-o-UPDATE de `FECHA_BLOQUEADA` (`ttl=visita+1 día`) según origen; atomicidad RESERVA+FECHA_BLOQUEADA+AUDIT_LOG en una única transacción; E6 post-commit vía motor US-045; US, endpoint `POST /reservas/{id}/visita`, entidades afectadas, flujos alternativos FA-01..FA-06 y diagrama Mermaid. A19/A20 (recordatorios al gestor) fuera de alcance de esta US (slice de jobs separado). Sin migración de columnas (campos de visita + sub-estado `2v` + `max_dias_programar_visita` ya existentes desde US-000). Versión 1.1 (28/06/2026): refleja US-004 — alta de consulta con fecha (UC-03): actualiza §3 UC-03 — flujo básico paso 3 (`fecha_evento > hoy`, estrictamente futura) y FA-01 (rechaza hoy y pasado con 400 en servidor; divergencia intencional Gate 1 decisión A; trazabilidad a `design.md §D-1`). Corrección transversal: UC-04 precondiciones alineadas con la regla real de `bloquearFecha()` / `validarFechaFutura` (`> hoy`; inconsistencia preexistente respecto a la ficha original).*

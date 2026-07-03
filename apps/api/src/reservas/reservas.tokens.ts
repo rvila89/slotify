@@ -58,5 +58,8 @@ export const EXPIRACION_RESERVA_PORT = Symbol('ExpiracionReservaPort');
 // US-018 — promoción automática del primero en cola (UoW atómica de promoción)
 export const PROMOCION_COLA_UOW_PORT = Symbol('PromocionColaUoWPort');
 
+// US-019 — promoción manual de una consulta arbitraria de la cola por el Gestor
+export const PROMOCION_MANUAL_COLA_UOW_PORT = Symbol('PromocionManualColaUoWPort');
+
 // US-017 — lectura de la cola de espera (GET /reservas/{id}/cola → ColaEsperaResponse)
 export const COLA_ESPERA_QUERY_PORT = Symbol('ColaEsperaQueryPort');

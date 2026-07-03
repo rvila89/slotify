@@ -139,6 +139,49 @@ async function main(): Promise<void> {
     create: { idUsuario: USUARIO_ID, ...usuarioData },
   });
 
+  // --- Fixtures de TESTS de integración (slotify_test) ---
+  // Usuarios Gestor y tenant de control referenciados por los tests de integración /
+  // concurrencia (p. ej. US-019 promoción manual: AUDIT_LOG con `usuario_id` del Gestor
+  // exige el FK `audit_log_usuario_id_fkey`; el aislamiento multi-tenant usa un segundo
+  // tenant). Idempotentes (upsert). No afectan a datos de dominio del piloto.
+  const GESTORES_TEST: ReadonlyArray<{ id: string; email: string; nombre: string }> = [
+    { id: '00000000-0000-0000-0000-0000000000a1', email: 'gestor-a1@slotify.test', nombre: 'Gestor A1' },
+    { id: '00000000-0000-0000-0000-0000000000a2', email: 'gestor-a2@slotify.test', nombre: 'Gestor A2' },
+  ];
+  for (const gestor of GESTORES_TEST) {
+    const data = {
+      tenantId: TENANT_ID,
+      email: gestor.email,
+      passwordHash,
+      nombre: gestor.nombre,
+      rol: Rol.gestor,
+      activo: true,
+    };
+    await prisma.usuario.upsert({
+      where: { idUsuario: gestor.id },
+      update: data,
+      create: { idUsuario: gestor.id, ...data },
+    });
+  }
+
+  // Tenant de control adicional usado por los tests de aislamiento multi-tenant que
+  // siembran datos bajo este id (p. ej. US-019 integración: `OTRO_TENANT` = ...c9).
+  const TENANT_CONTROL_TEST = '00000000-0000-0000-0000-0000000000c9';
+  await prisma.tenant.upsert({
+    where: { idTenant: TENANT_CONTROL_TEST },
+    update: {},
+    create: {
+      idTenant: TENANT_CONTROL_TEST,
+      nombre: 'Tenant Control Tests (...c9)',
+      emailContacto: 'control-c9@slotify.test',
+      telefono: '+34 600 000 001',
+      direccion: '—',
+      nif: 'B00000001',
+      capacidadMaxima: 50,
+      activo: true,
+    },
+  });
+
   // --- TemporadaCalendario (12 filas: una por mes) ---
   // El ER diagram (§3.8) define este modelo como mapeo `mes 1-12` -> temporada,
   // exactamente una fila por mes (12 filas). El "15 filas" de US-000 es una

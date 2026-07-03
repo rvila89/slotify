@@ -6,11 +6,20 @@ const claseSeccion =
   'flex flex-col gap-5 rounded-[20px] border border-border-default/20 bg-surface-subtle/30 p-4 sm:p-6 lg:p-8';
 
 /**
- * Sección "Cola de espera" (US-017): lista de RESERVA en `2.d` ordenada ASC por
- * `posicionCola` (el backend ya la entrega en orden FIFO; no se reordena aquí).
+ * Sección "Cola de espera" (US-017 + US-019): lista de RESERVA en `2.d` ordenada ASC
+ * por `posicionCola` (el backend ya la entrega en orden FIFO; no se reordena aquí).
  * FA-01: cola vacía → mensaje "Sin consultas en espera para esta fecha".
+ *
+ * US-019: si `onPromover` está presente (rol Gestor), cada fila muestra la acción
+ * "Promover a bloqueante" que abre el diálogo de confirmación de la página.
  */
-export const SeccionCola = ({ cola }: { cola: ColaItem[] }) => (
+type Props = {
+  cola: ColaItem[];
+  /** Si se provee (Gestor), habilita la acción de promoción manual por fila. */
+  onPromover?: (item: ColaItem) => void;
+};
+
+export const SeccionCola = ({ cola, onPromover }: Props) => (
   <section className={claseSeccion} aria-labelledby="cola-espera-lista">
     <div className="flex items-center justify-between gap-3">
       <div id="cola-espera-lista" className="flex items-center gap-3">
@@ -38,7 +47,7 @@ export const SeccionCola = ({ cola }: { cola: ColaItem[] }) => (
     ) : (
       <ol className="flex flex-col gap-3">
         {cola.map((item) => (
-          <ColaItemFila key={item.idReserva} item={item} />
+          <ColaItemFila key={item.idReserva} item={item} onPromover={onPromover} />
         ))}
       </ol>
     )}

@@ -5,4 +5,13 @@
  */
 export { ColaEsperaPage } from './pages/ColaEsperaPage';
 export { useColaEspera, colaEsperaQueryKey, ColaEsperaError } from './api/useColaEspera';
+export {
+  usePromoverManual,
+  MENSAJE_COLA_ACTUALIZADA,
+} from './api/usePromoverManual';
+export type {
+  PromoverManualVars,
+  PromoverManualError,
+} from './api/usePromoverManual';
+export { PromoverManualDialog } from './components/PromoverManualDialog';
 export type { ColaEsperaResponse, ColaBloqueante, ColaItem } from './model/types';
