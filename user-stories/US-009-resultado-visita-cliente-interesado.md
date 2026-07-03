@@ -2,7 +2,7 @@
 id: US-009
 estado: implementada
 branch: feature/us-009-resultado-visita-cliente-interesado
-pr: null
+pr: https://github.com/rvila89/slotify/pull/36
 ---
 
 # 🧾 Historia de Usuario: Registrar resultado de visita — cliente interesado (2.v → 2.b)
