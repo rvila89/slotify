@@ -461,39 +461,49 @@ flowchart TD
 | **Nombre** | Registrar Resultado de Visita |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor registra el resultado de una visita programada: interés confirmado, reserva inmediata o descarte |
-| **Precondiciones** | - Consulta en sub-estado 2.v<br>- Fecha de visita alcanzada o superada |
-| **Postcondiciones** | - `visita_realizada` = true<br>- Transición al estado correspondiente según resultado |
+| **Descripción** | El gestor registra el resultado de una visita programada. El flujo "cliente interesado" (2.v → 2.b) está implementado en **US-009**. Los flujos "reserva inmediata" (2.v → pre_reserva) y "descarte" (2.v → 2.z) están definidos en US-010 y US-011 respectivamente. |
+| **Precondiciones** | - Consulta en `sub_estado = '2v'` (guarda de origen; cualquier otro sub-estado produce 422 sin efectos)<br>- Gestor autenticado con rol gestor sobre el tenant |
+| **Postcondiciones** | **Flujo "cliente interesado" (US-009):** `visita_realizada = true`; `sub_estado = '2b'`; `ttl_expiracion = now() + TENANT_SETTINGS.ttl_consulta_dias` (TTL fresco, calculado desde el momento de la transición, nunca acumulado sobre el anterior ni derivado de `visita_programada_fecha`); `FECHA_BLOQUEADA.ttl_expiracion` actualizado al mismo valor (`tipo_bloqueo` permanece `blando`); `AUDIT_LOG accion='transicion'`; email E7 post-commit. Todo atómico. |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
+| **US** | US-009 (cliente interesado — 2.v → 2.b); US-010 (reserva inmediata); US-011 (descarte) |
+| **Endpoint** | `PATCH /reservas/{id}/visita` — body `{ "resultado": "interesado" }` (operationId `registrarResultadoVisita`) |
+| **Entidades afectadas** | RESERVA (UPDATE `sub_estado`, `visita_realizada`, `ttl_expiracion`), FECHA_BLOQUEADA (UPDATE `ttl_expiracion`), COMUNICACION (INSERT E7), AUDIT_LOG — sin migración de columnas (todos los campos ya existían desde US-000/US-008) |
 
-**Flujo Básico (cliente confirma interés):**
-1. El gestor abre la ficha de consulta en 2.v
-2. El gestor selecciona "Registrar resultado de visita"
-3. El gestor indica "Cliente interesado"
-4. El sistema marca `visita_realizada = true`
-5. El sistema cambia sub-estado a 2.b
-6. El sistema aplica TTL fresco de 3 días
-7. El sistema envía email E7 confirmando bloqueo post-visita
-8. El sistema registra en audit log
+**Flujo Básico (cliente confirma interés — US-009):**
+1. El gestor abre la ficha de consulta en `sub_estado = '2v'`
+2. El gestor selecciona "Registrar resultado de visita" → "Cliente interesado" (acción visible y habilitada solo en `2v`)
+3. El gestor confirma la acción en el diálogo `RegistrarResultadoVisitaDialog`
+4. El sistema valida la guarda de origen: la RESERVA está en `sub_estado = '2v'` (`esOrigenValidoParaResultadoVisitaInteresado`); cualquier otro sub-estado o estado terminal produce 422 sin efectos
+5. En una única transacción all-or-nothing serializada por `SELECT … FOR UPDATE` sobre la fila bloqueante de `FECHA_BLOQUEADA`:
+   - Actualiza la RESERVA: `sub_estado = '2b'`, `visita_realizada = true`, `ttl_expiracion = now() + TENANT_SETTINGS.ttl_consulta_dias`
+   - Actualiza `FECHA_BLOQUEADA.ttl_expiracion` al mismo nuevo valor; `tipo_bloqueo` permanece `blando`
+   - Registra `AUDIT_LOG` con `accion = 'transicion'`, `datos_anteriores.sub_estado = '2v'`, `datos_anteriores.visita_realizada = false`, `datos_nuevos.sub_estado = '2b'`, `datos_nuevos.visita_realizada = true`
+6. Post-commit (no bloqueante): dispara E7 vía motor de email US-045; registra `COMUNICACION` con `codigo_email = 'E7'`, `estado = 'enviado'`; un fallo del proveedor no revierte la transición (queda trazado con `estado = 'fallido'`)
+7. El sistema responde `200` con `subEstado = '2b'`, `visitaRealizada = true`, `ttlExpiracion` (nuevo TTL fresco)
+8. La UI de la ficha de reserva refleja el nuevo sub-estado y el TTL actualizado
 
 **Flujos Alternativos:**
-- **FA-01**: Cliente quiere reservar inmediatamente con info completa → Transición directa a pre_reserva
-- **FA-02**: Cliente descarta → Transición a 2.z + liberación de fecha
-- **FA-03**: Visita no realizada (no apareció) → Gestor puede reprogramar o expirar
+- **FA-01** (visita_programada_fecha futura — no bloquea el registro): `visita_programada_fecha > hoy` **no** es una precondición de validación estricta; el sistema permite la acción igualmente. La transición procede y el TTL se calcula desde `now()`, no desde `visita_programada_fecha`.
+- **FA-02** (guarda de origen — RESERVA no en `2v`): el sistema responde **422** sin efectos sobre RESERVA, FECHA_BLOQUEADA ni COMUNICACION. La acción "Cliente interesado" está oculta/deshabilitada en UI para cualquier sub-estado distinto de `2v`.
+- **FA-03** (RESERVA en estado terminal — `2x`/`2y`/`2z`/`reserva_cancelada`/`reserva_completada`): el sistema responde **422**; los estados terminales son inmutables.
+- **FA-04** (RESERVA inexistente o de otro tenant): **404** por RLS.
+- **FA-05** (sin sesión o rol insuficiente): **401**/**403**.
+- **FA-06** (concurrencia con barrido US-012): si el barrido de expiración A21 commite primero, la RESERVA pasa a `2x` y el registro del resultado recibe la guarda de origen (422 — ya no está en `2v`); si el registro commite primero, US-012 no encuentra la RESERVA como candidata en `2v` y no actúa sobre ella. Nunca estado intermedio (`2b` sin `FECHA_BLOQUEADA` actualizada). Serialización por `SELECT … FOR UPDATE`.
+- **FA-07** (fallo del proveedor de email E7): no revierte la transición de estado; `COMUNICACION.estado = 'fallido'` queda registrado.
+- **FA-08**: Cliente quiere reservar inmediatamente con info completa → US-010 (transición directa a `pre_reserva` — fuera de alcance de UC-08 flujo "interesado").
+- **FA-09**: Cliente descarta → US-011 (transición a `2.z` + liberación de fecha — fuera de alcance de UC-08 flujo "interesado").
 
 ```mermaid
 flowchart TD
-    A[Consulta en 2.v<br>Visita programada] --> B{Visita realizada?}
-    B -->|Sí| C{Resultado}
-    B -->|No apareció| D{¿Reprogramar?}
-    D -->|Sí| E[Nueva fecha visita<br>dentro de límite 7d]
-    D -->|No| F[Expirar a 2.x]
-    C -->|Interesado| G[Transición a 2.b<br>TTL 3 días frescos]
-    C -->|Reserva inmediata| H{Info completa?}
-    C -->|Descarta| I[Transición a 2.z<br>Liberar fecha]
-    H -->|Sí| J[Transición a pre_reserva]
-    H -->|No| G
+    A[Gestor: Registrar resultado de visita en sub_estado=2v] --> B{Guarda de origen: RESERVA en 2v?}
+    B -->|No — otro sub_estado o terminal| C[422 — Transición inválida sin efectos]
+    B -->|Sí| D[Tx SELECT…FOR UPDATE sobre fila bloqueante FECHA_BLOQUEADA]
+    D --> E[UPDATE RESERVA: sub_estado=2b + visita_realizada=true + ttl_expiracion=now+ttl_consulta_dias]
+    E --> F[UPDATE FECHA_BLOQUEADA: ttl_expiracion=nuevo valor, tipo_bloqueo permanece blando]
+    F --> G[INSERT AUDIT_LOG: transicion, datos_anteriores.sub_estado=2v, datos_nuevos.sub_estado=2b]
+    G --> H[200 — subEstado=2b + visitaRealizada=true + ttlExpiracion fresco]
+    H --> I[Post-commit: E7 motor US-045 → COMUNICACION E7 enviado/fallido]
 ```
 
 ---

@@ -46,6 +46,14 @@ export const CONFIRMACION_VISITA_EMAIL_PORT = Symbol(
   'ConfirmacionVisitaEmailPort',
 );
 
+// US-009 — registro del resultado de visita «cliente interesado» (2.v → 2.b)
+export const UNIDAD_DE_TRABAJO_RESULTADO_VISITA_PORT = Symbol(
+  'UnidadDeTrabajoResultadoVisitaPort',
+);
+export const CONFIRMACION_RESULTADO_VISITA_EMAIL_PORT = Symbol(
+  'ConfirmacionResultadoVisitaEmailPort',
+);
+
 // US-006 — extensión manual del TTL del bloqueo blando
 export const UNIDAD_DE_TRABAJO_EXTENDER_BLOQUEO_PORT = Symbol(
   'UnidadDeTrabajoExtenderBloqueoPort',

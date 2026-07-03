@@ -747,34 +747,41 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Registrar resultado de visita (UC-08) */
-        patch: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description ID de la reserva */
-                    id: components["parameters"]["IdReserva"];
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["ResultadoVisitaRequest"];
-                };
-            };
-            responses: {
-                /** @description Resultado registrado */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Reserva"];
-                    };
-                };
-            };
-        };
+        /**
+         * Registrar resultado de visita — "cliente interesado" transición 2.v→2.b (UC-08 / US-009)
+         * @description [US-009] Registra el **resultado de una visita** sobre un agregado RESERVA **existente** en
+         *     sub-estado `2v` (visita programada) y marca la visita como realizada. En esta US **solo** el
+         *     resultado `interesado` está implementado (flujo básico de UC-08: el cliente confirma su
+         *     interés): devuelve la consulta a `2b` (con fecha + bloqueo blando) con un TTL **fresco**. Los
+         *     otros resultados (`reserva_inmediata`, `descarta`) son US-010/US-011 y quedan **fuera de
+         *     scope**; el enum los declara como valores futuros pero el servidor **rechaza (422)** cualquier
+         *     valor distinto de `interesado` mientras no estén implementados.
+         *
+         *     Para `resultado='interesado'`, en una **única transacción** (`SELECT … FOR UPDATE` sobre la
+         *     fila bloqueante; sin Redis ni locks distribuidos) ejecuta, all-or-nothing:
+         *     1. RESERVA → `subEstado='2b'`, `visitaRealizada=true`,
+         *        `ttlExpiracion = now + TENANT_SETTINGS.ttl_consulta_dias` (default 3). El TTL es **fresco**:
+         *        se calcula desde el instante de la transición (`now`), **no** se acumula sobre el
+         *        `ttlExpiracion` previo ni deriva de `visitaProgramadaFecha` (informativa). Reutiliza la
+         *        primitiva `resolverPlanBloqueo({ fase: '2.b' })` (US-040).
+         *     2. **UPDATE** del `ttlExpiracion` de la fila **existente** de `FechaBloqueada` de esa RESERVA
+         *        al **mismo valor** que `RESERVA.ttlExpiracion`. La fila siempre existe (proviene de `2v`,
+         *        US-008): es un UPDATE puro, sin INSERT ni DELETE. `tipoBloqueo` **permanece** `'blando'`.
+         *     3. `AUDIT_LOG accion='transicion'`, `entidad='RESERVA'`
+         *        (`datos_anteriores.sub_estado='2v'`, `datos_anteriores.visita_realizada=false`,
+         *        `datos_nuevos.sub_estado='2b'`, `datos_nuevos.visita_realizada=true`).
+         *
+         *     La atomicidad es all-or-nothing: nunca queda `2b` sin `FechaBloqueada` actualizada, ni
+         *     viceversa. El registro se permite **aunque `visitaProgramadaFecha > hoy`** (la fecha de visita
+         *     es informativa, no una precondición estricta).
+         *
+         *     Tras el COMMIT se dispara (post-commit, **no bloqueante**, motor de email US-045) el email
+         *     **E7** de confirmación de bloqueo post-visita (plazo de 3 días para decidir) y se registra en
+         *     `COMUNICACION` (`codigo_email='E7'`, `estado='enviado'`, `reservaId`, `clienteId`): un fallo
+         *     del proveedor **no** revierte la transición y queda trazado con `estado='fallido'` para
+         *     reintento (design.md §D-4). Idempotencia `(reservaId, codigo_email)` de US-045.
+         */
+        patch: operations["registrarResultadoVisita"];
         trace?: never;
     };
     "/reservas/{id}/cola": {
@@ -2488,9 +2495,11 @@ export interface components {
             hora: string;
         };
         ResultadoVisitaRequest: {
-            visitaRealizada: boolean;
-            notas?: string;
+            /** @description OBLIGATORIO. Resultado de la visita. En US-009 solo `interesado` está soportado (transición 2.v→2.b con TTL fresco y E7); `reserva_inmediata`/`descarta` (US-010/US-011) aún no implementados → 422. */
+            resultado: components["schemas"]["ResultadoVisita"];
         };
+        /** @enum {string} */
+        ResultadoVisita: "interesado" | "reserva_inmediata" | "descarta";
         ExtenderBloqueoRequest: {
             /**
              * @description OBLIGATORIO. Número ENTERO de días a añadir al `ttlExpiracion` ACTUAL del bloqueo blando (≥ 1). `0`, negativo o no entero → 422 sin mutar nada ("El número de días de extensión debe ser un entero positivo (≥ 1)").
@@ -3341,6 +3350,57 @@ export interface operations {
              *       la visita.
              *     - **Fecha fuera de ventana**: `fecha ≤ hoy` (debe ser futura) o
              *       `fecha > hoy + TENANT_SETTINGS.max_dias_programar_visita` (fuera del límite).
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    registrarResultadoVisita: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResultadoVisitaRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Transición aplicada. Devuelve la RESERVA actualizada: `subEstado='2b'`,
+             *     `visitaRealizada=true` y el nuevo `ttlExpiracion` fresco
+             *     (`now + TENANT_SETTINGS.ttl_consulta_dias`), idéntico al de su fila de `FechaBloqueada`.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Reserva"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description No se puede registrar el resultado. Casos (la RESERVA NO se modifica):
+             *     - **Guarda de origen**: el sub-estado de origen no es `2v` (p. ej. `2a`/`2b`/`2c`/`2d`, o
+             *       un terminal `2x`/`2y`/`2z`/`reserva_cancelada`/`reserva_completada`, inmutables). La
+             *       opción "Cliente interesado" solo es válida desde `2v`; validación defensiva en servidor.
+             *     - **Resultado no soportado**: `resultado ∈ {reserva_inmediata, descarta}` (US-010/US-011,
+             *       aún no implementados). Solo `interesado` se acepta en esta US.
              */
             422: {
                 headers: {
