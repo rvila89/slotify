@@ -30,16 +30,16 @@
       {
         "matcher": "Edit|Write",
         "hooks": [
-          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/no-infra-in-domain.py\"" },
-          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/no-distributed-lock.py\"" },
-          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/protect-generated-client.py\"" },
-          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/require-tests-first.py\"" }
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/no-infra-in-domain.py\"" },
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/no-distributed-lock.py\"" },
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/protect-generated-client.py\"" },
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/require-tests-first.py\"" }
         ]
       },
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/require-code-review.py\"" }
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/require-code-review.py\"" }
         ]
       }
     ],
@@ -47,7 +47,7 @@
       {
         "matcher": "Edit|Write",
         "hooks": [
-          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/validate-openapi.py\"" }
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/hooks/validate-openapi.py\"" }
         ]
       }
     ]
