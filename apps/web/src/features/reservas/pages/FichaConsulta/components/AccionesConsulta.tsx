@@ -21,8 +21,9 @@ import type { Reserva } from '../../../model/types';
  *  - `2b` con bloqueo vigente: "Pendiente de invitados" (US-007) y "Programar visita".
  *  - `2c`: "Programar visita".
  *  - `2d` (cola): "Programar visita" deshabilitada con mensaje UC-12.
- *  - `2v` (visita programada): "Registrar resultado de visita" (US-009); en esta US
- *    solo el resultado "Cliente interesado" (2.v → 2.b) está operativo.
+ *  - `2v` (visita programada): "Registrar resultado de visita" (US-009/US-010):
+ *    "Cliente interesado" (2.v → 2.b) y "Cliente quiere reservar ahora"
+ *    (2.v → pre_reserva).
  *  - `2b/2c/2v` o `pre_reserva` con TTL vigente: "Extender bloqueo" (US-006).
  *  - terminales (`2x/2y/2z`) u otros: sin acciones.
  *
@@ -173,12 +174,13 @@ export const AccionesConsulta = ({
         </div>
       )}
 
-      {/* US-009: registrar el resultado de la visita (2v). Solo "Cliente interesado" operativo. */}
+      {/* US-009/US-010: registrar el resultado de la visita (2v). Interesado y reserva inmediata. */}
       {puedeRegistrarResultado && (
         <div className="flex flex-col gap-3">
           <p className="font-body text-sm text-text-secondary">
             La visita ya está programada. Registra su resultado: si el cliente sigue interesado, la
-            fecha se reanuda con un plazo fresco para decidir y se le confirma por email.
+            fecha se reanuda con un plazo fresco y se le confirma por email; si quiere reservar en el
+            acto, la consulta pasa a pre-reserva (fecha bloqueada 7 días).
           </p>
           <button
             type="button"

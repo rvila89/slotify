@@ -19,6 +19,7 @@ import type {
   ReservaDetalleQueryPort,
 } from '../application/obtener-reserva.query';
 import type { EstadoReserva as EstadoReservaDominio } from '../domain/maquina-estados';
+import { duracionHorasPrismaANumero } from './duracion-horas.mapper';
 import {
   subEstadoPrismaADominio,
   type SubEstadoConsultaPrisma,
@@ -60,7 +61,7 @@ export class ReservaDetalleQueryPrismaAdapter implements ReservaDetalleQueryPort
           : subEstadoPrismaADominio(fila.subEstado as SubEstadoConsultaPrisma),
       canalEntrada: fila.canalEntrada,
       fechaEvento: fila.fechaEvento,
-      duracionHoras: fila.duracionHoras === null ? null : Number(fila.duracionHoras),
+      duracionHoras: duracionHorasPrismaANumero(fila.duracionHoras),
       tipoEvento: fila.tipoEvento,
       numAdultosNinosMayores4: fila.numAdultosNinosMayores4,
       numNinosMenores4: fila.numNinosMenores4,

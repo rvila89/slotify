@@ -1,17 +1,21 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, type components } from '@/api-client';
+import type { CampoObligatorio } from '../lib/datosObligatorios';
 import { reservaQueryKey } from './useReserva';
 
 type Reserva = components['schemas']['Reserva'];
 type ResultadoVisitaRequest = components['schemas']['ResultadoVisitaRequest'];
 type ResultadoVisita = components['schemas']['ResultadoVisita'];
 type ErrorResponse = components['schemas']['ErrorResponse'];
+type DatosIncompletosError = components['schemas']['PresupuestoDatosFiscalesError'];
 
 /**
- * Variables de la transición "Registrar resultado de visita" (US-009 · UC-08). En
- * esta US solo `resultado='interesado'` (2.v → 2.b) está operativo; el tipo del SDK
- * incluye `reserva_inmediata`/`descarta` (US-010/US-011) para dejar la estructura
- * preparada, pero el servidor los rechaza con 422 hasta que se implementen.
+ * Variables de la transición "Registrar resultado de visita" (UC-08/UC-14 ·
+ * US-009/US-010). Operativos en el frontend:
+ *  - `interesado` (US-009): 2.v → 2.b con TTL fresco de consulta y email E7.
+ *  - `reserva_inmediata` (US-010): 2.v → pre_reserva con TTL de 7 días, vaciado de
+ *    cola A16 y validación de datos obligatorios UC-14 (sin email).
+ * `descarta` (US-011) sigue rechazado con 422 por el servidor.
  */
 export type RegistrarResultadoVisitaVars = {
   id: string;
@@ -22,8 +26,18 @@ export type RegistrarResultadoVisitaVars = {
 export type RegistrarResultadoVisitaError =
   | {
       /**
+       * 422 `DATOS_FISCALES_INCOMPLETOS` (solo `reserva_inmediata`, US-010 · UC-14
+       * FA-01): faltan datos obligatorios de RESERVA/CLIENTE. La RESERVA permanece
+       * intacta en `2v`; el cuerpo enumera los campos que faltan.
+       */
+      tipo: 'datos-incompletos';
+      camposFaltantes: CampoObligatorio[];
+      mensaje: string;
+    }
+  | {
+      /**
        * 422: guarda de origen (la RESERVA no está en `2v`) o resultado no soportado
-       * (`reserva_inmediata`/`descarta`, US-010/US-011). La RESERVA no se modifica.
+       * (`descarta`, US-011). La RESERVA no se modifica.
        */
       tipo: 'validacion';
       mensaje: string;
@@ -41,16 +55,18 @@ const primerMensaje = (cuerpo?: ErrorResponse): string | undefined => {
 };
 
 /**
- * Mutación de la transición "Registrar resultado de visita → cliente interesado"
- * (US-009 · UC-08). Consume el SDK generado
+ * Mutación de la transición "Registrar resultado de visita" (UC-08/UC-14 ·
+ * US-009/US-010). Consume el SDK generado
  * (`apiClient.PATCH('/reservas/{id}/visita')`, body `{ resultado }`) y normaliza
  * cada desenlace:
- *  - 200: RESERVA actualizada (`subEstado='2b'`, `visitaRealizada=true` y el nuevo
- *    `ttlExpiracion` fresco = `now + TENANT_SETTINGS.ttl_consulta_dias`).
- *  - 404: la RESERVA no existe → genérico.
- *  - 422: guarda de origen (no está en `2v` / terminal, inmutable) o resultado no
- *    soportado (`reserva_inmediata`/`descarta`, US-010/US-011) — el mensaje del
- *    servidor manda.
+ *  - 200 `interesado`: RESERVA en `subEstado='2b'`, `visitaRealizada=true`, TTL
+ *    fresco de consulta.
+ *  - 200 `reserva_inmediata`: RESERVA en `estado='pre_reserva'`, `subEstado=null`,
+ *    `visitaRealizada=true`, `ttlExpiracion = now + ttl_prereserva_dias` (7 días).
+ *  - 422 `DATOS_FISCALES_INCOMPLETOS`: faltan datos obligatorios UC-14 →
+ *    `datos-incompletos` con `camposFaltantes` (solo `reserva_inmediata`).
+ *  - 422 otro: guarda de origen / resultado no soportado → `validacion`.
+ *  - 404 / red: `generico`.
  *
  * Tras éxito actualiza/invalida la query de la reserva para refrescar su estado y
  * TTL. No se edita el cliente generado a mano (regla dura del proyecto).
@@ -71,6 +87,18 @@ export const useRegistrarResultadoVisita = () => {
       const status = response?.status;
 
       if (status === 400 || status === 422) {
+        const cuerpo = error as (DatosIncompletosError & { codigo?: string }) | undefined;
+
+        if (cuerpo?.codigo === 'DATOS_FISCALES_INCOMPLETOS') {
+          throw {
+            tipo: 'datos-incompletos',
+            camposFaltantes: cuerpo.camposFaltantes ?? [],
+            mensaje:
+              primerMensaje(cuerpo) ??
+              'Faltan datos obligatorios de la reserva o del cliente para poder reservar en el acto.',
+          } satisfies RegistrarResultadoVisitaError;
+        }
+
         const mensaje =
           primerMensaje(error as ErrorResponse | undefined) ??
           'No se puede registrar este resultado de visita para la consulta en su estado actual.';
@@ -83,7 +111,7 @@ export const useRegistrarResultadoVisita = () => {
       } satisfies RegistrarResultadoVisitaError;
     },
     onSuccess: (reserva, { id }) => {
-      // Actualiza la cache con la RESERVA devuelta (2b + TTL fresco) y la marca para refetch.
+      // Actualiza la cache con la RESERVA devuelta (2b o pre_reserva) y la marca para refetch.
       queryClient.setQueryData(reservaQueryKey(id), (prev) =>
         prev ? { ...prev, ...reserva } : reserva,
       );

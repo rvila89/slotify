@@ -310,6 +310,42 @@ export const esOrigenValidoParaResultadoVisitaInteresado = (
   );
 
 // ---------------------------------------------------------------------------
+// Guarda de ORIGEN de la transición «resultado de visita — reserva inmediata»
+// (US-010 / UC-08 FA-08 / UC-14 / §D-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Conjunto declarativo de ORÍGENES válidos de la transición «registrar resultado de
+ * visita — reserva inmediata» (`2v → pre_reserva`, US-010, skill `state-machine`, NO
+ * condicionales dispersos). Como US-009 (interesado), esta transición es MONO-estado:
+ * SOLO la consulta con visita programada (`consulta/2v`) es origen válido. A diferencia
+ * de US-014 (activar pre_reserva por confirmación de presupuesto, origen multi-estado
+ * `{2a,2b,2c,2v}`), US-010 es un RESULTADO DE VISITA: una consulta sin visita programada
+ * no puede "registrar el resultado de una visita", así que `2a/2b/2c/2d` son orígenes
+ * inválidos. El resto de sub-estados de consulta, los terminales (`2x/2y/2z`), el propio
+ * destino `pre_reserva` (idempotencia: ya avanzada) y cualquier estado principal distinto
+ * de `consulta` (incluidos `reserva_cancelada`/`reserva_completada`, inmutables) son
+ * orígenes inválidos. Una sola transición permitida: `{consulta,2v} → {pre_reserva, NULL}`.
+ */
+export const ORIGENES_TRANSICION_RESULTADO_VISITA_RESERVA_INMEDIATA: ReadonlyArray<OrigenTransicion> =
+  [{ estado: 'consulta', subEstado: '2v' }];
+
+/**
+ * Guarda declarativa: ¿es `(estado, subEstado)` un ORIGEN legal de la transición
+ * «resultado de visita — reserva inmediata» (US-010)? Consulta la tabla
+ * `ORIGENES_TRANSICION_RESULTADO_VISITA_RESERVA_INMEDIATA`: solo `consulta/2v` lo es. Se
+ * evalúa (y se re-evalúa bajo el lock) ANTES de mutar para rechazar sin efectos
+ * cualquier otro sub-estado/estado (422).
+ */
+export const esOrigenValidoParaResultadoVisitaReservaInmediata = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): boolean =>
+  ORIGENES_TRANSICION_RESULTADO_VISITA_RESERVA_INMEDIATA.some(
+    (origen) => origen.estado === estado && origen.subEstado === subEstado,
+  );
+
+// ---------------------------------------------------------------------------
 // Guarda de ORIGEN de la transición «activar pre_reserva» (US-014 / UC-14 / §D-2)
 // ---------------------------------------------------------------------------
 

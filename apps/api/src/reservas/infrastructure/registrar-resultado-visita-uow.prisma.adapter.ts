@@ -1,14 +1,15 @@
 /**
  * Adaptador de la UNIDAD DE TRABAJO transaccional del registro del resultado de la
- * visita — «cliente interesado» (`2.v` → `2.b`) (US-009 / UC-08).
+ * visita (UC-08). Sirve tanto a «cliente interesado» (US-009, `2.v` → `2.b`) como a
+ * «reserva inmediata» (US-010, `2.v` → `pre_reserva` + vaciado de cola A16).
  *
  * Implementa `UnidadDeTrabajoResultadoVisitaPort`: abre UN único `prisma.$transaction`,
  * fija el contexto RLS con `fijarTenant(tx, tenantId)` (`SET LOCAL app.tenant_id`)
- * como PRIMERA operación, y expone los repositorios tx-bound. Las TRES operaciones de
- * §D-2/§D-3 (UPDATE RESERVA → 2.b + visita_realizada + TTL fresco; UPDATE PURO del ttl
- * de la fila existente de FECHA_BLOQUEADA al mismo valor; AUDIT_LOG `transicion`) viven
- * dentro de esa única transacción: un fallo en cualquiera propaga y revierte el
- * conjunto (all-or-nothing).
+ * como PRIMERA operación, y expone los repositorios tx-bound. Las operaciones de
+ * §D-2/§D-3 (UPDATE RESERVA → estado/subEstado destino + visita_realizada + TTL;
+ * UPDATE PURO del ttl de la fila existente de FECHA_BLOQUEADA; vaciado de cola A16 en
+ * «reserva inmediata»; AUDIT_LOG `transicion`) viven dentro de esa única transacción:
+ * un fallo en cualquiera propaga y revierte el conjunto (all-or-nothing).
  *
  * SERIALIZACIÓN (atomic-date-lock): `leerBloqueoVigente` ejecuta `SELECT … FOR UPDATE`
  * sobre la fila de `FECHA_BLOQUEADA` de la fecha del evento (que SIEMPRE existe al venir
@@ -18,7 +19,13 @@
  * PostgreSQL; nada de Redis/locks distribuidos.
  */
 import { Injectable } from '@nestjs/common';
-import { AccionAudit, Prisma, SubEstadoConsulta, TipoBloqueo } from '@prisma/client';
+import {
+  AccionAudit,
+  EstadoReserva,
+  Prisma,
+  SubEstadoConsulta,
+  TipoBloqueo,
+} from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type {
   AuditLogPort,
@@ -28,13 +35,18 @@ import type {
   ActualizarReservaResultadoVisitaParams,
   ActualizarTtlBloqueoResultadoVisitaParams,
   BloqueoResultadoVisitaVigente,
+  ColaResultadoVisitaRepositoryPort,
   FechaBloqueadaResultadoVisitaRepositoryPort,
   RepositoriosResultadoVisita,
   ReservaResultadoVisita,
   ReservaResultadoVisitaRepositoryPort,
   UnidadDeTrabajoResultadoVisitaPort,
 } from '../application/registrar-resultado-visita.use-case';
-import type { EstadoReserva as EstadoReservaDominio } from '../domain/maquina-estados';
+import type {
+  EstadoReserva as EstadoReservaDominio,
+  SubEstadoConsulta as SubEstadoConsultaDominio,
+} from '../domain/maquina-estados';
+import { duracionHorasPrismaANumero } from './duracion-horas.mapper';
 import {
   subEstadoDominioAPrisma,
   subEstadoPrismaADominio,
@@ -52,6 +64,9 @@ const aReservaDominio = (fila: {
   subEstado: SubEstadoConsulta | null;
   ttlExpiracion: Date | null;
   fechaEvento: Date | null;
+  duracionHoras: string | null;
+  tipoEvento: string | null;
+  numAdultosNinosMayores4: number | null;
   visitaRealizada: boolean;
   visitaProgramadaFecha: Date | null;
   visitaProgramadaHora: string | null;
@@ -66,6 +81,9 @@ const aReservaDominio = (fila: {
       : subEstadoPrismaADominio(fila.subEstado as SubEstadoConsultaPrisma),
   ttlExpiracion: fila.ttlExpiracion,
   fechaEvento: fila.fechaEvento,
+  duracionHoras: duracionHorasPrismaANumero(fila.duracionHoras),
+  tipoEvento: fila.tipoEvento,
+  numAdultosNinosMayores4: fila.numAdultosNinosMayores4,
   visitaRealizada: fila.visitaRealizada,
   visitaProgramadaFecha: fila.visitaProgramadaFecha,
   visitaProgramadaHora: fila.visitaProgramadaHora,
@@ -90,10 +108,21 @@ class ReservaResultadoVisitaPrismaRepository
   async actualizar(
     p: ActualizarReservaResultadoVisitaParams,
   ): Promise<ReservaResultadoVisita> {
+    // «interesado» (US-009): permanece en `consulta`, muta el sub_estado a `2b`.
+    // «reserva_inmediata» (US-010): pasa a `estado='pre_reserva'`, `sub_estado=NULL`.
+    const subEstadoPrisma =
+      p.subEstado === null
+        ? null
+        : (subEstadoDominioAPrisma(
+            p.subEstado as SubEstadoConsultaDominio,
+          ) as SubEstadoConsulta);
     const fila = await this.tx.reserva.update({
       where: { idReserva: p.idReserva },
       data: {
-        subEstado: subEstadoDominioAPrisma(p.subEstado) as SubEstadoConsulta,
+        ...(p.estado !== undefined
+          ? { estado: p.estado as EstadoReserva }
+          : {}),
+        subEstado: subEstadoPrisma,
         ttlExpiracion: p.ttlExpiracion,
         visitaRealizada: p.visitaRealizada,
       },
@@ -165,6 +194,47 @@ class FechaBloqueadaResultadoVisitaPrismaRepository
 }
 
 /**
+ * Repositorio tx-bound del vaciado de cola A16 (`2.d → 2.y`) — solo `reserva_inmediata`
+ * (US-010). Reutiliza la misma mecánica que `ColaPrereservaPrismaRepository` de UC-14:
+ * lee los ids en cola ANTES del UPDATE masivo (la cláusula NULLea el vínculo) y aplica
+ * el `updateMany` DENTRO de la misma transacción. Devuelve los ids descartados; el
+ * AUDIT_LOG de cada descarte lo escribe el caso de uso. Sin emails a la cola (A16 solo
+ * diseñada en MVP). Con 0 filas es operación vacía válida.
+ */
+class ColaResultadoVisitaPrismaRepository
+  implements ColaResultadoVisitaRepositoryPort
+{
+  constructor(private readonly tx: Prisma.TransactionClient) {}
+
+  async vaciar(params: {
+    tenantId: string;
+    consultaBloqueanteId: string;
+  }): Promise<{ descartadas: ReadonlyArray<string> }> {
+    const enCola = await this.tx.reserva.findMany({
+      where: {
+        tenantId: params.tenantId,
+        consultaBloqueanteId: params.consultaBloqueanteId,
+        subEstado: SubEstadoConsulta.s2d,
+      },
+      select: { idReserva: true },
+    });
+    const ids = enCola.map((r) => r.idReserva);
+    if (ids.length === 0) {
+      return { descartadas: [] };
+    }
+    await this.tx.reserva.updateMany({
+      where: { idReserva: { in: ids } },
+      data: {
+        subEstado: SubEstadoConsulta.s2y,
+        posicionCola: null,
+        consultaBloqueanteId: null,
+      },
+    });
+    return { descartadas: ids };
+  }
+}
+
+/**
  * Repositorio de AUDIT_LOG tx-bound: escribe DENTRO de la transacción para compartir
  * el destino del rollback. Registra la transición `2v → 2b` con
  * `datosAnteriores`/`datosNuevos`.
@@ -207,6 +277,7 @@ export class UnidadDeTrabajoResultadoVisitaPrismaAdapter
       const repos: RepositoriosResultadoVisita = {
         reservas: new ReservaResultadoVisitaPrismaRepository(tx),
         fechaBloqueada: new FechaBloqueadaResultadoVisitaPrismaRepository(tx),
+        cola: new ColaResultadoVisitaPrismaRepository(tx),
         auditoria: new AuditLogResultadoVisitaPrismaRepository(tx),
       };
       return trabajo(repos);

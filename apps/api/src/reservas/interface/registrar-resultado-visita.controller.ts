@@ -1,13 +1,17 @@
 /**
- * Controlador del registro del resultado de la visita — «cliente interesado»:
- * `PATCH /api/reservas/:id/visita` (US-009 / UC-08).
+ * Controlador del registro del resultado de la visita:
+ * `PATCH /api/reservas/:id/visita` (UC-08). Soporta «cliente interesado» (US-009,
+ * `2.v → 2.b`) y «reserva inmediata» (US-010, `2.v → pre_reserva`).
  *
  * Traduce el contrato HTTP (camelCase, congelado) ↔ comando de aplicación. El
  * `tenant_id` y el `usuario_id` SIEMPRE derivan del JWT (`@CurrentUser`), nunca del
  * path/body. Tras la transición, RE-LEE la RESERVA (`ObtenerReservaUseCase`) para
- * devolver el recurso `Reserva` completo (subEstado='2b', visitaRealizada=true,
- * ttlExpiracion fresco). Mapeo de errores de dominio:
+ * devolver el recurso `Reserva` completo (2.b + visitaRealizada + TTL fresco en
+ * «interesado»; pre_reserva + subEstado=null + TTL 7d en «reserva inmediata»). Mapeo
+ * de errores de dominio:
  *   - `ResultadoVisitaValidacionError` → 422 (guarda de origen / resultado no soportado).
+ *   - `DatosObligatoriosIncompletosError` → 422 con `codigo='DATOS_FISCALES_INCOMPLETOS'`
+ *     y `camposFaltantes` (datos UC-14 incompletos para la reserva inmediata).
  *   - `ReservaNoEncontradaError` → 404.
  *   - Cualquier otro error se relanza al filtro global.
  */
@@ -28,6 +32,7 @@ import {
   RegistrarResultadoVisitaUseCase,
   ResultadoVisitaValidacionError,
   ReservaNoEncontradaError,
+  DatosObligatoriosIncompletosError,
   type RegistrarResultadoVisitaComando,
   type ResultadoVisita,
 } from '../application/registrar-resultado-visita.use-case';
@@ -59,7 +64,7 @@ export class RegistrarResultadoVisitaController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Registrar resultado de visita — "cliente interesado" transición 2.v→2.b (UC-08 / US-009)',
+      'Registrar resultado de visita — "cliente interesado" (2.v→2.b, US-009) o "reserva inmediata" (2.v→pre_reserva, US-010) (UC-08)',
     operationId: 'registrarResultadoVisita',
   })
   @ApiResponse({ status: 200, description: 'RESERVA actualizada (2.b, visita realizada, TTL fresco).' })
@@ -77,8 +82,9 @@ export class RegistrarResultadoVisitaController {
       tenantId: usuario.tenantId,
       usuarioId: usuario.sub,
       reservaId: id,
-      // El contrato usa `descarta`; el dominio lo trata como resultado no soportado
-      // (422) igual que cualquier valor distinto de `interesado`.
+      // El contrato soporta `interesado` (US-009) y `reserva_inmediata` (US-010). El
+      // valor `descarta` (US-011) no está en la unión del dominio, así que el use-case
+      // lo trata como resultado no soportado (422).
       resultado: dto.resultado as ResultadoVisita,
     };
 
@@ -100,6 +106,17 @@ export class RegistrarResultadoVisitaController {
         statusCode: HttpStatus.NOT_FOUND,
         error: 'Not Found',
         message: error.message,
+      });
+    }
+    if (error instanceof DatosObligatoriosIncompletosError) {
+      // UC-14 (D-4): datos obligatorios incompletos → 422 con la lista de faltantes,
+      // que el filtro global propaga al envelope (`camposFaltantes`).
+      throw new UnprocessableEntityException({
+        statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+        error: 'Unprocessable Entity',
+        message: error.message,
+        codigo: error.codigo,
+        camposFaltantes: error.camposFaltantes,
       });
     }
     if (error instanceof ResultadoVisitaValidacionError) {

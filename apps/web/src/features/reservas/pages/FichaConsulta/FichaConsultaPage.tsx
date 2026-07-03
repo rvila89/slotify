@@ -20,6 +20,7 @@ import { AvisosTransicion } from './components/AvisosTransicion';
 import { AvisoPendienteInvitados } from './components/AvisoPendienteInvitados';
 import { AvisoVisitaProgramada } from './components/AvisoVisitaProgramada';
 import { AvisoResultadoVisita } from './components/AvisoResultadoVisita';
+import { AvisoReservaInmediata } from './components/AvisoReservaInmediata';
 import { AvisoBloqueoExtendido } from './components/AvisoBloqueoExtendido';
 import type { PendienteInvitadosResultado, Reserva } from '../../model/types';
 
@@ -53,6 +54,8 @@ export const FichaConsultaPage = () => {
   const [resultadoVisita, setResultadoVisita] = useState<Reserva | null>(null);
   // RESERVA resultante del resultado de visita "interesado" (US-009, 2.v → 2.b): alimenta su aviso.
   const [resultadoInteresado, setResultadoInteresado] = useState<Reserva | null>(null);
+  // RESERVA resultante de "reserva inmediata" (US-010, 2.v → pre_reserva): alimenta su aviso.
+  const [resultadoReservaInmediata, setResultadoReservaInmediata] = useState<Reserva | null>(null);
   // RESERVA resultante de la extensión del bloqueo (US-006): alimenta su aviso (nuevo TTL).
   const [resultadoExtension, setResultadoExtension] = useState<Reserva | null>(null);
   // Resultado de la confirmación del presupuesto (US-014): alimenta su aviso (pre_reserva).
@@ -119,6 +122,13 @@ export const FichaConsultaPage = () => {
         <AvisoResultadoVisita
           reserva={resultadoInteresado}
           onCerrar={() => setResultadoInteresado(null)}
+        />
+      )}
+
+      {resultadoReservaInmediata && (
+        <AvisoReservaInmediata
+          reserva={resultadoReservaInmediata}
+          onCerrar={() => setResultadoReservaInmediata(null)}
         />
       )}
 
@@ -193,6 +203,7 @@ export const FichaConsultaPage = () => {
           }}
           onRegistrarResultadoVisita={() => {
             setResultadoInteresado(null);
+            setResultadoReservaInmediata(null);
             setDialogoResultadoAbierto(true);
           }}
           onExtenderBloqueo={() => {
@@ -236,10 +247,11 @@ export const FichaConsultaPage = () => {
 
       {id && (
         <RegistrarResultadoVisitaDialog
-          reservaId={id}
+          reserva={reserva}
           abierto={dialogoResultadoAbierto}
           onAbiertoChange={setDialogoResultadoAbierto}
-          onResuelto={setResultadoInteresado}
+          onResueltoInteresado={setResultadoInteresado}
+          onResueltoReservaInmediata={setResultadoReservaInmediata}
         />
       )}
 
