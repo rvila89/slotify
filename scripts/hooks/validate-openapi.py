@@ -32,7 +32,7 @@ for linter, args in (("spectral", ["lint", path]), ("redocly", ["lint", path])):
 # 2) Fallback: YAML básico + claves OpenAPI.
 try:
     import yaml  # type: ignore
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         spec = yaml.safe_load(fh)
     if not isinstance(spec, dict) or "openapi" not in spec or "paths" not in spec:
         block("OpenAPI inválido: faltan claves 'openapi' o 'paths'.")

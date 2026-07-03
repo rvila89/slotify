@@ -1158,6 +1158,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/confirmar-senal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirmar pago de señal y activar reserva confirmada (UC-17 / US-021)
+         * @description [US-021] El Gestor sube el **justificante de pago de la señal** (un fichero) y, sobre una
+         *     RESERVA en `estado='pre_reserva'`, la **confirma**. En una **única transacción de BD** (bajo
+         *     el contexto RLS del tenant del JWT), all-or-nothing:
+         *     1. Valida en servidor (autoritativo): `estado='pre_reserva'`, `importeTotal > 0` y que se
+         *        adjunta **exactamente un** fichero con `mimeType ∈ {image/jpeg, image/png, application/pdf}`
+         *        y tamaño ≤ 10 MB.
+         *     2. Crea un DOCUMENTO con `tipo='justificante_pago'`, `reservaId`, `tenantId` (del JWT), `url`
+         *        del fichero almacenado y `mimeType`.
+         *     3. Transiciona la RESERVA `pre_reserva → reserva_confirmada` y fija `ttlExpiracion = null`
+         *        (la reserva confirmada no expira por TTL). Guarda de origen en la máquina de estados
+         *        declarativa.
+         *     4. **Upgrade del bloqueo a firme**: promueve la fila existente de `FechaBloqueada(tenant_id,
+         *        fechaEvento)` a `tipoBloqueo='firme'`, `ttlExpiracion=null` mediante **UPDATE** (nunca
+         *        delete+insert), sin alterar `reservaId`, reutilizando `bloquearFecha(fase='reserva_confirmada')`
+         *        (`SELECT … FOR UPDATE` + `UNIQUE(tenant_id, fecha)`; sin locks distribuidos).
+         *     5. **Congela importes**: `importeSenal = round(importeTotal × TENANT_SETTINGS.pct_senal/100, 2)`
+         *        (40% MVP, derivado del setting, nunca hardcodeado) e `importeLiquidacion = importeTotal −
+         *        importeSenal` (complemento por resta: `senal + liquidacion = total` exacto).
+         *     6. **Inicializa los tres sub-procesos**: `preEventoStatus='pendiente'`,
+         *        `liquidacionStatus='pendiente'`, `fianzaStatus='pendiente'`.
+         *     7. Crea de forma **idempotente** la FICHA_OPERATIVA vacía (1:1 por `reserva_id @unique`,
+         *        `fichaCerrada=false`, campos de contenido `null`); si ya existe, no la duplica y la
+         *        transición continúa sin error.
+         *     8. `AUDIT_LOG accion='transicion'`, `entidad='RESERVA'`, `datos_anteriores.estado='pre_reserva'`,
+         *        `datos_nuevos.estado='reserva_confirmada'`, con el usuario del Gestor.
+         *
+         *     Tras el COMMIT, el sistema **presenta la factura de señal en borrador** para revisión (disparo
+         *     de US-022/UC-18): es un efecto **posterior al commit** y su ausencia/fallo NO revierte la
+         *     confirmación. Este change **no genera ni aprueba** la FACTURA, **no** genera condiciones
+         *     particulares (US-023) y **no** envía el email E3 (E3 se dispara solo tras aprobar la factura y
+         *     generar las condiciones). El indicador `facturaSenalBorrador` de la respuesta es OPCIONAL y solo
+         *     se puebla si el disparo de US-022 ya materializó el borrador; su contrato real es de US-022.
+         */
+        post: operations["confirmarSenal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/presupuestos": {
         parameters: {
             query?: never;
@@ -2675,6 +2729,30 @@ export interface components {
             /** @description Mensaje legible para la UI (p. ej. "Fecha no disponible" o "Usa la edición del presupuesto"). */
             motivo: string;
         };
+        ConfirmarSenalResponse: {
+            /** @description RESERVA resultante: `estado='reserva_confirmada'`, `ttlExpiracion=null`, `importeSenal` e `importeLiquidacion` congelados (`senal + liquidacion = importeTotal`), y los tres sub-procesos `preEventoStatus`/`liquidacionStatus`/`fianzaStatus = 'pendiente'`. */
+            reserva: components["schemas"]["Reserva"];
+            /** @description DOCUMENTO creado con `tipo='justificante_pago'`, `url` y `mimeType` del fichero subido. */
+            justificante: components["schemas"]["Documento"];
+            /** @description OPCIONAL — indicador de la factura de señal en borrador presentada al Gestor tras el commit (disparo de US-022/UC-18, `tipo='senal'`, `estado='borrador'`). Su generación/aprobación NO es de este change (US-021): si el disparo de US-022 aún no ha materializado el borrador en el momento de responder, se OMITE (`null`). El contrato definitivo de la factura lo fija US-022; aquí solo se reutiliza el schema `Factura` existente como referencia mínima. */
+            facturaSenalBorrador?: components["schemas"]["Factura"] | null;
+        };
+        ConfirmarSenalValidacionError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description `ORIGEN_INVALIDO` → "La reserva no está en estado pre_reserva"; `JUSTIFICANTE_REQUERIDO` → "Es obligatorio adjuntar el justificante de pago"; `FORMATO_NO_PERMITIDO` → formato de fichero no permitido (no jpeg/png/pdf); `TAMANO_EXCEDIDO` → fichero > 10 MB; `IMPORTE_TOTAL_INVALIDO` → `importeTotal` 0/null (sin presupuesto aceptado previo).
+             * @enum {string}
+             */
+            codigo: "ORIGEN_INVALIDO" | "JUSTIFICANTE_REQUERIDO" | "FORMATO_NO_PERMITIDO" | "TAMANO_EXCEDIDO" | "IMPORTE_TOTAL_INVALIDO";
+        };
+        ConfirmarSenalConflictoError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description `RESERVA_YA_CONFIRMADA` (doble clic / dos sesiones sobre la MISMA reserva: la segunda observa la RESERVA ya en `reserva_confirmada`) → "La reserva ya ha sido confirmada"; `FECHA_NO_DISPONIBLE` (la `(tenant_id, fecha)` ya está en bloqueo firme de OTRA reserva, `UNIQUE`/`P2002`) → "Fecha no disponible".
+             * @enum {string}
+             */
+            codigo: "RESERVA_YA_CONFIRMADA" | "FECHA_NO_DISPONIBLE";
+            /** @description Mensaje legible para la UI ("La reserva ya ha sido confirmada" o "Fecha no disponible"). */
+            motivo: string;
+        };
         Cliente: {
             /** Format: uuid */
             idCliente: string;
@@ -3647,6 +3725,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PresupuestoDatosFiscalesError"] | components["schemas"]["PresupuestoPrecioManualRequeridoError"] | components["schemas"]["CalculoTarifaTarifaNoConfiguradaError"] | components["schemas"]["CalculoTarifaTemporadaNoConfiguradaError"];
+                };
+            };
+        };
+    };
+    confirmarSenal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Fichero justificante del pago de la señal. Formatos permitidos: `image/jpeg`, `image/png`, `application/pdf`. Tamaño máximo 10 MB. Obligatorio.
+                     */
+                    justificante: string;
+                };
+            };
+        };
+        responses: {
+            /**
+             * @description RESERVA elevada a `reserva_confirmada`. Devuelve la RESERVA con `estado='reserva_confirmada'`,
+             *     `ttlExpiracion=null`, `importeSenal`/`importeLiquidacion` congelados, los tres sub-procesos en
+             *     `pendiente`, el DOCUMENTO justificante creado y (opcionalmente) la factura de señal en borrador.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfirmarSenalResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado o de concurrencia (F5-02: 409 = conflicto/carrera determinista). Casos
+             *     (la RESERVA no queda en estado intermedio observable — rollback total):
+             *     - **La reserva ya ha sido confirmada** (doble clic / dos sesiones sobre la MISMA reserva): la
+             *       primera transacción ganó el `SELECT … FOR UPDATE` y completó la transición; la segunda
+             *       observa la RESERVA ya en `reserva_confirmada` y aborta sin crear un segundo DOCUMENTO ni una
+             *       segunda FICHA_OPERATIVA.
+             *     - **Fecha no disponible** (race D4): la `(tenant_id, fechaEvento)` ya está en bloqueo firme de
+             *       **otra** RESERVA; el upgrade choca con `UNIQUE(tenant_id, fecha)` (`P2002`) antes de mutar la
+             *       segunda RESERVA.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfirmarSenalConflictoError"];
+                };
+            };
+            /**
+             * @description Validación de negocio sin efectos (F5-02: 422 = guarda/validación inválida). No se crea
+             *     DOCUMENTO, no se muta la RESERVA ni la `FechaBloqueada`, no se registra transición. Casos:
+             *     - **Guarda de origen**: la RESERVA no está en `pre_reserva` (cualquier sub-estado de
+             *       `consulta`, `reserva_confirmada`+, o `reserva_cancelada`) → "La reserva no está en estado
+             *       pre_reserva".
+             *     - **Justificante ausente**: no se adjuntó fichero → "Es obligatorio adjuntar el justificante
+             *       de pago".
+             *     - **Formato/tamaño inválido**: `mimeType` no permitido o fichero > 10 MB.
+             *     - **Importe total no válido**: `importeTotal` es 0/null (no hay presupuesto aceptado previo).
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfirmarSenalValidacionError"];
                 };
             };
         };

@@ -1,6 +1,7 @@
 import {
   CalendarClock,
   CalendarPlus,
+  CheckCircle2,
   ClipboardCheck,
   FileText,
   Info,
@@ -9,6 +10,7 @@ import {
   Users,
 } from 'lucide-react';
 import { motivoNoPuedeGenerar, puedeGenerarPresupuesto } from '@/features/presupuestos';
+import { puedeConfirmarSenal } from '@/features/confirmacion';
 import { bloqueoVigente, puedeExtenderBloqueo } from '../../../lib/fecha';
 import type { Reserva } from '../../../model/types';
 
@@ -43,6 +45,7 @@ type Props = {
   onRegistrarResultadoVisita: () => void;
   onExtenderBloqueo: () => void;
   onGenerarPresupuesto: () => void;
+  onConfirmarSenal: () => void;
 };
 
 export const AccionesConsulta = ({
@@ -53,6 +56,7 @@ export const AccionesConsulta = ({
   onRegistrarResultadoVisita,
   onExtenderBloqueo,
   onGenerarPresupuesto,
+  onConfirmarSenal,
 }: Props) => {
   const subEstado = reserva.subEstado;
   const esExploratoria = subEstado === '2a';
@@ -83,6 +87,9 @@ export const AccionesConsulta = ({
   // Solo se muestra la acción (habilitada o bloqueada) mientras la reserva sigue
   // en fase de consulta; en `pre_reserva`+ desaparece (ya hay presupuesto/UC-15).
   const mostrarPresupuesto = reserva.estado === 'consulta';
+  // US-021 (UC-17): "Confirmar pago de señal" SOLO cuando la RESERVA está en
+  // `pre_reserva`. En cualquier otro estado la acción no se ofrece.
+  const puedeConfirmar = puedeConfirmarSenal({ estado: reserva.estado });
 
   const botonVisita = (
     <button
@@ -253,6 +260,26 @@ export const AccionesConsulta = ({
         </div>
       )}
 
+      {/* US-021: "Confirmar pago de señal" — solo en `pre_reserva`. */}
+      {puedeConfirmar && (
+        <div className="flex flex-col gap-3">
+          <p className="font-body text-sm text-text-secondary">
+            El cliente ha aceptado el presupuesto. Adjunta el justificante del pago de la señal
+            para confirmar la reserva: la fecha quedará bloqueada en firme, se congelarán los
+            importes de señal y liquidación y se iniciarán los sub-procesos del evento.
+          </p>
+          <button
+            type="button"
+            data-testid="boton-confirmar-senal"
+            onClick={onConfirmarSenal}
+            className={claseBotonAccion}
+          >
+            <CheckCircle2 aria-hidden className="size-5" />
+            Confirmar pago de señal
+          </button>
+        </div>
+      )}
+
       {/* Terminales u otros estados sin acciones disponibles. */}
       {!esExploratoria &&
         !puedePendienteInvitados &&
@@ -260,7 +287,8 @@ export const AccionesConsulta = ({
         !puedeRegistrarResultado &&
         !enCola &&
         !puedeExtender &&
-        !mostrarPresupuesto && (
+        !mostrarPresupuesto &&
+        !puedeConfirmar && (
           <p className={claseTextoInfo}>
             <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
             No hay acciones disponibles para esta consulta en su estado actual.

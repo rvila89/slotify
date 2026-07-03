@@ -1,8 +1,8 @@
 ---
 id: US-021
-estado: backlog
-branch: null
-pr: null
+estado: in_review
+branch: feature/us-021-confirmar-pago-senal-activar-reserva
+pr: https://github.com/rvila89/slotify/pull/40
 ---
 
 # 🧾 Historia de Usuario: Confirmar Pago de Señal y Activar Reserva Confirmada
