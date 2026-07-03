@@ -1,8 +1,8 @@
 ---
 id: US-019
-estado: en_progreso
+estado: en_revision
 branch: feature/us-019-promocion-manual-cola
-pr: null
+pr: https://github.com/rvila89/slotify/pull/34
 ---
 
 # 🧾 Historia de Usuario: Promoción Manual de Consulta en Cola por el Gestor
