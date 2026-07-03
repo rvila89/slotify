@@ -462,3 +462,83 @@ export const resolverPromocionCola = (
   );
   return transicion ? transicion.destino : null;
 };
+
+// ---------------------------------------------------------------------------
+// Transición de EXPIRACIÓN FORZOSA de la bloqueante viva (US-019 / UC-12 FA manual)
+// ---------------------------------------------------------------------------
+
+/**
+ * Destino resuelto de la expiración FORZOSA de la bloqueante viva por la promoción
+ * MANUAL del Gestor (US-019): el `(estado, subEstado)` terminal al que transiciona la
+ * RESERVA que bloqueaba actualmente la fecha cuando el Gestor promueve otra consulta de
+ * la cola. Es el resultado puro de `resolverExpiracionForzosaBloqueante`; `null` (no
+ * representado aquí) indica que el origen NO es una bloqueante viva (guarda de origen).
+ */
+export interface ResultadoExpiracionForzosa {
+  estado: EstadoReserva;
+  subEstado: SubEstadoConsulta;
+}
+
+/**
+ * Entrada de la tabla declarativa de expiración forzosa: `origen` (bloqueante viva) →
+ * `destino` terminal. Modela la transición como ESTRUCTURA DE DATOS (skill
+ * `state-machine`, NO condicionales dispersos).
+ */
+interface TransicionExpiracionForzosa {
+  origen: { estado: EstadoReserva; subEstado: SubEstadoConsulta | null };
+  destino: ResultadoExpiracionForzosa;
+}
+
+/**
+ * Tabla declarativa `MAPA_EXPIRACION_FORZOSA_BLOQUEANTE` (US-019, §D-2): mapea cada
+ * origen de BLOQUEANTE VIVA a su destino terminal `2.x` por la expiración forzosa
+ * deliberada del Gestor durante la promoción manual. Es la ÚNICA fuente de verdad de
+ * qué bloqueante se expira y a dónde (no `if` dispersos):
+ *   { consulta, 2b } → { consulta, 2x }
+ *   { consulta, 2c } → { consulta, 2x }
+ *   { consulta, 2v } → { consulta, 2x }
+ *
+ * Reutiliza la semántica terminal `2.x` de US-012 (consulta expirada) pero aplicada
+ * DELIBERADAMENTE por el Gestor (acción destructiva). DIFERENCIA CLAVE con
+ * `MAPA_EXPIRACION_TTL` (US-012): la expiración forzosa NO aplica a `pre_reserva` —una
+ * bloqueante de cola SIEMPRE es una consulta con fecha `2b/2c/2v`, nunca una pre-reserva
+ * (cuyo destino de expiración TTL sería `reserva_cancelada`, que NO es una bloqueante de
+ * cola promovible). Cualquier origen ausente de esta tabla —la cola `2d`, la
+ * exploratoria `2a`, los terminales `2x/2y/2z`, y todo estado principal distinto de
+ * `consulta`— NO es una bloqueante viva: `resolverExpiracionForzosaBloqueante` devuelve
+ * `null` y no hay nada que expirar.
+ */
+export const MAPA_EXPIRACION_FORZOSA_BLOQUEANTE: ReadonlyArray<TransicionExpiracionForzosa> =
+  [
+    {
+      origen: { estado: 'consulta', subEstado: '2b' },
+      destino: { estado: 'consulta', subEstado: '2x' },
+    },
+    {
+      origen: { estado: 'consulta', subEstado: '2c' },
+      destino: { estado: 'consulta', subEstado: '2x' },
+    },
+    {
+      origen: { estado: 'consulta', subEstado: '2v' },
+      destino: { estado: 'consulta', subEstado: '2x' },
+    },
+  ];
+
+/**
+ * Guarda + resolución declarativa de la expiración forzosa de la bloqueante viva
+ * (US-019, §D-2): función PURA que consulta `MAPA_EXPIRACION_FORZOSA_BLOQUEANTE` y
+ * devuelve el destino terminal (`2.x`) del origen `(estado, subEstado)`, o `null` si NO
+ * es una bloqueante viva (guarda de origen ESTRICTA: solo `consulta/{2b,2c,2v}`). Admite
+ * la bloqueante con TTL vigente O ya vencido pero no barrido (la vigencia del TTL se
+ * decide fuera; aquí solo se resuelve el sub-estado de origen). Al ser pura y
+ * re-evaluable, se invoca DENTRO de la transacción bajo el lock (base de RC-A/RC-B).
+ */
+export const resolverExpiracionForzosaBloqueante = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): ResultadoExpiracionForzosa | null => {
+  const transicion = MAPA_EXPIRACION_FORZOSA_BLOQUEANTE.find(
+    (t) => t.origen.estado === estado && t.origen.subEstado === subEstado,
+  );
+  return transicion ? transicion.destino : null;
+};

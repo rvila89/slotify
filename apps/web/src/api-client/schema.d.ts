@@ -858,33 +858,39 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Promover consulta de la cola (UC-12)
-         * @description Promueve la primera consulta en cola (2.d→2.b) cuando la bloqueante se libera. Encadenamiento automático.
+         * Promover una consulta de la cola a bloqueante (UC-12 — automática US-018 / manual US-019)
+         * @description Promueve una consulta en cola (`2.d → 2.b`) a bloqueante de su fecha. Dos modos que
+         *     comparten operación de dominio y superficie HTTP, discriminados por el body/actor
+         *     (decisión de contrato D-1, US-019):
+         *
+         *     - **Automática (US-018, actor Sistema, SIN body)**: encadenamiento FIFO cuando la
+         *       bloqueante se libera (`liberarFecha()`). El `{id}` es la **primera** de la cola
+         *       (`posicionCola = 1`). No expira ninguna bloqueante (la fecha ya está libre).
+         *     - **Manual (US-019, actor Gestor, body `PromoverManualRequest` con `confirmado: true`)**:
+         *       acción DELIBERADA y DESTRUCTIVA disparada desde la vista de cola (US-017). El `{id}`
+         *       es la RESERVA en `2.d` que el Gestor elige, **cualquier `posicionCola`** (no solo la
+         *       primera). Como parte indivisible de la operación: (1) **expira forzosamente** la
+         *       bloqueante activa a `2.x` (`ttlExpiracion → NULL`) si sigue viva; (2) promueve la
+         *       elegida a `2.b` (`posicionCola`/`consultaBloqueanteId → NULL`, `ttlExpiracion → now() +
+         *       tenant_settings.ttl_consulta_dias`); (3) **re-asigna** la fila de `FECHA_BLOQUEADA` a
+         *       la promovida (una sola fila activa por `(tenant, fecha)` en todo momento); (4)
+         *       **reordena la cola cerrando el hueco** (posiciones contiguas desde 1); (5) audita cada
+         *       RESERVA modificada con `origen: 'promocion_manual'` y el `usuarioId` del Gestor.
+         *
+         *     Todo en **una transacción** serializada por `SELECT … FOR UPDATE` sobre la fila de
+         *     `FECHA_BLOQUEADA`, bajo el contexto **RLS del tenant** del JWT (nunca del path). La
+         *     garantía anti-doble-promoción reside **exclusivamente en PostgreSQL** (`UNIQUE(tenant_id,
+         *     fecha)` + `FOR UPDATE`), NUNCA en locks distribuidos.
+         *
+         *     **Arbitraje (D-4, FIFO estricto + "gana quien toma el lock primero", decisión heredada de
+         *     US-018 §D-6, sin cesión al Gestor)**: si el barrido automático de US-018 —u otro Gestor—
+         *     adquiere el lock primero y ya promovió, la promoción manual **aborta sin cambios** con
+         *     **409** ("La cola ya fue actualizada automáticamente, por favor recarga la vista").
+         *
+         *     La promoción manual requiere **rol Gestor** del tenant (autorización por JWT); un actor
+         *     sin rol suficiente recibe **403**.
          */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description ID de la reserva */
-                    id: components["parameters"]["IdReserva"];
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Consulta promovida */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Reserva"];
-                    };
-                };
-                409: components["responses"]["Conflict"];
-            };
-        };
+        post: operations["promoverConsultaCola"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2432,6 +2438,15 @@ export interface components {
             /** @description Cola de espera ordenada ASC por `posicionCola` (FIFO). `[]` si no hay cola o en FA-04. */
             cola: components["schemas"]["ColaItem"][];
         };
+        PromoverManualRequest: {
+            /**
+             * @description DEBE ser `true` para ejecutar la promoción manual. Confirma explícitamente la acción
+             *     destructiva (la bloqueante activa se expira forzosamente a `2x`, terminal e
+             *     irreversible). Si es `false` o falta, el servidor rechaza con 422 sin efectos.
+             * @example true
+             */
+            confirmado: boolean;
+        };
         /** @description Sección de la consulta bloqueante dentro de `ColaEsperaResponse` (US-017). */
         ColaBloqueante: {
             /**
@@ -3139,6 +3154,71 @@ export interface operations {
              *       la visita.
              *     - **Fecha fuera de ventana**: `fecha ≤ hoy` (debe ser futura) o
              *       `fecha > hoy + TENANT_SETTINGS.max_dias_programar_visita` (fuera del límite).
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    promoverConsultaCola: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PromoverManualRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Consulta promovida a bloqueante (`2.b`). En la promoción manual, además, la bloqueante
+             *     anterior quedó expirada a `2.x` y la cola reordenada; el cuerpo devuelve la RESERVA
+             *     promovida.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Reserva"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de concurrencia/estado (mapeo F5-02: 409 = carrera perdida):
+             *     - **Carrera perdida (US-019 D-4)**: el barrido automático (US-018) u otro Gestor ya
+             *       actualizó la cola bajo el lock — "La cola ya fue actualizada automáticamente, por
+             *       favor recarga la vista".
+             *     - **Inconsistencia de bloqueo**: no existe una `FECHA_BLOQUEADA` activa para la fecha
+             *       de la consulta elegida (una consulta en `2.d` sin fecha bloqueada).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /**
+             * @description Guarda de negocio inviolada (mapeo F5-02: 422 = transición/guarda inválida) sin efectos:
+             *     - **Consulta ya no en cola (FA-05)**: la RESERVA `{id}` no está en `sub_estado = '2d'`
+             *       (expiró, es terminal `2x`/`2y`/`2z`, o es la propia bloqueante) — "La consulta
+             *       seleccionada ya no está en cola".
+             *     - **Confirmación ausente**: la promoción manual llegó sin `confirmado: true`.
              */
             422: {
                 headers: {

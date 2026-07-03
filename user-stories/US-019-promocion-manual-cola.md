@@ -1,7 +1,7 @@
 ---
 id: US-019
-estado: backlog
-branch: null
+estado: en_progreso
+branch: feature/us-019-promocion-manual-cola
 pr: null
 ---
 

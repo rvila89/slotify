@@ -78,6 +78,12 @@ import {
 } from './application/promover-primero-en-cola.service';
 import { PromocionColaUoWPrismaAdapter } from './infrastructure/promocion-cola-uow.prisma.adapter';
 import { PromocionColaPrismaAdapter } from './infrastructure/promocion-cola.prisma.adapter';
+import {
+  PromoverManualEnColaService,
+  type PromocionManualColaUoWPort,
+} from './application/promover-manual-en-cola.service';
+import { PromocionManualColaUoWPrismaAdapter } from './infrastructure/promocion-manual-cola-uow.prisma.adapter';
+import { PromoverManualController } from './interface/promover-manual.controller';
 import { BarridoExpiracionController } from './interface/barrido-expiracion.controller';
 import { BarridoExpiracionScheduler } from './interface/barrido-expiracion.scheduler';
 import { CronTokenGuard } from '../shared/auth/cron-token.guard';
@@ -119,6 +125,7 @@ import {
   CANDIDATAS_EXPIRACION_PORT,
   EXPIRACION_RESERVA_PORT,
   PROMOCION_COLA_UOW_PORT,
+  PROMOCION_MANUAL_COLA_UOW_PORT,
   COLA_ESPERA_QUERY_PORT,
 } from './reservas.tokens';
 
@@ -138,6 +145,7 @@ import {
     ObtenerReservaController,
     ObtenerColaEsperaController,
     BarridoExpiracionController,
+    PromoverManualController,
   ],
   providers: [
     {
@@ -413,6 +421,23 @@ import {
       useFactory: (uow: PromocionColaUoWPort) =>
         new PromoverPrimeroEnColaService({ uow }),
     },
+    // US-019 — promoción MANUAL de una consulta arbitraria de la cola por el Gestor.
+    {
+      provide: PROMOCION_MANUAL_COLA_UOW_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new PromocionManualColaUoWPrismaAdapter(
+          prisma,
+          new FechaBloqueadaPrismaAdapter(prisma),
+          new TenantSettingsPrismaAdapter(prisma),
+        ),
+    },
+    {
+      provide: PromoverManualEnColaService,
+      inject: [PROMOCION_MANUAL_COLA_UOW_PORT],
+      useFactory: (uow: PromocionManualColaUoWPort) =>
+        new PromoverManualEnColaService({ uow }),
+    },
     CronTokenGuard,
     BarridoExpiracionScheduler,
   ],
@@ -429,6 +454,7 @@ import {
     ObtenerColaEsperaUseCase,
     ExpirarConsultasVencidasService,
     PromoverPrimeroEnColaService,
+    PromoverManualEnColaService,
   ],
 })
 export class ReservasModule {}
