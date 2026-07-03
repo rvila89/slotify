@@ -27,14 +27,17 @@ import { UnidadDeTrabajoPrismaAdapter } from './infrastructure/unidad-de-trabajo
 import { UnidadDeTrabajoTransicionPrismaAdapter } from './infrastructure/transicion-fecha-uow.prisma.adapter';
 import { UnidadDeTrabajoPendienteInvitadosPrismaAdapter } from './infrastructure/transicion-pendiente-invitados-uow.prisma.adapter';
 import { UnidadDeTrabajoProgramarVisitaPrismaAdapter } from './infrastructure/programar-visita-uow.prisma.adapter';
+import { UnidadDeTrabajoResultadoVisitaPrismaAdapter } from './infrastructure/registrar-resultado-visita-uow.prisma.adapter';
 import { UnidadDeTrabajoExtenderBloqueoPrismaAdapter } from './infrastructure/extender-bloqueo-uow.prisma.adapter';
 import { ConfirmacionBloqueoEmailAdapter } from './infrastructure/confirmacion-bloqueo-email.adapter';
 import { ConfirmacionVisitaEmailAdapter } from './infrastructure/confirmacion-visita-email.adapter';
+import { ConfirmacionResultadoVisitaEmailAdapter } from './infrastructure/confirmacion-resultado-visita-email.adapter';
 import { TarifaEstimadaAdapter } from './infrastructure/tarifa-estimada.adapter';
 import { AltaConsultaController } from './interface/alta-consulta.controller';
 import { TransicionFechaController } from './interface/transicion-fecha.controller';
 import { PendienteInvitadosController } from './interface/pendiente-invitados.controller';
 import { ProgramarVisitaController } from './interface/programar-visita.controller';
+import { RegistrarResultadoVisitaController } from './interface/registrar-resultado-visita.controller';
 import { ExtenderBloqueoController } from './interface/extender-bloqueo.controller';
 import { ObtenerReservaController } from './interface/obtener-reserva.controller';
 import { ObtenerColaEsperaController } from './interface/obtener-cola-espera.controller';
@@ -61,6 +64,12 @@ import {
   type EnviarConfirmacionVisitaPort,
   type UnidadDeTrabajoProgramarVisitaPort,
 } from './application/programar-visita.use-case';
+import {
+  RegistrarResultadoVisitaUseCase,
+  type EnviarConfirmacionResultadoVisitaPort,
+  type TenantSettingsResultadoVisitaPort,
+  type UnidadDeTrabajoResultadoVisitaPort,
+} from './application/registrar-resultado-visita.use-case';
 import {
   ExtenderBloqueoUseCase,
   type UnidadDeTrabajoExtenderBloqueoPort,
@@ -117,6 +126,8 @@ import {
   TARIFA_ESTIMADA_PORT,
   TENANT_SETTINGS_PORT,
   CONFIRMACION_VISITA_EMAIL_PORT,
+  UNIDAD_DE_TRABAJO_RESULTADO_VISITA_PORT,
+  CONFIRMACION_RESULTADO_VISITA_EMAIL_PORT,
   UNIDAD_DE_TRABAJO_EXTENDER_BLOQUEO_PORT,
   UNIDAD_DE_TRABAJO_PENDIENTE_INVITADOS_PORT,
   UNIDAD_DE_TRABAJO_PROGRAMAR_VISITA_PORT,
@@ -141,6 +152,7 @@ import {
     TransicionFechaController,
     PendienteInvitadosController,
     ProgramarVisitaController,
+    RegistrarResultadoVisitaController,
     ExtenderBloqueoController,
     ObtenerReservaController,
     ObtenerColaEsperaController,
@@ -271,6 +283,40 @@ import {
           clock,
           tenantSettings,
           confirmacionVisita,
+        }),
+    },
+    // US-009 — registro del resultado de visita «cliente interesado» (2.v → 2.b).
+    {
+      provide: UNIDAD_DE_TRABAJO_RESULTADO_VISITA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new UnidadDeTrabajoResultadoVisitaPrismaAdapter(prisma),
+    },
+    {
+      provide: CONFIRMACION_RESULTADO_VISITA_EMAIL_PORT,
+      inject: [DespacharEmailService, PrismaService],
+      useFactory: (motor: DespacharEmailService, prisma: PrismaService) =>
+        new ConfirmacionResultadoVisitaEmailAdapter(motor, prisma),
+    },
+    {
+      provide: RegistrarResultadoVisitaUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_RESULTADO_VISITA_PORT,
+        CLOCK_PORT,
+        TENANT_SETTINGS_PORT,
+        CONFIRMACION_RESULTADO_VISITA_EMAIL_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoResultadoVisitaPort,
+        clock: ClockPort,
+        tenantSettings: TenantSettingsResultadoVisitaPort,
+        confirmacionResultado: EnviarConfirmacionResultadoVisitaPort,
+      ) =>
+        new RegistrarResultadoVisitaUseCase({
+          unidadDeTrabajo,
+          clock,
+          tenantSettings,
+          confirmacionResultado,
         }),
     },
     {
@@ -449,6 +495,7 @@ import {
     TransicionFechaUseCase,
     TransicionPendienteInvitadosUseCase,
     ProgramarVisitaUseCase,
+    RegistrarResultadoVisitaUseCase,
     ExtenderBloqueoUseCase,
     ObtenerReservaUseCase,
     ObtenerColaEsperaUseCase,

@@ -1,4 +1,13 @@
-import { CalendarClock, CalendarPlus, FileText, Info, Mail, Timer, Users } from 'lucide-react';
+import {
+  CalendarClock,
+  CalendarPlus,
+  ClipboardCheck,
+  FileText,
+  Info,
+  Mail,
+  Timer,
+  Users,
+} from 'lucide-react';
 import { motivoNoPuedeGenerar, puedeGenerarPresupuesto } from '@/features/presupuestos';
 import { bloqueoVigente, puedeExtenderBloqueo } from '../../../lib/fecha';
 import type { Reserva } from '../../../model/types';
@@ -12,6 +21,8 @@ import type { Reserva } from '../../../model/types';
  *  - `2b` con bloqueo vigente: "Pendiente de invitados" (US-007) y "Programar visita".
  *  - `2c`: "Programar visita".
  *  - `2d` (cola): "Programar visita" deshabilitada con mensaje UC-12.
+ *  - `2v` (visita programada): "Registrar resultado de visita" (US-009); en esta US
+ *    solo el resultado "Cliente interesado" (2.v → 2.b) está operativo.
  *  - `2b/2c/2v` o `pre_reserva` con TTL vigente: "Extender bloqueo" (US-006).
  *  - terminales (`2x/2y/2z`) u otros: sin acciones.
  *
@@ -28,6 +39,7 @@ type Props = {
   onAnadirFecha: () => void;
   onPendienteInvitados: () => void;
   onProgramarVisita: () => void;
+  onRegistrarResultadoVisita: () => void;
   onExtenderBloqueo: () => void;
   onGenerarPresupuesto: () => void;
 };
@@ -37,6 +49,7 @@ export const AccionesConsulta = ({
   onAnadirFecha,
   onPendienteInvitados,
   onProgramarVisita,
+  onRegistrarResultadoVisita,
   onExtenderBloqueo,
   onGenerarPresupuesto,
 }: Props) => {
@@ -50,6 +63,10 @@ export const AccionesConsulta = ({
     subEstado === '2a' || subEstado === '2b' || subEstado === '2c';
   const puedeProgramarVisita = origenVisitaValido && (subEstado !== '2a' || tieneFechaEvento);
   const enCola = subEstado === '2d';
+  // US-009 (UC-08): "registrar resultado de visita" solo aplica en `2v` (visita
+  // programada). En esta US solo el resultado "Cliente interesado" (2.v → 2.b) está
+  // operativo; el servidor revalida de forma defensiva (422 fuera de `2v`).
+  const puedeRegistrarResultado = subEstado === '2v';
   // US-006 (D-1): "extender bloqueo" aplica a `2b/2c/2v` o `pre_reserva` con TTL vigente.
   const puedeExtender = puedeExtenderBloqueo({
     estado: reserva.estado,
@@ -156,6 +173,25 @@ export const AccionesConsulta = ({
         </div>
       )}
 
+      {/* US-009: registrar el resultado de la visita (2v). Solo "Cliente interesado" operativo. */}
+      {puedeRegistrarResultado && (
+        <div className="flex flex-col gap-3">
+          <p className="font-body text-sm text-text-secondary">
+            La visita ya está programada. Registra su resultado: si el cliente sigue interesado, la
+            fecha se reanuda con un plazo fresco para decidir y se le confirma por email.
+          </p>
+          <button
+            type="button"
+            data-testid="boton-registrar-resultado-visita"
+            onClick={onRegistrarResultadoVisita}
+            className={claseBotonAccion}
+          >
+            <ClipboardCheck aria-hidden className="size-5" />
+            Registrar resultado de visita
+          </button>
+        </div>
+      )}
+
       {/* US-006: extender el plazo del bloqueo blando vigente (2b/2c/2v/pre_reserva). */}
       {puedeExtender && (
         <div className="flex flex-col gap-3">
@@ -219,6 +255,7 @@ export const AccionesConsulta = ({
       {!esExploratoria &&
         !puedePendienteInvitados &&
         !puedeProgramarVisita &&
+        !puedeRegistrarResultado &&
         !enCola &&
         !puedeExtender &&
         !mostrarPresupuesto && (

@@ -274,6 +274,42 @@ export const esOrigenValidoParaProgramarVisita = (
   );
 
 // ---------------------------------------------------------------------------
+// Guarda de ORIGEN de la transición «resultado de visita — cliente interesado»
+// (US-009 / UC-08 / §D-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Conjunto declarativo de ORÍGENES válidos de la transición «registrar resultado de
+ * visita — cliente interesado» (`2v → 2b`, US-009, skill `state-machine`, NO
+ * condicionales dispersos). A diferencia de US-008 (origen multi-estado
+ * `{2a,2b,2c}`), esta transición es MONO-estado: SOLO la consulta con visita
+ * programada (`consulta/2v`) es origen válido. Una consulta en cola `2.d` nunca
+ * tuvo visita programada, así que es un origen inválido más (sin mensaje UC-12
+ * dedicado). El resto de sub-estados de consulta (`2a/2b/2c/2d`), los terminales
+ * (`2x/2y/2z`), el propio destino `2b` (idempotencia) y cualquier estado principal
+ * distinto de `consulta` (incluidos `reserva_cancelada`/`reserva_completada`,
+ * inmutables) son orígenes inválidos. Una sola transición permitida:
+ * `{consulta,2v} → {consulta,2b}`.
+ */
+export const ORIGENES_TRANSICION_RESULTADO_VISITA_INTERESADO: ReadonlyArray<OrigenTransicion> =
+  [{ estado: 'consulta', subEstado: '2v' }];
+
+/**
+ * Guarda declarativa: ¿es `(estado, subEstado)` un ORIGEN legal de la transición
+ * «resultado de visita — cliente interesado» (US-009)? Consulta la tabla
+ * `ORIGENES_TRANSICION_RESULTADO_VISITA_INTERESADO`: solo `consulta/2v` lo es. Se
+ * evalúa (y se re-evalúa bajo el lock) ANTES de mutar para rechazar sin efectos
+ * cualquier otro sub-estado/estado (422).
+ */
+export const esOrigenValidoParaResultadoVisitaInteresado = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): boolean =>
+  ORIGENES_TRANSICION_RESULTADO_VISITA_INTERESADO.some(
+    (origen) => origen.estado === estado && origen.subEstado === subEstado,
+  );
+
+// ---------------------------------------------------------------------------
 // Guarda de ORIGEN de la transición «activar pre_reserva» (US-014 / UC-14 / §D-2)
 // ---------------------------------------------------------------------------
 

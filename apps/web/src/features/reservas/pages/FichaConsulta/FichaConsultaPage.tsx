@@ -10,6 +10,7 @@ import { useReserva } from '../../api/useReserva';
 import { AnadirFechaDialog } from '../../components/AnadirFechaDialog';
 import { PendienteInvitadosDialog } from '../../components/PendienteInvitadosDialog';
 import { ProgramarVisitaDialog } from '../../components/ProgramarVisitaDialog';
+import { RegistrarResultadoVisitaDialog } from '../../components/RegistrarResultadoVisitaDialog';
 import { ExtenderBloqueoDialog } from '../../components/ExtenderBloqueoDialog';
 import { MAX_DIAS_PROGRAMAR_VISITA_DEFAULT, formatearFecha } from '../../lib/fecha';
 import { Badge } from './components/Badge';
@@ -18,6 +19,7 @@ import { AccionesConsulta } from './components/AccionesConsulta';
 import { AvisosTransicion } from './components/AvisosTransicion';
 import { AvisoPendienteInvitados } from './components/AvisoPendienteInvitados';
 import { AvisoVisitaProgramada } from './components/AvisoVisitaProgramada';
+import { AvisoResultadoVisita } from './components/AvisoResultadoVisita';
 import { AvisoBloqueoExtendido } from './components/AvisoBloqueoExtendido';
 import type { PendienteInvitadosResultado, Reserva } from '../../model/types';
 
@@ -38,6 +40,7 @@ export const FichaConsultaPage = () => {
   const [dialogoAbierto, setDialogoAbierto] = useState(false);
   const [dialogoInvitadosAbierto, setDialogoInvitadosAbierto] = useState(false);
   const [dialogoVisitaAbierto, setDialogoVisitaAbierto] = useState(false);
+  const [dialogoResultadoAbierto, setDialogoResultadoAbierto] = useState(false);
   const [dialogoExtenderAbierto, setDialogoExtenderAbierto] = useState(false);
   const [dialogoPresupuestoAbierto, setDialogoPresupuestoAbierto] = useState(false);
   // RESERVA resultante de la transición de fecha (US-005): alimenta el aviso 2b/2d.
@@ -48,6 +51,8 @@ export const FichaConsultaPage = () => {
   );
   // RESERVA resultante de la transición a 2.v (US-008): alimenta su aviso (visita + TTL).
   const [resultadoVisita, setResultadoVisita] = useState<Reserva | null>(null);
+  // RESERVA resultante del resultado de visita "interesado" (US-009, 2.v → 2.b): alimenta su aviso.
+  const [resultadoInteresado, setResultadoInteresado] = useState<Reserva | null>(null);
   // RESERVA resultante de la extensión del bloqueo (US-006): alimenta su aviso (nuevo TTL).
   const [resultadoExtension, setResultadoExtension] = useState<Reserva | null>(null);
   // Resultado de la confirmación del presupuesto (US-014): alimenta su aviso (pre_reserva).
@@ -107,6 +112,13 @@ export const FichaConsultaPage = () => {
         <AvisoVisitaProgramada
           reserva={resultadoVisita}
           onCerrar={() => setResultadoVisita(null)}
+        />
+      )}
+
+      {resultadoInteresado && (
+        <AvisoResultadoVisita
+          reserva={resultadoInteresado}
+          onCerrar={() => setResultadoInteresado(null)}
         />
       )}
 
@@ -179,6 +191,10 @@ export const FichaConsultaPage = () => {
             setResultadoVisita(null);
             setDialogoVisitaAbierto(true);
           }}
+          onRegistrarResultadoVisita={() => {
+            setResultadoInteresado(null);
+            setDialogoResultadoAbierto(true);
+          }}
           onExtenderBloqueo={() => {
             setResultadoExtension(null);
             setDialogoExtenderAbierto(true);
@@ -215,6 +231,15 @@ export const FichaConsultaPage = () => {
           abierto={dialogoVisitaAbierto}
           onAbiertoChange={setDialogoVisitaAbierto}
           onResuelto={setResultadoVisita}
+        />
+      )}
+
+      {id && (
+        <RegistrarResultadoVisitaDialog
+          reservaId={id}
+          abierto={dialogoResultadoAbierto}
+          onAbiertoChange={setDialogoResultadoAbierto}
+          onResuelto={setResultadoInteresado}
         />
       )}
 

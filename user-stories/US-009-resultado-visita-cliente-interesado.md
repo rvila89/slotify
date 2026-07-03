@@ -1,7 +1,7 @@
 ---
 id: US-009
-estado: backlog
-branch: null
+estado: implementada
+branch: feature/us-009-resultado-visita-cliente-interesado
 pr: null
 ---
 

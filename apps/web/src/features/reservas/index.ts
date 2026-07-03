@@ -17,6 +17,11 @@ export type {
   ProgramarVisitaError,
   ProgramarVisitaVars,
 } from './api/useProgramarVisita';
+export { useRegistrarResultadoVisita } from './api/useRegistrarResultadoVisita';
+export type {
+  RegistrarResultadoVisitaError,
+  RegistrarResultadoVisitaVars,
+} from './api/useRegistrarResultadoVisita';
 export { useExtenderBloqueo } from './api/useExtenderBloqueo';
 export type {
   ExtenderBloqueoError,
