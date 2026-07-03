@@ -34,3 +34,7 @@ pnpm-debug.log*
 
 # Editor
 *.swp
+
+# Python (artefactos de hooks)
+__pycache__/
+*.pyc

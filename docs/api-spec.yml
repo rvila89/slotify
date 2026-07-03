@@ -860,6 +860,171 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Extra' }
 
+  # ============================ US-014: PRESUPUESTO (preview + confirmar) ============================
+  # [US-014 / UC-14] Dos endpoints dedicados que sustituyen al POST /reservas/{id}/presupuestos (plural,
+  # DEPRECADO abajo). Decisión de contrato D-8 (Gate SDD aprobado): preview NO persiste, confirmar es la
+  # transacción única (PRESUPUESTO + pre_reserva + bloqueo 7d + vaciado cola A16 + AUDIT_LOG) + E2
+  # post-commit. Mapeo HTTP heredado de F5-02: 409 = conflicto/concurrencia (UNIQUE tenant_id+fecha /
+  # guarda de estado); 422 = validación/guarda de negocio (datos fiscales, tarifario, precio manual).
+  /reservas/{id}/presupuesto/preview:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Presupuestos]
+      summary: Calcular borrador del presupuesto sin persistir (UC-14 / US-014)
+      operationId: previewPresupuesto
+      description: |
+        [US-014] Calcula el **borrador editable** del presupuesto de la RESERVA `{id}` delegando el
+        cálculo al **motor de tarifa** (US-016, capability `calculo-tarifa`). **NO persiste** nada: no
+        crea PRESUPUESTO, no muta `RESERVA.estado`/`subEstado`/`ttlExpiracion` ni `FechaBloqueada`, y no
+        envía ningún email. Es una operación de solo cálculo para revisar y ajustar antes de confirmar.
+
+        **Guarda de origen** (máquina de estados declarativa): solo se permite sobre una RESERVA en
+        `estado='consulta'` con `subEstado ∈ {2a,2b,2c,2v}` y **sin** PRESUPUESTO `enviado`/`aceptado`
+        previo. El origen `2d` (cola), los terminales (`2x`/`2y`/`2z`) y `pre_reserva`+ se rechazan
+        **antes** de invocar el motor de tarifa.
+
+        **Validación fiscal previa** (síncrona, antes del motor): la RESERVA debe tener `fechaEvento`
+        (futura válida), `duracionHoras`, `numAdultosNinosMayores4 ≥ 1`, `tipoEvento`, y el CLIENTE
+        **todos** los datos fiscales no nulos (`dniNif`, `direccion`, `codigoPostal`, `poblacion`,
+        `provincia`). Si falta alguno → 422 enumerando los campos faltantes.
+
+        **Caso `tarifa_a_consultar`** (>50 invitados): el motor devuelve importes `null`; la respuesta
+        propaga `tarifaAConsultar=true` y el desglose fiscal queda `null` salvo que se envíe
+        `precioManualEur`, con el que se recalcula el desglose (base = total / 1.21, IVA 21%).
+      requestBody:
+        # Opcional: sin body calcula el borrador con los datos actuales de la RESERVA (sin extras extra,
+        # sin descuento). Con body se simulan extras/descuento/precio manual para previsualizar el total.
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PreviewPresupuestoRequest' }
+      responses:
+        '200':
+          description: |
+            Borrador calculado (NO persistido). Incluye el desglose fiscal (base, IVA 21%, total),
+            los extras, el reparto 40%/60%/fianza y `tarifaAConsultar`. Si `tarifaAConsultar=true` sin
+            `precioManualEur`, los importes fiscales son `null` (el Gestor debe introducir el precio).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PresupuestoPreviewResponse' }
+        '400':
+          # Cuerpo mal formado (tipos inválidos en extras/descuento/precio). La validación de dominio
+          # (datos fiscales, tarifario, guarda de origen) se reporta como 422/409.
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            Guarda de origen / precondición de estado (F5-02: 409 = conflicto de estado). La RESERVA no
+            es un origen válido: está en `2d` (cola), en un terminal (`2x`/`2y`/`2z`), en `pre_reserva`+,
+            o ya tiene un PRESUPUESTO `enviado`/`aceptado` (remite a la edición, UC-15). No se ejecuta el
+            motor de tarifa ni se muta nada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PresupuestoGuardaOrigenError' }
+        '422':
+          description: |
+            Validación de negocio sin efectos (F5-02: 422 = guarda/validación inválida). Casos:
+            - **Datos fiscales/de la reserva incompletos (FA-01)**: falta `dniNif`/`direccion`/
+              `codigoPostal`/`poblacion`/`provincia` del CLIENTE o datos de la RESERVA — el cuerpo
+              enumera los campos faltantes en `camposFaltantes`.
+            - **Tarifario incompleto**: el motor de tarifa lanzó `TARIFA_NO_CONFIGURADA` o
+              `TEMPORADA_NO_CONFIGURADA` (num_invitados ≤ 50). El cuerpo lleva `codigo`.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/PresupuestoDatosFiscalesError'
+                  - $ref: '#/components/schemas/CalculoTarifaTarifaNoConfiguradaError'
+                  - $ref: '#/components/schemas/CalculoTarifaTemporadaNoConfiguradaError'
+
+  /reservas/{id}/presupuesto:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Presupuestos]
+      summary: Confirmar presupuesto y activar pre-reserva (UC-14 / US-014)
+      operationId: confirmarPresupuesto
+      description: |
+        [US-014] **Confirma** el borrador: en una **única transacción de BD** (bajo el contexto RLS del
+        tenant del JWT), all-or-nothing:
+        1. Crea el PRESUPUESTO **congelado** (`version=1`, `tarifaCongelada=true`, `estado='enviado'`,
+           `ivaPorcentaje='21.00'`, desglose fiscal `baseImponible`/`ivaImporte`/`total`, `tarifaId` de la
+           TARIFA usada — `null` en el caso `tarifa_a_consultar` con `precioManualEur`).
+        2. Transiciona la RESERVA `{2a,2b,2c,2v} → pre_reserva` y fija
+           `ttlExpiracion = now() + TENANT_SETTINGS.ttl_prereserva_dias` (7 d por defecto, nunca
+           hardcodeado).
+        3. **Insert-o-update** de `FechaBloqueada(tenant_id, fechaEvento)` a `tipoBloqueo='blando'`,
+           `ttlExpiracion` a 7 d (INSERT si venía de `2a` sin fila; UPDATE del TTL si venía de
+           `2b`/`2c`/`2v`). `SELECT … FOR UPDATE` + `UNIQUE(tenant_id, fecha)`; sin locks distribuidos.
+        4. **Vacía la cola A16**: las RESERVA en `2d` que apuntan a esta (`consultaBloqueanteId`) pasan a
+           `2y` (`posicionCola=NULL`, `consultaBloqueanteId=NULL`). Los emails A16 a la cola están
+           **solo diseñados y NO se envían** en MVP.
+        5. `AUDIT_LOG accion='transicion'` para la RESERVA principal + una entrada por cada consulta
+           descartada de la cola.
+
+        Tras el COMMIT dispara (post-commit, **no bloqueante**, motor de email US-045, idempotente por
+        `(reserva_id, codigo_email=E2)`) el email **E2** con el PDF del presupuesto adjunto por
+        `pdfUrl`: un fallo de envío **no** revierte la pre-reserva (queda trazado en `COMUNICACION`).
+
+        **Precio manual obligatorio** cuando el motor devuelve `tarifa_a_consultar=true` (>50
+        invitados): el body DEBE incluir `precioManualEur`; su ausencia → 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfirmarPresupuestoRequest' }
+      responses:
+        '201':
+          description: |
+            PRESUPUESTO congelado creado y RESERVA elevada a `pre_reserva`. Devuelve el PRESUPUESTO
+            (desglose fiscal completo, `tarifaId`, `tarifaCongelada`, `ivaPorcentaje`, `total`, `pdfUrl`
+            si aplica) y el estado/TTL resultante de la RESERVA.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfirmarPresupuestoResponse' }
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            Conflicto de estado o de concurrencia (F5-02: 409 = conflicto/carrera determinista). Casos
+            (la RESERVA no queda en estado intermedio observable — rollback total):
+            - **Fecha no disponible (race D4)**: otra transacción ganó el `UNIQUE(tenant_id, fecha)` /
+              el `SELECT … FOR UPDATE` sobre la misma `(tenant, fechaEvento)` — "Fecha no disponible".
+            - **Doble clic**: una confirmación simultánea del mismo presupuesto ya aplicó la transición;
+              la RESERVA ya no está en `{2a,2b,2c,2v}`.
+            - **Guarda de origen / presupuesto existente**: la RESERVA está en `2d`/terminal/`pre_reserva`+
+              o ya tiene un PRESUPUESTO `enviado`/`aceptado` (remite a la edición, UC-15).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PresupuestoGuardaOrigenError' }
+        '422':
+          description: |
+            Validación de negocio sin efectos (F5-02: 422 = guarda/validación inválida). Casos:
+            - **Datos fiscales/de la reserva incompletos (FA-01)**: el cuerpo enumera `camposFaltantes`.
+            - **Tarifario incompleto**: `TARIFA_NO_CONFIGURADA` / `TEMPORADA_NO_CONFIGURADA`.
+            - **Precio manual requerido y ausente (FA-02)**: `tarifa_a_consultar=true` (>50 invitados)
+              sin `precioManualEur` en el body.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/PresupuestoDatosFiscalesError'
+                  - $ref: '#/components/schemas/PresupuestoPrecioManualRequeridoError'
+                  - $ref: '#/components/schemas/CalculoTarifaTarifaNoConfiguradaError'
+                  - $ref: '#/components/schemas/CalculoTarifaTemporadaNoConfiguradaError'
+
   /reservas/{id}/presupuestos:
     parameters:
       - { $ref: '#/components/parameters/IdReserva' }
@@ -875,9 +1040,14 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Presupuesto' }
     post:
+      deprecated: true
       tags: [Presupuestos]
-      summary: Generar presupuesto y activar pre-reserva (UC-14)
-      description: Crea una nueva versión de presupuesto (PDF), congela la tarifa y transiciona la reserva a `pre_reserva` (bloqueo firme/7 días).
+      summary: '[DEPRECADO US-014] Usa POST /reservas/{id}/presupuesto (confirmar) o /preview'
+      description: |
+        DEPRECADO (US-014): la generación del presupuesto + activación de la pre-reserva se ha partido en
+        dos endpoints dedicados — `POST /reservas/{id}/presupuesto/preview` (borrador, no persiste) y
+        `POST /reservas/{id}/presupuesto` (confirma: PRESUPUESTO + `pre_reserva` + bloqueo 7d + vaciado de
+        cola A16 + E2). Este endpoint plural queda solo para listar (GET) y no debe usarse para crear.
       requestBody:
         required: true
         content:
@@ -2118,6 +2288,57 @@ components:
                 Motivo por el que la visita no se puede programar: la RESERVA está en cola
                 (`subEstado='2d'`) y debe promoverse primero (UC-12).
 
+    # -------- Errores de dominio de US-014 (generar presupuesto / activar pre_reserva) --------
+    # Reutilizan el envelope NestJS (ErrorResponse: statusCode/message) + `codigo` de dominio, mismo
+    # patrón que los errores del motor de tarifa (US-016) y AsignarFechaConflictoError (US-005). No se
+    # inventan formatos nuevos.
+    PresupuestoDatosFiscalesError:
+      # 422 FA-01: datos fiscales/de la reserva incompletos. Enumera los campos faltantes para que la UI
+      # los resalte. Ningún efecto: sin PRESUPUESTO, RESERVA y FechaBloqueada intactas.
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo, camposFaltantes]
+          properties:
+            codigo: { type: string, enum: [DATOS_FISCALES_INCOMPLETOS] }
+            camposFaltantes:
+              type: array
+              minItems: 1
+              description: >-
+                Campos no nulos requeridos que faltan. Del CLIENTE: `dniNif`, `direccion`, `codigoPostal`,
+                `poblacion`, `provincia`. De la RESERVA: `fechaEvento`, `duracionHoras`,
+                `numAdultosNinosMayores4`, `tipoEvento`.
+              items:
+                type: string
+                enum: [dniNif, direccion, codigoPostal, poblacion, provincia, fechaEvento, duracionHoras, numAdultosNinosMayores4, tipoEvento]
+    PresupuestoPrecioManualRequeridoError:
+      # 422 FA-02: el motor devolvió tarifa_a_consultar (>50 invitados) y el body de confirmación no trae
+      # precioManualEur. Sin efectos.
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo]
+          properties:
+            codigo: { type: string, enum: [PRECIO_MANUAL_REQUERIDO] }
+    PresupuestoGuardaOrigenError:
+      # 409: la RESERVA no es origen válido para generar/confirmar presupuesto (2d/terminal/pre_reserva+),
+      # o ya existe un PRESUPUESTO enviado/aceptado, o carrera "Fecha no disponible" (UNIQUE tenant+fecha).
+      # Sin efectos (rollback total en la confirmación). Mismo patrón allOf ErrorResponse + campo de dominio.
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo, motivo]
+          properties:
+            codigo:
+              type: string
+              enum: [ORIGEN_INVALIDO, PRESUPUESTO_YA_EXISTE, FECHA_NO_DISPONIBLE]
+              description: >-
+                `ORIGEN_INVALIDO` (2d/terminal/pre_reserva+); `PRESUPUESTO_YA_EXISTE` (hay uno
+                enviado/aceptado — usar UC-15); `FECHA_NO_DISPONIBLE` (carrera D4 sobre UNIQUE(tenant,fecha)).
+            motivo:
+              type: string
+              description: 'Mensaje legible para la UI (p. ej. "Fecha no disponible" o "Usa la edición del presupuesto").'
+
     # -------- Cliente --------
     Cliente:
       type: object
@@ -2321,6 +2542,133 @@ components:
         descuentoEur: { $ref: '#/components/schemas/Importe' }
         descuentoMotivo: { type: string }
         enviar: { type: boolean, description: 'Si true, marca como enviado y dispara el email' }
+
+    # -------- US-014: Presupuesto preview (borrador, no persiste) + confirmar (pre_reserva) --------
+    # [US-014 / UC-14] Reutiliza los tipos existentes (Importe string, Porcentaje string, Reserva,
+    # EstadoPresupuesto) y el esquema del motor de tarifa (CalculoTarifaExtraInput / CalculoTarifaResponse,
+    # snake_case por D-1). Los payloads propios de US-014 siguen la convención camelCase del contrato de
+    # negocio (baseImponible, descuentoEur, precioManualEur), no la snake_case del motor.
+    PresupuestoExtraInput:
+      # Un extra seleccionado por el Gestor para el presupuesto: referencia al catálogo + cantidad.
+      # Reutiliza la forma de CalculoTarifaExtraInput (extra_id/cantidad) que consume el motor de tarifa.
+      type: object
+      required: [extra_id, cantidad]
+      properties:
+        extra_id: { type: string, format: uuid, description: 'ID del EXTRA del catálogo del tenant.' }
+        cantidad: { type: integer, minimum: 1, description: 'Unidades del extra (>= 1).' }
+    RepartoPago:
+      # Reparto informativo 40% señal / 60% liquidación + fianza que se muestra en el borrador y en el PDF.
+      # Importes string (Decimal 10,2). NO crea FACTURA en este change (solo texto informativo del PDF).
+      type: object
+      required: [senalEur, liquidacionEur, fianzaEur]
+      properties:
+        senalEur: { allOf: [{ $ref: '#/components/schemas/Importe' }], description: '40% del total (señal). Derivado de TENANT_SETTINGS.pct_senal.' }
+        liquidacionEur: { allOf: [{ $ref: '#/components/schemas/Importe' }], description: '60% del total (liquidación).' }
+        fianzaEur: { allOf: [{ $ref: '#/components/schemas/Importe' }], description: 'Fianza (TENANT_SETTINGS.fianza_default_eur), fuera del total.' }
+    DesgloseFiscal:
+      # Desglose fiscal congelado (D-5): base + IVA 21% + total. Presente en el borrador (preview) y
+      # persistido en el PRESUPUESTO al confirmar. base = total / 1.21; ivaImporte = total - base.
+      type: object
+      required: [baseImponible, ivaPorcentaje, ivaImporte, total]
+      properties:
+        baseImponible: { $ref: '#/components/schemas/Importe' }
+        ivaPorcentaje: { allOf: [{ $ref: '#/components/schemas/Porcentaje' }], description: 'Siempre "21.00" en MVP.' }
+        ivaImporte: { $ref: '#/components/schemas/Importe' }
+        total: { $ref: '#/components/schemas/Importe' }
+    PreviewPresupuestoRequest:
+      # Body OPCIONAL del preview. Sin body → borrador con los datos actuales de la RESERVA (sin extras
+      # extra, sin descuento). Con body → simula extras/descuento/precio manual.
+      type: object
+      additionalProperties: false
+      properties:
+        extras:
+          type: array
+          default: []
+          description: 'Extras a incluir en el borrador. Se pasan al motor de tarifa para sumar subtotales.'
+          items: { $ref: '#/components/schemas/PresupuestoExtraInput' }
+        descuentoEur:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          description: 'Descuento a restar del total, opcional.'
+        precioManualEur:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          description: >-
+            Precio total manual (IVA incluido) para el caso `tarifaAConsultar=true` (>50 invitados). Si se
+            envía, el desglose fiscal se recalcula a partir de él; ignorado en el caso normal.
+    PresupuestoPreviewResponse:
+      # Resultado del cálculo del borrador (NO persistido). Combina el output canónico del motor de tarifa
+      # (tarifa) con el desglose fiscal derivado, los extras, el reparto 40/60/fianza y las banderas de flujo.
+      type: object
+      required: [tarifaAConsultar, tarifa, extrasTotalEur]
+      properties:
+        tarifaAConsultar:
+          type: boolean
+          description: '`true` cuando el motor no tiene tarifa para el tramo (>50 invitados): habilita precio manual.'
+        tarifa:
+          allOf: [{ $ref: '#/components/schemas/CalculoTarifaResponse' }]
+          description: 'Salida canónica del motor de tarifa (US-016, snake_case). Importes null si tarifaAConsultar.'
+        extrasTotalEur:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          description: 'Suma de subtotales de extras (Decimal string). "0.00" si no hay extras.'
+        descuentoEur:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          nullable: true
+          description: 'Descuento aplicado en el borrador, si el Gestor lo indicó.'
+        desglose:
+          allOf: [{ $ref: '#/components/schemas/DesgloseFiscal' }]
+          nullable: true
+          description: >-
+            Desglose fiscal (base/IVA/total). `null` cuando `tarifaAConsultar=true` y no se envió
+            `precioManualEur` (el Gestor debe introducir el precio para completar el desglose).
+        reparto:
+          allOf: [{ $ref: '#/components/schemas/RepartoPago' }]
+          nullable: true
+          description: 'Reparto 40%/60% + fianza. `null` mientras el total sea desconocido (tarifa a consultar sin precio).'
+    ConfirmarPresupuestoRequest:
+      # Body de la confirmación (crea el PRESUPUESTO congelado + activa pre_reserva).
+      type: object
+      properties:
+        extras:
+          type: array
+          default: []
+          description: 'Extras definitivos del presupuesto (origen=presupuesto).'
+          items: { $ref: '#/components/schemas/PresupuestoExtraInput' }
+        descuentoEur:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          description: 'Descuento aplicado al total, opcional.'
+        descuentoMotivo:
+          type: string
+          description: 'Justificación del descuento (persistida en PRESUPUESTO.descuento_motivo), opcional.'
+        precioManualEur:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          description: >-
+            Precio total manual (IVA incluido). OBLIGATORIO cuando el motor devuelve `tarifa_a_consultar`
+            (>50 invitados); su ausencia en ese caso produce 422. Ignorado en el caso normal.
+    ConfirmarPresupuestoResponse:
+      # Respuesta 201: el PRESUPUESTO creado (congelado) + la RESERVA resultante en pre_reserva.
+      type: object
+      required: [presupuesto, reserva]
+      properties:
+        presupuesto:
+          allOf: [{ $ref: '#/components/schemas/Presupuesto' }]
+          description: >-
+            PRESUPUESTO congelado creado (`version=1`, `tarifaCongelada=true`, `estado='enviado'`,
+            `ivaPorcentaje='21.00'`, desglose fiscal completo, `pdfUrl` si el PDF se generó).
+        tarifaId:
+          type: string
+          format: uuid
+          nullable: true
+          description: 'ID de la fila TARIFA congelada usada; `null` en el caso `tarifa_a_consultar` (precio manual).'
+        reparto:
+          $ref: '#/components/schemas/RepartoPago'
+        reserva:
+          allOf: [{ $ref: '#/components/schemas/Reserva' }]
+          description: 'RESERVA resultante: `estado=pre_reserva`, `ttlExpiracion = now() + ttl_prereserva_dias`.'
+        consultasDescartadas:
+          type: integer
+          minimum: 0
+          example: 0
+          description: 'Recuento de RESERVA de cola (`2d`) pasadas a `2y` por el vaciado A16. `0` si no había cola.'
+
     ReservaExtra:
       type: object
       properties:
