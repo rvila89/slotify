@@ -1592,6 +1592,135 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/factura-senal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Obtener la factura de señal de una reserva (UC-18 / US-022)
+         * @description [US-022] Devuelve la **factura de señal** (`tipo='senal'`) de la RESERVA `{id}`: número,
+         *     estado, desglose fiscal (base + IVA 21 % + total), `pdfUrl` y los flags derivados que la UI
+         *     usa para habilitar/bloquear la aprobación (`esBorradorInvalido`, `pdfPendiente`). Es una
+         *     vista de **solo lectura**: no crea ni muta la FACTURA.
+         *
+         *     La factura la crea el sistema como **efecto post-commit** de la confirmación de la reserva
+         *     (US-021), no este endpoint. Aislada por `tenant_id` del JWT (RLS); nunca en el path.
+         *
+         *     Los flags `esBorradorInvalido` y `pdfPendiente` se **derivan** (design.md §D-9), no son
+         *     columnas de la FACTURA: `esBorradorInvalido=true` cuando faltan datos fiscales del CLIENTE
+         *     (bloqueo por datos, requiere acción del Gestor); `pdfPendiente=true` cuando `pdfUrl=null`
+         *     por un fallo transitorio del servicio de PDF (bloqueo temporal, el sistema reintenta solo).
+         *     Cuando ambos son `false` y hay `pdfUrl`, el borrador es aprobable.
+         */
+        get: operations["obtenerFacturaSenal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/facturas/{id}/aprobar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identificador del recurso */
+                id: components["parameters"]["IdGenerico"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Aprobar el borrador de la factura de señal — borrador → enviada (UC-18 / US-022)
+         * @description [US-022] El **Gestor aprueba** el borrador de la factura de señal `{id}`. Precondiciones
+         *     (validadas en servidor, autoritativas): la FACTURA está en `estado='borrador'`, tiene
+         *     `pdfUrl` (PDF disponible) y **datos fiscales válidos** (borrador no inválido). Si se
+         *     cumplen, en una transacción: `estado → 'enviada'`, se fija `fechaEmision` con el timestamp
+         *     actual y la factura queda **lista para adjuntarse en E3**.
+         *
+         *     El Gestor **NO puede modificar** importes ni datos fiscales del borrador (provienen de
+         *     RESERVA y CLIENTE): el cuerpo es vacío. Registra `AUDIT_LOG accion='actualizar'`,
+         *     `datos_anteriores.estado='borrador'`, `datos_nuevos.estado='enviada'`. El envío del email
+         *     E3 NO ocurre en este change. Aislada por `tenant_id` del JWT (RLS); nunca en el path.
+         */
+        post: operations["aprobarFactura"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/facturas/{id}/rechazar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identificador del recurso */
+                id: components["parameters"]["IdGenerico"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rechazar el borrador de la factura de señal (UC-18 / US-022)
+         * @description [US-022] El **Gestor rechaza** el borrador de la factura de señal `{id}` indicando un
+         *     **motivo** (obligatorio). La FACTURA **permanece en `estado='borrador'`** (el rechazo NO
+         *     es una transición de estado): el motivo se registra en `AUDIT_LOG` y **E3 queda bloqueado**.
+         *     Tras corregir la incidencia (p. ej. datos fiscales del TENANT en configuración), el Gestor
+         *     puede **regenerar el PDF** (`POST /facturas/{id}/regenerar-pdf`) y volver a revisar.
+         *
+         *     El motivo de rechazo se guarda en `AUDIT_LOG` (no en una columna de la FACTURA, design.md
+         *     §D-7). Aislada por `tenant_id` del JWT (RLS); nunca en el path.
+         */
+        post: operations["rechazarFactura"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/facturas/{id}/regenerar-pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identificador del recurso */
+                id: components["parameters"]["IdGenerico"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reintentar la generación del PDF de la factura de señal (UC-18 / US-022)
+         * @description [US-022] **Reintento manual** de la generación del PDF de la factura de señal `{id}` (además
+         *     del reintento automático post-commit). Reutiliza el mecanismo puerto/adaptador de PDF de
+         *     US-014/US-021 (design.md §D-5) y es **idempotente** sobre `pdfUrl`: si el PDF se genera, se
+         *     actualiza `pdfUrl`; el estado permanece en `borrador`. Útil tras un fallo transitorio del
+         *     servicio de PDF, o tras corregir los datos fiscales del TENANT/CLIENTE que dejaron el
+         *     borrador inválido.
+         *
+         *     No cambia el `estado` de la FACTURA (no aprueba ni envía). Si los datos fiscales del CLIENTE
+         *     siguen incompletos, la regeneración NO produce PDF y el borrador continúa inválido (422).
+         *     Aislada por `tenant_id` del JWT (RLS); nunca en el path.
+         */
+        post: operations["regenerarPdfFactura"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/condiciones-particulares": {
         parameters: {
             query?: never;
@@ -2753,6 +2882,93 @@ export interface components {
             /** @description Mensaje legible para la UI ("La reserva ya ha sido confirmada" o "Fecha no disponible"). */
             motivo: string;
         };
+        /**
+         * @description Factura de señal (`tipo='senal'`) de una reserva, con desglose fiscal, estado del ciclo de
+         *     vida y flags derivados para la UI. Espejo de la tabla FACTURA (er-diagram §3.12): importes
+         *     Decimal(10,2) como string (`Importe`), IVA Decimal(4,2) como string (`Porcentaje`).
+         */
+        FacturaSenalDto: {
+            /**
+             * Format: uuid
+             * @description Identificador de la FACTURA (er-diagram §3.12 id_factura).
+             */
+            idFactura: string;
+            /**
+             * Format: uuid
+             * @description RESERVA a la que pertenece la factura de señal (única por `(reservaId, tipo)`).
+             */
+            reservaId: string;
+            /**
+             * @description Número fiscal `F-YYYY-NNNN` secuencial y único por `(tenant_id, año)`. `null` mientras la factura está en `borrador`; se asigna al aprobar (`estado='enviada'`).
+             * @example F-2026-0001
+             */
+            numeroFactura?: string | null;
+            /** @description Siempre `senal` para este DTO. */
+            tipo: components["schemas"]["TipoFactura"];
+            /** @description Base imponible = round(total / 1.21, 2). Decimal(10,2) como string. */
+            baseImponible: components["schemas"]["Importe"];
+            /** @description IVA general fijo del MVP: `21.00`. Decimal(4,2) como string. */
+            ivaPorcentaje: components["schemas"]["Porcentaje"];
+            /** @description Importe de IVA = total − baseImponible (por resta, no por doble redondeo), de modo que `baseImponible + ivaImporte = total` exactamente (design.md §D-2). */
+            ivaImporte: components["schemas"]["Importe"];
+            /** @description Total con IVA = `RESERVA.importeSenal` (congelado en US-021 como round(importeTotal × pct_senal / 100, 2), 40 % MVP). La factura de señal NO recalcula el porcentaje ni la tarifa. */
+            total: components["schemas"]["Importe"];
+            /** @description Concepto de la factura (p. ej. "Señal 40 % reserva SLO-2026-0001"). */
+            concepto?: string | null;
+            /** @description URL del PDF generado (mecanismo de PDF de US-014/US-021, design.md §D-5). `null` si el PDF aún no se ha generado (borrador inválido por datos fiscales o fallo transitorio). */
+            pdfUrl?: string | null;
+            /** @description Ciclo de vida: `borrador` → `enviada` (al aprobar) → `cobrada`. */
+            estado: components["schemas"]["EstadoFactura"];
+            /**
+             * Format: date-time
+             * @description Timestamp de emisión, fijado al aprobar (estado='enviada'). null en borrador.
+             */
+            fechaEmision?: string | null;
+            /**
+             * Format: date-time
+             * @description Instante de creación de la factura (post-commit de la confirmación de US-021).
+             */
+            fechaCreacion?: string;
+            /** @description Flag DERIVADO (design.md §D-9), no columna de FACTURA. `true` cuando faltan datos fiscales del CLIENTE (dniNif o dirección fiscal): el borrador NO puede aprobarse y el sistema NO reintenta solo (requiere que el Gestor complete los datos del cliente). */
+            esBorradorInvalido: boolean;
+            /** @description Flag DERIVADO (design.md §D-9), no columna de FACTURA. `true` cuando `pdfUrl=null` por un fallo transitorio del servicio de PDF: la aprobación queda bloqueada y el sistema reintenta la generación automáticamente. */
+            pdfPendiente: boolean;
+        };
+        /** @description Cuerpo vacío. La aprobación no toma parámetros (importes/datos fiscales inmutables). */
+        AprobarFacturaRequest: Record<string, never>;
+        RechazarFacturaRequest: {
+            /** @description OBLIGATORIO, no vacío. Motivo del rechazo del borrador (p. ej. "Datos fiscales del tenant erróneos"). Se registra en `AUDIT_LOG`; la FACTURA permanece en `borrador`. */
+            motivo: string;
+        };
+        /** @description Cuerpo vacío. El reintento de PDF no toma parámetros (idempotente sobre pdfUrl). */
+        RegenerarPdfFacturaRequest: Record<string, never>;
+        FacturaEstadoInvalidoError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description `FACTURA_NO_BORRADOR` → la factura ya no está en `borrador` (`enviada`/`cobrada`).
+             * @enum {string}
+             */
+            codigo: "FACTURA_NO_BORRADOR";
+            /**
+             * @description Mensaje legible para la UI ("La factura no está en borrador").
+             * @example La factura no está en borrador
+             */
+            motivo: string;
+        };
+        FacturaDatosFiscalesIncompletosError: components["schemas"]["ErrorResponse"] & {
+            /** @enum {string} */
+            codigo: "DATOS_FISCALES_INCOMPLETOS";
+            /** @description Campos fiscales no nulos del CLIENTE que faltan para emitir la factura: `dniNif`, `direccion`, `codigoPostal`, `poblacion`, `provincia`. */
+            camposFaltantes: ("dniNif" | "direccion" | "codigoPostal" | "poblacion" | "provincia")[];
+        };
+        FacturaPdfPendienteError: components["schemas"]["ErrorResponse"] & {
+            /** @enum {string} */
+            codigo: "PDF_PENDIENTE";
+            /**
+             * @description Mensaje legible para la UI ("PDF pendiente de regenerar").
+             * @example PDF pendiente de regenerar
+             */
+            motivo: string;
+        };
         Cliente: {
             /** Format: uuid */
             idCliente: string;
@@ -3804,6 +4020,222 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfirmarSenalValidacionError"];
+                };
+            };
+        };
+    };
+    obtenerFacturaSenal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description Factura de señal de la reserva (`FacturaSenalDto`). Incluye desglose fiscal, `estado`,
+             *     `numeroFactura` (`null` mientras esté en `borrador`), `pdfUrl` (`null` si aún no
+             *     generado) y los flags `esBorradorInvalido`/`pdfPendiente`.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaSenalDto"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description La RESERVA no existe en el tenant (RLS) o **aún no tiene** factura de señal (el disparo
+             *     post-commit de US-021 todavía no la materializó). El cuerpo es el envelope estándar
+             *     `ErrorResponse`.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    aprobarFactura: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identificador del recurso */
+                id: components["parameters"]["IdGenerico"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AprobarFacturaRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Factura aprobada. Devuelve la `FacturaSenalDto` con `estado='enviada'`, `numeroFactura`
+             *     asignado y `fechaEmision` con el timestamp del momento de aprobación.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaSenalDto"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado (F5-02: 409 = conflicto/precondición de estado). La FACTURA **no
+             *     está en `borrador`** (ya `enviada` o `cobrada`; p. ej. doble aprobación). No se muta el
+             *     estado ni se re-fija `fechaEmision`. El cuerpo añade `codigo` y `motivo` al envelope.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaEstadoInvalidoError"];
+                };
+            };
+            /**
+             * @description Aprobación bloqueada por una guarda de negocio (F5-02: 422 = validación/guarda sin
+             *     efectos). La FACTURA sigue en `borrador`. Casos (design.md §D-9), discriminados por
+             *     `codigo`:
+             *     - **Datos fiscales del cliente incompletos** (`DATOS_FISCALES_INCOMPLETOS`): borrador
+             *       inválido; enumera los `camposFaltantes` del CLIENTE. Requiere que el Gestor complete
+             *       los datos del cliente (no se reintenta solo).
+             *     - **PDF pendiente de regenerar** (`PDF_PENDIENTE`): `pdfUrl=null` por un fallo
+             *       transitorio del servicio de PDF; el sistema reintenta automáticamente. Reintentar la
+             *       aprobación cuando el PDF exista (o forzar `POST /facturas/{id}/regenerar-pdf`).
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaDatosFiscalesIncompletosError"] | components["schemas"]["FacturaPdfPendienteError"];
+                };
+            };
+        };
+    };
+    rechazarFactura: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identificador del recurso */
+                id: components["parameters"]["IdGenerico"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RechazarFacturaRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Rechazo registrado. Devuelve la `FacturaSenalDto`, que **sigue en `borrador`** (el
+             *     rechazo no cambia el `estado`); el motivo queda en `AUDIT_LOG` y E3 permanece bloqueado.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaSenalDto"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado (F5-02: 409). La FACTURA **no está en `borrador`** (ya `enviada` o
+             *     `cobrada`): un borrador ya aprobado/enviado no puede rechazarse. No se muta nada. El
+             *     cuerpo añade `codigo` y `motivo` al envelope estándar.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaEstadoInvalidoError"];
+                };
+            };
+        };
+    };
+    regenerarPdfFactura: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identificador del recurso */
+                id: components["parameters"]["IdGenerico"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RegenerarPdfFacturaRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description PDF regenerado. Devuelve la `FacturaSenalDto` con `pdfUrl` actualizado, `pdfPendiente=false`
+             *     y `estado='borrador'` (sin cambios de estado).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaSenalDto"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado (F5-02: 409). La FACTURA **no está en `borrador`** (ya `enviada` o
+             *     `cobrada`): el PDF de una factura ya emitida es inmutable, no se regenera. No se muta
+             *     nada. El cuerpo añade `codigo` y `motivo` al envelope estándar.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaEstadoInvalidoError"];
+                };
+            };
+            /**
+             * @description No se puede generar el PDF (F5-02: 422 = guarda/validación sin efecto de emisión). La
+             *     FACTURA sigue en `borrador` con `pdfUrl=null`. Casos (design.md §D-9), por `codigo`:
+             *     - **Datos fiscales del cliente incompletos** (`DATOS_FISCALES_INCOMPLETOS`): borrador
+             *       inválido; enumera `camposFaltantes`. El Gestor debe completar los datos del CLIENTE.
+             *     - **PDF pendiente de regenerar** (`PDF_PENDIENTE`): el servicio de PDF sigue fallando de
+             *       forma transitoria; reintentar más tarde.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaDatosFiscalesIncompletosError"] | components["schemas"]["FacturaPdfPendienteError"];
                 };
             };
         };

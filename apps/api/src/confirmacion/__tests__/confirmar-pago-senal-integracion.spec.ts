@@ -160,6 +160,9 @@ const limpiar = async (): Promise<void> => {
     await prisma.documento.deleteMany({ where: { reservaId: { in: ids } } });
     await prisma.fechaBloqueada.deleteMany({ where: { reservaId: { in: ids } } });
     await prisma.comunicacion.deleteMany({ where: { reservaId: { in: ids } } });
+    // US-022: el disparo post-commit crea una FACTURA de señal por la reserva confirmada.
+    await prisma.pago.deleteMany({ where: { factura: { reservaId: { in: ids } } } });
+    await prisma.factura.deleteMany({ where: { reservaId: { in: ids } } });
     await prisma.auditLog.deleteMany({ where: { entidadId: { in: ids } } });
     await prisma.reserva.deleteMany({ where: { idReserva: { in: ids } } });
   }

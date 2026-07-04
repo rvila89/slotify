@@ -208,7 +208,7 @@ apps/
   web/                      Frontend SPA (Vite + React)
   api/                      Backend NestJS
     src/
-      <modulo>/             p. ej. reservas/, tarifas/, facturacion/, comunicaciones/
+      <modulo>/             p. ej. reservas/, tarifas/, facturacion/, presupuestos/, comunicaciones/
         domain/             Entidades, objetos de valor, eventos de dominio, PUERTOS (interfaces)
         application/        Casos de uso (orquestan el dominio)
         infrastructure/     ADAPTADORES: Prisma, email, PDF, storage
@@ -279,13 +279,13 @@ Esta sección registra las decisiones tomadas conscientemente como deuda en US-0
 | DT-AUTH-03 | **Throttler en memoria por proceso.** `LoginThrottleGuard` usa un `Map` en memoria del proceso: los contadores no se comparten entre instancias y se reinician al rearrancar el proceso. Aceptado para el MVP de instancia única (Railway). Antes de cualquier despliegue multi-instancia debe migrarse a una solución compartida (Redis, BD o `@nestjs/throttler` con store distribuido). | Decisión §3 del change US-001; nota de escalabilidad del code-review | Antes de despliegue multi-instancia |
 | DT-AUTH-04 | **SDK del frontend genera `.d.ts` en lugar de `.ts`.** La configuración actual de `resolve.extensions` incluye `.d.ts`, lo que hace que el cliente generado sea un archivo de tipos, no un módulo importable directamente. Requiere workaround en el build del frontend. La corrección pasa por ajustar la config de codegen del `contract-engineer`. | Nota de codegen del code-review | Próxima iteración de codegen del `contract-engineer` |
 | DT-EMAIL-01 | **Adaptador de email stub (no-op) — RESUELTA.** El `EnviarEmailStubAdapter` se sustituye en US-045 por `ResendEmailAdapter` (producción) y `FakeEmailAdapter` (test/CI/dev, forzado). El motor `DespacharEmailService` centraliza render + envío + actualización de estado. `AltaConsultaUseCase` delega el envío post-commit en `DespacharEmailService.finalizarEnvio`: la `COMUNICACION` E1 nace en `borrador` dentro de la `$transaction` del alta y el motor la promueve a `enviado`+`fecha_envio` (éxito) o a `fallido`+AUDIT_LOG (fallo del proveedor), sin reintento y sin tumbar el HTTP 201. Regresión cero sobre US-003/004 (contrato del puerto `EnviarEmailPort` intacto, campos nuevos solo opcionales). | US-045 (28/06/2026). Cierre: motor hexagonal + Resend + FakeEmailAdapter en test/CI + cableado real de E1. | RESUELTA — US-045 (28/06/2026) |
-| DT-EMAIL-02 | **Cableado de triggers E2–E8 diferido a sus US.** El catálogo de plantillas declara E2–E8 como entradas diseñadas/inactivas (variables, adjuntos y metadatos declarados, sin render activo) pero sin trigger cableado. Mapa de deuda actualizado: **E2 → RESUELTA — US-014** (trigger cableado en `POST /reservas/{id}/presupuesto`; activado post-commit de la transición `{2a,2b,2c,2v} → pre_reserva`; PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; idempotencia garantizada por índice UNIQUE parcial de US-045). **E6 → RESUELTA — US-008** (trigger cableado en `POST /reservas/{id}/visita`; activado post-commit de la transición `{2a,2b,2c} → 2v`). **E7 → RESUELTA — US-009** (trigger cableado en `PATCH /reservas/{id}/visita`; activado post-commit de la transición `2v → 2b` "cliente interesado"; confirmación de bloqueo post-visita con TTL fresco). Pendientes: E3→US-021/022/023 (`reserva_confirmada` + factura señal), E4→US-027/028 (liquidación facturada), E5→US-034 (`post_evento` con `fianza_eur > 0`), E8→US-035 (`iban_devolucion` registrado). Adjuntos PDF reales (factura/documento) y cron de recordatorios también diferidos. Envío manual de borradores: US-046. | Decisión de alcance del Gate SDD de US-045: el cableado de E2–E8 requiere triggers, PDFs y estados de US aún no implementadas; construirlos ahora sería spec especulativa. El motor ya está listo para recibirlos sin rediseño. | E2: RESUELTA — US-014 (03/07/2026). E6: RESUELTA — US-008 (30/06/2026). E7: RESUELTA — US-009 (03/07/2026). E3, E4, E5, E8: cada US de trigger listada + US-046 |
+| DT-EMAIL-02 | **Cableado de triggers E2–E8 diferido a sus US.** El catálogo de plantillas declara E2–E8 como entradas diseñadas/inactivas (variables, adjuntos y metadatos declarados, sin render activo) pero sin trigger cableado. Mapa de deuda actualizado: **E2 → RESUELTA — US-014** (trigger cableado en `POST /reservas/{id}/presupuesto`; activado post-commit de la transición `{2a,2b,2c,2v} → pre_reserva`; PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; idempotencia garantizada por índice UNIQUE parcial de US-045). **E6 → RESUELTA — US-008** (trigger cableado en `POST /reservas/{id}/visita`; activado post-commit de la transición `{2a,2b,2c} → 2v`). **E7 → RESUELTA — US-009** (trigger cableado en `PATCH /reservas/{id}/visita`; activado post-commit de la transición `2v → 2b` "cliente interesado"; confirmación de bloqueo post-visita con TTL fresco). **E3 — avance US-022 (04/07/2026):** US-022 implementa la generación y aprobación de la factura de señal (prerequisito de E3), pero el trigger de E3 no se cablea en este change — se cablea en US-023 (condiciones particulares), que es el trigger natural de E3 (`reserva_confirmada` + factura aprobada + condiciones generadas). Pendientes: E3→US-023, E4→US-027/028 (liquidación facturada), E5→US-034 (`post_evento` con `fianza_eur > 0`), E8→US-035 (`iban_devolucion` registrado). Adjuntos PDF reales (factura/documento) y cron de recordatorios también diferidos. Envío manual de borradores: US-046. | Decisión de alcance del Gate SDD de US-045: el cableado de E2–E8 requiere triggers, PDFs y estados de US aún no implementadas; construirlos ahora sería spec especulativa. El motor ya está listo para recibirlos sin rediseño. | E2: RESUELTA — US-014 (03/07/2026). E6: RESUELTA — US-008 (30/06/2026). E7: RESUELTA — US-009 (03/07/2026). E3: avance US-022 (04/07/2026) → cierre pendiente US-023. E4, E5, E8: cada US de trigger listada + US-046 |
 | Bj3 | **Default inseguro de `EMAIL_SANDBOX` — RESUELTA.** Antes, si `EMAIL_SANDBOX` no estaba seteada, el sistema podía enviar emails reales (unset → `false`). Ahora el default es SEGURO con doble barrera: (1) validación zod en `env.validation.ts` — unset → `undefined !== 'false'` → `true` (sandbox activo); (2) cableado en `comunicaciones.module.ts` — trata como envío real solo el `false`/`'false'` explícito. Con `sandbox=true`, `resend.email.adapter.ts` reescribe el destinatario a `delivered@resend.dev`. El opt-in al envío real exige `EMAIL_SANDBOX=false` explícito en el entorno; cualquier otro valor, incluido unset, mantiene el sandbox activo. Cobertura: 3 tests nuevos en `env.validation.spec.ts` (unset→true, 'true'→true, 'false'→false). | Code-review de US-045, segunda pasada (29/06/2026). Detectada como deuda operativa de seguridad (baja→operativa). | RESUELTA — US-045 fix Bj3 (29/06/2026) |
 | DT-CODIGO-01 | **Generación de `codigo` no atómica (count+1) — RESUELTA.** La implementación inicial generaba el correlativo `YY-NNNN` con `count(*)+1` dentro de la transacción: dos altas concurrentes podían leer el mismo recuento y colisionar en el índice `reserva_codigo_key`. Resuelto con **retry-on-conflict** en `UnidadDeTrabajoPrismaAdapter.ejecutar()` (hasta 3 reintentos): ante `P2002` sobre `reserva_codigo_key`, el adaptador reabre la `$transaction` y reintenta; el siguiente intento re-lee el `count` con el ganador ya confirmado. El índice UNIQUE permanece como red de seguridad final. Conexo: el controlador ya no enmascara errores como 500; cualquier `P2002` no capturado por el caso de uso se propaga al `HttpExceptionFilter` global → 409. | Code-review de US-003 (señalado como tolerable para MVP; corregido en los fixes finales de US-003) | RESUELTA — US-003 fixes finales (28/06/2026) |
 
 ### 2.10 Módulo M10 Comunicaciones: motor de email automático (US-045)
 
-El módulo `comunicaciones` implementa un **motor de email hexagonal reutilizable** que sirve a todos los triggers del ciclo de vida de la reserva (E1–E8). **E1** está cableado en US-045; **E2** se activó en US-014 (post-commit de la transición a `pre_reserva`, PDF adjunto); **E6** se activó en US-008 (post-commit de la transición a `2.v`); **E7** se activó en US-009 (post-commit de la transición `2v → 2b` "cliente interesado", confirmación de bloqueo post-visita); E3–E5, E8 se activarán en sus US respectivas (ver DT-EMAIL-02 en §2.9).
+El módulo `comunicaciones` implementa un **motor de email hexagonal reutilizable** que sirve a todos los triggers del ciclo de vida de la reserva (E1–E8). **E1** está cableado en US-045; **E2** se activó en US-014 (post-commit de la transición a `pre_reserva`, PDF adjunto); **E6** se activó en US-008 (post-commit de la transición a `2.v`); **E7** se activó en US-009 (post-commit de la transición `2v → 2b` "cliente interesado", confirmación de bloqueo post-visita); **E3** avanza en US-022 (la factura de señal como prerequisito ya está implementada) pero su cableado se completa en US-023 (condiciones particulares); E4, E5, E8 se activarán en sus US respectivas (ver DT-EMAIL-02 en §2.9).
 
 #### Arquitectura interna del módulo
 
@@ -572,6 +572,111 @@ US-014 no añade entidades ni columnas nuevas al schema: la tabla `PRESUPUESTO` 
 
 ---
 
+### 2.14 Capability M12 Facturación: generación de la factura de señal (US-022 / UC-18)
+
+La capability `facturacion` cubre el **ciclo de vida completo de la FACTURA** como agregado raíz propio: numeración fiscal secuencial, desglose contable (base/IVA), generación de PDF y flujo de aprobación/rechazo por el Gestor. US-022 implementa la primera instancia concreta: la **factura de señal** (`tipo = 'senal'`), disparada automáticamente como efecto post-commit de la confirmación de la señal (US-021). La capability crecerá con la factura de liquidación (UC-21), la de fianza y las complementarias.
+
+#### Módulo backend
+
+```
+apps/api/src/facturacion/
+  domain/
+    factura.entity.ts              Entidad FACTURA con ciclo de vida (borrador→enviada→cobrada)
+    desglose-fiscal.ts             Función pura: base=round(total/1.21,2); iva=total−base
+    generar-pdf-factura.port.ts    Puerto de generación de PDF (espejo de presupuestos/application)
+    factura.repository.port.ts     Puerto de persistencia con idempotencia (findByReservaIdAndTipo)
+  application/
+    generar-factura-senal.use-case.ts  Orquestador UC-18: idempotencia + numeración + desglose + PDF
+    aprobar-factura.use-case.ts        borrador → enviada (guarda PDF + datos fiscales)
+    rechazar-factura.use-case.ts       Registra rechazo en AUDIT_LOG, E3 bloqueado
+    regenerar-pdf-factura.use-case.ts  Reintento idempotente de generación de PDF
+  infrastructure/
+    factura.prisma.adapter.ts      Repositorio Prisma con RLS
+    pdf-factura-fake.adapter.ts    Adaptador FAKE determinista (devuelve url sintética sin red)
+  interface/
+    facturas.controller.ts         GET /reservas/{id}/factura-senal · POST /facturas/{id}/aprobar
+                                   · POST /facturas/{id}/rechazar · POST /facturas/{id}/regenerar-pdf
+  facturacion.module.ts
+```
+
+**Regla de dependencia hexagonal:** `domain/` no importa Prisma ni Puppeteer ni NestJS. La función `desglose-fiscal.ts` es una **función de flecha pura e inmutable**, testeable sin BD (mismo patrón que `desglose-fiscal.ts` de `presupuestos/domain/`).
+
+#### Patrón "efecto post-commit" — coordinación con `confirmacion` (decisión D-1)
+
+La creación de la factura de señal es un **efecto posterior al commit** de la transición `pre_reserva → reserva_confirmada` de US-021, **no parte de su transacción crítica** (que sostiene el `FOR UPDATE` sobre `FECHA_BLOQUEADA`). Es el espejo exacto del patrón "PDF + E2 post-commit" de US-014:
+
+- **Dentro de la transacción de US-021:** se confirma el estado, se congela `importe_senal`, se actualiza `FECHA_BLOQUEADA` a firme y se registra `AUDIT_LOG transicion`. Nada de facturación entra aquí.
+- **Post-commit (no bloqueante):** `ConfirmarSenalUseCase` invoca `GenerarFacturaSenalUseCase` tras commitear. Su fallo **NO revierte la confirmación** — la RESERVA permanece en `reserva_confirmada`.
+- **Separación de capabilities:** `confirmacion` (justificante + transición de estado + FICHA_OPERATIVA) y `facturacion` (FACTURA + numeración + PDF) son módulos distintos con cohesión propia. `confirmacion` solo conoce el puerto de `facturacion`; nunca importa el adaptador directamente.
+
+#### Desglose fiscal como dominio puro
+
+La función `calcularDesgloseFiscal(total)` es una **función de flecha pura e inmutable** en `facturacion/domain/desglose-fiscal.ts`:
+
+- `iva_porcentaje = 21,00` (fijo IVA general MVP)
+- `base_imponible = round(total / 1,21, 2)` (redondeo contable mitad hacia arriba)
+- `iva_importe = total − base_imponible` (por **resta**, no `round(base × 0,21)`)
+
+El cómputo de `iva_importe` por resta garantiza que `base_imponible + iva_importe = total` **exactamente**, sin desajuste de céntimos por doble redondeo. El mismo criterio rige el reparto señal/liquidación en US-021 (D-3). El ejemplo del AC: `total = 1.200,00` → `base = 991,74`, `iva = 208,26`, suma exacta.
+
+#### Numeración `F-YYYY-NNNN` y concurrencia (decisión D-3, D-8)
+
+El `numero_factura` sigue el formato `F-{año}-{NNNN}` con `NNNN = MAX(NNNN del tenant en el año) + 1` (padding a 4 dígitos). El año de emisión va embebido en el literal, sin columna `anio` aparte.
+
+La unicidad la garantiza `@@unique([tenantId, numeroFactura])` en BD. Ante colisión entre dos facturas de reservas distintas del mismo tenant generadas simultáneamente:
+1. Ambas calculan el mismo `NNNN`.
+2. Una inserción falla con `P2002` en el constraint.
+3. La aplicación **captura el `P2002`, recalcula el siguiente número y reintenta** (bucle acotado).
+4. Ambas facturas quedan con números consecutivos, sin duplicados ni facturas sin número.
+
+Nunca Redis ni locks distribuidos (hook `no-distributed-lock` del proyecto). Esta zona crítica tiene **tests de concurrencia reales** (skill `concurrency-locking`): N transacciones simultáneas → todos los números únicos y consecutivos.
+
+#### Idempotencia — una factura de señal por reserva (decisión D-4)
+
+Antes de crear, el use-case llama a `findByReservaIdAndTipo(reservaId, 'senal')`:
+- Si existe: devuelve la existente, registra el intento en `AUDIT_LOG`, no crea duplicado.
+- Si no existe: crea la FACTURA.
+
+Red de seguridad en BD: `@@unique([reservaId, tipo])`. Ante `P2002` (dos disparos concurrentes que sortean la guarda), el use-case captura el error, recupera la existente y la devuelve. Espejo de la idempotencia de `FICHA_OPERATIVA` (US-021 D-4).
+
+#### Generación del PDF (decisión D-5)
+
+Reutiliza el puerto/adaptador de PDF ya existente en `presupuestos/` mediante el puerto de dominio `GenerarPdfFacturaPort` (interfaz pura). El adaptador de infraestructura activo en el MVP es `PdfFacturaFakeAdapter` (devuelve una `pdf_url` sintética sin Puppeteer ni red). La generación ocurre **post-commit** de la inserción de la FACTURA:
+
+1. `GenerarFacturaSenalUseCase` inserta la FACTURA en `borrador` con `pdf_url = null`.
+2. Post-commit: invoca `GenerarPdfFacturaPort.generar(datosFactura)`.
+3. Al completar: UPDATE idempotente `FACTURA.pdf_url = url_generada`.
+
+Si los datos fiscales del CLIENTE son incompletos (`dni_nif` o dirección nulos): no se intenta la generación; `pdf_url` permanece nulo; borrador marcado inválido. Si el servicio de PDF falla transitoriamente: `pdf_url = null`; el sistema reintenta automáticamente; la aprobación queda bloqueada hasta que el PDF esté disponible.
+
+#### Aprobación y rechazo del borrador
+
+| Operación | Endpoint | Precondición | Efecto |
+|---|---|---|---|
+| Aprobar | `POST /facturas/{id}/aprobar` | `estado = 'borrador'` + `pdf_url NOT NULL` + datos fiscales válidos | `estado = 'enviada'`, `fecha_emision = now()`, `AUDIT_LOG actualizar` |
+| Rechazar | `POST /facturas/{id}/rechazar` | `estado = 'borrador'` | `estado` permanece `borrador`, motivo a `AUDIT_LOG`, E3 bloqueado |
+| Regenerar PDF | `POST /facturas/{id}/regenerar-pdf` | `estado = 'borrador'` + `pdf_url IS NULL` | Reintento idempotente; UPDATE `pdf_url` si OK |
+| Consultar borrador | `GET /reservas/{id}/factura-senal` | RESERVA existe + JWT válido | Devuelve FACTURA con flags `esBorradorInvalido` / `pdfPendiente` derivados |
+
+El email E3 (al cliente) **no se dispara en US-022**; queda pendiente de la capability US-023 (condiciones particulares). La FACTURA en `enviada` es el requisito previo para E3.
+
+#### Multi-tenancy y RLS
+
+FACTURA lleva `tenant_id` propio (a diferencia de PRESUPUESTO). El aislamiento multi-tenant se garantiza por `tenant_id` en la tabla + RLS activo en PostgreSQL. El constraint `@@unique([tenantId, numeroFactura])` es multi-tenant correcto: `F-2026-0001` puede existir para dos tenants distintos.
+
+#### Migración de schema (US-022 §D-7)
+
+La tabla `FACTURA` existía desde US-000 con todas las columnas necesarias. La migración de US-022 **solo cambia constraints**, sin columnas nuevas:
+
+1. **Sustituye** `numero_factura @unique` (global) por `@@unique([tenantId, numeroFactura])` (por tenant).
+2. **Añade** `@@unique([reservaId, tipo])` (idempotencia por tipo y reserva).
+
+#### Actualización de DT-EMAIL-02 (E3)
+
+El email E3 (`reserva_confirmada` + factura de señal aprobada) estaba marcado como pendiente de US-021/022/023. US-022 implementa la generación y aprobación de la factura, pero **E3 no se cablea en este change**: se cableará en US-023 (condiciones particulares), que es el trigger natural de E3 (confirmación + factura + condiciones). Ver `§2.9 DT-EMAIL-02`.
+
+---
+
 ## 3. Arquitectura objetivo de producción (visión a escala)
 
 > **Estado: visión de destino. NO se implementa en el MVP TFM.** Esta sección documenta a dónde evolucionaría Slotify como producto comercial multi-tenant. Cada componente se justifica por una necesidad que aparece *a escala*, y se anota por qué está sobredimensionado en la fase actual.
@@ -839,6 +944,7 @@ El MVP tiene tres piezas, pero solo dos cuestan: el **frontend SPA** se sirve co
 
 ---
 
+*Documento de arquitectura v4.6, 04/07/2026. Cambios respecto a v4.5: refleja US-022 — Generar Factura de Señal al Confirmar Reserva (UC-18): añade §2.14 (capability M12 Facturación) documentando: módulo backend `apps/api/src/facturacion/` (hexagonal, domain/application/infrastructure/interface); patrón "efecto post-commit" — la creación de la FACTURA ocurre tras el commit de US-021, fuera de la transacción crítica `FOR UPDATE`, con la misma separación de capabilities que PDF+E2 en US-014; función pura `calcularDesgloseFiscal` (`base = round(total/1.21,2)`; `iva = total − base` por resta sin doble redondeo); numeración `F-YYYY-NNNN` con `MAX(NNNN)+1` y retry-on-conflict ante `P2002` en `UNIQUE(tenant_id, numero_factura)` (nunca locks distribuidos); idempotencia `findByReservaIdAndTipo + UNIQUE(reservaId, tipo)`; adaptador PDF FAKE determinista en MVP; tabla de endpoints (consultar/aprobar/rechazar/regenerar-pdf) con precondiciones y efectos; migración de constraints (sustitución de `@unique` global por `@@unique([tenantId, numeroFactura])` + adición de `@@unique([reservaId, tipo])`); nota de actualización de DT-EMAIL-02 (E3 se cablea en US-023, no en US-022).*
 *Documento de arquitectura v4.5, 03/07/2026. Cambios respecto a v4.4: refleja US-019 — promoción manual de consulta en cola (UC-12 flujo B): añade bloque `US-019` en §2.4 documentando `PromoverManualEnColaService` (locus de lock sobre `FECHA_BLOQUEADA` a diferencia de US-018; expiración forzosa de la bloqueante `2b/2c/2v → 2x`; re-asignación de la fila por UPDATE respetando `UNIQUE(tenant_id, fecha)`; reordenación por cierre de hueco; endpoint `POST /reservas/{id}/promover` con `{ confirmado: true }`; política de arbitraje FIFO estricto + primer lock, 409 al Gestor si pierde la carrera; sin migración de esquema); actualiza D-6 de US-018 indicando que US-019 ya está implementada y describe su locus de lock propio.*
 *Documento de arquitectura v4.4, 01/07/2026. Cambios respecto a v4.3: refleja US-018 — promoción automática de cola (UC-12): añade bloque `US-018` en §2.4 documentando el cierre del seam `PromocionColaPort` (sustitución del stub no-op por `PromocionColaPrismaAdapter`); describe la mecánica A15 en transacción única (lock sobre RESERVA `2d`, guarda "ya promovida", función pura `resolverPromocionCola`, re-bloqueo vía `bloquearFecha()`, reordenación FIFO, alerta interna al gestor); documenta el punto de serialización real (`SELECT … FOR UPDATE` sobre RESERVA `2d`, no sobre `FECHA_BLOQUEADA` que ya no existe); registra D-5 (sin email al cliente; US-044 diferida) y D-6 (FIFO + primer lock; coordinación con US-019 vía la guarda); actualiza el bloque de `liberarFecha()` y §2.12 para reflejar el adaptador real en lugar del stub.*
 *Documento de arquitectura v4.3, 01/07/2026. Cambios respecto a v4.2: actualiza §2.12 — scheduler del módulo `cron` pasa de `@Cron('*/5 * * * *')` estático a registro dinámico vía `SchedulerRegistry` en `onModuleInit`; expresión por defecto `'0 * * * *'` (cada hora), configurable con `CRON_BARRIDO_EXPIRACION`; si `CRON_TOKEN` está ausente el disparo automático se desactiva; latencia máxima de liberación de fecha vencida ahora ~1 h; añade tabla de variables de entorno del módulo cron (`CRON_TOKEN`, `CRON_BARRIDO_EXPIRACION`).*

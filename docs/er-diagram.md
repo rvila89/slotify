@@ -275,18 +275,19 @@ erDiagram
         uuid id_factura PK
         uuid tenant_id FK
         uuid reserva_id FK
-        string numero_factura UK "F-2026-0001"
+        string numero_factura "UNIQUE(tenantId,numeroFactura) — F-YYYY-NNNN"
         enum tipo "senal | liquidacion | fianza | complementaria"
-        decimal base_imponible
-        decimal iva_porcentaje
-        decimal iva_importe
+        decimal base_imponible "round(total/1.21,2)"
+        decimal iva_porcentaje "21.00 en MVP"
+        decimal iva_importe "total − base_imponible"
         decimal total
-        string concepto
-        string pdf_url
+        string concepto "nullable"
+        string pdf_url "nullable — generado post-commit"
         enum estado "borrador | enviada | cobrada"
-        timestamp fecha_emision
+        timestamp fecha_emision "nullable — fijada al aprobar borrador"
         timestamp fecha_creacion
         timestamp fecha_actualizacion
+        string uk_reserva_tipo "@@unique([reservaId, tipo]) — máx. 1 por tipo y reserva"
     }
 
     PAGO {
@@ -673,20 +674,45 @@ La restricción `UNIQUE(reserva_id, version)` garantiza que no existan dos presu
 - `rechazado` → cuando el cliente rechaza (UC-15/US-015, fuera de US-014)
 
 ### 3.12 FACTURA
-Facturas de señal (40%), liquidación (60% + extras), fianza y complementarias.
+Facturas de señal (40%), liquidación (60% + extras), fianza y complementarias. El agregado raíz de la capability `facturacion` (US-022).
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
 | id_factura | UUID PK | Identificador único |
-| numero_factura | VARCHAR(20) UK | Número secuencial (F-2026-0001) |
+| tenant_id | UUID FK | Tenant emisor de la factura |
 | reserva_id | UUID FK | Reserva asociada |
-| tipo | ENUM | senal, liquidacion, fianza, complementaria |
-| base_imponible | DECIMAL(10,2) | Base imponible |
-| iva_porcentaje | DECIMAL(4,2) | Porcentaje IVA (21%) |
-| iva_importe | DECIMAL(10,2) | Importe de IVA |
-| total | DECIMAL(10,2) | Total con IVA |
-| estado | ENUM | borrador, enviada, cobrada |
-| pdf_url | VARCHAR(500) | URL del PDF |
+| numero_factura | VARCHAR(20) | Número secuencial `F-YYYY-NNNN`. Unicidad: `@@unique([tenantId, numeroFactura])` — dos tenants distintos pueden tener el mismo número; un mismo tenant nunca repite el número dentro del mismo año. El año va embebido en el literal. |
+| tipo | ENUM | `senal` \| `liquidacion` \| `fianza` \| `complementaria` |
+| base_imponible | DECIMAL(10,2) | Base imponible. Derivada: `round(total / 1,21, 2)` |
+| iva_porcentaje | DECIMAL(4,2) | Porcentaje IVA (21,00 en MVP) |
+| iva_importe | DECIMAL(10,2) | Importe de IVA. Derivado por resta: `total − base_imponible` (sin segundo redondeo, garantiza `base + iva = total` exactamente) |
+| total | DECIMAL(10,2) | Total con IVA incluido. Para `tipo = 'senal'`: igual a `RESERVA.importe_senal` congelado en US-021 |
+| concepto | VARCHAR | Concepto de la factura (nullable) |
+| pdf_url | VARCHAR(500) | URL del PDF generado post-commit (nullable hasta que el PDF se genera) |
+| estado | ENUM | `borrador` \| `enviada` \| `cobrada` |
+| fecha_emision | TIMESTAMP | Momento en que el Gestor aprueba el borrador (pasa a `enviada`). Nulo mientras `estado = 'borrador'` |
+| fecha_creacion | TIMESTAMP | `DEFAULT now()` |
+| fecha_actualizacion | TIMESTAMP | Actualizada automáticamente en cada mutación (`@updatedAt`) |
+
+**Constraints únicos (US-022 §D-3, D-4, D-7):**
+- `@@unique([tenantId, numeroFactura])` — numeración fiscal secuencial por tenant; el año va embebido en el literal `F-YYYY-NNNN`. Sustituye al `@unique` global previo sobre `numero_factura`. Permite que dos tenants distintos tengan `F-2026-0001`; garantiza que un mismo tenant nunca repite el número.
+- `@@unique([reservaId, tipo])` — idempotencia: máximo una factura de cada tipo por reserva. Red de seguridad ante disparos concurrentes del trigger post-commit. Espejo del criterio de FICHA_OPERATIVA (US-021 D-4).
+
+**Relación con RESERVA:** `RESERVA ||--o{ FACTURA` (1:N), pero el constraint `@@unique([reservaId, tipo])` garantiza en la práctica máximo una factura de señal, una de liquidación, una de fianza y una complementaria por reserva.
+
+**Ciclo de vida de la factura de señal (US-022 / UC-18):**
+
+1. **Creación en borrador (efecto post-commit de US-021):** al confirmar la señal (`pre_reserva → reserva_confirmada`), el use-case `GenerarFacturaSenalUseCase` (capability `facturacion`) crea la FACTURA con `tipo = 'senal'`, `estado = 'borrador'`, `total = RESERVA.importe_senal` (congelado, sin recalcular tarifa ni porcentaje). El desglose fiscal (`base_imponible`, `iva_porcentaje`, `iva_importe`) se calcula en dominio puro: `base = round(total / 1,21, 2)`, `iva = total − base`. La numeración `F-YYYY-NNNN` se asigna con `MAX(NNNN) + 1` dentro del `tenant_id` y el año en curso; ante colisión `P2002` en `UNIQUE(tenant_id, numero_factura)`, el sistema recalcula y reintenta (nunca locks distribuidos — decisión D-8). Se registra `AUDIT_LOG` con `accion = 'crear'`, `entidad = 'FACTURA'`.
+2. **Generación del PDF (post-commit, idempotente):** reutiliza el puerto/adaptador de PDF de US-014 (`GenerarPdfFacturaPort`). Recibe datos fiscales del emisor (TENANT) y del receptor (CLIENTE). Si el CLIENTE tiene datos fiscales incompletos (`dni_nif` o campos de dirección nulos), la FACTURA queda en `borrador` con `pdf_url = null` (borrador inválido — no se puede aprobar). Si el servicio de PDF falla transitoriamente, ídem con reintento automático. Al completar, un UPDATE idempotente almacena `pdf_url`.
+3. **Aprobación del Gestor (borrador → enviada):** solo si `pdf_url` no nulo y datos fiscales válidos. Al aprobar: `estado = 'enviada'`, `fecha_emision = now()`. Se registra `AUDIT_LOG` con `accion = 'actualizar'`, `datos_anteriores.estado = 'borrador'`, `datos_nuevos.estado = 'enviada'`. El email E3 (al cliente) no se dispara en US-022; queda pendiente de la capability US-023 (condiciones particulares).
+4. **Rechazo del Gestor:** `estado` permanece en `'borrador'`; el motivo se registra en `AUDIT_LOG`; E3 bloqueado. El Gestor puede corregir y regenerar el PDF.
+
+**Mapa de estados de la FACTURA:**
+- `borrador` → estado inicial tras la creación automática; puede ser válido (PDF disponible) o inválido (PDF pendiente por datos fiscales incompletos o error transitorio).
+- `enviada` → el Gestor aprobó el borrador válido; `fecha_emision` fijada; lista para adjuntarse en E3.
+- `cobrada` → el pago fue registrado y conciliado contra la factura.
+
+**Concurrencia de la numeración (D-8):** dos reservas del mismo tenant confirmadas simultáneamente calculan el mismo `NNNN`; el constraint `UNIQUE(tenant_id, numero_factura)` hace que una inserción falle (`P2002`); la aplicación recalcula el siguiente número y reintenta (bucle acotado). Resultado: números consecutivos, sin duplicados ni facturas sin número. Nunca Redis ni locks distribuidos.
 
 ### 3.13 PAGO
 Cobro conciliado contra una factura. El justificante es un documento.
@@ -753,7 +779,7 @@ Log de emails del ciclo de vida de la reserva (E1–E8) y emails manuales. El mo
 
 **Extensión de E1 en la transición 2.a → 2.b (US-005 / D-6):** tras el COMMIT de `2a → 2b`, el adaptador `ConfirmacionBloqueoEmailAdapter` hace un **UPSERT** de la fila `(reserva, E1)`: si ya existía una E1 del alta, la actualiza (mismo `id_comunicacion`); si no existe, la crea. El índice UNIQUE parcial impide duplicados. El envío es post-commit y no bloqueante: un fallo no revierte la RESERVA ni la `FECHA_BLOQUEADA` comprometidas. Este email no tiene código `E` propio en el catálogo (E1–E8): es una extensión de E1 adaptando el copy a "bloqueo provisional confirmado" (ver `data-model.md §3.16`).
 
-**Cobertura de emails E1–E8:** E1 activa (trigger cableado en US-003/004+US-045; extensión en US-005). E2 activa (trigger cableado en US-014 — post-commit de la confirmación `{2a|2b|2c|2v} → pre_reserva`; PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; registro en `COMUNICACION` con `codigo_email='E2'`, `estado='enviado'`; idempotencia garantizada por índice UNIQUE parcial de US-045). E6 activa (trigger cableado en US-008 — post-commit de la transición `{2a|2b|2c}→2v`; registro en `COMUNICACION` con `codigo_email='E6'`, `estado='enviado'`, `reserva_id`, `cliente_id`). E3, E4, E5, E7, E8 diseñadas/inactivas en el catálogo; su trigger se cablea en la US correspondiente: E3→US-021/022/023, E4→US-027/028, E5→US-034, E7→US-009, E8→US-035. Ver [architecture.md §2.9 DT-EMAIL-02 y §2.13](./architecture.md).
+**Cobertura de emails E1–E8:** E1 activa (trigger cableado en US-003/004+US-045; extensión en US-005). E2 activa (trigger cableado en US-014 — post-commit de la confirmación `{2a|2b|2c|2v} → pre_reserva`; PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; registro en `COMUNICACION` con `codigo_email='E2'`, `estado='enviado'`; idempotencia garantizada por índice UNIQUE parcial de US-045). E6 activa (trigger cableado en US-008 — post-commit de la transición `{2a|2b|2c}→2v`; registro en `COMUNICACION` con `codigo_email='E6'`, `estado='enviado'`, `reserva_id`, `cliente_id`). E7 activa (trigger cableado en US-009 — post-commit de la transición `2v→2b` "cliente interesado"; registro en `COMUNICACION` con `codigo_email='E7'`, `estado='enviado'`, `reserva_id`, `cliente_id`). E3 avanza en US-022 (la factura de señal, prerequisito de E3, está implementada) pero su trigger se cablea en US-023 (condiciones particulares, trigger natural de E3). E4, E5, E8 diseñadas/inactivas en el catálogo; su trigger se cablea en la US correspondiente: E4→US-027/028, E5→US-034, E8→US-035. Ver [architecture.md §2.9 DT-EMAIL-02 y §2.14](./architecture.md).
 
 ### 3.17 AUDIT_LOG
 Registro de auditoría de todas las acciones sobre reservas, facturas y autenticación.
@@ -801,6 +827,8 @@ Registro de auditoría de todas las acciones sobre reservas, facturas y autentic
 | `(tenant_id, email)` en CLIENTE | Búsqueda de cliente (y futura recurrencia) |
 | Full-text en RESERVA (nombre, código, observaciones) | Histórico consultable |
 | `UNIQUE PARTIAL (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL` en COMUNICACION | Idempotencia del motor de email (US-045): una `COMUNICACION` por `(reserva, codigo_email)`; emails `manual` sin reserva no aplican el constraint. Migración `20260628120000_us045_comunicacion_idempotencia_indice`. |
+| `UNIQUE(tenant_id, numero_factura)` en FACTURA | Numeración fiscal secuencial por tenant (US-022 §D-3, D-7): sustituye el `@unique` global sobre `numero_factura`. Permite que dos tenants distintos tengan `F-2026-0001`; garantiza unicidad dentro del mismo tenant. El año va embebido en el literal `F-YYYY-NNNN`. Ante colisión `P2002`, la aplicación recalcula el siguiente número y reintenta (nunca locks distribuidos). |
+| `UNIQUE(reserva_id, tipo)` en FACTURA | Idempotencia de factura por tipo y reserva (US-022 §D-4): red de seguridad ante disparos concurrentes del trigger post-commit de US-021. Garantiza máximo una factura de señal, una de liquidación, una de fianza y una complementaria por reserva. Ante `P2002`, el use-case devuelve la existente sin duplicar. |
 
 ---
 
@@ -853,6 +881,7 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 
 ---
 
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 3.6 (04/07/2026): refleja US-022 — Generar Factura de Señal al Confirmar Reserva (UC-18): amplía §3.12 FACTURA — añade descripción completa del ciclo de vida de la factura de señal (creación en borrador post-commit de US-021, desglose fiscal por dominio puro `base = round(total/1,21,2)` + `iva = total − base`, numeración `F-YYYY-NNNN` con retry-on-conflict ante `P2002`, idempotencia `UNIQUE(reservaId, tipo)`, generación de PDF post-commit reutilizando mecanismo de US-014, estados del borrador: válido/inválido/en-reintento, aprobación y rechazo del Gestor, auditoría `crear`/`actualizar`); actualiza el diagrama Mermaid de FACTURA — añade anotaciones de constraints (`@@unique([tenantId, numeroFactura])`, `@@unique([reservaId, tipo])`), tipo de cómputo de `base_imponible`/`iva_importe`, y `fecha_emision` como nullable; documenta ambos constraints como migración estructural (sustitución de `@unique` global por `@@unique([tenantId, numeroFactura])` + adición de `@@unique([reservaId, tipo])`); actualiza §4.1 Índices con las dos entradas nuevas de FACTURA. Sin columnas nuevas (solo cambio de constraints).*
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 3.5 (03/07/2026): refleja US-021 — Confirmar Pago de Señal y Activar Reserva Confirmada (UC-17): añade en §3.5 RESERVA la nota de transición `pre_reserva → reserva_confirmada` (guarda mono-estado `pre_reserva`, validación `importe_total > 0` y del fichero justificante, transacción única all-or-nothing DOCUMENTO + RESERVA + FECHA_BLOQUEADA upgrade + FICHA_OPERATIVA idempotente + AUDIT_LOG, congelado de importes señal/liquidación desde `TENANT_SETTINGS.pct_senal`, inicialización sub-procesos a `pendiente`, post-commit disparo UC-18/US-022, sin E3 en este change, sin migración estructural); añade en §3.6 la nota US-021 sobre el upgrade a firme (UPDATE de la fila existente sin alterar `reserva_id`, mecanismo de concurrencia doble-clic vs fecha-firme-otra-reserva, relación con la guarda del bloqueo firme de `liberarFecha()`). Sin entidades, columnas ni índices nuevos.*
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 3.4 (03/07/2026): refleja US-010 — Registrar resultado de visita: reserva inmediata (2.v → pre_reserva / UC-08 FA-08 / UC-14): añade en §3.5 RESERVA la nota de transición `2v → pre_reserva` (guarda mono-estado `esOrigenValidoParaResultadoVisitaReservaInmediata`, validación de datos obligatorios UC-14 con `camposFaltantes[]`, transacción única all-or-nothing RESERVA + FECHA_BLOQUEADA UPDATE + vaciado cola A16 + AUDIT_LOG, sin email propio, sin migración); añade en §3.6 la nota US-010 que precisa que el modo para `pre_reserva` desde `2.v` es UPDATE puro (sin rama de INSERT, a diferencia de UC-14 desde `2a`). Sin entidades, columnas ni índices nuevos.*
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 3.3 (03/07/2026): refleja US-014 — Generar Presupuesto y Activar Pre-reserva (UC-14): corrige §3.6 mapa fase→TTL — modo `pre_reserva` pasa de `insert` a `insert-o-update` (la transición desde `2b`/`2c`/`2v` actualiza la fila de `FECHA_BLOQUEADA` existente; desde `2a` la inserta; coherente con §3.11 y el flujo real de UC-14); actualiza §3.11 PRESUPUESTO — añade descripción del flujo de creación en UC-14 (borrador preview sin persistencia vía `POST /reservas/{id}/presupuesto/preview`; confirmación con transacción única PRESUPUESTO + RESERVA + FECHA_BLOQUEADA + cola A16 + AUDIT_LOG vía `POST /reservas/{id}/presupuesto`; PDF y E2 post-commit), mapa de estados del PRESUPUESTO (borrador/enviado/aceptado/rechazado), restricción `UNIQUE(reserva_id, version)`, campos `fecha_envio` y `fecha_actualizacion` añadidos al diagrama Mermaid y al diccionario, notas de nullable/defaults, ausencia de `tenant_id` y nota de deuda de `tarifa_id`; actualiza el diagrama Mermaid de PRESUPUESTO con anotaciones de constraints y campos faltantes. Sin entidades ni columnas nuevas (PRESUPUESTO ya existía en el modelo desde US-000; la tabla en BD ya tenía `fecha_envio` y `fecha_actualizacion`). Versión 3.2 (03/07/2026): refleja US-019 — Promoción Manual de Consulta en Cola (UC-12 flujo B): añade en §5.2 la descripción de la mecánica de promoción manual (locus de lock sobre `FECHA_BLOQUEADA`, expiración forzosa de la bloqueante `2b/2c/2v → 2x`, re-asignación de la fila de `FECHA_BLOQUEADA` por UPDATE, reordenación por cierre de hueco, coordinación con la automática US-018, política de arbitraje FIFO). Sin migración de esquema: US-019 no añade entidades, columnas ni índices; reutiliza `RESERVA`, `FECHA_BLOQUEADA` y `AUDIT_LOG` tal como existen desde US-000/US-004. Versión 3.1 (02/07/2026): refleja US-017 — visualización de la cola de espera de una fecha (UC-11): lectura pura, sin entidades, columnas ni índices nuevos. El read model `ColaEsperaLectura` (aplicación) proyecta la bloqueante (`sub_estado ∈ {2b,2c,2v}`, `ttl_expiracion`, `visita_programada_fecha`) y la cola FIFO (`sub_estado = '2d'`, `posicion_cola` ASC) leyendo las columnas de RESERVA y CLIENTE ya existentes desde US-000/US-004. Los derivados temporales `ttlRestante` (`ttl_expiracion − now()`) y `tiempoEnCola` (`now() − fecha_creacion`) se calculan en el backend sobre instantes `timestamptz`, reutilizando el patrón RLS de `ColaQueryPrismaAdapter` (US-018). El índice `reserva_cola_posicion_key` (US-004, §4.1) se aprovecha para el `ORDER BY posicion_cola ASC`. Versión 3.0 (01/07/2026): refleja US-018 — promoción automática de cola (UC-12): actualiza §5.2 — sustituye descripción del stub no-op por el adaptador real `PromocionColaPrismaAdapter`; documenta la mecánica A15 (transacción única: `2d → 2b`, re-bloqueo vía `bloquearFecha()`, reordenación FIFO, alerta interna al gestor) y el punto de serialización real (`SELECT … FOR UPDATE` sobre RESERVA `2d`, no sobre `FECHA_BLOQUEADA` que ya no existe tras el DELETE); cierra la deuda de consistencia eventual US-041/US-012 §5.2; actualiza §3.6 con el comportamiento real del seam. Sin entidades, columnas ni índices nuevos (reutiliza `posicion_cola`, `consulta_bloqueante_id`, `ttl_expiracion` existentes). Versión 2.9 (30/06/2026): refleja US-008 — programar visita al espacio (UC-07): corrige §3.6 mapa fase→TTL — el modo de `fase '2.v'` pasa de `insert` a `insert-o-update` (la transición desde `2b`/`2c` actualiza la fila existente; desde `2a` la inserta; implementado como upsert atómico) y añade nota explicativa; amplía §3.5 RESERVA — añade campo `visita_programada_hora` (TIME) que faltaba en la tabla del diccionario (ya estaba en el diagrama Mermaid) y nota de la transición `{2a,2b,2c}→2v` (guarda declarativa, precondición `fecha_evento` para `2a`, ventana `max_dias_programar_visita`, INSERT-o-UPDATE atómico, E6 post-commit, sin migración); actualiza §3.16 COMUNICACION — E6 pasa a activa (trigger cableado en US-008). Sin entidades, columnas ni índices nuevos.*
