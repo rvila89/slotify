@@ -1,8 +1,8 @@
 ---
 id: US-025
-estado: in_progress
+estado: done
 branch: feature/us-025-cumplimentar-ficha-operativa-evento
-pr: null
+pr: https://github.com/rvila89/slotify/pull/44
 ---
 
 # 🧾 Historia de Usuario: Cumplimentar y cerrar la ficha operativa del evento
