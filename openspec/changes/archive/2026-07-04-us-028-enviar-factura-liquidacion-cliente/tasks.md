@@ -68,72 +68,72 @@
 
 ## 4. Backend: implementar + revisar/actualizar tests unitarios existentes (OBLIGATORIO — step-N)
 
-- [ ] 4.1 Verificar el modelo: `numero_factura` nullable (US-027), `fecha_emision`, enum
+- [x] 4.1 Verificar el modelo: `numero_factura` nullable (US-027), `fecha_emision`, enum
       `liquidacion_status` incluye `facturada`, `fianza_status` incluye `recibo_enviado`,
       `RESERVA_EXTRA.factura_id` nullable, `COMUNICACION.codigo_email` admite `E4` y `manual`.
       Si falta un valor de enum → migración aditiva mínima; si no, sin migración
-- [ ] 4.2 `backend-developer`: función de dominio puro `aplicarDescuentoLiquidacion` (reuso del
+- [x] 4.2 `backend-developer`: función de dominio puro `aplicarDescuentoLiquidacion` (reuso del
       desglose de US-022), `AprobarYEnviarLiquidacionUseCase` (orquestación atómica estado↔E4
       según `design.md §D-1`: verificación de adjuntos + numeración con reintento `P2002` +
       transición de ambas facturas + marcado de `RESERVA_EXTRA` + actualización de
       `importe_liquidacion` + AUDIT_LOG + registro E4), `EnviarReciboFianzaSeparadoUseCase`
       (email `manual`) y `ReenviarLiquidacionUseCase` (nueva `COMUNICACION` E4), en
       `apps/api/src/facturacion/**`; dominio sin imports de infraestructura (hexagonal)
-- [ ] 4.3 Integrar el motor de email de US-045 en modo **síncrono/confirmado con adjuntos**
+- [x] 4.3 Integrar el motor de email de US-045 en modo **síncrono/confirmado con adjuntos**
       para E4 (`apps/api/src/comunicaciones/**`), preservando el contrato del puerto de envío
-- [ ] 4.4 `frontend-developer`: en `apps/web/src/features/facturacion/**`, editor de borrador
+- [x] 4.4 `frontend-developer`: en `apps/web/src/features/facturacion/**`, editor de borrador
       (total, desglose, descuento, extras), botón "Aprobar y enviar", "Enviar recibo de fianza
       por separado", y tras emitir mostrar `numero_factura` + "Reenviar factura de liquidación";
       manejo de error recuperable; mobile-first (390/768/1280)
-- [ ] 4.5 Ejecutar §3 en verde; suite completa (`pnpm test`), `pnpm lint`, `pnpm typecheck` y
+- [x] 4.5 Ejecutar §3 en verde; suite completa (`pnpm test`), `pnpm lint`, `pnpm typecheck` y
       `depcruise` (hexagonal) sin violaciones
 
 ## 5. QA: unit tests + verificación de BD (OBLIGATORIO — step-N+1 — EL AGENTE DEBE EJECUTARLO)
 
-- [ ] 5.1 Capturar baseline de BD (FACTURA, RESERVA, RESERVA_EXTRA, COMUNICACION, AUDIT_LOG) en
+- [x] 5.1 Capturar baseline de BD (FACTURA, RESERVA, RESERVA_EXTRA, COMUNICACION, AUDIT_LOG) en
       `slotify_test`
-- [ ] 5.2 Ejecutar tests dirigidos de los módulos cambiados (facturacion + comunicaciones)
-- [ ] 5.3 Ejecutar la suite requerida (`pnpm test`) y registrar totales/flaky
-- [ ] 5.4 Verificar estado posterior de BD y restaurar si hace falta
-- [ ] 5.5 Crear report `openspec/changes/us-028-enviar-factura-liquidacion-cliente/reports/YYYY-MM-DD-step-N+1-unit-test-and-db-verification.md`
-- [ ] 5.6 Marcar completado solo tras tests en verde y report creado
+- [x] 5.2 Ejecutar tests dirigidos de los módulos cambiados (facturacion + comunicaciones)
+- [x] 5.3 Ejecutar la suite requerida (`pnpm test`) y registrar totales/flaky
+- [x] 5.4 Verificar estado posterior de BD y restaurar si hace falta
+- [x] 5.5 Crear report `openspec/changes/us-028-enviar-factura-liquidacion-cliente/reports/YYYY-MM-DD-step-N+1-unit-test-and-db-verification.md`
+- [x] 5.6 Marcar completado solo tras tests en verde y report creado
 
 ## 6. QA: pruebas manuales con curl (OBLIGATORIO — step-N+2 — EL AGENTE DEBE EJECUTARLO)
 
-- [ ] 6.1 Levantar el backend y verificar conexión a BD
-- [ ] 6.2 Happy path: aprobar y enviar la liquidación; verificar `estado='enviada'`,
+- [x] 6.1 Levantar el backend y verificar conexión a BD
+- [x] 6.2 Happy path: aprobar y enviar la liquidación; verificar `estado='enviada'`,
       `numero_factura` asignado, `liquidacion_status='facturada'`, fianza `enviada` +
       `fianza_status='recibo_enviado'`, `COMUNICACION` E4 `enviado`, `RESERVA_EXTRA` marcados.
       **Restaurar BD**
-- [ ] 6.3 Descuento negociado: aprobar con descuento; verificar total/desglose recalculados,
+- [x] 6.3 Descuento negociado: aprobar con descuento; verificar total/desglose recalculados,
       `importe_liquidacion` actualizado y descuento en `AUDIT_LOG`. **Restaurar BD**
-- [ ] 6.4 Atomicidad: forzar fallo de PDF/email (transporte fake en fallo) y verificar rollback
+- [x] 6.4 Atomicidad: forzar fallo de PDF/email (transporte fake en fallo) y verificar rollback
       total (nada cambia, `numero_factura=NULL`). **Restaurar BD**
-- [ ] 6.5 Envío separado del recibo de fianza: verificar `fianza_status='recibo_enviado'`,
+- [x] 6.5 Envío separado del recibo de fianza: verificar `fianza_status='recibo_enviado'`,
       `liquidacion_status` intacto, `COMUNICACION` `codigo_email='manual'`. **Restaurar BD**
-- [ ] 6.6 Reenvío: reenviar la liquidación emitida; verificar nueva `COMUNICACION` E4 y factura
+- [x] 6.6 Reenvío: reenviar la liquidación emitida; verificar nueva `COMUNICACION` E4 y factura
       intacta. **Restaurar BD**
-- [ ] 6.7 Casos de error: aprobar factura ya `enviada` (`409`), reserva inexistente (`404`), sin
+- [x] 6.7 Casos de error: aprobar factura ya `enviada` (`409`), reserva inexistente (`404`), sin
       auth (`401`); verificar que el formato de error coincide con el contrato OpenAPI
-- [ ] 6.8 Crear report `.../reports/YYYY-MM-DD-step-N+2-curl-endpoint-tests.md`
-- [ ] 6.9 Marcar completado solo tras pasar todos los curl y restaurar la BD
+- [x] 6.8 Crear report `.../reports/YYYY-MM-DD-step-N+2-curl-endpoint-tests.md`
+- [x] 6.9 Marcar completado solo tras pasar todos los curl y restaurar la BD
 
 ## 7. QA: E2E con Playwright MCP (OBLIGATORIO — step-N+3 — hay frontend — EL AGENTE DEBE EJECUTARLO)
 
-- [ ] 7.1 Levantar frontend y backend con BD en estado conocido
-- [ ] 7.2 `browser_navigate` a la ficha de una reserva con borradores de liquidación y fianza;
+- [x] 7.1 Levantar frontend y backend con BD en estado conocido
+- [x] 7.2 `browser_navigate` a la ficha de una reserva con borradores de liquidación y fianza;
       snapshot inicial
-- [ ] 7.3 Flujo completo: revisar el borrador, (opcional) aplicar descuento, pulsar "Aprobar y
+- [x] 7.3 Flujo completo: revisar el borrador, (opcional) aplicar descuento, pulsar "Aprobar y
       enviar", verificar `numero_factura`, estado `enviada`, y el aviso de envío al cliente
-- [ ] 7.4 Escenarios adicionales: "Enviar recibo de fianza por separado" y "Reenviar factura de
+- [x] 7.4 Escenarios adicionales: "Enviar recibo de fianza por separado" y "Reenviar factura de
       liquidación"; error recuperable ante fallo de envío; responsive en 3 viewports
       (390/768/1280)
-- [ ] 7.5 Verificar persistencia (UI ↔ BD) y restaurar entorno/BD
-- [ ] 7.6 Crear report `.../reports/YYYY-MM-DD-step-N+3-e2e-playwright.md`
+- [x] 7.5 Verificar persistencia (UI ↔ BD) y restaurar entorno/BD
+- [x] 7.6 Crear report `.../reports/YYYY-MM-DD-step-N+3-e2e-playwright.md`
 
 ## 8. Docs: actualizar documentación técnica (OBLIGATORIO — step-N+4)
 
-- [ ] 8.1 `docs-keeper`: reflejar el flujo (aprobar y enviar liquidación → E4 con ambos PDFs →
+- [x] 8.1 `docs-keeper`: reflejar el flujo (aprobar y enviar liquidación → E4 con ambos PDFs →
       liquidacion_status=facturada + fianza_status=recibo_enviado, más envío separado y reenvío)
       en la doc técnica; verificar alineación US-028 ↔ OpenAPI ↔ `er-diagram.md` (§3.12 FACTURA
       emitida, §3.10 RESERVA_EXTRA `factura_id`, §3.16 COMUNICACION E4/manual, §RESERVA
@@ -141,25 +141,25 @@
 
 ## 9. Code review (OBLIGATORIO — code-review — EL AGENTE DEBE EJECUTARLO)
 
-- [ ] 9.1 `code-reviewer` sobre el diff contra guardrails (hexagonal, dominio puro del descuento
+- [x] 9.1 `code-reviewer` sobre el diff contra guardrails (hexagonal, dominio puro del descuento
       y del desglose, atomicidad estado↔E4 sin locks distribuidos, numeración por UNIQUE +
       reintento `P2002`, multi-tenancy/RLS, reenvío sin reasignar, envío separado como `manual`,
       mobile-first, cliente HTTP generado no editado a mano)
-- [ ] 9.2 Dejar informe `.../reports/YYYY-MM-DD-step-review-code-review.md` con la línea
+- [x] 9.2 Dejar informe `.../reports/YYYY-MM-DD-step-review-code-review.md` con la línea
       literal `Veredicto: APTO` (si NO APTO, volver a implementación y repetir)
 
 ## 10. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final — PARADA)
 
-- [ ] 10.1 Tras code-review APTO + validación manual, **ESPERAR el OK humano** antes de
+- [x] 10.1 Tras code-review APTO + validación manual, **ESPERAR el OK humano** antes de
       archive/PR
 
 ## 11. Archivar change + abrir PR (OBLIGATORIO — archive)
 
-- [ ] 11.1 `openspec archive us-028-enviar-factura-liquidacion-cliente` (aplica el delta a
+- [x] 11.1 `openspec archive us-028-enviar-factura-liquidacion-cliente` (aplica el delta a
       `openspec/specs/facturacion/` y a `openspec/specs/comunicaciones/`)
-- [ ] 11.2 Abrir PR (GitHub MCP o `gh`) — solo tras el gate final y con code-review APTO
+- [x] 11.2 Abrir PR (GitHub MCP o `gh`) — solo tras el gate final y con code-review APTO
       (el hook `require-code-review` lo bloquea si falta el informe APTO)
-- [ ] 11.3 Registrar la URL del PR en el frontmatter de
+- [x] 11.3 Registrar la URL del PR en el frontmatter de
       `user-stories/US-028-enviar-factura-liquidacion-cliente.md`
 
 ## Deuda técnica post-US-028
