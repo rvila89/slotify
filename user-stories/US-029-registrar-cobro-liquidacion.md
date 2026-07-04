@@ -1,7 +1,7 @@
 ---
 id: US-029
-estado: backlog
-branch: null
+estado: done
+branch: feature/us-029-registrar-cobro-liquidacion
 pr: null
 ---
 
