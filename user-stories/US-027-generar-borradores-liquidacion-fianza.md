@@ -1,8 +1,8 @@
 ---
 id: US-027
-estado: backlog
-branch: null
-pr: null
+estado: en-revision
+branch: feature/us-027-generar-borradores-liquidacion-fianza
+pr: https://github.com/rvila89/slotify/pull/42
 ---
 
 # 🧾 Historia de Usuario: Sistema genera factura de liquidación y recibo de fianza en borrador al activar la reserva confirmada
