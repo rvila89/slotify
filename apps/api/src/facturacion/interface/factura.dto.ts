@@ -9,7 +9,18 @@
  * F2-01). Los flags `esBorradorInvalido`/`pdfPendiente` son DERIVADOS (design.md §D-9).
  */
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsDateString,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from 'class-validator';
+
+/** Patrón de importe Decimal(10,2) serializado como string (contrato `Importe`, F2-01). */
+const IMPORTE_PATTERN = /^-?\d+\.\d{2}$/;
 
 /** Estado del ciclo de vida de la factura (contrato `EstadoFactura`). */
 export type EstadoFacturaDto = 'borrador' | 'enviada' | 'cobrada';
@@ -175,4 +186,88 @@ export class ReenviarLiquidacionResponseDto {
 
   @ApiProperty({ type: ComunicacionReenvioDto })
   comunicacion!: ComunicacionReenvioDto;
+}
+
+/**
+ * Cuerpo de "Registrar el cobro de la liquidación" (contrato `RegistrarCobroLiquidacionRequest`,
+ * US-029 / UC-21 pasos 7-10). `importe` Decimal(10,2) como string `> 0`; `fechaCobro` DATE `<= hoy`
+ * (validación de negocio en dominio); `justificanteDocId` OPCIONAL (referencia a un DOCUMENTO
+ * `tipo='justificante_pago'` ya subido; `null` si no se adjunta). `tenant_id` viaja en el JWT.
+ */
+export class RegistrarCobroLiquidacionDto {
+  @ApiProperty({ example: '4100.00', description: 'Importe real cobrado, Decimal(10,2) string > 0.' })
+  @IsString()
+  @Matches(IMPORTE_PATTERN, { message: 'importe debe ser Decimal(10,2) como string' })
+  importe!: string;
+
+  @ApiProperty({ format: 'date', example: '2026-06-15', description: 'Fecha del cobro, <= hoy.' })
+  @IsDateString()
+  fechaCobro!: string;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    description: 'DOCUMENTO justificante ya subido (tipo=justificante_pago). null si no se adjunta.',
+  })
+  @IsOptional()
+  @IsUUID()
+  justificanteDocId?: string | null;
+}
+
+/**
+ * Vista de lectura del PAGO conciliado contra la factura de liquidación (contrato `PagoLiquidacion`,
+ * espejo de la tabla PAGO, er-diagram §3.13). `tenant_id` NO se expone (RLS, deriva del JWT).
+ */
+export class PagoLiquidacionDto {
+  @ApiProperty({ format: 'uuid' })
+  idPago!: string;
+
+  @ApiProperty({ format: 'uuid' })
+  facturaId!: string;
+
+  @ApiProperty({ example: '4100.00' })
+  importe!: string;
+
+  @ApiProperty({ format: 'date', example: '2026-06-15' })
+  fechaCobro!: string;
+
+  @ApiProperty({ format: 'uuid', nullable: true })
+  justificanteDocId!: string | null;
+
+  @ApiPropertyOptional({ format: 'date-time' })
+  fechaCreacion?: string;
+}
+
+/**
+ * Alerta informativa de discrepancia de importe (contrato `AlertaDiscrepanciaCobro`, US-029 §D-3).
+ * Presente SOLO si el importe cobrado difiere del facturado. NO es un error: el cobro se registra.
+ */
+export class AlertaDiscrepanciaCobroDto {
+  @ApiProperty({ example: '4100.00', description: 'Total de la factura de liquidación.' })
+  importeFacturado!: string;
+
+  @ApiProperty({ example: '4000.00', description: 'Importe realmente cobrado.' })
+  importeCobrado!: string;
+
+  @ApiProperty({ example: '100.00', description: 'importeFacturado - importeCobrado.' })
+  diferencia!: string;
+}
+
+/**
+ * Respuesta de "Registrar el cobro de la liquidación" (contrato `RegistrarCobroLiquidacionResponse`).
+ * Devuelve el PAGO creado, la FACTURA de liquidación actualizada (`estado=cobrada`), el
+ * `liquidacionStatus` resultante (`cobrada`) y, SOLO si hubo discrepancia, `alertaDiscrepancia`.
+ */
+export class RegistrarCobroLiquidacionResponseDto {
+  @ApiProperty({ type: PagoLiquidacionDto })
+  pago!: PagoLiquidacionDto;
+
+  @ApiProperty({ type: FacturaDto })
+  liquidacion!: FacturaDto;
+
+  @ApiProperty({ enum: ['pendiente', 'facturada', 'cobrada'] })
+  liquidacionStatus!: LiquidacionStatusDto;
+
+  @ApiPropertyOptional({ type: AlertaDiscrepanciaCobroDto, nullable: true })
+  alertaDiscrepancia?: AlertaDiscrepanciaCobroDto | null;
 }

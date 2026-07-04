@@ -1899,6 +1899,86 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LiquidacionError' }
 
+  /reservas/{id}/facturas/liquidacion/cobro:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Facturacion]
+      summary: Registrar el cobro de la factura de liquidación (UC-21 pasos 7-10 / US-029)
+      operationId: registrarCobroLiquidacion
+      description: |
+        [US-029 / UC-21 pasos 7-10] El **Gestor registra el cobro** del 60 % restante de la RESERVA
+        `{id}` cuando recibe la transferencia bancaria externa (Slotify **registra**, no procesa el
+        pago; sin pasarela en MVP). Precondición: `RESERVA.liquidacionStatus='facturada'` y su
+        `FACTURA (tipo='liquidacion').estado='enviada'` (dejado por US-028).
+
+        En una **única unidad de trabajo atómica** (tx + RLS del tenant del JWT), releyendo el estado
+        de la RESERVA con `SELECT ... FOR UPDATE` para serializar el doble cobro concurrente (lock de
+        fila PostgreSQL, **nunca** locks distribuidos; design.md §D-2):
+        1. Crea un registro `PAGO` con `facturaId` de la factura de liquidación, `importe` (el importe
+           real cobrado), `fechaCobro` y, si se adjunta, `justificanteDocId` (referencia a un DOCUMENTO
+           `tipo='justificante_pago'` **ya subido**; opcional, `null` si no se adjunta).
+        2. Transiciona `FACTURA (liquidacion).estado='cobrada'`.
+        3. Transiciona `RESERVA.liquidacionStatus='cobrada'` (habilita una de las 3 precondiciones de
+           `evento_en_curso`, US-031; NO transiciona `RESERVA.estado`).
+        4. Registra `AUDIT_LOG` (`crear` del PAGO; `actualizar` de FACTURA y RESERVA; la discrepancia
+           si la hubo).
+
+        **Discrepancia de importe (alerta, NO bloquea)**: si `importe` difiere de `FACTURA.total`, el
+        cobro se registra igualmente con el importe real y la respuesta 200 incluye `alertaDiscrepancia`
+        (importe facturado, cobrado y diferencia) para que el Gestor la concilie. NO es un error.
+
+        Aislada por `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrarCobroLiquidacionRequest' }
+      responses:
+        '200':
+          description: |
+            Cobro registrado. La liquidación queda en `estado='cobrada'` y `liquidacionStatus='cobrada'`.
+            Devuelve el `PAGO` creado, la `FACTURA` de liquidación actualizada, el `liquidacionStatus`
+            resultante y, **solo si hubo discrepancia de importe**, `alertaDiscrepancia` (informativa,
+            no bloqueante).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistrarCobroLiquidacionResponse' }
+        '400':
+          description: |
+            Validación de entrada (F5-01). El `importe` no es Decimal(10,2) positivo (`> 0`) o
+            `fechaCobro` no es una fecha válida `<= hoy` (futura o mal formada): `COBRO_INVALIDO`. No se
+            crea `PAGO` ni cambia el estado. Cuerpo = envelope estándar + `codigo` y `motivo`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CobroLiquidacionError' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: |
+            La RESERVA no existe en el tenant (RLS), no tiene factura de liquidación
+            (`FACTURA_LIQUIDACION_NO_ENCONTRADA`), o el `justificanteDocId` indicado no existe en el
+            tenant (`JUSTIFICANTE_NO_ENCONTRADO`). No se muta nada. Cuerpo + `codigo`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CobroLiquidacionError' }
+        '409':
+          description: |
+            Conflicto de precondición de estado (F5-02: 409), sin efectos, releído bajo
+            `SELECT ... FOR UPDATE`:
+            - `LIQUIDACION_YA_COBRADA` — la liquidación ya está `cobrada` (**doble cobro**, incl. dos
+              peticiones concurrentes: solo la primera registra el PAGO). "La liquidación ya está
+              marcada como cobrada".
+            - `LIQUIDACION_NO_FACTURADA` — `liquidacionStatus='pendiente'` (la factura de liquidación
+              aún no fue enviada, US-028 no ejecutada). "La factura de liquidación debe estar enviada
+              antes de registrar su cobro".
+            Cuerpo = envelope estándar + `codigo` y `motivo`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CobroLiquidacionError' }
+
   /reservas/{id}/condiciones-particulares:
     parameters:
       - { $ref: '#/components/parameters/IdReserva' }
@@ -3497,6 +3577,142 @@ components:
             motivo:
               type: string
               description: 'Mensaje legible para la UI (presente en 409/422).'
+
+    # -------- US-029: Registro del cobro de la liquidación (facturacion) --------
+    # [US-029 / UC-21 pasos 7-10] Request/response de la acción dedicada de registrar el cobro de la
+    # factura de liquidación. Materializa la entidad PAGO (er-diagram §3.13) conciliada contra la
+    # FACTURA de liquidación ya emitida (US-028). Reutiliza los wrappers monetarios (Importe string
+    # Decimal(10,2), F2-01), el schema `Factura` y el enum `LiquidacionStatus`. El justificante es una
+    # referencia a un DOCUMENTO (tipo='justificante_pago') YA subido (design.md §D-4 opción a; D-5),
+    # opcional. La discrepancia de importe se modela como campo OPCIONAL de la respuesta 200
+    # (`alertaDiscrepancia`), NO como error: alerta informativa que NO bloquea el cobro (design.md §D-3).
+    # Los errores reutilizan el envelope NestJS (ErrorResponse) + `codigo`/`motivo`, mismo patrón que
+    # US-028 (LiquidacionError). No se inventan formatos, wrappers ni paginación.
+    PagoLiquidacion:
+      # Vista de lectura del PAGO conciliado contra la factura de liquidación (er-diagram §3.13 PAGO).
+      # `tenant_id` NO se expone en el DTO (viaja/deriva del JWT, RLS); nunca en path ni body.
+      type: object
+      required: [idPago, facturaId, importe, fechaCobro]
+      properties:
+        idPago:
+          type: string
+          format: uuid
+          description: 'Identificador del PAGO (er-diagram §3.13 id_pago).'
+        facturaId:
+          type: string
+          format: uuid
+          description: 'FACTURA de liquidación conciliada (er-diagram §3.13 factura_id).'
+        importe:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          description: 'Importe REAL cobrado, Decimal(10,2) como string. Puede diferir de `Factura.total`.'
+        fechaCobro:
+          type: string
+          format: date
+          example: '2026-06-15'
+          description: 'Fecha del cobro (DATE). Validada `<= hoy` (no futura) al registrar.'
+        justificanteDocId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Referencia al DOCUMENTO (`tipo='justificante_pago'`) del justificante de transferencia, o
+            `null` si el cobro se registró sin adjuntar justificante (er-diagram §3.13 justificante_doc_id).
+        fechaCreacion:
+          type: string
+          format: date-time
+          description: 'Instante de creación del registro de cobro (er-diagram §3.13 fecha_creacion).'
+    RegistrarCobroLiquidacionRequest:
+      # Cuerpo de la acción de cobro. `justificanteDocId` OPCIONAL: referencia a un DOCUMENTO ya subido
+      # por el flujo de documentos existente (design.md §D-4 opción a); si se omite, el cobro es válido
+      # igualmente y el PAGO queda con justificante_doc_id=NULL.
+      type: object
+      required: [importe, fechaCobro]
+      additionalProperties: false
+      properties:
+        importe:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          description: >-
+            Importe REAL cobrado (Importe string Decimal(10,2), p. ej. `"4100.00"`). DEBE ser `> 0`
+            (`0`/negativo → 400 `COBRO_INVALIDO`). Puede diferir de `Factura.total` (→ `alertaDiscrepancia`
+            en la respuesta 200; no bloquea).
+        fechaCobro:
+          type: string
+          format: date
+          example: '2026-06-15'
+          description: >-
+            Fecha del cobro (DATE). DEBE ser una fecha válida `<= hoy` (futura o mal formada → 400
+            `COBRO_INVALIDO`).
+        justificanteDocId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            OPCIONAL. Referencia a un DOCUMENTO (`tipo='justificante_pago'`) YA subido en el tenant. Si
+            se omite o es `null`, el cobro se registra sin justificante (`PAGO.justificanteDocId=null`) y
+            avanza igualmente a `cobrada`. Un id inexistente en el tenant → 404 `JUSTIFICANTE_NO_ENCONTRADO`.
+    AlertaDiscrepanciaCobro:
+      # [US-029 §D-3] Alerta INFORMATIVA de discrepancia de importe. Presente en la respuesta 200 SOLO
+      # si el importe cobrado difiere del facturado. NO es un error: el cobro se registra igualmente.
+      type: object
+      required: [importeFacturado, importeCobrado, diferencia]
+      properties:
+        importeFacturado:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          description: 'Total de la FACTURA de liquidación (`Factura.total`), Decimal(10,2) como string.'
+        importeCobrado:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          description: 'Importe realmente cobrado (`Pago.importe`), Decimal(10,2) como string.'
+        diferencia:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          description: >-
+            Diferencia `importeFacturado - importeCobrado` (Decimal(10,2) como string; positiva si se
+            cobró de menos, negativa si de más). La conciliación se delega al Gestor.
+    RegistrarCobroLiquidacionResponse:
+      type: object
+      required: [pago, liquidacion, liquidacionStatus]
+      properties:
+        pago:
+          allOf: [{ $ref: '#/components/schemas/PagoLiquidacion' }]
+          description: 'El PAGO creado (con el importe real y, si se adjuntó, `justificanteDocId`).'
+        liquidacion:
+          allOf: [{ $ref: '#/components/schemas/Factura' }]
+          description: 'Factura de liquidación actualizada (`estado=cobrada`).'
+        liquidacionStatus:
+          allOf: [{ $ref: '#/components/schemas/LiquidacionStatus' }]
+          description: 'Sub-proceso de liquidación de la RESERVA tras el cobro (`cobrada`).'
+        alertaDiscrepancia:
+          allOf: [{ $ref: '#/components/schemas/AlertaDiscrepanciaCobro' }]
+          nullable: true
+          description: >-
+            Presente SOLO si `pago.importe !== liquidacion.total`. Alerta informativa (no bloqueante);
+            `null`/ausente cuando el importe cobrado coincide con el facturado.
+    CobroLiquidacionError:
+      # Envelope estándar NestJS (ErrorResponse: statusCode/message/error) + `codigo` de dominio y
+      # `motivo` legible. Cubre 400/404/409 de la acción de cobro de US-029. La discrepancia de importe
+      # NO es un error (va en la respuesta 200 como `alertaDiscrepancia`).
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo]
+          properties:
+            codigo:
+              type: string
+              enum:
+                - COBRO_INVALIDO
+                - FACTURA_LIQUIDACION_NO_ENCONTRADA
+                - JUSTIFICANTE_NO_ENCONTRADO
+                - LIQUIDACION_YA_COBRADA
+                - LIQUIDACION_NO_FACTURADA
+              description: >-
+                Código de error de dominio: `COBRO_INVALIDO` (400: `importe <= 0` o `fechaCobro` futura/
+                inválida), `FACTURA_LIQUIDACION_NO_ENCONTRADA`/`JUSTIFICANTE_NO_ENCONTRADO` (404),
+                `LIQUIDACION_YA_COBRADA` (409, doble cobro), `LIQUIDACION_NO_FACTURADA` (409,
+                `liquidacionStatus='pendiente'`).
+            motivo:
+              type: string
+              description: >-
+                Mensaje legible para la UI ("La liquidación ya está marcada como cobrada", "La factura
+                de liquidación debe estar enviada antes de registrar su cobro").
 
     # -------- Cliente --------
     Cliente:

@@ -1213,11 +1213,13 @@ flowchart TD
 4. El gestor aprueba y envía la factura mediante **`AprobarYEnviarLiquidacionUseCase`** (US-028 / `POST /reservas/{id}/facturas/liquidacion/aprobar-enviar`): en una única operación atómica (D-1 US-028 — excepción síncrona al patrón post-commit), el use-case asigna `numero_factura = F-YYYY-NNNN`, pasa ambas facturas (`liquidacion` y `fianza` si no fue enviada por separado) a `estado='enviada'`, fija `fecha_emision = now()`, envía email E4 al cliente con los PDFs adjuntos y, **solo si E4 se confirma**, commitea los cambios de estado; si E4 falla → rollback total.
 5. El sistema actualiza `liquidacion_status = 'facturada'` y `fianza_status = 'recibo_enviado'` (atómicos con el commit del paso 4).
 6. El sistema registra `COMUNICACION E4` con `estado='enviado'` y `es_reenvio = false`.
-7. El cliente realiza el pago
-8. El gestor recibe justificante
-9. El gestor sube justificante al sistema
-10. El sistema actualiza liquidacion_status = cobrada
-11. El sistema registra en audit log
+7. El cliente realiza la transferencia bancaria del 60% restante.
+8. El gestor recibe el justificante de la transferencia.
+9. El gestor registra el cobro en el sistema (`POST /reservas/{id}/facturas/liquidacion/cobro`, US-029): proporciona `importe`, `fecha_cobro` (≤ hoy) y, opcionalmente, `justificante_doc_id` (referencia a un `DOCUMENTO(tipo=justificante_pago)` ya subido). El justificante es **opcional**; el cobro es válido sin él.
+10. El sistema, en una **única transacción atómica** (US-029 `RegistrarCobroLiquidacionUseCase`): relee `RESERVA.liquidacion_status` con `SELECT ... FOR UPDATE` (guarda de doble cobro y precondición); crea el registro `PAGO` (`tenant_id`, `factura_id`, `importe`, `fecha_cobro`, `justificante_doc_id`); transiciona `FACTURA(liquidacion).estado: enviada → cobrada`; transiciona `RESERVA.liquidacion_status: facturada → cobrada`. `RESERVA.estado` permanece `reserva_confirmada`. Si el importe cobrado difiere del total de la factura, la respuesta incluye `alertaDiscrepancia { importeFacturado, importeCobrado, diferencia }` (alerta informativa, no bloquea).
+11. El sistema registra en `AUDIT_LOG`: `accion = 'crear'` para el `PAGO` (y para el `DOCUMENTO` del justificante si se adjuntó), `accion = 'actualizar'` para la transición de `FACTURA` y de `RESERVA`. Si hubo discrepancia, también queda registrada en `AUDIT_LOG`.
+
+**Resultado:** `liquidacion_status = 'cobrada'` habilita una de las tres precondiciones de la transición `reserva_confirmada → evento_en_curso` (US-031). Las otras dos son `pre_evento_status = cerrado` y `fianza_status = cobrada`.
 
 **Flujos Alternativos:**
 - **FA-01**: T-1d sin cobro → Política "Negociable" activada, alerta crítica al gestor
@@ -1225,6 +1227,9 @@ flowchart TD
 - **FA-03** (reenvío de la factura ya emitida — D-4 US-028): `POST /reservas/{id}/facturas/liquidacion/reenviar` cuando `FACTURA.estado = 'enviada'`; reenvia el PDF ya emitido sin reasignar `numero_factura` ni mutar estado; crea nuevo registro `COMUNICACION E4` con `es_reenvio = true`. Si `estado != 'enviada'` → `409`.
 - **FA-04** (descuento negociado — D-2 US-028): body opcional `{ descuento, extrasCorregidos, motivo }` en `aprobar-enviar`; el use-case recalcula `total`, desglose fiscal y `RESERVA.importe_liquidacion`; el descuento queda en `AUDIT_LOG`.
 - **FA-05** (PDF no disponible): si `pdf_url` es nulo para alguna factura → `422`; el Gestor debe regenerar el PDF antes de aprobar.
+- **FA-06** (cobro ya registrado — US-029): `RESERVA.liquidacion_status = 'cobrada'` → `409 LIQUIDACION_YA_COBRADA` "La liquidación ya está marcada como cobrada"; no se crea ningún `PAGO` adicional. Dos peticiones concurrentes se serializan por el lock de fila (`SELECT ... FOR UPDATE` sobre RESERVA); la segunda ve `cobrada` y aborta.
+- **FA-07** (precondición no cumplida — US-029): `RESERVA.liquidacion_status = 'pendiente'` (la factura de liquidación aún no fue enviada) → `409 LIQUIDACION_NO_FACTURADA` "La factura de liquidación debe estar enviada antes de registrar su cobro"; no se crea `PAGO`.
+- **FA-08** (discrepancia de importe — US-029): `importe` ≠ `FACTURA(liquidacion).total` → el sistema crea el `PAGO` con el importe real y avanza a `cobrada`; la respuesta incluye `alertaDiscrepancia`. La conciliación se delega al Gestor; el MVP no ajusta la factura ni genera nota de crédito.
 
 ---
 

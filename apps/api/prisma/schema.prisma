@@ -187,6 +187,7 @@ model Tenant {
   documentos      Documento[]
   comunicaciones  Comunicacion[]
   auditLogs       AuditLog[]
+  pagos           Pago[]
 
   @@map("tenant")
 }
@@ -470,15 +471,23 @@ model Factura {
 
 model Pago {
   idPago            String   @id @default(uuid()) @map("id_pago")
+  tenantId          String   @map("tenant_id")
   facturaId         String   @map("factura_id")
   importe           Decimal  @db.Decimal(10, 2)
   fechaCobro        DateTime @map("fecha_cobro") @db.Date
   justificanteDocId String?  @map("justificante_doc_id")
   fechaCreacion     DateTime @default(now()) @map("fecha_creacion")
 
+  tenant       Tenant     @relation(fields: [tenantId], references: [idTenant])
   factura      Factura    @relation(fields: [facturaId], references: [idFactura])
   justificante Documento? @relation(fields: [justificanteDocId], references: [idDocumento])
 
+  // US-029 (D-1): tenant_id explícito en PAGO (regla dura multi-tenancy/RLS del proyecto).
+  // Cardinalidad FACTURA 1—N PAGO SIN UNIQUE(factura_id): la unicidad de cobro del MVP la
+  // garantiza la guarda de estado (liquidacion_status) bajo SELECT ... FOR UPDATE, previendo
+  // cobros parciales futuros.
+  @@index([tenantId])
+  @@index([facturaId])
   @@map("pago")
 }
 
