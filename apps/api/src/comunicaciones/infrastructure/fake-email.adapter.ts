@@ -32,7 +32,10 @@ export class FakeEmailAdapter implements EnviarEmailPort {
 
   async enviar(comando: EnviarEmailComando): Promise<void> {
     if (this.fallo !== null) {
+      // One-shot: falla SOLO el siguiente envío y se rearma (permite probar el
+      // reintento con éxito tras un fallo previo dentro del mismo módulo/singleton).
       const error = this.fallo;
+      this.fallo = null;
       throw error;
     }
     // Cero red: solo se acumula en memoria.

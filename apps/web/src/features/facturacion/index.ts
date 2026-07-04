@@ -7,6 +7,7 @@
 export { FacturaSenalCard } from './components/FacturaSenalCard';
 export { FacturaBorradorCard } from './components/FacturaBorradorCard';
 export { DocumentosLiquidacionFianza } from './components/DocumentosLiquidacionFianza';
+export { AccionesFacturacion } from './components/AccionesFacturacion';
 export { EstadoFacturaBadge } from './components/EstadoFacturaBadge';
 export { useFacturaSenal, facturaSenalQueryKey } from './api/useFacturaSenal';
 export { useFacturasReserva, facturasReservaQueryKey } from './api/useFacturasReserva';

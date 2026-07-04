@@ -1718,6 +1718,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/facturas/liquidacion/aprobar-enviar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Aprobar y enviar la factura de liquidación (y fianza si sigue en borrador) (UC-21 / US-028)
+         * @description [US-028 / UC-21] Acción ÚNICA y ATÓMICA estado↔E4 (design.md §D-1): el **Gestor aprueba y
+         *     envía** la factura de liquidación en `borrador` de la RESERVA `{id}`. En una **única unidad de
+         *     trabajo** (tx + RLS del tenant del JWT), con reintento ante colisión de numeración (`P2002`,
+         *     US-022; nunca locks distribuidos), all-or-nothing:
+         *     1. (Opcional, D-2) **Descuento negociado**: recalcula total + desglose fiscal de la liquidación
+         *        (base = total / 1.21, IVA 21 %) y marca la actualización de `RESERVA.importeLiquidacion`.
+         *     2. Numera la liquidación (y la fianza si sigue en `borrador`) — `F-YYYY-NNNN` consecutivos.
+         *     3. **Envío E4 SÍNCRONO y CONFIRMADO** con los PDFs adjuntos (la fianza solo si NO se envió por
+         *        separado, D-3). Si E4 falla → la tx REVIERTE (rollback total: nada de número/estado/status/
+         *        extras/COMUNICACION) y responde 502/503.
+         *     4. SOLO tras confirmar E4: emite ambas facturas a `enviada`, avanza `liquidacionStatus='facturada'`
+         *        (+ `fianzaStatus='recibo_enviado'` si la fianza se emitió aquí), marca los `RESERVA_EXTRA` con
+         *        el `factura_id`, actualiza `importeLiquidacion` si hubo descuento, y registra la COMUNICACION
+         *        E4 `enviado` + el AUDIT_LOG `actualizar`.
+         *
+         *     Aislada por `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
+         */
+        post: operations["aprobarEnviarLiquidacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reservas/{id}/facturas/fianza/enviar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enviar por separado el recibo de fianza (edge case sin liquidación) (UC-22 / US-028)
+         * @description [US-028 / UC-22, D-3] Edge case **sin liquidación**: el Gestor envía al cliente SOLO el recibo
+         *     de fianza en `borrador` de la RESERVA `{id}`. En una **única unidad de trabajo** (tx + RLS del
+         *     tenant del JWT), con reintento ante colisión de numeración (`P2002`; nunca locks distribuidos),
+         *     all-or-nothing (misma atomicidad estado↔email de D-1):
+         *     1. **Envío SÍNCRONO y CONFIRMADO** del recibo (email `manual`, NO E4). Si falla → la tx REVIERTE
+         *        (rollback total) y responde 502/503.
+         *     2. SOLO tras confirmar el envío: emite la fianza a `estado='enviada'` con `numeroFactura` PROPIO
+         *        secuencial (`F-YYYY-NNNN`) y `fechaEmision`, avanza `fianzaStatus='recibo_enviado'` SIN tocar
+         *        `liquidacionStatus`, registra la COMUNICACION `codigo_email='manual'` (fuera del índice de
+         *        idempotencia parcial `(reserva_id, codigo_email)`, no colisiona con un E4 posterior) y el
+         *        AUDIT_LOG `actualizar`.
+         *
+         *     Sin body: la acción no toma parámetros. Aislada por `tenant_id` del JWT (RLS); nunca en el path.
+         */
+        post: operations["enviarReciboFianza"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reservas/{id}/facturas/liquidacion/reenviar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reenviar la factura de liquidación ya emitida (UC-21 / US-028)
+         * @description [US-028, D-4] **Reenvío manual del Gestor** de la factura de liquidación YA emitida
+         *     (`estado='enviada'`) de la RESERVA `{id}`. Reutiliza el **PDF ya emitido**: NO reasigna
+         *     `numeroFactura`, NO cambia `FACTURA.estado` ni los status de la RESERVA (un reenvío jamás muta
+         *     la factura). Crea una **NUEVA fila COMUNICACION** (`codigoEmail='E4'`, `estado='enviado'`) por
+         *     cada reenvío — excepción explícita y auditada a la idempotencia `(reserva_id, codigo_email)` de
+         *     US-045: el reenvío manual es intencionado y DEBE quedar trazado en AUDIT_LOG.
+         *
+         *     Sin body: la acción no toma parámetros. Aislada por `tenant_id` del JWT (RLS); nunca en el path.
+         */
+        post: operations["reenviarLiquidacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/condiciones-particulares": {
         parameters: {
             query?: never;
@@ -2951,6 +3054,50 @@ export interface components {
              * @example PDF pendiente de regenerar
              */
             motivo: string;
+        };
+        AprobarEnviarLiquidacionRequest: {
+            /** @description Descuento negociado OPCIONAL sobre el total de la liquidación (Importe string Decimal(10,2), p. ej. `"200.00"`). Debe ser > 0 y < total; recalcula el desglose fiscal (base = total / 1.21, IVA 21 %). Un valor inválido → 422 `DESCUENTO_INVALIDO`. */
+            descuento?: components["schemas"]["Importe"];
+            /** @description Motivo OPCIONAL del descuento, registrado en AUDIT_LOG. */
+            motivo?: string;
+        };
+        AprobarEnviarLiquidacionResponse: {
+            /** @description Factura de liquidación emitida (`estado=enviada`, `numeroFactura`, `fechaEmision`). */
+            liquidacion: components["schemas"]["Factura"];
+            /** @description Factura de fianza emitida en la misma operación (`estado=enviada`), o `null` si la fianza no se emitió aquí (fianza_default_eur=0 o ya enviada por separado, D-3). */
+            fianza: components["schemas"]["Factura"] | null;
+            /** @description Sub-proceso de liquidación de la RESERVA tras la emisión (`facturada`). */
+            liquidacionStatus: components["schemas"]["LiquidacionStatus"];
+            /** @description Sub-proceso de fianza de la RESERVA tras la emisión (`recibo_enviado` si se emitió aquí). */
+            fianzaStatus: components["schemas"]["FianzaStatus"];
+        };
+        EnviarReciboFianzaResponse: {
+            /** @description Recibo de fianza emitido (`estado=enviada`, `numeroFactura` propio, `fechaEmision`). */
+            fianza: components["schemas"]["Factura"];
+            /** @description Sub-proceso de fianza de la RESERVA tras el envío separado (`recibo_enviado`). */
+            fianzaStatus: components["schemas"]["FianzaStatus"];
+        };
+        ReenviarLiquidacionResponse: {
+            /** @description Factura de liquidación YA emitida (sin cambios de estado, número ni desglose). */
+            liquidacion: components["schemas"]["Factura"];
+            /** @description NUEVA COMUNICACION creada por el reenvío (excepción auditada a la idempotencia US-045). */
+            comunicacion: {
+                /** Format: uuid */
+                idComunicacion: string;
+                /** @example enviado */
+                estado?: string;
+                /** Format: date-time */
+                fechaEnvio?: string | null;
+            };
+        };
+        LiquidacionError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Código de error de dominio: `FACTURA_LIQUIDACION_NO_ENCONTRADA`/ `FACTURA_FIANZA_NO_ENCONTRADA` (404), `FACTURA_NO_BORRADOR`/`FACTURA_NO_ENVIADA` (409), `DESCUENTO_INVALIDO` (422), `EMISION_ENVIO_FALLIDO` (502/503).
+             * @enum {string}
+             */
+            codigo: "FACTURA_LIQUIDACION_NO_ENCONTRADA" | "FACTURA_FIANZA_NO_ENCONTRADA" | "FACTURA_NO_BORRADOR" | "FACTURA_NO_ENVIADA" | "DESCUENTO_INVALIDO" | "EMISION_ENVIO_FALLIDO";
+            /** @description Mensaje legible para la UI (presente en 409/422). */
+            motivo?: string;
         };
         Cliente: {
             /** Format: uuid */
@@ -4286,6 +4433,265 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FacturaDatosFiscalesIncompletosError"] | components["schemas"]["FacturaPdfPendienteError"];
+                };
+            };
+        };
+    };
+    aprobarEnviarLiquidacion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AprobarEnviarLiquidacionRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Liquidación (y, si procede, fianza) emitida y enviada por E4. Devuelve ambas facturas con
+             *     `estado='enviada'`, `numeroFactura` asignado y `fechaEmision`, más los `liquidacionStatus`/
+             *     `fianzaStatus` resultantes de la RESERVA. `fianza=null` si la fianza no se emitió en esta
+             *     operación (fianza_default_eur=0 o ya enviada por separado).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AprobarEnviarLiquidacionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description La RESERVA no existe en el tenant (RLS) o **no tiene** factura de liquidación en `borrador`
+             *     (`FACTURA_LIQUIDACION_NO_ENCONTRADA`). El cuerpo añade `codigo` al envelope estándar.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+            /**
+             * @description Conflicto de estado (F5-02: 409). La factura de liquidación **no está en `borrador`** (ya
+             *     `enviada`/`cobrada`; p. ej. doble aprobación): `FACTURA_NO_BORRADOR`. No se muta nada. El
+             *     cuerpo añade `codigo` y `motivo` al envelope estándar.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+            /**
+             * @description Validación de negocio sin efectos (F5-02: 422). El **descuento negociado es inválido**
+             *     (`DESCUENTO_INVALIDO`): negativo, mal formado o mayor/igual que el total. No se emite ni se
+             *     muta nada.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+            /**
+             * @description **Fallo recuperable de emisión/envío** (`EMISION_ENVIO_FALLIDO`): el proveedor de email o el
+             *     servicio de PDF falló al enviar E4. La transacción REVIERTE por completo (la liquidación
+             *     sigue en `borrador`, sin número ni cambios de status). El Gestor puede reintentar la acción.
+             */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+            /**
+             * @description **Fallo recuperable de emisión/envío** (`EMISION_ENVIO_FALLIDO`): servicio de emisión/envío
+             *     no disponible temporalmente. La transacción REVIERTE por completo; reintentar la acción.
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+        };
+    };
+    enviarReciboFianza: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description Recibo de fianza emitido y enviado. Devuelve la fianza con `estado='enviada'`, `numeroFactura`
+             *     asignado y `fechaEmision`, más `fianzaStatus='recibo_enviado'`.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnviarReciboFianzaResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description La RESERVA no existe en el tenant (RLS) o **no tiene** recibo de fianza en `borrador`
+             *     (`FACTURA_FIANZA_NO_ENCONTRADA`). El cuerpo añade `codigo` al envelope estándar.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+            /**
+             * @description Conflicto de estado (F5-02: 409). El recibo de fianza **no está en `borrador`** (ya
+             *     `enviada`): `FACTURA_NO_BORRADOR`. No se muta nada. El cuerpo añade `codigo` y `motivo`.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+            /** @description Validación de negocio sin efectos (F5-02: 422). Cuerpo del envelope estándar con `codigo`. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+            /**
+             * @description **Fallo recuperable de emisión/envío** (`EMISION_ENVIO_FALLIDO`): el proveedor de email o el
+             *     servicio de PDF falló. La transacción REVIERTE (la fianza sigue en `borrador`). Reintentar.
+             */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+            /**
+             * @description **Fallo recuperable de emisión/envío** (`EMISION_ENVIO_FALLIDO`): servicio no disponible
+             *     temporalmente. La transacción REVIERTE por completo; reintentar la acción.
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+        };
+    };
+    reenviarLiquidacion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description Liquidación reenviada. Devuelve la factura de liquidación (sin cambios de estado ni número)
+             *     y la NUEVA COMUNICACION creada por el reenvío.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReenviarLiquidacionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description La RESERVA no existe en el tenant (RLS) o **no tiene** factura de liquidación
+             *     (`FACTURA_LIQUIDACION_NO_ENCONTRADA`). El cuerpo añade `codigo` al envelope estándar.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+            /**
+             * @description Conflicto de estado (F5-02: 409). La factura de liquidación **aún no ha sido emitida**
+             *     (sigue en `borrador`): `FACTURA_NO_ENVIADA` — nada que reenviar. No se muta nada. El cuerpo
+             *     añade `codigo` y `motivo` al envelope estándar.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+            /**
+             * @description **Fallo recuperable de reenvío** (`EMISION_ENVIO_FALLIDO`): el proveedor de email falló al
+             *     reenviar E4. No se crea la COMUNICACION. Reintentar la acción.
+             */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+            /**
+             * @description **Fallo recuperable de reenvío** (`EMISION_ENVIO_FALLIDO`): servicio de envío no disponible
+             *     temporalmente. Reintentar la acción.
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiquidacionError"];
                 };
             };
         };

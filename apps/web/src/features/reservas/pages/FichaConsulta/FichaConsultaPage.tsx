@@ -241,7 +241,11 @@ export const FichaConsultaPage = () => {
       {id && reserva.estado === 'reserva_confirmada' && <FacturaSenalCard reservaId={id} />}
 
       {id && reserva.estado === 'reserva_confirmada' && (
-        <DocumentosLiquidacionFianza reservaId={id} />
+        <DocumentosLiquidacionFianza
+          reservaId={id}
+          liquidacionStatus={reserva.liquidacionStatus}
+          fianzaStatus={reserva.fianzaStatus}
+        />
       )}
 
       {/* Ficha operativa del evento (US-025): editable desde `reserva_confirmada`

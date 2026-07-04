@@ -10,6 +10,9 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../shared/prisma/prisma.module';
 import { PrismaService } from '../shared/prisma/prisma.service';
+import { ComunicacionesModule } from '../comunicaciones/comunicaciones.module';
+import { ENVIAR_EMAIL_PORT } from '../comunicaciones/comunicaciones.tokens';
+import type { EnviarEmailPort } from '../comunicaciones/domain/enviar-email.port';
 import {
   GenerarFacturaSenalUseCase,
   type CargarClienteFiscalPort,
@@ -46,7 +49,46 @@ import {
   ListarFacturasReservaUseCase,
   type ListarFacturasReservaPort,
 } from './application/listar-facturas-reserva.use-case';
+import {
+  AprobarYEnviarLiquidacionUseCase,
+  type CargarReservaEmisionPort,
+  type EnviarE4EmisionPort,
+  type UnidadDeTrabajoEmisionPort,
+} from './application/aprobar-y-enviar-liquidacion.use-case';
+import {
+  EnviarReciboFianzaSeparadoUseCase,
+  type CargarReservaFianzaPort,
+  type EnviarReciboFianzaPort,
+  type UnidadDeTrabajoFianzaPort,
+} from './application/enviar-recibo-fianza-separado.use-case';
+import {
+  ReenviarLiquidacionUseCase,
+  type CargarLiquidacionReenvioPort,
+  type CargarReservaReenvioPort,
+  type ReenviarE4Port,
+  type RegistrarAuditoriaReenvioPort,
+  type RegistrarComunicacionReenvioPort,
+} from './application/reenviar-liquidacion.use-case';
 import type { FacturaSenal } from './application/generar-factura-senal.use-case';
+import {
+  EmisionUoWPrismaAdapter,
+  FianzaSeparadaUoWPrismaAdapter,
+} from './infrastructure/emision-uow.prisma.adapter';
+import {
+  CargarLiquidacionReenvioPrismaAdapter,
+  CargarReservaEmisionPrismaAdapter,
+  CargarReservaFianzaPrismaAdapter,
+  CargarReservaReenvioPrismaAdapter,
+} from './infrastructure/lecturas-emision.prisma.adapter';
+import {
+  EnviarE4EmisionAdapter,
+  EnviarReciboFianzaAdapter,
+  ReenviarE4Adapter,
+} from './infrastructure/emision-email.adapter';
+import {
+  RegistrarAuditoriaReenvioPrismaAdapter,
+  RegistrarComunicacionReenvioPrismaAdapter,
+} from './infrastructure/reenvio-comunicacion.prisma.adapter';
 import { FacturacionUoWPrismaAdapter } from './infrastructure/facturacion-uow.prisma.adapter';
 import { BorradoresUoWPrismaAdapter } from './infrastructure/borradores-uow.prisma.adapter';
 import {
@@ -87,6 +129,17 @@ import {
   LISTAR_FACTURAS_RESERVA_PORT,
   UNIDAD_DE_TRABAJO_BORRADORES_PORT,
   UNIDAD_DE_TRABAJO_FACTURACION_PORT,
+  UNIDAD_DE_TRABAJO_EMISION_PORT,
+  CARGAR_RESERVA_EMISION_PORT,
+  ENVIAR_E4_EMISION_PORT,
+  UNIDAD_DE_TRABAJO_FIANZA_PORT,
+  CARGAR_RESERVA_FIANZA_PORT,
+  ENVIAR_RECIBO_FIANZA_PORT,
+  CARGAR_RESERVA_REENVIO_PORT,
+  CARGAR_LIQUIDACION_REENVIO_PORT,
+  REENVIAR_E4_PORT,
+  REGISTRAR_COMUNICACION_REENVIO_PORT,
+  REGISTRAR_AUDITORIA_REENVIO_PORT,
 } from './facturacion.tokens';
 
 /** Firma del puerto de auditoría de aprobación/rechazo (acepta ambos registros). */
@@ -107,7 +160,7 @@ type CargarFacturaFn = (params: {
 }) => Promise<FacturaSenal | null>;
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, ComunicacionesModule],
   controllers: [FacturaController],
   providers: [
     // --- Adaptadores por token (Symbol) ---
@@ -199,6 +252,72 @@ type CargarFacturaFn = (params: {
       inject: [PrismaService],
       useFactory: (prisma: PrismaService): ListarFacturasReservaPort =>
         new ListarFacturasReservaPrismaAdapter(prisma).listar,
+    },
+
+    // --- US-028: adaptadores de la emisión / envío separado / reenvío ---
+    {
+      provide: UNIDAD_DE_TRABAJO_EMISION_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) => new EmisionUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: CARGAR_RESERVA_EMISION_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarReservaEmisionPort =>
+        new CargarReservaEmisionPrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: ENVIAR_E4_EMISION_PORT,
+      inject: [ENVIAR_EMAIL_PORT],
+      useFactory: (enviarEmail: EnviarEmailPort): EnviarE4EmisionPort =>
+        new EnviarE4EmisionAdapter(enviarEmail).enviar,
+    },
+    {
+      provide: UNIDAD_DE_TRABAJO_FIANZA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) => new FianzaSeparadaUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: CARGAR_RESERVA_FIANZA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarReservaFianzaPort =>
+        new CargarReservaFianzaPrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: ENVIAR_RECIBO_FIANZA_PORT,
+      inject: [ENVIAR_EMAIL_PORT],
+      useFactory: (enviarEmail: EnviarEmailPort): EnviarReciboFianzaPort =>
+        new EnviarReciboFianzaAdapter(enviarEmail).enviar,
+    },
+    {
+      provide: CARGAR_RESERVA_REENVIO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarReservaReenvioPort =>
+        new CargarReservaReenvioPrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: CARGAR_LIQUIDACION_REENVIO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarLiquidacionReenvioPort =>
+        new CargarLiquidacionReenvioPrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: REENVIAR_E4_PORT,
+      inject: [ENVIAR_EMAIL_PORT],
+      useFactory: (enviarEmail: EnviarEmailPort): ReenviarE4Port =>
+        new ReenviarE4Adapter(enviarEmail).reenviar,
+    },
+    {
+      provide: REGISTRAR_COMUNICACION_REENVIO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): RegistrarComunicacionReenvioPort =>
+        new RegistrarComunicacionReenvioPrismaAdapter(prisma).registrar,
+    },
+    {
+      provide: REGISTRAR_AUDITORIA_REENVIO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): RegistrarAuditoriaReenvioPort =>
+        new RegistrarAuditoriaReenvioPrismaAdapter(prisma).registrar,
     },
 
     // --- Casos de uso ---
@@ -339,7 +458,82 @@ type CargarFacturaFn = (params: {
       useFactory: (listarFacturas: ListarFacturasReservaPort) =>
         new ListarFacturasReservaUseCase({ listarFacturas }),
     },
+    {
+      provide: AprobarYEnviarLiquidacionUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_EMISION_PORT,
+        CARGAR_RESERVA_EMISION_PORT,
+        ENVIAR_E4_EMISION_PORT,
+        FACTURACION_CLOCK_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoEmisionPort,
+        cargarReserva: CargarReservaEmisionPort,
+        enviarE4: EnviarE4EmisionPort,
+        clock: ClockPort,
+      ) =>
+        new AprobarYEnviarLiquidacionUseCase({
+          unidadDeTrabajo,
+          cargarReserva,
+          enviarE4,
+          clock,
+        }),
+    },
+    {
+      provide: EnviarReciboFianzaSeparadoUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_FIANZA_PORT,
+        CARGAR_RESERVA_FIANZA_PORT,
+        ENVIAR_RECIBO_FIANZA_PORT,
+        FACTURACION_CLOCK_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoFianzaPort,
+        cargarReserva: CargarReservaFianzaPort,
+        enviarRecibo: EnviarReciboFianzaPort,
+        clock: ClockPort,
+      ) =>
+        new EnviarReciboFianzaSeparadoUseCase({
+          unidadDeTrabajo,
+          cargarReserva,
+          enviarRecibo,
+          clock,
+        }),
+    },
+    {
+      provide: ReenviarLiquidacionUseCase,
+      inject: [
+        CARGAR_RESERVA_REENVIO_PORT,
+        CARGAR_LIQUIDACION_REENVIO_PORT,
+        REENVIAR_E4_PORT,
+        REGISTRAR_COMUNICACION_REENVIO_PORT,
+        REGISTRAR_AUDITORIA_REENVIO_PORT,
+        FACTURACION_CLOCK_PORT,
+      ],
+      useFactory: (
+        cargarReserva: CargarReservaReenvioPort,
+        cargarLiquidacion: CargarLiquidacionReenvioPort,
+        reenviarE4: ReenviarE4Port,
+        registrarComunicacion: RegistrarComunicacionReenvioPort,
+        registrarAuditoria: RegistrarAuditoriaReenvioPort,
+        clock: ClockPort,
+      ) =>
+        new ReenviarLiquidacionUseCase({
+          cargarReserva,
+          cargarLiquidacion,
+          reenviarE4,
+          registrarComunicacion,
+          registrarAuditoria,
+          clock,
+        }),
+    },
   ],
-  exports: [GenerarFacturaSenalUseCase, GenerarBorradoresLiquidacionFianzaUseCase],
+  exports: [
+    GenerarFacturaSenalUseCase,
+    GenerarBorradoresLiquidacionFianzaUseCase,
+    AprobarYEnviarLiquidacionUseCase,
+    EnviarReciboFianzaSeparadoUseCase,
+    ReenviarLiquidacionUseCase,
+  ],
 })
 export class FacturacionModule {}
