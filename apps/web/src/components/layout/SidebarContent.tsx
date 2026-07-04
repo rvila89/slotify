@@ -36,7 +36,8 @@ export const SidebarContent = ({ onNavigate }: { onNavigate?: () => void }) => {
 
   return (
     <div className="flex h-full flex-col bg-canvas">
-      <div className="p-8">
+      <div className="flex items-center gap-2 p-8">
+        <img src="/slotify-icon.svg" alt="" aria-hidden="true" className="size-7" />
         <span className="font-display text-3xl font-bold tracking-tight text-brand-primary">
           Slotify
         </span>
