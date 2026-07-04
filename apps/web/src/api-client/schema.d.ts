@@ -1875,60 +1875,40 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Consultar ficha operativa del evento (UC-24) */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description ID de la reserva */
-                    id: components["parameters"]["IdReserva"];
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Ficha operativa */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["FichaOperativa"];
-                    };
-                };
-                404: components["responses"]["NotFound"];
-            };
-        };
-        /** Crear/actualizar ficha operativa (UC-20, UC-24) */
-        put: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description ID de la reserva */
-                    id: components["parameters"]["IdReserva"];
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["UpsertFichaOperativaRequest"];
-                };
-            };
-            responses: {
-                /** @description Ficha guardada */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["FichaOperativa"];
-                    };
-                };
-            };
-        };
+        /**
+         * Consultar ficha operativa del evento (UC-20)
+         * @description [US-025] Lee la FICHA_OPERATIVA de la RESERVA sin mutar ningún estado. Solo accesible con `RESERVA.estado ∈ {reserva_confirmada, evento_en_curso, post_evento}` y filtrada por el `tenant_id` del JWT (RLS). Si la RESERVA está en un estado anterior a `reserva_confirmada` (la ficha aún no existe), responde `409` con `code=ficha_no_disponible` (D-3), distinto del `404` que indica que la RESERVA no existe en el tenant.
+         */
+        get: operations["leerFichaOperativa"];
+        put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Guardar parcialmente la ficha operativa (UC-20)
+         * @description [US-025] Guardado **parcial/progresivo** de la ficha: todos los campos son opcionales y solo se persiste el subconjunto enviado. Efecto colateral en el backend (no es campo del contrato, D-2): el primer guardado que deje al menos un campo con dato transiciona `RESERVA.pre_evento_status` de `pendiente` a `en_curso`. Sirve también para la edición post-cierre (D-4): si la ficha ya está cerrada, el backend reescribe `fechaCierre = now()` y mantiene `pre_evento_status = cerrado` (la edición no reabre el estado). Guardas de acceso y errores idénticos al GET.
+         */
+        patch: operations["guardarFichaOperativa"];
+        trace?: never;
+    };
+    "/reservas/{id}/ficha-operativa/cerrar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cerrar la ficha operativa (UC-20)
+         * @description [US-025] Cierra la FICHA_OPERATIVA: fija `fichaCerrada = true`, `fechaCierre = now()` y transiciona `RESERVA.pre_evento_status` de `en_curso` a `cerrado`. El cierre **nunca falla por campos vacíos** (D-6): si quedan campos opcionales sin rellenar, se permiten y se devuelven en `avisosCamposVacios` como aviso puramente informativo (nunca un 4xx). Guardas de acceso y errores por estado/tenant/auth idénticos al GET.
+         */
+        post: operations["cerrarFichaOperativa"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3296,9 +3276,9 @@ export interface components {
         };
         FichaOperativa: {
             /** Format: uuid */
-            idFicha?: string;
+            idFicha: string;
             /** Format: uuid */
-            reservaId?: string;
+            reservaId: string;
             numInvitadosConfirmado?: number | null;
             menuSeleccionado?: string | null;
             timingDetallado?: string | null;
@@ -3306,17 +3286,42 @@ export interface components {
             contactoEventoTelefono?: string | null;
             notasOperativas?: string | null;
             briefingEquipo?: string | null;
-            fichaCerrada?: boolean;
+            /** @description `true` una vez cerrada la ficha (POST .../cerrar). */
+            fichaCerrada: boolean;
+            /**
+             * Format: date-time
+             * @description Instante del último cierre/consolidación. `null` mientras la ficha no se ha cerrado; el backend la reescribe con `now()` en cada edición post-cierre (D-4).
+             */
+            fechaCierre?: string | null;
+            /** @description Sub-proceso pre-evento de la RESERVA (pendiente|en_curso|cerrado). */
+            preEventoStatus: components["schemas"]["PreEventoStatus"];
         };
-        UpsertFichaOperativaRequest: {
-            numInvitadosConfirmado?: number;
-            menuSeleccionado?: string;
-            timingDetallado?: string;
-            contactoEventoNombre?: string;
-            contactoEventoTelefono?: string;
-            notasOperativas?: string;
-            briefingEquipo?: string;
-            fichaCerrada?: boolean;
+        GuardarFichaOperativaRequest: {
+            numInvitadosConfirmado?: number | null;
+            menuSeleccionado?: string | null;
+            timingDetallado?: string | null;
+            contactoEventoNombre?: string | null;
+            contactoEventoTelefono?: string | null;
+            notasOperativas?: string | null;
+            briefingEquipo?: string | null;
+        };
+        CerrarFichaOperativaResponse: components["schemas"]["FichaOperativa"] & {
+            /**
+             * @description Nombres (camelCase) de los campos de contenido que quedaron vacíos al cerrar (p. ej. `["menuSeleccionado","briefingEquipo"]`). Vacío si estaban todos rellenos.
+             * @example [
+             *       "menuSeleccionado",
+             *       "briefingEquipo"
+             *     ]
+             */
+            avisosCamposVacios: string[];
+        };
+        FichaOperativaNoDisponibleError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Discriminador semántico del 409: la RESERVA está en un estado anterior a `reserva_confirmada`, así que la FICHA_OPERATIVA aún no existe.
+             * @example ficha_no_disponible
+             * @enum {string}
+             */
+            code: "ficha_no_disponible";
         };
         /** @description Rango efectivo agregado por el backend (eco de los query params `desde`/`hasta`). */
         CalendarioRango: {
@@ -4281,6 +4286,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FacturaDatosFiscalesIncompletosError"] | components["schemas"]["FacturaPdfPendienteError"];
+                };
+            };
+        };
+    };
+    leerFichaOperativa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ficha operativa */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FichaOperativa"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description La RESERVA aún no está confirmada: la ficha operativa no está disponible (`code=ficha_no_disponible`, D-3). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FichaOperativaNoDisponibleError"];
+                };
+            };
+        };
+    };
+    guardarFichaOperativa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuardarFichaOperativaRequest"];
+            };
+        };
+        responses: {
+            /** @description Ficha guardada */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FichaOperativa"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description La RESERVA aún no está confirmada: la ficha operativa no está disponible (`code=ficha_no_disponible`, D-3). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FichaOperativaNoDisponibleError"];
+                };
+            };
+        };
+    };
+    cerrarFichaOperativa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ficha cerrada (con posibles avisos informativos de campos vacíos) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CerrarFichaOperativaResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description La RESERVA aún no está confirmada: la ficha operativa no está disponible (`code=ficha_no_disponible`, D-3). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FichaOperativaNoDisponibleError"];
                 };
             };
         };

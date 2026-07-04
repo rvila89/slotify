@@ -1139,39 +1139,55 @@ flowchart TD
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema, Cliente |
 | **Descripción** | El gestor cumplimenta progresivamente la ficha operativa del evento durante el periodo previo al evento |
-| **Precondiciones** | - Reserva en estado reserva_confirmada<br>- pre_evento_status = pendiente o en_curso |
-| **Postcondiciones** | - Ficha operativa actualizada<br>- pre_evento_status puede cambiar a cerrado |
+| **Precondiciones** | - Reserva en estado reserva_confirmada (o evento_en_curso / post_evento)<br>- pre_evento_status = pendiente o en_curso (o cerrado para edición post-cierre) |
+| **Postcondiciones** | - Ficha operativa actualizada<br>- pre_evento_status transiciona según el flujo (ver tabla en er-diagram.md §5.4)<br>- AUDIT_LOG registra cada operación |
 | **Prioridad** | Alta |
 | **Frecuencia** | Alta |
+| **US** | US-025 |
+| **Endpoints** | `GET /reservas/{id}/ficha-operativa`, `PATCH /reservas/{id}/ficha-operativa`, `POST /reservas/{id}/ficha-operativa/cerrar` |
 
-**Flujo Básico:**
-1. El gestor abre la ficha operativa del evento
-2. El gestor cumplimenta campos progresivamente:
-   - Nº invitados final
-   - Menús seleccionados
+**Flujo Básico (US-025):**
+1. El gestor abre la ficha operativa de una reserva confirmada (`GET /reservas/{id}/ficha-operativa`)
+2. El gestor cumplimenta campos progresivamente (`PATCH /reservas/{id}/ficha-operativa`), enviando solo el subconjunto de campos a actualizar:
+   - Nº invitados confirmado
+   - Menú seleccionado
    - Timing detallado
-   - Contactos del evento
+   - Contacto del evento (nombre y teléfono)
    - Notas operativas
-3. El sistema guarda los cambios
-4. El sistema actualiza pre_evento_status a en_curso
-5. Cuando la ficha está completa, el gestor marca "Ficha cerrada"
-6. El sistema actualiza pre_evento_status a cerrado
+   - Briefing del equipo
+3. En el **primer guardado con al menos un campo con dato**, el sistema transiciona `pre_evento_status: pendiente → en_curso` en la misma transacción. Guardados totalmente vacíos no modifican el estado.
+4. El gestor puede repetir el paso 2 en varias pasadas (guardado parcial progresivo)
+5. Cuando la ficha está lista, el gestor activa "Cerrar ficha" (`POST /reservas/{id}/ficha-operativa/cerrar`)
+6. El sistema fija `ficha_cerrada = true`, `fecha_cierre = now()` y transiciona `pre_evento_status: en_curso → cerrado`. Si quedan campos vacíos, los devuelve en `avisosCamposVacios` como aviso informativo —el cierre **nunca falla por campos vacíos**
+7. Tras el cierre, el gestor puede seguir editando campos vía el mismo `PATCH`: el sistema persiste el cambio y actualiza `fecha_cierre = now()`, pero **no reabre el estado** (`pre_evento_status` permanece `cerrado`)
+
+**Guarda de acceso:** la ficha solo es accesible cuando `RESERVA.estado ∈ {reserva_confirmada, evento_en_curso, post_evento}`. Si la reserva está en un estado anterior (p. ej. `pre_reserva`), el sistema responde `409` con `code=ficha_no_disponible`.
+
+**Precondición para US-031:** `pre_evento_status = cerrado` es una de las tres precondiciones para la transición `reserva_confirmada → evento_en_curso` (US-031). Las otras dos son `liquidacion_status = cobrada` y `fianza_status = cobrada`.
 
 **Flujos Alternativos:**
-- **FA-01**: T-1d sin cerrar → Sistema cierra automáticamente con datos disponibles
+- **FA-01**: T-1d sin cerrar → Sistema cierra automáticamente con datos disponibles (US-026, fuera del alcance de US-025)
 
 ```mermaid
 flowchart TD
     A[reserva_confirmada] --> B[pre_evento_status = pendiente]
-    B --> C[Gestor cumplimenta ficha]
-    C --> D[pre_evento_status = en_curso]
-    D --> E{Ficha completa?}
-    E -->|Sí| F[Gestor marca cerrada]
-    E -->|No| G{¿T-1d?}
-    G -->|Sí| H[Cierre automático forzado]
-    G -->|No| C
-    F --> I[pre_evento_status = cerrado]
-    H --> I
+    B --> C[Gestor cumplimenta ficha - PATCH parcial]
+    C --> D{¿Al menos un campo con dato?}
+    D -->|Sí, primer guardado| E[pre_evento_status = en_curso]
+    D -->|No / ya en en_curso| F[Ficha actualizada, estado sin cambio]
+    E --> G[Gestor sigue editando en varias pasadas]
+    F --> G
+    G --> H[Gestor cierra ficha - POST cerrar]
+    H --> I[ficha_cerrada=true, fecha_cierre=now]
+    I --> J[pre_evento_status = cerrado]
+    J --> K{¿Campos vacíos?}
+    K -->|Sí| L[avisosCamposVacios informativo - no error]
+    K -->|No| M[Cierre limpio]
+    L --> N[Gestor puede editar post-cierre]
+    M --> N
+    N --> O[PATCH actualiza campo + fecha_cierre, estado sigue cerrado]
+    J --> P{T-1d sin cerrar}
+    P -->|Sí| Q[US-026: cierre automático Sistema]
 ```
 
 ---

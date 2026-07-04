@@ -1,7 +1,7 @@
 ---
 id: US-025
-estado: backlog
-branch: null
+estado: in_progress
+branch: feature/us-025-cumplimentar-ficha-operativa-evento
 pr: null
 ---
 

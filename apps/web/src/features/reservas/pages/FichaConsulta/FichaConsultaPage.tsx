@@ -12,6 +12,7 @@ import {
   type ConfirmarSenalResponse,
 } from '@/features/confirmacion';
 import { FacturaSenalCard, DocumentosLiquidacionFianza } from '@/features/facturacion';
+import { FichaOperativaCard } from '@/features/ficha-operativa';
 import { useReserva } from '../../api/useReserva';
 import { AnadirFechaDialog } from '../../components/AnadirFechaDialog';
 import { PendienteInvitadosDialog } from '../../components/PendienteInvitadosDialog';
@@ -242,6 +243,14 @@ export const FichaConsultaPage = () => {
       {id && reserva.estado === 'reserva_confirmada' && (
         <DocumentosLiquidacionFianza reservaId={id} />
       )}
+
+      {/* Ficha operativa del evento (US-025): editable desde `reserva_confirmada`
+          y fases posteriores. El propio componente resuelve el 409
+          `ficha_no_disponible` mostrando el mensaje contextual. */}
+      {id &&
+        (reserva.estado === 'reserva_confirmada' ||
+          reserva.estado === 'evento_en_curso' ||
+          reserva.estado === 'post_evento') && <FichaOperativaCard reservaId={id} />}
 
       {id && (
         <AnadirFechaDialog
