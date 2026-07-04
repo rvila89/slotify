@@ -86,9 +86,18 @@ sistema NO recalcula la tarifa. (Fuente: `US-021 §Happy Path` `importe_senal = 
 El sistema SHALL (DEBE), al confirmar, inicializar los tres sub-procesos paralelos de la
 RESERVA en la misma transacción: `pre_evento_status = 'pendiente'`, `liquidacion_status =
 'pendiente'` y `fianza_status = 'pendiente'`. Estos estados quedan listos para que las US
-posteriores (UC-20/21/22) los avancen; este change **solo los inicializa**. (Fuente:
-`US-021 §Happy Path`, `§Reglas de negocio` sub-procesos inicializados, `§Automatización
-relacionada`; UC-17 paso 10; `er-diagram.md §RESERVA` enums de sub-procesos.)
+posteriores los avancen. **Tras el commit** de la confirmación, la activación de los
+sub-procesos de liquidación y fianza **dispara** —como efecto posterior al commit, espejo del
+disparo de la factura de señal (US-022)— la generación automática de los **borradores de la
+factura de liquidación y del recibo de fianza** (agregado FACTURA, capability `facturacion`;
+US-027). Esa generación es **posterior al commit**: su ausencia o fallo **no revierte** la
+confirmación ya realizada (la RESERVA permanece en `reserva_confirmada` y la generación es
+reintentable por idempotencia). Este change de `confirmacion` **solo** inicializa los estados y
+dispara la generación; la lógica de creación de los documentos (cálculo del total, desglose
+fiscal, idempotencia, alerta y auditoría) se especifica en la capability `facturacion`. (Fuente:
+`US-021 §Happy Path`, `§Reglas de negocio` sub-procesos inicializados; `US-027 §Historia`,
+`§Reglas de negocio`; UC-17 paso 10, UC-21, UC-22; `er-diagram.md §RESERVA` enums de
+sub-procesos.)
 
 #### Scenario: Confirmar deja los tres sub-procesos en pendiente
 
@@ -96,6 +105,22 @@ relacionada`; UC-17 paso 10; `er-diagram.md §RESERVA` enums de sub-procesos.)
 - **WHEN** el sistema completa la transición a `reserva_confirmada`
 - **THEN** `RESERVA.pre_evento_status = 'pendiente'`, `liquidacion_status = 'pendiente'` y
   `fianza_status = 'pendiente'`
+
+#### Scenario: La activación de los sub-procesos dispara los borradores de liquidación y fianza tras el commit
+
+- **GIVEN** una confirmación de señal exitosa que dejó la RESERVA en `reserva_confirmada` con
+  `liquidacion_status = 'pendiente'` y `fianza_status = 'pendiente'`
+- **WHEN** el sistema completa el commit
+- **THEN** genera automáticamente los borradores de la factura de liquidación y del recibo de
+  fianza (capability `facturacion`, US-027) y alerta al Gestor para su revisión
+
+#### Scenario: El fallo al generar los borradores no revierte la confirmación
+
+- **GIVEN** una RESERVA que ya ha transitado a `reserva_confirmada` (commit realizado)
+- **WHEN** la generación de los borradores de liquidación/fianza falla temporalmente tras el commit
+- **THEN** la RESERVA permanece en `reserva_confirmada` (la confirmación no se revierte)
+- **AND** el sistema puede reintentar la generación sin duplicar (idempotencia por `(reserva_id,
+  tipo)`)
 
 ### Requirement: Creación idempotente de la FICHA_OPERATIVA vacía (relación 1:1)
 

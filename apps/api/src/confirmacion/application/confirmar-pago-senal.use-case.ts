@@ -221,6 +221,15 @@ export interface PresentarFacturaSenalBorradorPort {
   (params: { tenantId: string; reservaId: string }): Promise<void>;
 }
 
+/**
+ * Generación POST-COMMIT de los borradores de liquidación y fianza (disparo de US-027). Espejo
+ * del disparo de la factura de señal (US-022): efecto posterior al commit de la confirmación,
+ * atómico entre sus dos documentos. Su fallo NO revierte la confirmación (§D-1).
+ */
+export interface GenerarBorradoresLiquidacionFianzaPort {
+  (params: { tenantId: string; reservaId: string }): Promise<void>;
+}
+
 /** Dependencias del caso de uso (puertos inyectados). */
 export interface ConfirmarPagoSenalDeps {
   unidadDeTrabajo: UnidadDeTrabajoConfirmacionPort;
@@ -228,6 +237,7 @@ export interface ConfirmarPagoSenalDeps {
   cargarReserva: CargarReservaConfirmacionPort;
   almacenarJustificante: AlmacenarJustificantePort;
   presentarFacturaSenalBorrador: PresentarFacturaSenalBorradorPort;
+  generarBorradoresLiquidacionFianza: GenerarBorradoresLiquidacionFianzaPort;
   clock: ClockPort;
 }
 
@@ -488,8 +498,10 @@ export class ConfirmarPagoSenalUseCase {
     )) as DocumentoCreado;
 
     // Post-commit (FUERA de la tx crítica): presenta la factura de señal en borrador
-    // (US-022). Un fallo aquí NO revierte la confirmación ya comprometida.
+    // (US-022) y genera los borradores de liquidación y fianza (US-027). Son efectos
+    // INDEPENDIENTES; un fallo en cualquiera NO revierte la confirmación ya comprometida.
     await this.presentarFacturaPostCommit(comando);
+    await this.generarBorradoresPostCommit(comando);
 
     return {
       reservaId: comando.reservaId,
@@ -554,6 +566,23 @@ export class ConfirmarPagoSenalUseCase {
       });
     } catch {
       // El disparo de US-022 es POST-commit: su fallo no revierte la confirmación.
+    }
+  }
+
+  /**
+   * Genera los borradores de liquidación y fianza post-commit (US-027). Un fallo se traga: es
+   * un efecto posterior al commit, reintentable por idempotencia; no revierte la confirmación.
+   */
+  private async generarBorradoresPostCommit(
+    comando: ConfirmarPagoSenalComando,
+  ): Promise<void> {
+    try {
+      await this.deps.generarBorradoresLiquidacionFianza({
+        tenantId: comando.tenantId,
+        reservaId: comando.reservaId,
+      });
+    } catch {
+      // El disparo de US-027 es POST-commit: su fallo no revierte la confirmación.
     }
   }
 }

@@ -28,3 +28,15 @@ export const APROBAR_FACTURA_PORT = Symbol('AprobarFacturaPort');
 export const AUDITORIA_APROBACION_PORT = Symbol('AuditoriaAprobacionPort');
 /** Reloj del sistema. */
 export const FACTURACION_CLOCK_PORT = Symbol('FacturacionClockPort');
+
+// --- US-027: borradores de liquidación y fianza ---
+/** Unidad de trabajo transaccional de los borradores (tx + RLS). */
+export const UNIDAD_DE_TRABAJO_BORRADORES_PORT = Symbol('UnidadDeTrabajoBorradoresPort');
+/** Lectura de la RESERVA liquidable (origen + importe de liquidación congelado). */
+export const CARGAR_RESERVA_LIQUIDABLE_PORT = Symbol('CargarReservaLiquidablePort');
+/** Lectura de los RESERVA_EXTRA pendientes (`factura_id IS NULL`). */
+export const CARGAR_EXTRAS_PENDIENTES_PORT = Symbol('CargarExtrasPendientesPort');
+/** Lectura del importe de fianza por defecto del tenant. */
+export const CARGAR_FIANZA_DEFAULT_PORT = Symbol('CargarFianzaDefaultPort');
+/** Lectura de la colección de FACTURA de una reserva (GET /reservas/{id}/facturas). */
+export const LISTAR_FACTURAS_RESERVA_PORT = Symbol('ListarFacturasReservaPort');

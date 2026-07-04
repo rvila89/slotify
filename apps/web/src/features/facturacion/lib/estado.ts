@@ -1,4 +1,9 @@
-import type { CampoFiscalFaltante, EstadoFactura, FacturaSenal } from '../model/types';
+import type {
+  CampoFiscalFaltante,
+  EstadoFactura,
+  FacturaSenal,
+  TipoFactura,
+} from '../model/types';
 
 /**
  * Estado visual DERIVADO de la factura de señal para la UI (US-022 · design.md §D-9).
@@ -46,6 +51,14 @@ export const ETIQUETA_ESTADO_FACTURA: Record<EstadoFactura, string> = {
   borrador: 'Borrador',
   enviada: 'Enviada',
   cobrada: 'Cobrada',
+};
+
+/** Etiqueta legible del tipo de factura (US-022 señal, US-027 liquidación/fianza). */
+export const ETIQUETA_TIPO_FACTURA: Record<TipoFactura, string> = {
+  senal: 'Factura de señal',
+  liquidacion: 'Factura de liquidación',
+  fianza: 'Recibo de fianza',
+  complementaria: 'Factura complementaria',
 };
 
 /** Etiqueta legible de cada campo fiscal del CLIENTE que puede faltar. */

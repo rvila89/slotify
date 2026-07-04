@@ -83,7 +83,7 @@ export interface FacturaSenal {
   idFactura: string;
   tenantId: string;
   reservaId: string;
-  numeroFactura: string;
+  numeroFactura: string | null;
   tipo: TipoFactura;
   estado: EstadoFactura;
   total: string;
@@ -496,7 +496,7 @@ export class GenerarFacturaSenalUseCase {
     try {
       const pdfUrl = await this.deps.generarPdf({
         idFactura: factura.idFactura,
-        numeroFactura: factura.numeroFactura,
+        numeroFactura: factura.numeroFactura ?? '',
         concepto: ctx.concepto,
         emisor: aEmisorPdf(emisor),
         receptor: ctx.cliente,

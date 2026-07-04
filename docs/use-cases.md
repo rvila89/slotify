@@ -1191,12 +1191,12 @@ flowchart TD
 | **Frecuencia** | Alta |
 
 **Flujo Básico:**
-1. El sistema genera factura de liquidación en borrador (60% + extras)
-2. El sistema alerta al gestor
+1. El sistema genera automáticamente la factura de liquidación en borrador (`tipo='liquidacion'`, `estado='borrador'`, `numero_factura=NULL`, `total = importe_liquidacion + Σ extras pendientes`) como efecto post-commit de la activación de sub-procesos de US-021, a través del use-case `GenerarBorradoresLiquidacionFianzaUseCase` (US-027). El fallo de este paso **no revierte** la confirmación ya realizada; la operación es idempotente por `(reserva_id, tipo)`.
+2. El sistema alerta al gestor en la UI: "Documentos de liquidación y fianza pendientes de revisión" (US-027). Esta alerta es una señal de UI, no un email (E4 se dispara en US-028 tras la aprobación).
 3. El gestor revisa y ajusta si es necesario
-4. El gestor aprueba y envía la factura
+4. El gestor aprueba y envía la factura (US-028: asigna `numero_factura = F-YYYY-NNNN`, pasa a `estado='enviada'`, `fecha_emision = now()`)
 5. El sistema actualiza liquidacion_status = facturada
-6. El sistema envía email E4 al cliente
+6. El sistema envía email E4 al cliente (US-028)
 7. El cliente realiza el pago
 8. El gestor recibe justificante
 9. El gestor sube justificante al sistema
@@ -1223,9 +1223,9 @@ flowchart TD
 | **Frecuencia** | Alta |
 
 **Flujo Básico:**
-1. El sistema genera recibo de fianza independiente
-2. El sistema alerta al gestor
-3. El gestor envía el recibo al cliente (puede ser con liquidación o separado)
+1. El sistema genera automáticamente el recibo de fianza en borrador (`tipo='fianza'`, `estado='borrador'`, `numero_factura=NULL`, `total = TENANT_SETTINGS.fianza_default_eur`) como efecto post-commit de la activación de sub-procesos de US-021, a través del use-case `GenerarBorradoresLiquidacionFianzaUseCase` (US-027). **Edge case**: si `fianza_default_eur = 0`, el recibo **no se genera**; `fianza_status` permanece `pendiente` y la alerta al Gestor menciona solo la liquidación. La generación de la fianza es independiente de la de la liquidación. El fallo de este paso **no revierte** la confirmación; la operación es idempotente por `(reserva_id, tipo)`.
+2. El sistema alerta al gestor en la UI: "Documentos de liquidación y fianza pendientes de revisión" (US-027). Esta alerta es una señal de UI, no un email (E4 se dispara en US-028 tras la aprobación).
+3. El gestor envía el recibo al cliente (puede ser con liquidación o separado). La aprobación/emisión (US-028) asigna `numero_factura`, pasa a `estado='enviada'` y marca `fianza_status = recibo_enviado`.
 4. El sistema actualiza fianza_status = recibo_enviado
 5. El cliente realiza el pago (antes o el día del evento)
 6. El gestor recibe justificante
@@ -1238,6 +1238,7 @@ flowchart TD
 
 **Flujos Alternativos:**
 - **FA-01**: T-0 sin cobro → Política "Negociable" activada, decisión manual del gestor
+- **FA-02**: `fianza_default_eur = 0` → El recibo de fianza no se genera en US-027; `fianza_status` permanece `pendiente`. El Gestor puede crear el recibo manualmente con un importe negociado en una US posterior.
 
 ---
 

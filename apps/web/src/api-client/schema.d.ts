@@ -1470,30 +1470,27 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Listar facturas de la reserva */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description ID de la reserva */
-                    id: components["parameters"]["IdReserva"];
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Facturas */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Factura"][];
-                    };
-                };
-            };
-        };
+        /**
+         * Listar las facturas de la reserva, filtrables por tipo (US-022 / US-027)
+         * @description [US-027 / UC-21 / UC-22] Devuelve la **colección de todas las FACTURA** de la RESERVA `{id}`
+         *     (`senal`, `liquidacion`, `fianza`), cada una con su desglose fiscal (base + IVA 21 % + total),
+         *     `estado` del ciclo de vida (`borrador` → `enviada` → `cobrada`), `numeroFactura` (`null` en
+         *     `borrador`), `pdfUrl`, `fechaEmision` y los flags derivados de la UI. Vista de **solo lectura**:
+         *     no crea ni muta ninguna FACTURA.
+         *
+         *     Los borradores de **liquidación** (`total = importeLiquidacion + Σ extras con factura_id nulo`)
+         *     y de **fianza** (`total = fianza_default_eur`) los crea el sistema como **efecto post-commit**
+         *     de la activación de los sub-procesos de la confirmación (US-021 / US-027), no un endpoint
+         *     público. Si `fianza_default_eur = 0`, la factura de fianza **no existe** y no aparece en la
+         *     colección.
+         *
+         *     **Alerta al Gestor (derivada, NO endpoint nuevo)**: "Documentos de liquidación y fianza
+         *     pendientes de revisión" se **deriva en el frontend** de esta colección — hay documentos
+         *     pendientes cuando existen facturas con `estado='borrador'` de `tipo` `liquidacion`/`fianza`.
+         *     Si la fianza se omitió (`fianza_default_eur = 0`), solo aparece el borrador de liquidación y
+         *     la alerta menciona solo la liquidación. Aislada por `tenant_id` del JWT (RLS); nunca en el path.
+         */
+        get: operations["listarFacturasReserva"];
         put?: never;
         /**
          * Generar factura (UC-18, UC-21)
@@ -2883,11 +2880,12 @@ export interface components {
             motivo: string;
         };
         /**
-         * @description Factura de señal (`tipo='senal'`) de una reserva, con desglose fiscal, estado del ciclo de
-         *     vida y flags derivados para la UI. Espejo de la tabla FACTURA (er-diagram §3.12): importes
-         *     Decimal(10,2) como string (`Importe`), IVA Decimal(4,2) como string (`Porcentaje`).
+         * @description FACTURA de una reserva (`tipo` ∈ {`senal`, `liquidacion`, `fianza`, `complementaria`}), con
+         *     desglose fiscal, estado del ciclo de vida y flags derivados para la UI. Es el item de la
+         *     colección `GET /reservas/{id}/facturas`. En `borrador`, `numeroFactura` y `fechaEmision` son
+         *     `null`; la numeración `F-YYYY-NNNN` y la emisión se asignan al enviar (US-028).
          */
-        FacturaSenalDto: {
+        FacturaDto: {
             /**
              * Format: uuid
              * @description Identificador de la FACTURA (er-diagram §3.12 id_factura).
@@ -2895,15 +2893,15 @@ export interface components {
             idFactura: string;
             /**
              * Format: uuid
-             * @description RESERVA a la que pertenece la factura de señal (única por `(reservaId, tipo)`).
+             * @description RESERVA a la que pertenece la factura (única por `(reservaId, tipo)`).
              */
             reservaId: string;
             /**
-             * @description Número fiscal `F-YYYY-NNNN` secuencial y único por `(tenant_id, año)`. `null` mientras la factura está en `borrador`; se asigna al aprobar (`estado='enviada'`).
+             * @description Número fiscal `F-YYYY-NNNN` secuencial y único por `(tenant_id, año)`. `null` mientras la factura está en `borrador`; se asigna al enviar (`estado='enviada'`, US-028).
              * @example F-2026-0001
              */
             numeroFactura?: string | null;
-            /** @description Siempre `senal` para este DTO. */
+            /** @description Tipo de la factura: `senal` (40 %, US-022), `liquidacion` (60 % + extras pendientes, US-027), `fianza` (fianza_default_eur, US-027) o `complementaria`. */
             tipo: components["schemas"]["TipoFactura"];
             /** @description Base imponible = round(total / 1.21, 2). Decimal(10,2) como string. */
             baseImponible: components["schemas"]["Importe"];
@@ -2911,22 +2909,22 @@ export interface components {
             ivaPorcentaje: components["schemas"]["Porcentaje"];
             /** @description Importe de IVA = total − baseImponible (por resta, no por doble redondeo), de modo que `baseImponible + ivaImporte = total` exactamente (design.md §D-2). */
             ivaImporte: components["schemas"]["Importe"];
-            /** @description Total con IVA = `RESERVA.importeSenal` (congelado en US-021 como round(importeTotal × pct_senal / 100, 2), 40 % MVP). La factura de señal NO recalcula el porcentaje ni la tarifa. */
+            /** @description Total con IVA. Para `senal` = `RESERVA.importeSenal` (40 % MVP, US-021); para `liquidacion` = `importeLiquidacion + Σ(RESERVA_EXTRA.subtotal WHERE factura_id IS NULL)` (US-027); para `fianza` = `TENANT_SETTINGS.fianza_default_eur` (US-027). Todos congelados; no se recalcula tarifa ni porcentaje. */
             total: components["schemas"]["Importe"];
             /** @description Concepto de la factura (p. ej. "Señal 40 % reserva SLO-2026-0001"). */
             concepto?: string | null;
             /** @description URL del PDF generado (mecanismo de PDF de US-014/US-021, design.md §D-5). `null` si el PDF aún no se ha generado (borrador inválido por datos fiscales o fallo transitorio). */
             pdfUrl?: string | null;
-            /** @description Ciclo de vida: `borrador` → `enviada` (al aprobar) → `cobrada`. */
+            /** @description Ciclo de vida: `borrador` → `enviada` (al enviar) → `cobrada`. */
             estado: components["schemas"]["EstadoFactura"];
             /**
              * Format: date-time
-             * @description Timestamp de emisión, fijado al aprobar (estado='enviada'). null en borrador.
+             * @description Timestamp de emisión, fijado al enviar (estado='enviada'). null en borrador.
              */
             fechaEmision?: string | null;
             /**
              * Format: date-time
-             * @description Instante de creación de la factura (post-commit de la confirmación de US-021).
+             * @description Instante de creación de la factura (post-commit de la confirmación de US-021/US-027).
              */
             fechaCreacion?: string;
             /** @description Flag DERIVADO (design.md §D-9), no columna de FACTURA. `true` cuando faltan datos fiscales del CLIENTE (dniNif o dirección fiscal): el borrador NO puede aprobarse y el sistema NO reintenta solo (requiere que el Gestor complete los datos del cliente). */
@@ -2934,6 +2932,11 @@ export interface components {
             /** @description Flag DERIVADO (design.md §D-9), no columna de FACTURA. `true` cuando `pdfUrl=null` por un fallo transitorio del servicio de PDF: la aprobación queda bloqueada y el sistema reintenta la generación automáticamente. */
             pdfPendiente: boolean;
         };
+        /**
+         * @description Factura de señal (`tipo='senal'`) de una reserva. Misma forma que `FacturaDto`; se conserva
+         *     como nombre estable de los endpoints de US-022 (obtener/aprobar/rechazar/regenerar-pdf).
+         */
+        FacturaSenalDto: components["schemas"]["FacturaDto"];
         /** @description Cuerpo vacío. La aprobación no toma parámetros (importes/datos fiscales inmutables). */
         AprobarFacturaRequest: Record<string, never>;
         RechazarFacturaRequest: {
@@ -4020,6 +4023,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfirmarSenalValidacionError"];
+                };
+            };
+        };
+    };
+    listarFacturasReserva: {
+        parameters: {
+            query?: {
+                /** @description Filtro OPCIONAL por tipo de factura (`senal`, `liquidacion`, `fianza`, `complementaria`). Si se omite, devuelve todas las facturas de la reserva. */
+                tipo?: components["schemas"]["TipoFactura"];
+            };
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description Colección de facturas de la reserva (`FacturaDto[]`), opcionalmente filtrada por `tipo`.
+             *     Cada elemento incluye desglose fiscal, `estado`, `numeroFactura` (`null` en `borrador`),
+             *     `pdfUrl` (`null` si aún no generado), `fechaEmision` y los flags `esBorradorInvalido`/
+             *     `pdfPendiente`.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaDto"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description La RESERVA no existe en el tenant (RLS). Envelope estándar `ErrorResponse`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

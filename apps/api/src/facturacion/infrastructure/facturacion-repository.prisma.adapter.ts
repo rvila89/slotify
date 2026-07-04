@@ -33,7 +33,7 @@ export const aFacturaSenal = (fila: {
   idFactura: string;
   tenantId: string;
   reservaId: string;
-  numeroFactura: string;
+  numeroFactura: string | null;
   tipo: TipoFacturaPrisma;
   estado: EstadoFacturaPrisma;
   total: Prisma.Decimal;

@@ -175,7 +175,7 @@ describe('Generar factura de señal — numeración concurrente de reservas dist
     expect(facturas).toHaveLength(10);
     facturas.forEach((f) => expect(f.numeroFactura).toBeTruthy());
 
-    const numeros = facturas.map((f) => f.numeroFactura);
+    const numeros = facturas.map((f) => f.numeroFactura ?? '');
     const unicos = new Set(numeros);
     // Sin duplicados: tantos números distintos como facturas.
     expect(unicos.size).toBe(10);
@@ -208,7 +208,7 @@ describe('Generar factura de señal — numeración concurrente de reservas dist
     // Ninguna sin número.
     expect(facturas.every((f) => !!f.numeroFactura)).toBe(true);
     // Ninguna con número repetido para el tenant.
-    const numeros = facturas.map((f) => f.numeroFactura);
+    const numeros = facturas.map((f) => f.numeroFactura ?? '');
     expect(new Set(numeros).size).toBe(numeros.length);
   });
 });

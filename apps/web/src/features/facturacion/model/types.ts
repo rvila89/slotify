@@ -8,6 +8,15 @@
 import type { components } from '@/api-client';
 
 export type FacturaSenal = components['schemas']['FacturaSenalDto'];
+
+/**
+ * Item de la colección `GET /reservas/{id}/facturas` (US-027). Misma forma que la
+ * factura de señal; el tipo distingue `senal` | `liquidacion` | `fianza` |
+ * `complementaria`. La visualización de los borradores de liquidación y fianza
+ * (US-027) y la alerta al Gestor se derivan de esta colección, sin endpoint propio.
+ */
+export type Factura = components['schemas']['FacturaDto'];
+export type TipoFactura = components['schemas']['TipoFactura'];
 export type EstadoFactura = components['schemas']['EstadoFactura'];
 export type FacturaEstadoInvalidoError =
   components['schemas']['FacturaEstadoInvalidoError'];

@@ -21,10 +21,11 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   UnprocessableEntityException,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/auth/roles.decorator';
 import { RolesGuard } from '../../shared/auth/roles.guard';
@@ -45,13 +46,48 @@ import {
   MotivoRequeridoError,
 } from '../application/rechazar-factura.use-case';
 import { RegenerarPdfFacturaUseCase } from '../application/regenerar-pdf-factura.use-case';
+import {
+  ListarFacturasReservaUseCase,
+  ReservaFacturasNoEncontradaError,
+  type FacturaListada,
+  type TipoFacturaListado,
+} from '../application/listar-facturas-reserva.use-case';
 import type { FacturaSenalResultado } from '../application/generar-factura-senal.use-case';
 import {
   AprobarFacturaRequestDto,
+  FacturaDto,
   FacturaSenalDto,
   RechazarFacturaRequestDto,
   RegenerarPdfFacturaRequestDto,
 } from './factura.dto';
+
+/** Tipos de factura admitidos por el filtro `?tipo=`. */
+const TIPOS_FACTURA: ReadonlyArray<TipoFacturaListado> = [
+  'senal',
+  'liquidacion',
+  'fianza',
+  'complementaria',
+];
+
+/** Mapea una factura listada al DTO del contrato (colección). */
+const aFacturaDto = (f: FacturaListada): FacturaDto => ({
+  idFactura: f.idFactura,
+  reservaId: f.reservaId,
+  numeroFactura: f.numeroFactura,
+  tipo: f.tipo,
+  baseImponible: f.baseImponible,
+  ivaPorcentaje: f.ivaPorcentaje,
+  ivaImporte: f.ivaImporte,
+  total: f.total,
+  concepto: f.concepto,
+  pdfUrl: f.pdfUrl,
+  estado: f.estado,
+  fechaEmision: f.fechaEmision === null ? null : f.fechaEmision.toISOString(),
+  fechaCreacion: f.fechaCreacion.toISOString(),
+  // Borradores de liquidación/fianza no derivan estos flags fiscales (propios de la señal).
+  esBorradorInvalido: false,
+  pdfPendiente: f.pdfUrl === null && f.estado !== 'borrador',
+});
 
 /** Mapea el resultado de aplicación al DTO del contrato. */
 const aDto = (r: FacturaSenalResultado): FacturaSenalDto => ({
@@ -82,7 +118,35 @@ export class FacturaController {
     private readonly aprobarFactura: AprobarFacturaUseCase,
     private readonly rechazarFactura: RechazarFacturaUseCase,
     private readonly regenerarPdfFactura: RegenerarPdfFacturaUseCase,
+    private readonly listarFacturasReserva: ListarFacturasReservaUseCase,
   ) {}
+
+  @Get('reservas/:id/facturas')
+  @ApiOperation({
+    summary: 'Listar las facturas de la reserva, filtrables por tipo (US-027 / UC-21, UC-22)',
+  })
+  @ApiQuery({
+    name: 'tipo',
+    required: false,
+    enum: ['senal', 'liquidacion', 'fianza', 'complementaria'],
+  })
+  async listar(
+    @Param('id') id: string,
+    @CurrentUser() usuario: UsuarioAutenticado,
+    @Query('tipo') tipo?: string,
+  ): Promise<FacturaDto[]> {
+    const tipoFiltro = this.validarTipo(tipo);
+    try {
+      const facturas = await this.listarFacturasReserva.ejecutar({
+        tenantId: usuario.tenantId,
+        reservaId: id,
+        tipo: tipoFiltro,
+      });
+      return facturas.map(aFacturaDto);
+    } catch (error) {
+      this.aHttp(error);
+    }
+  }
 
   @Get('reservas/:id/factura-senal')
   @ApiOperation({ summary: 'Obtener la factura de señal de una reserva (UC-18 / US-022)' })
@@ -172,10 +236,27 @@ export class FacturaController {
     }
   }
 
+  /** Valida el filtro `?tipo=` (400 si no es un tipo conocido); undefined si se omite. */
+  private validarTipo(tipo?: string): TipoFacturaListado | undefined {
+    if (tipo === undefined || tipo === '') {
+      return undefined;
+    }
+    if (!TIPOS_FACTURA.includes(tipo as TipoFacturaListado)) {
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        error: 'Bad Request',
+        message: `Tipo de factura no válido: ${tipo}`,
+        codigo: 'TIPO_FACTURA_INVALIDO',
+      });
+    }
+    return tipo as TipoFacturaListado;
+  }
+
   private aHttp(error: unknown): never {
     if (
       error instanceof FacturaNoEncontradaError ||
-      error instanceof FacturaSenalNoEncontradaError
+      error instanceof FacturaSenalNoEncontradaError ||
+      error instanceof ReservaFacturasNoEncontradaError
     ) {
       throw new NotFoundException({
         statusCode: HttpStatus.NOT_FOUND,
