@@ -48,6 +48,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
     // que `codigo`/`detalle`/`colaDisponible`/`motivo`: solo se incluye si la
     // excepción lo aporta.
     let camposFaltantes: string[] | undefined;
+    // Campo opcional del discriminador semántico de la ficha operativa (US-025,
+    // `FichaOperativaNoDisponibleError` → 409): `code = 'ficha_no_disponible'`. El
+    // contrato OpenAPI lo declara `required` en el 409; sin él el frontend no
+    // distingue "no disponible por estado" de "no existe". Mismo patrón opcional que
+    // `codigo`/`camposFaltantes`: solo se incluye si la excepción lo aporta.
+    let code: string | undefined;
 
     if (exception instanceof HttpException) {
       statusCode = exception.getStatus();
@@ -63,6 +69,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
           colaDisponible?: boolean;
           motivo?: string;
           camposFaltantes?: string[];
+          code?: string;
         };
         message = b.message ?? exception.message;
         error = b.error ?? error;
@@ -71,6 +78,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         colaDisponible = b.colaDisponible;
         motivo = b.motivo;
         camposFaltantes = b.camposFaltantes;
+        code = b.code;
       }
     } else if (
       exception instanceof Prisma.PrismaClientKnownRequestError &&
@@ -93,6 +101,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       ...(colaDisponible !== undefined ? { colaDisponible } : {}),
       ...(motivo !== undefined ? { motivo } : {}),
       ...(camposFaltantes !== undefined ? { camposFaltantes } : {}),
+      ...(code !== undefined ? { code } : {}),
       path: request.url,
       timestamp: new Date().toISOString(),
     });

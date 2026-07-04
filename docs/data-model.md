@@ -400,7 +400,7 @@ Cobro conciliado contra una factura. El justificante es un `Documento`.
 | `fecha_creacion` | `DateTime @default(now())` | |
 
 ### 3.14 FichaOperativa
-Datos operativos del evento, cumplimentados progresivamente. Relación 1:1 con la reserva.
+Datos operativos del evento, cumplimentados progresivamente. Relación 1:1 con la reserva. La entidad se crea vacía al confirmar la señal (US-021); los campos de contenido se rellenan con el guardado parcial progresivo de US-025. Ver comportamiento completo en `er-diagram.md §3.14`.
 
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
@@ -413,8 +413,8 @@ Datos operativos del evento, cumplimentados progresivamente. Relación 1:1 con l
 | `contacto_evento_telefono` | `String?` | |
 | `notas_operativas` | `String? @db.Text` | |
 | `briefing_equipo` | `String? @db.Text` | |
-| `ficha_cerrada` | `Boolean @default(false)` | |
-| `fecha_cierre` | `DateTime?` | |
+| `ficha_cerrada` | `Boolean @default(false)` | `true` al cerrar (US-025); no revierte a `false` |
+| `fecha_cierre` | `DateTime?` | `now()` al cerrar; se actualiza en cada guardado post-cierre (D-4) |
 | `fecha_creacion` / `fecha_actualizacion` | `DateTime` | |
 
 ### 3.15 Documento

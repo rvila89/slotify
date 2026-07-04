@@ -1748,35 +1748,108 @@ paths:
               schema: { $ref: '#/components/schemas/Reserva' }
 
   # ============================ FICHA OPERATIVA ============================
+  # [US-025 / UC-20] Cumplimentación progresiva y cierre de la FICHA_OPERATIVA de una RESERVA
+  # confirmada, más las transiciones de `RESERVA.pre_evento_status` (pendiente → en_curso →
+  # cerrado). Endpoints anidados en el recurso reserva (design.md §D-5). La FICHA_OPERATIVA vacía
+  # la crea la confirmación de señal (US-021); US-025 no crea entidad ni enum. Se conserva el path
+  # `{id}` (parámetro IdReserva) por coherencia con el resto de endpoints anidados de la reserva.
+  # Reemplaza el placeholder GET/PUT previo: el guardado es PATCH parcial (D-5) y se añade el cierre.
   /reservas/{id}/ficha-operativa:
     parameters:
       - { $ref: '#/components/parameters/IdReserva' }
     get:
       tags: [FichaOperativa]
-      summary: Consultar ficha operativa del evento (UC-24)
+      summary: Consultar ficha operativa del evento (UC-20)
+      operationId: leerFichaOperativa
+      description: >-
+        [US-025] Lee la FICHA_OPERATIVA de la RESERVA sin mutar ningún estado. Solo accesible con
+        `RESERVA.estado ∈ {reserva_confirmada, evento_en_curso, post_evento}` y filtrada por el
+        `tenant_id` del JWT (RLS). Si la RESERVA está en un estado anterior a `reserva_confirmada`
+        (la ficha aún no existe), responde `409` con `code=ficha_no_disponible` (D-3), distinto del
+        `404` que indica que la RESERVA no existe en el tenant.
       responses:
         '200':
           description: Ficha operativa
           content:
             application/json:
               schema: { $ref: '#/components/schemas/FichaOperativa' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: >-
+            La RESERVA aún no está confirmada: la ficha operativa no está disponible
+            (`code=ficha_no_disponible`, D-3).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FichaOperativaNoDisponibleError' }
         '404':
           $ref: '#/components/responses/NotFound'
-    put:
+    patch:
       tags: [FichaOperativa]
-      summary: Crear/actualizar ficha operativa (UC-20, UC-24)
+      summary: Guardar parcialmente la ficha operativa (UC-20)
+      operationId: guardarFichaOperativa
+      description: >-
+        [US-025] Guardado **parcial/progresivo** de la ficha: todos los campos son opcionales y
+        solo se persiste el subconjunto enviado. Efecto colateral en el backend (no es campo del
+        contrato, D-2): el primer guardado que deje al menos un campo con dato transiciona
+        `RESERVA.pre_evento_status` de `pendiente` a `en_curso`. Sirve también para la edición
+        post-cierre (D-4): si la ficha ya está cerrada, el backend reescribe `fechaCierre = now()`
+        y mantiene `pre_evento_status = cerrado` (la edición no reabre el estado). Guardas de acceso
+        y errores idénticos al GET.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpsertFichaOperativaRequest'
+              $ref: '#/components/schemas/GuardarFichaOperativaRequest'
       responses:
         '200':
           description: Ficha guardada
           content:
             application/json:
               schema: { $ref: '#/components/schemas/FichaOperativa' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: >-
+            La RESERVA aún no está confirmada: la ficha operativa no está disponible
+            (`code=ficha_no_disponible`, D-3).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FichaOperativaNoDisponibleError' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reservas/{id}/ficha-operativa/cerrar:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [FichaOperativa]
+      summary: Cerrar la ficha operativa (UC-20)
+      operationId: cerrarFichaOperativa
+      description: >-
+        [US-025] Cierra la FICHA_OPERATIVA: fija `fichaCerrada = true`, `fechaCierre = now()` y
+        transiciona `RESERVA.pre_evento_status` de `en_curso` a `cerrado`. El cierre **nunca falla
+        por campos vacíos** (D-6): si quedan campos opcionales sin rellenar, se permiten y se
+        devuelven en `avisosCamposVacios` como aviso puramente informativo (nunca un 4xx). Guardas
+        de acceso y errores por estado/tenant/auth idénticos al GET.
+      responses:
+        '200':
+          description: Ficha cerrada (con posibles avisos informativos de campos vacíos)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CerrarFichaOperativaResponse' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: >-
+            La RESERVA aún no está confirmada: la ficha operativa no está disponible
+            (`code=ficha_no_disponible`, D-3).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FichaOperativaNoDisponibleError' }
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ============================ CALENDARIO ============================
   /calendario:
@@ -3516,9 +3589,15 @@ components:
         importeDevuelto: { allOf: [{ $ref: '#/components/schemas/Importe' }], description: 'Menor que fianza_eur si hay retención parcial' }
         motivoRetencion: { type: string }
 
-    # -------- Ficha operativa --------
+    # -------- Ficha operativa [US-025 / UC-20] --------
+    # [US-025] Representación de la FICHA_OPERATIVA (1:1 con RESERVA, `reserva_id @unique`) devuelta
+    # por GET y PATCH. Los 7 campos de contenido son nullable (la ficha se crea vacía en US-021).
+    # `fichaCerrada`/`fechaCierre` reflejan el cierre (D-6/D-4) y `preEventoStatus` el sub-proceso
+    # vigente de la RESERVA (pendiente|en_curso|cerrado). `fechaActualizacion` (@updatedAt) es
+    # independiente de `fechaCierre` (D-4).
     FichaOperativa:
       type: object
+      required: [idFicha, reservaId, fichaCerrada, preEventoStatus]
       properties:
         idFicha: { type: string, format: uuid }
         reservaId: { type: string, format: uuid }
@@ -3529,18 +3608,71 @@ components:
         contactoEventoTelefono: { type: string, nullable: true }
         notasOperativas: { type: string, nullable: true }
         briefingEquipo: { type: string, nullable: true }
-        fichaCerrada: { type: boolean }
-    UpsertFichaOperativaRequest:
+        fichaCerrada:
+          type: boolean
+          description: '`true` una vez cerrada la ficha (POST .../cerrar).'
+        fechaCierre:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            Instante del último cierre/consolidación. `null` mientras la ficha no se ha cerrado; el
+            backend la reescribe con `now()` en cada edición post-cierre (D-4).
+        preEventoStatus:
+          allOf: [{ $ref: '#/components/schemas/PreEventoStatus' }]
+          description: 'Sub-proceso pre-evento de la RESERVA (pendiente|en_curso|cerrado).'
+
+    # [US-025] Cuerpo de PATCH /reservas/{id}/ficha-operativa: guardado PARCIAL (D-5). Todos los
+    # campos son OPCIONALES; solo se persiste el subconjunto presente. `numInvitadosConfirmado` es
+    # nullable para permitir borrar el valor. No incluye `fichaCerrada`/`fechaCierre`: el cierre es
+    # una acción dedicada (POST .../cerrar) y `fechaCierre` la gestiona el backend (D-4).
+    GuardarFichaOperativaRequest:
       type: object
+      additionalProperties: false
       properties:
-        numInvitadosConfirmado: { type: integer }
-        menuSeleccionado: { type: string }
-        timingDetallado: { type: string }
-        contactoEventoNombre: { type: string }
-        contactoEventoTelefono: { type: string }
-        notasOperativas: { type: string }
-        briefingEquipo: { type: string }
-        fichaCerrada: { type: boolean }
+        numInvitadosConfirmado: { type: integer, nullable: true }
+        menuSeleccionado: { type: string, nullable: true }
+        timingDetallado: { type: string, nullable: true }
+        contactoEventoNombre: { type: string, nullable: true }
+        contactoEventoTelefono: { type: string, nullable: true }
+        notasOperativas: { type: string, nullable: true }
+        briefingEquipo: { type: string, nullable: true }
+
+    # [US-025] Respuesta 200 de POST /reservas/{id}/ficha-operativa/cerrar (D-6): la ficha cerrada
+    # más `avisosCamposVacios`, la lista (posiblemente vacía) de nombres de campos de contenido que
+    # quedaron sin rellenar. Es un aviso INFORMATIVO, nunca un error: el cierre no se bloquea por
+    # campos vacíos.
+    CerrarFichaOperativaResponse:
+      allOf:
+        - $ref: '#/components/schemas/FichaOperativa'
+        - type: object
+          required: [avisosCamposVacios]
+          properties:
+            avisosCamposVacios:
+              type: array
+              items: { type: string }
+              description: >-
+                Nombres (camelCase) de los campos de contenido que quedaron vacíos al cerrar
+                (p. ej. `["menuSeleccionado","briefingEquipo"]`). Vacío si estaban todos rellenos.
+              example: [menuSeleccionado, briefingEquipo]
+
+    # [US-025] Error 409 de la ficha operativa cuando la RESERVA no está confirmada (D-3). Sigue el
+    # patrón allOf ErrorResponse + campo semántico del resto del contrato, con el `code` fijado por
+    # el Gate SDD (`ficha_no_disponible`) para que el frontend distinga "no disponible por estado"
+    # de "no existe" (404). Conserva el envelope NestJS (statusCode/message).
+    FichaOperativaNoDisponibleError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [code]
+          properties:
+            code:
+              type: string
+              enum: [ficha_no_disponible]
+              description: >-
+                Discriminador semántico del 409: la RESERVA está en un estado anterior a
+                `reserva_confirmada`, así que la FICHA_OPERATIVA aún no existe.
+              example: ficha_no_disponible
 
     # -------- Calendario [US-039] --------
     CalendarioRango:
