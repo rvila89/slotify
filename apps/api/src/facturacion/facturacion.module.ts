@@ -35,8 +35,26 @@ import {
   RegenerarPdfFacturaUseCase,
   type CargarFacturaParaPdfPort,
 } from './application/regenerar-pdf-factura.use-case';
+import {
+  GenerarBorradoresLiquidacionFianzaUseCase,
+  type CargarExtrasPendientesPort,
+  type CargarFianzaDefaultPort,
+  type CargarReservaLiquidablePort,
+  type UnidadDeTrabajoBorradoresPort,
+} from './application/generar-borradores-liquidacion-fianza.use-case';
+import {
+  ListarFacturasReservaUseCase,
+  type ListarFacturasReservaPort,
+} from './application/listar-facturas-reserva.use-case';
 import type { FacturaSenal } from './application/generar-factura-senal.use-case';
 import { FacturacionUoWPrismaAdapter } from './infrastructure/facturacion-uow.prisma.adapter';
+import { BorradoresUoWPrismaAdapter } from './infrastructure/borradores-uow.prisma.adapter';
+import {
+  CargarExtrasPendientesPrismaAdapter,
+  CargarFianzaDefaultPrismaAdapter,
+  CargarReservaLiquidablePrismaAdapter,
+} from './infrastructure/lecturas-borradores.prisma.adapter';
+import { ListarFacturasReservaPrismaAdapter } from './infrastructure/listar-facturas-reserva.prisma.adapter';
 import {
   CamposFiscalesFaltantesFacturaPrismaAdapter,
   CargarClienteFiscalPrismaAdapter,
@@ -57,12 +75,17 @@ import {
   AUDITORIA_APROBACION_PORT,
   CAMPOS_FISCALES_FALTANTES_PORT,
   CARGAR_CLIENTE_FISCAL_PORT,
+  CARGAR_EXTRAS_PENDIENTES_PORT,
   CARGAR_FACTURA_PARA_PDF_PORT,
   CARGAR_FACTURA_PORT,
+  CARGAR_FIANZA_DEFAULT_PORT,
   CARGAR_RESERVA_FACTURABLE_PORT,
+  CARGAR_RESERVA_LIQUIDABLE_PORT,
   CARGAR_TENANT_FISCAL_PORT,
   FACTURACION_CLOCK_PORT,
   GENERAR_PDF_FACTURA_PORT,
+  LISTAR_FACTURAS_RESERVA_PORT,
+  UNIDAD_DE_TRABAJO_BORRADORES_PORT,
   UNIDAD_DE_TRABAJO_FACTURACION_PORT,
 } from './facturacion.tokens';
 
@@ -146,6 +169,37 @@ type CargarFacturaFn = (params: {
         new AuditoriaAprobacionPrismaAdapter(prisma).registrar,
     },
     { provide: FACTURACION_CLOCK_PORT, useClass: SistemaClockAdapter },
+
+    // --- US-027: adaptadores de los borradores de liquidación/fianza ---
+    {
+      provide: UNIDAD_DE_TRABAJO_BORRADORES_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) => new BorradoresUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: CARGAR_RESERVA_LIQUIDABLE_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarReservaLiquidablePort =>
+        new CargarReservaLiquidablePrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: CARGAR_EXTRAS_PENDIENTES_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarExtrasPendientesPort =>
+        new CargarExtrasPendientesPrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: CARGAR_FIANZA_DEFAULT_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarFianzaDefaultPort =>
+        new CargarFianzaDefaultPrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: LISTAR_FACTURAS_RESERVA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): ListarFacturasReservaPort =>
+        new ListarFacturasReservaPrismaAdapter(prisma).listar,
+    },
 
     // --- Casos de uso ---
     {
@@ -258,7 +312,34 @@ type CargarFacturaFn = (params: {
           unidadDeTrabajo,
         }),
     },
+    {
+      provide: GenerarBorradoresLiquidacionFianzaUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_BORRADORES_PORT,
+        CARGAR_RESERVA_LIQUIDABLE_PORT,
+        CARGAR_EXTRAS_PENDIENTES_PORT,
+        CARGAR_FIANZA_DEFAULT_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoBorradoresPort,
+        cargarReserva: CargarReservaLiquidablePort,
+        cargarExtrasPendientes: CargarExtrasPendientesPort,
+        cargarFianzaDefault: CargarFianzaDefaultPort,
+      ) =>
+        new GenerarBorradoresLiquidacionFianzaUseCase({
+          unidadDeTrabajo,
+          cargarReserva,
+          cargarExtrasPendientes,
+          cargarFianzaDefault,
+        }),
+    },
+    {
+      provide: ListarFacturasReservaUseCase,
+      inject: [LISTAR_FACTURAS_RESERVA_PORT],
+      useFactory: (listarFacturas: ListarFacturasReservaPort) =>
+        new ListarFacturasReservaUseCase({ listarFacturas }),
+    },
   ],
-  exports: [GenerarFacturaSenalUseCase],
+  exports: [GenerarFacturaSenalUseCase, GenerarBorradoresLiquidacionFianzaUseCase],
 })
 export class FacturacionModule {}

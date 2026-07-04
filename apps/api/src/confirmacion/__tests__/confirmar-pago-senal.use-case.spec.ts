@@ -167,12 +167,14 @@ const montar = (opciones: {
     async () => opciones.almacenarUrl ?? 'https://docs/justificante-1.pdf',
   );
   const presentarFacturaSenalBorrador = jest.fn(async () => undefined);
+  const generarBorradoresLiquidacionFianza = jest.fn(async () => undefined);
   const deps: ConfirmarPagoSenalDeps = {
     unidadDeTrabajo: uow,
     tenantSettings: { obtener: jest.fn(async () => opciones.settings ?? settings) },
     cargarReserva,
     almacenarJustificante,
     presentarFacturaSenalBorrador,
+    generarBorradoresLiquidacionFianza,
     clock: relojFijo,
   };
   return {
@@ -182,6 +184,7 @@ const montar = (opciones: {
     cargarReserva,
     almacenarJustificante,
     presentarFacturaSenalBorrador,
+    generarBorradoresLiquidacionFianza,
     deps,
   };
 };

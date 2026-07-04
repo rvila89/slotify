@@ -21,11 +21,13 @@ import { PrismaModule } from '../shared/prisma/prisma.module';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { FacturacionModule } from '../facturacion/facturacion.module';
 import { GenerarFacturaSenalUseCase } from '../facturacion/application/generar-factura-senal.use-case';
+import { GenerarBorradoresLiquidacionFianzaUseCase } from '../facturacion/application/generar-borradores-liquidacion-fianza.use-case';
 import {
   ConfirmarPagoSenalUseCase,
   type AlmacenarJustificantePort,
   type CargarReservaConfirmacionPort,
   type ClockPort,
+  type GenerarBorradoresLiquidacionFianzaPort,
   type PresentarFacturaSenalBorradorPort,
   type TenantSettingsConfirmacionPort,
   type UnidadDeTrabajoConfirmacionPort,
@@ -35,12 +37,14 @@ import { CargarReservaConfirmacionPrismaAdapter } from './infrastructure/cargar-
 import { TenantSettingsConfirmacionPrismaAdapter } from './infrastructure/tenant-settings-confirmacion.prisma.adapter';
 import { AlmacenarJustificanteFakeAdapter } from './infrastructure/almacenar-justificante.fake.adapter';
 import { PresentarFacturaSenalFacturacionAdapter } from './infrastructure/presentar-factura-senal.facturacion.adapter';
+import { GenerarBorradoresLiquidacionFianzaFacturacionAdapter } from './infrastructure/generar-borradores-liquidacion-fianza.facturacion.adapter';
 import { SistemaClockAdapter } from './infrastructure/sistema-clock.adapter';
 import { ConfirmarPagoSenalController } from './interface/confirmar-pago-senal.controller';
 import {
   ALMACENAR_JUSTIFICANTE_PORT,
   CARGAR_RESERVA_CONFIRMACION_PORT,
   CONFIRMACION_CLOCK_PORT,
+  GENERAR_BORRADORES_LIQUIDACION_FIANZA_PORT,
   PRESENTAR_FACTURA_SENAL_BORRADOR_PORT,
   TENANT_SETTINGS_CONFIRMACION_PORT,
   UNIDAD_DE_TRABAJO_CONFIRMACION_PORT,
@@ -87,6 +91,14 @@ import {
       ): PresentarFacturaSenalBorradorPort =>
         new PresentarFacturaSenalFacturacionAdapter(generarFactura).presentar,
     },
+    {
+      provide: GENERAR_BORRADORES_LIQUIDACION_FIANZA_PORT,
+      inject: [GenerarBorradoresLiquidacionFianzaUseCase],
+      useFactory: (
+        generarBorradores: GenerarBorradoresLiquidacionFianzaUseCase,
+      ): GenerarBorradoresLiquidacionFianzaPort =>
+        new GenerarBorradoresLiquidacionFianzaFacturacionAdapter(generarBorradores).generar,
+    },
     { provide: CONFIRMACION_CLOCK_PORT, useClass: SistemaClockAdapter },
     {
       provide: ConfirmarPagoSenalUseCase,
@@ -96,6 +108,7 @@ import {
         CARGAR_RESERVA_CONFIRMACION_PORT,
         ALMACENAR_JUSTIFICANTE_PORT,
         PRESENTAR_FACTURA_SENAL_BORRADOR_PORT,
+        GENERAR_BORRADORES_LIQUIDACION_FIANZA_PORT,
         CONFIRMACION_CLOCK_PORT,
       ],
       useFactory: (
@@ -104,6 +117,7 @@ import {
         cargarReserva: CargarReservaConfirmacionPort,
         almacenarJustificante: AlmacenarJustificantePort,
         presentarFacturaSenalBorrador: PresentarFacturaSenalBorradorPort,
+        generarBorradoresLiquidacionFianza: GenerarBorradoresLiquidacionFianzaPort,
         clock: ClockPort,
       ) =>
         new ConfirmarPagoSenalUseCase({
@@ -112,6 +126,7 @@ import {
           cargarReserva,
           almacenarJustificante,
           presentarFacturaSenalBorrador,
+          generarBorradoresLiquidacionFianza,
           clock,
         }),
     },

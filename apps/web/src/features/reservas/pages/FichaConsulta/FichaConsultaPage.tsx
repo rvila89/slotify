@@ -11,7 +11,7 @@ import {
   ConfirmarSenalDialog,
   type ConfirmarSenalResponse,
 } from '@/features/confirmacion';
-import { FacturaSenalCard } from '@/features/facturacion';
+import { FacturaSenalCard, DocumentosLiquidacionFianza } from '@/features/facturacion';
 import { useReserva } from '../../api/useReserva';
 import { AnadirFechaDialog } from '../../components/AnadirFechaDialog';
 import { PendienteInvitadosDialog } from '../../components/PendienteInvitadosDialog';
@@ -238,6 +238,10 @@ export const FichaConsultaPage = () => {
       </section>
 
       {id && reserva.estado === 'reserva_confirmada' && <FacturaSenalCard reservaId={id} />}
+
+      {id && reserva.estado === 'reserva_confirmada' && (
+        <DocumentosLiquidacionFianza reservaId={id} />
+      )}
 
       {id && (
         <AnadirFechaDialog

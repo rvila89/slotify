@@ -20,5 +20,9 @@ export const ALMACENAR_JUSTIFICANTE_PORT = Symbol('AlmacenarJustificantePort');
 export const PRESENTAR_FACTURA_SENAL_BORRADOR_PORT = Symbol(
   'PresentarFacturaSenalBorradorPort',
 );
+/** Generación de los borradores de liquidación y fianza (post-commit, US-027). */
+export const GENERAR_BORRADORES_LIQUIDACION_FIANZA_PORT = Symbol(
+  'GenerarBorradoresLiquidacionFianzaPort',
+);
 /** Reloj del sistema. */
 export const CONFIRMACION_CLOCK_PORT = Symbol('ConfirmacionClockPort');

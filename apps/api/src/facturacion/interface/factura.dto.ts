@@ -1,7 +1,9 @@
 /**
- * DTOs HTTP de la capability `facturacion` (US-022 / UC-18). Reproducen EXACTAMENTE los
- * schemas del contrato `docs/api-spec.yml` (tag `Facturacion`): `FacturaSenalDto`,
- * `RechazarFacturaRequest`, `AprobarFacturaRequest`, `RegenerarPdfFacturaRequest`.
+ * DTOs HTTP de la capability `facturacion` (US-022 / UC-18 / US-027 / UC-21 / UC-22).
+ * Reproducen EXACTAMENTE los schemas del contrato `docs/api-spec.yml` (tag `Facturacion`):
+ * `FacturaDto` (vista canónica generalizada de una FACTURA de cualquier tipo), `FacturaSenalDto`
+ * (alias de señal, misma forma), `RechazarFacturaRequest`, `AprobarFacturaRequest`,
+ * `RegenerarPdfFacturaRequest`.
  *
  * Los importes viajan como string Decimal de 2 decimales (wrapper `Importe`/`Porcentaje`,
  * F2-01). Los flags `esBorradorInvalido`/`pdfPendiente` son DERIVADOS (design.md §D-9).
@@ -12,8 +14,12 @@ import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 /** Estado del ciclo de vida de la factura (contrato `EstadoFactura`). */
 export type EstadoFacturaDto = 'borrador' | 'enviada' | 'cobrada';
 
-/** Vista de lectura de la factura de señal (contrato `FacturaSenalDto`). */
-export class FacturaSenalDto {
+/**
+ * Vista de lectura CANÓNICA y GENERALIZADA de una FACTURA de cualquier tipo (`senal`,
+ * `liquidacion`, `fianza`, `complementaria`). Espejo del schema `FacturaDto` del contrato
+ * (US-027 §D-5). Es el item de la colección `GET /reservas/{id}/facturas`.
+ */
+export class FacturaDto {
   @ApiProperty({ format: 'uuid' })
   idFactura!: string;
 
@@ -50,12 +56,22 @@ export class FacturaSenalDto {
   @ApiProperty({ format: 'date-time', nullable: true })
   fechaEmision!: string | null;
 
+  @ApiPropertyOptional({ format: 'date-time' })
+  fechaCreacion?: string;
+
   @ApiProperty({ description: 'Faltan datos fiscales del cliente (bloqueo por datos).' })
   esBorradorInvalido!: boolean;
 
   @ApiProperty({ description: 'pdfUrl=null por fallo transitorio del PDF (reintenta solo).' })
   pdfPendiente!: boolean;
 }
+
+/**
+ * Vista de lectura de la factura de señal (contrato `FacturaSenalDto`). Misma forma que
+ * `FacturaDto`; se conserva como nombre estable de los endpoints de US-022
+ * (obtener/aprobar/rechazar/regenerar-pdf).
+ */
+export class FacturaSenalDto extends FacturaDto {}
 
 /** Cuerpo vacío de la aprobación (contrato `AprobarFacturaRequest`). */
 export class AprobarFacturaRequestDto {}
