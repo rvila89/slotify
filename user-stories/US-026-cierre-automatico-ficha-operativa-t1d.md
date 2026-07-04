@@ -1,6 +1,6 @@
 ---
 id: US-026
-estado: in_progress
+estado: done
 branch: feature/us-026-cierre-automatico-ficha-operativa
 pr: null
 ---
