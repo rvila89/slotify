@@ -17,6 +17,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   NotFoundException,
   Param,
@@ -54,11 +55,33 @@ import {
 } from '../application/listar-facturas-reserva.use-case';
 import type { FacturaSenalResultado } from '../application/generar-factura-senal.use-case';
 import {
+  AprobarYEnviarLiquidacionUseCase,
+  DescuentoInvalidoError,
+  EmisionEnvioFallidoError,
+  FacturaLiquidacionNoEncontradaError,
+  FacturaNoBorradorError as LiquidacionNoBorradorError,
+  type FacturaEmitible,
+} from '../application/aprobar-y-enviar-liquidacion.use-case';
+import {
+  EnviarReciboFianzaSeparadoUseCase,
+  FacturaFianzaNoEncontradaError,
+  FacturaNoBorradorError as FianzaNoBorradorError,
+} from '../application/enviar-recibo-fianza-separado.use-case';
+import {
+  ReenviarLiquidacionUseCase,
+  FacturaNoEnviadaError,
+  FacturaLiquidacionNoEncontradaError as LiquidacionReenvioNoEncontradaError,
+} from '../application/reenviar-liquidacion.use-case';
+import {
+  AprobarEnviarLiquidacionDto,
+  AprobarEnviarLiquidacionResponseDto,
   AprobarFacturaRequestDto,
+  EnviarReciboFianzaResponseDto,
   FacturaDto,
   FacturaSenalDto,
   RechazarFacturaRequestDto,
   RegenerarPdfFacturaRequestDto,
+  ReenviarLiquidacionResponseDto,
 } from './factura.dto';
 
 /** Tipos de factura admitidos por el filtro `?tipo=`. */
@@ -107,6 +130,34 @@ const aDto = (r: FacturaSenalResultado): FacturaSenalDto => ({
   pdfPendiente: r.pdfPendiente,
 });
 
+/**
+ * Mapea una FACTURA emitida (proyección de US-028) al `FacturaDto` del contrato. Tolera las
+ * proyecciones sin desglose fiscal (el reenvío solo trae `total`): los campos fiscales ausentes
+ * se emiten como '0.00'.
+ */
+const aFacturaEmitidaDto = (
+  f: Pick<
+    FacturaEmitible,
+    'idFactura' | 'reservaId' | 'numeroFactura' | 'tipo' | 'total' | 'estado' | 'pdfUrl' | 'fechaEmision'
+  > &
+    Partial<Pick<FacturaEmitible, 'baseImponible' | 'ivaPorcentaje' | 'ivaImporte'>>,
+): FacturaDto => ({
+  idFactura: f.idFactura,
+  reservaId: f.reservaId,
+  numeroFactura: f.numeroFactura,
+  tipo: f.tipo,
+  baseImponible: f.baseImponible ?? '0.00',
+  ivaPorcentaje: f.ivaPorcentaje ?? '0.00',
+  ivaImporte: f.ivaImporte ?? '0.00',
+  total: f.total,
+  concepto: undefined,
+  pdfUrl: f.pdfUrl,
+  estado: f.estado,
+  fechaEmision: f.fechaEmision === null ? null : f.fechaEmision.toISOString(),
+  esBorradorInvalido: false,
+  pdfPendiente: f.pdfUrl === null && f.estado !== 'borrador',
+});
+
 @ApiTags('Facturacion')
 @ApiBearerAuth()
 @UseGuards(RolesGuard)
@@ -119,6 +170,9 @@ export class FacturaController {
     private readonly rechazarFactura: RechazarFacturaUseCase,
     private readonly regenerarPdfFactura: RegenerarPdfFacturaUseCase,
     private readonly listarFacturasReserva: ListarFacturasReservaUseCase,
+    private readonly aprobarYEnviarLiquidacion: AprobarYEnviarLiquidacionUseCase,
+    private readonly enviarReciboFianzaSeparado: EnviarReciboFianzaSeparadoUseCase,
+    private readonly reenviarLiquidacion: ReenviarLiquidacionUseCase,
   ) {}
 
   @Get('reservas/:id/facturas')
@@ -236,6 +290,120 @@ export class FacturaController {
     }
   }
 
+  @Post('reservas/:id/facturas/liquidacion/aprobar-enviar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Aprobar y enviar la liquidación (y fianza si sigue en borrador) (UC-21 / US-028)',
+  })
+  async aprobarEnviarLiquidacion(
+    @Param('id') id: string,
+    @Body() body: AprobarEnviarLiquidacionDto,
+    @CurrentUser() usuario: UsuarioAutenticado,
+  ): Promise<AprobarEnviarLiquidacionResponseDto> {
+    try {
+      const resultado = await this.aprobarYEnviarLiquidacion.ejecutar({
+        tenantId: usuario.tenantId,
+        usuarioId: usuario.sub,
+        reservaId: id,
+        descuento: body?.descuento,
+        motivo: body?.motivo,
+      });
+      return {
+        liquidacion: aFacturaEmitidaDto(resultado.liquidacion),
+        fianza: resultado.fianza === null ? null : aFacturaEmitidaDto(resultado.fianza),
+        liquidacionStatus: resultado.liquidacionStatus,
+        fianzaStatus: resultado.fianzaStatus,
+      };
+    } catch (error) {
+      this.aHttp(error);
+    }
+  }
+
+  @Post('reservas/:id/facturas/fianza/enviar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Enviar por separado el recibo de fianza (UC-22 / US-028)' })
+  async enviarReciboFianza(
+    @Param('id') id: string,
+    @CurrentUser() usuario: UsuarioAutenticado,
+  ): Promise<EnviarReciboFianzaResponseDto> {
+    try {
+      const resultado = await this.enviarReciboFianzaSeparado.ejecutar({
+        tenantId: usuario.tenantId,
+        usuarioId: usuario.sub,
+        reservaId: id,
+      });
+      return {
+        fianza: aFacturaEmitidaDto(resultado.fianza),
+        fianzaStatus: resultado.fianzaStatus,
+      };
+    } catch (error) {
+      this.aHttp(error);
+    }
+  }
+
+  @Post('reservas/:id/facturas/liquidacion/reenviar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reenviar la factura de liquidación ya emitida (UC-21 / US-028)' })
+  async reenviar(
+    @Param('id') id: string,
+    @CurrentUser() usuario: UsuarioAutenticado,
+  ): Promise<ReenviarLiquidacionResponseDto> {
+    try {
+      const liquidacion = await this.cargarLiquidacionReenviada(usuario.tenantId, id);
+      const resultado = await this.reenviarLiquidacion.ejecutar({
+        tenantId: usuario.tenantId,
+        usuarioId: usuario.sub,
+        reservaId: id,
+      });
+      return {
+        liquidacion: aFacturaEmitidaDto(liquidacion),
+        comunicacion: {
+          idComunicacion: resultado.comunicacion.idComunicacion,
+          estado: resultado.comunicacion.estado,
+          fechaEnvio:
+            resultado.comunicacion.fechaEnvio == null
+              ? null
+              : resultado.comunicacion.fechaEnvio.toISOString(),
+        },
+      };
+    } catch (error) {
+      this.aHttp(error);
+    }
+  }
+
+  /**
+   * Recupera la liquidación ya emitida para incluirla SIN cambios en la respuesta del reenvío
+   * (el use-case no muta la factura; su resultado solo trae la nueva COMUNICACION).
+   */
+  private async cargarLiquidacionReenviada(
+    tenantId: string,
+    reservaId: string,
+  ): Promise<FacturaEmitible> {
+    const facturas = await this.listarFacturasReserva.ejecutar({
+      tenantId,
+      reservaId,
+      tipo: 'liquidacion',
+    });
+    const liquidacion = facturas[0];
+    if (liquidacion === undefined) {
+      throw new FacturaLiquidacionNoEncontradaError(reservaId);
+    }
+    return {
+      idFactura: liquidacion.idFactura,
+      tenantId,
+      reservaId: liquidacion.reservaId,
+      numeroFactura: liquidacion.numeroFactura,
+      tipo: 'liquidacion',
+      estado: liquidacion.estado,
+      total: liquidacion.total,
+      baseImponible: liquidacion.baseImponible,
+      ivaPorcentaje: liquidacion.ivaPorcentaje,
+      ivaImporte: liquidacion.ivaImporte,
+      pdfUrl: liquidacion.pdfUrl,
+      fechaEmision: liquidacion.fechaEmision === null ? null : new Date(liquidacion.fechaEmision),
+    };
+  }
+
   /** Valida el filtro `?tipo=` (400 si no es un tipo conocido); undefined si se omite. */
   private validarTipo(tipo?: string): TipoFacturaListado | undefined {
     if (tipo === undefined || tipo === '') {
@@ -256,7 +424,10 @@ export class FacturaController {
     if (
       error instanceof FacturaNoEncontradaError ||
       error instanceof FacturaSenalNoEncontradaError ||
-      error instanceof ReservaFacturasNoEncontradaError
+      error instanceof ReservaFacturasNoEncontradaError ||
+      error instanceof FacturaLiquidacionNoEncontradaError ||
+      error instanceof LiquidacionReenvioNoEncontradaError ||
+      error instanceof FacturaFianzaNoEncontradaError
     ) {
       throw new NotFoundException({
         statusCode: HttpStatus.NOT_FOUND,
@@ -273,6 +444,38 @@ export class FacturaController {
         codigo: error.codigo,
         motivo: error.motivo,
       });
+    }
+    if (
+      error instanceof LiquidacionNoBorradorError ||
+      error instanceof FianzaNoBorradorError ||
+      error instanceof FacturaNoEnviadaError
+    ) {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        error: 'Conflict',
+        message: error.message,
+        codigo: error.codigo,
+        motivo: error.motivo,
+      });
+    }
+    if (error instanceof DescuentoInvalidoError) {
+      throw new UnprocessableEntityException({
+        statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+        error: 'Unprocessable Entity',
+        message: error.message,
+        codigo: error.codigo,
+      });
+    }
+    if (error instanceof EmisionEnvioFallidoError) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_GATEWAY,
+          error: 'Bad Gateway',
+          message: error.message,
+          codigo: error.codigo,
+        },
+        HttpStatus.BAD_GATEWAY,
+      );
     }
     if (error instanceof DatosFiscalesIncompletosError) {
       throw new UnprocessableEntityException({

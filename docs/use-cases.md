@@ -1209,10 +1209,10 @@ flowchart TD
 **Flujo Básico:**
 1. El sistema genera automáticamente la factura de liquidación en borrador (`tipo='liquidacion'`, `estado='borrador'`, `numero_factura=NULL`, `total = importe_liquidacion + Σ extras pendientes`) como efecto post-commit de la activación de sub-procesos de US-021, a través del use-case `GenerarBorradoresLiquidacionFianzaUseCase` (US-027). El fallo de este paso **no revierte** la confirmación ya realizada; la operación es idempotente por `(reserva_id, tipo)`.
 2. El sistema alerta al gestor en la UI: "Documentos de liquidación y fianza pendientes de revisión" (US-027). Esta alerta es una señal de UI, no un email (E4 se dispara en US-028 tras la aprobación).
-3. El gestor revisa y ajusta si es necesario
-4. El gestor aprueba y envía la factura (US-028: asigna `numero_factura = F-YYYY-NNNN`, pasa a `estado='enviada'`, `fecha_emision = now()`)
-5. El sistema actualiza liquidacion_status = facturada
-6. El sistema envía email E4 al cliente (US-028)
+3. El gestor revisa y ajusta si es necesario. Puede aplicar un descuento negociado mientras la factura está en `borrador` (D-2 US-028: el `total` y el desglose fiscal se recalculan en dominio puro; `RESERVA.importe_liquidacion` se actualiza con el nuevo importe; el descuento y su motivo quedan en `AUDIT_LOG`).
+4. El gestor aprueba y envía la factura mediante **`AprobarYEnviarLiquidacionUseCase`** (US-028 / `POST /reservas/{id}/facturas/liquidacion/aprobar-enviar`): en una única operación atómica (D-1 US-028 — excepción síncrona al patrón post-commit), el use-case asigna `numero_factura = F-YYYY-NNNN`, pasa ambas facturas (`liquidacion` y `fianza` si no fue enviada por separado) a `estado='enviada'`, fija `fecha_emision = now()`, envía email E4 al cliente con los PDFs adjuntos y, **solo si E4 se confirma**, commitea los cambios de estado; si E4 falla → rollback total.
+5. El sistema actualiza `liquidacion_status = 'facturada'` y `fianza_status = 'recibo_enviado'` (atómicos con el commit del paso 4).
+6. El sistema registra `COMUNICACION E4` con `estado='enviado'` y `es_reenvio = false`.
 7. El cliente realiza el pago
 8. El gestor recibe justificante
 9. El gestor sube justificante al sistema
@@ -1221,6 +1221,10 @@ flowchart TD
 
 **Flujos Alternativos:**
 - **FA-01**: T-1d sin cobro → Política "Negociable" activada, alerta crítica al gestor
+- **FA-02** (fallo de email E4 — D-1 US-028): el proveedor de email rechaza el envío → rollback completo: `numero_factura` no asignado, ambas facturas permanecen en `borrador`, `liquidacion_status`/`fianza_status` sin cambio; error `502/503` recuperable devuelto al Gestor. El Gestor puede reintentar la aprobación.
+- **FA-03** (reenvío de la factura ya emitida — D-4 US-028): `POST /reservas/{id}/facturas/liquidacion/reenviar` cuando `FACTURA.estado = 'enviada'`; reenvia el PDF ya emitido sin reasignar `numero_factura` ni mutar estado; crea nuevo registro `COMUNICACION E4` con `es_reenvio = true`. Si `estado != 'enviada'` → `409`.
+- **FA-04** (descuento negociado — D-2 US-028): body opcional `{ descuento, extrasCorregidos, motivo }` en `aprobar-enviar`; el use-case recalcula `total`, desglose fiscal y `RESERVA.importe_liquidacion`; el descuento queda en `AUDIT_LOG`.
+- **FA-05** (PDF no disponible): si `pdf_url` es nulo para alguna factura → `422`; el Gestor debe regenerar el PDF antes de aprobar.
 
 ---
 
@@ -1241,20 +1245,21 @@ flowchart TD
 **Flujo Básico:**
 1. El sistema genera automáticamente el recibo de fianza en borrador (`tipo='fianza'`, `estado='borrador'`, `numero_factura=NULL`, `total = TENANT_SETTINGS.fianza_default_eur`) como efecto post-commit de la activación de sub-procesos de US-021, a través del use-case `GenerarBorradoresLiquidacionFianzaUseCase` (US-027). **Edge case**: si `fianza_default_eur = 0`, el recibo **no se genera**; `fianza_status` permanece `pendiente` y la alerta al Gestor menciona solo la liquidación. La generación de la fianza es independiente de la de la liquidación. El fallo de este paso **no revierte** la confirmación; la operación es idempotente por `(reserva_id, tipo)`.
 2. El sistema alerta al gestor en la UI: "Documentos de liquidación y fianza pendientes de revisión" (US-027). Esta alerta es una señal de UI, no un email (E4 se dispara en US-028 tras la aprobación).
-3. El gestor envía el recibo al cliente (puede ser con liquidación o separado). La aprobación/emisión (US-028) asigna `numero_factura`, pasa a `estado='enviada'` y marca `fianza_status = recibo_enviado`.
-4. El sistema actualiza fianza_status = recibo_enviado
-5. El cliente realiza el pago (antes o el día del evento)
-6. El gestor recibe justificante
-7. El gestor sube justificante al sistema
+3. El gestor puede enviar el recibo de fianza al cliente **de forma independiente** mediante **`EnviarReciboFianzaUseCase`** (US-028 / `POST /reservas/{id}/facturas/fianza/enviar`, D-3 US-028): asigna `numero_factura = F-YYYY-NNNN` al recibo de fianza, pasa a `estado='enviada'` y actualiza `fianza_status = 'recibo_enviado'`. El email enviado se registra en `COMUNICACION` con `codigo_email = 'manual'` (no E4); `liquidacion_status` **no cambia**. Alternativamente, si la liquidación y la fianza se aprueban juntas vía `aprobar-enviar` (UC-21 paso 4), la fianza también se emite y `fianza_status` pasa a `recibo_enviado` en el mismo commit.
+4. El sistema actualiza `fianza_status = 'recibo_enviado'`.
+5. El cliente realiza el pago (antes o el día del evento).
+6. El gestor recibe justificante.
+7. El gestor sube justificante al sistema.
 8. El sistema registra:
    - `fianza_eur`
    - `fianza_cobrada_fecha`
-9. El sistema actualiza fianza_status = cobrada
-10. El sistema registra en audit log
+9. El sistema actualiza fianza_status = cobrada.
+10. El sistema registra en audit log.
 
 **Flujos Alternativos:**
 - **FA-01**: T-0 sin cobro → Política "Negociable" activada, decisión manual del gestor
 - **FA-02**: `fianza_default_eur = 0` → El recibo de fianza no se genera en US-027; `fianza_status` permanece `pendiente`. El Gestor puede crear el recibo manualmente con un importe negociado en una US posterior.
+- **FA-03** (fianza ya enviada por separado antes de la aprobación de la liquidación): cuando la liquidación se aprueba vía `aprobar-enviar` (UC-21), si la fianza ya está en `estado='enviada'` / `fianza_status='recibo_enviado'`, el use-case incluye solo la factura de liquidación en E4 sin volver a cambiar `fianza_status` (D-3 US-028: E4 no sobreescribe `recibo_enviado` ya establecido).
 
 ---
 
@@ -2068,5 +2073,6 @@ Este análisis ha identificado **36 casos de uso** que cubren completamente la f
 
 ---
 
+*Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.6 (04/07/2026): refleja US-028 — Gestor Aprueba y Envía la Factura de Liquidación (UC-21 / UC-22): actualiza el flujo básico de UC-21 — paso 3 añade la posibilidad de descuento negociado en borrador (D-2 US-028); paso 4 documenta `AprobarYEnviarLiquidacionUseCase` con atomicidad síncrona E4 confirmada (D-1 US-028: excepción al patrón post-commit, rollback total si E4 falla); pasos 5–6 detallan los efectos (`liquidacion_status='facturada'`, `fianza_status='recibo_enviado'`, `COMUNICACION E4 es_reenvio=false`); añade FA-02 (rollback total ante fallo de E4), FA-03 (reenvío D-4 US-028: `es_reenvio=true`, sin reasignación fiscal), FA-04 (descuento negociado), FA-05 (PDF no disponible). Actualiza el flujo básico de UC-22 — paso 3 documenta `EnviarReciboFianzaUseCase` (US-028 D-3: endpoint `POST /reservas/{id}/facturas/fianza/enviar`, `codigo_email='manual'`, solo `fianza_status`); añade FA-03 (fianza ya enviada antes de la aprobación de liquidación — E4 no sobreescribe). Sin cambios en UC-28 (sigue siendo "Archivar Reserva", distinto de US-028 de facturación).*
 *Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.5 (03/07/2026): refleja US-010 — Registrar resultado de visita: reserva inmediata (2.v → pre_reserva / UC-08 FA-08 / UC-14): actualiza la ficha de UC-08 con la descripción del flujo B implementado (US-010), postcondiciones para "reserva inmediata" (`estado='pre_reserva'`, `sub_estado=NULL`, TTL de 7 días, cola A16 vaciada, sin email propio), endpoint polimórfico (`resultado: "interesado" | "reserva_inmediata"`), entidades afectadas ampliadas; añade el Flujo Básico B (pasos 1–8) con validación de datos obligatorios UC-14 + transacción RESERVA + FECHA_BLOQUEADA UPDATE + cola A16 + AUDIT_LOG; añade FA-10 (datos incompletos — 422 con `camposFaltantes`), FA-11 (cola vacía — válida), FA-12 (concurrencia D4 y vaciado de cola); actualiza el diagrama Mermaid con la rama `reserva_inmediata`. Sin migración de esquema (todos los campos ya existían desde US-000/US-008).*
 *Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.4 (03/07/2026): refleja US-019 — Promoción Manual de Consulta en Cola (UC-12 flujo B): actualiza la ficha de UC-12 con el actor dual (Sistema/Gestor), postcondiciones y entidades afectadas para el flujo manual; añade el flujo B completo (pasos 1–8 + FA-01..FA-07) con endpoint `POST /reservas/{id}/promover`, mecánica de expiración forzosa de la bloqueante (`2b/2c/2v → 2x`), re-asignación atómica de `FECHA_BLOQUEADA`, reordenación por cierre de hueco, AUDIT_LOG con `origen: 'promocion_manual'` y política de arbitraje (FIFO estricto, 409 al Gestor si el automático gana); añade diagrama de secuencia Mermaid del flujo B; actualiza la nota sobre US-019 (ya implementada, no futura); precisa la transición `consulta_2d → consulta_2b` en el diagrama §6 para distinguir automática (US-018) y manual (US-019); actualiza §5, §7, §8 con la referencia al flujo manual. Sin migración de esquema (US-019 no añade entidades ni columnas; reutiliza `RESERVA`, `FECHA_BLOQUEADA`, `AUDIT_LOG` y sus campos existentes). Versión 1.3 (30/06/2026): refleja US-039 — visualizar el Calendario de Disponibilidad (UC-29): reemplaza la ficha original de UC-29 con la especificación completa implementada: vista de lectura pura (sin mutación); endpoint `GET /calendario` (query `desde`/`hasta`/`vista`; respuesta `CalendarioResponse` con `rango` + `fechas[]` agregadas por fecha ocupada, incluyendo `color`/`estado`/`subEstado`/`reservaId`/`cliente`/`ttlRestante`/`enCola`; 401 sin sesión; 422 rango inválido); código de colores canónico (SlotifyGeneralSpecs §11.3) como tabla de datos declarativa; indicador `🔁 N en cola` sobre la celda bloqueante; popover de detalle al clic sin segunda llamada; aislamiento multi-tenant + RLS; calendar en react-big-calendar como página de inicio del App Shell; US, endpoint y entidades afectadas (`RESERVA`/`FECHA_BLOQUEADA` — lectura); flujos alternativos FA-01..FA-05 y diagrama Mermaid. Sin migración de esquema (no hay cambios en `RESERVA` ni `FECHA_BLOQUEADA`). Versión 1.2 (30/06/2026): refleja US-008 — programar visita al espacio (UC-07): reemplaza la ficha original de UC-07 con la especificación completa implementada: guarda de origen multi-estado `{2a,2b,2c}→2v`; precondición `fecha_evento` NOT NULL para `2a`; ventana `fecha_visita ∈ [hoy+1, hoy+max_dias_programar_visita]` (setting del tenant); INSERT-o-UPDATE de `FECHA_BLOQUEADA` (`ttl=visita+1 día`) según origen; atomicidad RESERVA+FECHA_BLOQUEADA+AUDIT_LOG en una única transacción; E6 post-commit vía motor US-045; US, endpoint `POST /reservas/{id}/visita`, entidades afectadas, flujos alternativos FA-01..FA-06 y diagrama Mermaid. A19/A20 (recordatorios al gestor) fuera de alcance de esta US (slice de jobs separado). Sin migración de columnas (campos de visita + sub-estado `2v` + `max_dias_programar_visita` ya existentes desde US-000). Versión 1.1 (28/06/2026): refleja US-004 — alta de consulta con fecha (UC-03): actualiza §3 UC-03 — flujo básico paso 3 (`fecha_evento > hoy`, estrictamente futura) y FA-01 (rechaza hoy y pasado con 400 en servidor; divergencia intencional Gate 1 decisión A; trazabilidad a `design.md §D-1`). Corrección transversal: UC-04 precondiciones alineadas con la regla real de `bloquearFecha()` / `validarFechaFutura` (`> hoy`; inconsistencia preexistente respecto a la ficha original).*

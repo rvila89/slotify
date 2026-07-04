@@ -27,6 +27,65 @@ export type FacturaPdfPendienteError =
 export type ErrorResponse = components['schemas']['ErrorResponse'];
 
 /**
+ * Sub-procesos de la RESERVA relevantes para las acciones de facturación de US-028
+ * (aprobar/enviar liquidación, enviar recibo de fianza). Derivan de los enums del
+ * contrato OpenAPI; la UI habilita/deshabilita acciones según su valor.
+ */
+export type LiquidacionStatus = components['schemas']['LiquidacionStatus'];
+export type FianzaStatus = components['schemas']['FianzaStatus'];
+
+/**
+ * Respuestas de las acciones dedicadas de US-028 (facturacion), sobre el SDK generado:
+ *  - `AprobarEnviarLiquidacionResponse`: liquidación (+ fianza si se emitió aquí) + status.
+ *  - `EnviarReciboFianzaResponse`: recibo de fianza emitido por separado + `fianzaStatus`.
+ *  - `ReenviarLiquidacionResponse`: liquidación sin cambios + la nueva COMUNICACION de reenvío.
+ */
+export type AprobarEnviarLiquidacionResponse =
+  components['schemas']['AprobarEnviarLiquidacionResponse'];
+export type EnviarReciboFianzaResponse =
+  components['schemas']['EnviarReciboFianzaResponse'];
+export type ReenviarLiquidacionResponse =
+  components['schemas']['ReenviarLiquidacionResponse'];
+export type AprobarEnviarLiquidacionRequest =
+  components['schemas']['AprobarEnviarLiquidacionRequest'];
+
+/**
+ * Envelope de error del contrato para las acciones de US-028 (`ErrorResponse` + `codigo`
+ * + `motivo`). Forma CRUDA tal cual la devuelve el SDK; `normalizarErrorLiquidacion` la
+ * traduce a la unión `LiquidacionError` en español (más abajo).
+ */
+export type LiquidacionErrorResponse = components['schemas']['LiquidacionError'];
+
+/**
+ * Error NORMALIZADO de las mutaciones de US-028 (aprobar/enviar liquidación, enviar recibo
+ * de fianza, reenviar liquidación), para que la UI ramifique en español sin volver a mirar
+ * códigos HTTP. Mismo patrón que `FacturaError` (US-022). Cada `tipo` mapea a un caso del
+ * contrato OpenAPI de US-028 (via `normalizarErrorLiquidacion`):
+ *  - `factura-no-borrador` (409 `FACTURA_NO_BORRADOR`): ya `enviada`/`cobrada`.
+ *  - `no-enviada` (409 `FACTURA_NO_ENVIADA`, solo reenviar): aún no emitida.
+ *  - `datos-fiscales-incompletos` (422 `DATOS_FISCALES_INCOMPLETOS`): `camposFaltantes`.
+ *  - `pdf-pendiente` (422 `PDF_PENDIENTE`): fallo transitorio del PDF; reintenta.
+ *  - `descuento-invalido` (422 `DESCUENTO_INVALIDO`): descuento fuera de rango.
+ *  - `emision-envio-fallido` (502/503 `EMISION_ENVIO_FALLIDO`): rollback total, reintentable.
+ *  - `generico` (401/403/404/red).
+ */
+export type LiquidacionError = {
+  tipo:
+    | 'factura-no-borrador'
+    | 'no-enviada'
+    | 'datos-fiscales-incompletos'
+    | 'pdf-pendiente'
+    | 'descuento-invalido'
+    | 'emision-envio-fallido'
+    | 'generico';
+  mensaje: string;
+  /** Solo presente en `datos-fiscales-incompletos` (422 con `camposFaltantes`). */
+  camposFaltantes?: CampoFiscalFaltante[];
+  /** Solo presente en `emision-envio-fallido` (fallo recuperable, reintentable). */
+  reintentable?: boolean;
+};
+
+/**
  * Campo fiscal del CLIENTE que puede faltar para emitir la factura de señal
  * (contrato: `FacturaDatosFiscalesIncompletosError.camposFaltantes`).
  */

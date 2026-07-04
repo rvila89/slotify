@@ -279,7 +279,7 @@ Esta sección registra las decisiones tomadas conscientemente como deuda en US-0
 | DT-AUTH-03 | **Throttler en memoria por proceso.** `LoginThrottleGuard` usa un `Map` en memoria del proceso: los contadores no se comparten entre instancias y se reinician al rearrancar el proceso. Aceptado para el MVP de instancia única (Railway). Antes de cualquier despliegue multi-instancia debe migrarse a una solución compartida (Redis, BD o `@nestjs/throttler` con store distribuido). | Decisión §3 del change US-001; nota de escalabilidad del code-review | Antes de despliegue multi-instancia |
 | DT-AUTH-04 | **SDK del frontend genera `.d.ts` en lugar de `.ts`.** La configuración actual de `resolve.extensions` incluye `.d.ts`, lo que hace que el cliente generado sea un archivo de tipos, no un módulo importable directamente. Requiere workaround en el build del frontend. La corrección pasa por ajustar la config de codegen del `contract-engineer`. | Nota de codegen del code-review | Próxima iteración de codegen del `contract-engineer` |
 | DT-EMAIL-01 | **Adaptador de email stub (no-op) — RESUELTA.** El `EnviarEmailStubAdapter` se sustituye en US-045 por `ResendEmailAdapter` (producción) y `FakeEmailAdapter` (test/CI/dev, forzado). El motor `DespacharEmailService` centraliza render + envío + actualización de estado. `AltaConsultaUseCase` delega el envío post-commit en `DespacharEmailService.finalizarEnvio`: la `COMUNICACION` E1 nace en `borrador` dentro de la `$transaction` del alta y el motor la promueve a `enviado`+`fecha_envio` (éxito) o a `fallido`+AUDIT_LOG (fallo del proveedor), sin reintento y sin tumbar el HTTP 201. Regresión cero sobre US-003/004 (contrato del puerto `EnviarEmailPort` intacto, campos nuevos solo opcionales). | US-045 (28/06/2026). Cierre: motor hexagonal + Resend + FakeEmailAdapter en test/CI + cableado real de E1. | RESUELTA — US-045 (28/06/2026) |
-| DT-EMAIL-02 | **Cableado de triggers E2–E8 diferido a sus US.** El catálogo de plantillas declara E2–E8 como entradas diseñadas/inactivas (variables, adjuntos y metadatos declarados, sin render activo) pero sin trigger cableado. Mapa de deuda actualizado: **E2 → RESUELTA — US-014** (trigger cableado en `POST /reservas/{id}/presupuesto`; activado post-commit de la transición `{2a,2b,2c,2v} → pre_reserva`; PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; idempotencia garantizada por índice UNIQUE parcial de US-045). **E6 → RESUELTA — US-008** (trigger cableado en `POST /reservas/{id}/visita`; activado post-commit de la transición `{2a,2b,2c} → 2v`). **E7 → RESUELTA — US-009** (trigger cableado en `PATCH /reservas/{id}/visita`; activado post-commit de la transición `2v → 2b` "cliente interesado"; confirmación de bloqueo post-visita con TTL fresco). **E3 — avance US-022 (04/07/2026):** US-022 implementa la generación y aprobación de la factura de señal (prerequisito de E3), pero el trigger de E3 no se cablea en este change — se cablea en US-023 (condiciones particulares), que es el trigger natural de E3 (`reserva_confirmada` + factura aprobada + condiciones generadas). Pendientes: E3→US-023, E4→US-027/028 (liquidación facturada), E5→US-034 (`post_evento` con `fianza_eur > 0`), E8→US-035 (`iban_devolucion` registrado). Adjuntos PDF reales (factura/documento) y cron de recordatorios también diferidos. Envío manual de borradores: US-046. | Decisión de alcance del Gate SDD de US-045: el cableado de E2–E8 requiere triggers, PDFs y estados de US aún no implementadas; construirlos ahora sería spec especulativa. El motor ya está listo para recibirlos sin rediseño. | E2: RESUELTA — US-014 (03/07/2026). E6: RESUELTA — US-008 (30/06/2026). E7: RESUELTA — US-009 (03/07/2026). E3: avance US-022 (04/07/2026) → cierre pendiente US-023. E4, E5, E8: cada US de trigger listada + US-046 |
+| DT-EMAIL-02 | **Cableado de triggers E2–E8 diferido a sus US.** El catálogo de plantillas declara E2–E8 como entradas diseñadas/inactivas (variables, adjuntos y metadatos declarados, sin render activo) pero sin trigger cableado. Mapa de deuda actualizado: **E2 → RESUELTA — US-014** (trigger cableado en `POST /reservas/{id}/presupuesto`; activado post-commit de la transición `{2a,2b,2c,2v} → pre_reserva`; PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; idempotencia garantizada por índice UNIQUE parcial de US-045). **E6 → RESUELTA — US-008** (trigger cableado en `POST /reservas/{id}/visita`; activado post-commit de la transición `{2a,2b,2c} → 2v`). **E7 → RESUELTA — US-009** (trigger cableado en `PATCH /reservas/{id}/visita`; activado post-commit de la transición `2v → 2b` "cliente interesado"; confirmación de bloqueo post-visita con TTL fresco). **E3 — avance US-022 (04/07/2026):** US-022 implementa la generación y aprobación de la factura de señal (prerequisito de E3), pero el trigger de E3 no se cablea en este change — se cablea en US-023 (condiciones particulares), que es el trigger natural de E3 (`reserva_confirmada` + factura aprobada + condiciones generadas). **E4 → RESUELTA — US-028 (04/07/2026):** trigger cableado en `AprobarYEnviarLiquidacionUseCase` (`POST /reservas/{id}/facturas/liquidacion/aprobar-enviar`); modo síncrono confirmado (D-1: excepción al post-commit; rollback total si E4 falla); PDFs de liquidación y fianza adjuntos por referencia a `pdf_url`; `COMUNICACION E4` con `es_reenvio = false` para envío original y `es_reenvio = true` para reenvíos manuales (`POST /reservas/{id}/facturas/liquidacion/reenviar`). Pendientes: E3→US-023, E5→US-034 (`post_evento` con `fianza_eur > 0`), E8→US-035 (`iban_devolucion` registrado). Adjuntos PDF reales (factura/documento) y cron de recordatorios también diferidos. Envío manual de borradores: US-046. | Decisión de alcance del Gate SDD de US-045: el cableado de E2–E8 requiere triggers, PDFs y estados de US aún no implementadas; construirlos ahora sería spec especulativa. El motor ya está listo para recibirlos sin rediseño. | E2: RESUELTA — US-014 (03/07/2026). E6: RESUELTA — US-008 (30/06/2026). E7: RESUELTA — US-009 (03/07/2026). E3: avance US-022 (04/07/2026) → cierre pendiente US-023. **E4: RESUELTA — US-028 (04/07/2026).** E5, E8: cada US de trigger listada + US-046 |
 | Bj3 | **Default inseguro de `EMAIL_SANDBOX` — RESUELTA.** Antes, si `EMAIL_SANDBOX` no estaba seteada, el sistema podía enviar emails reales (unset → `false`). Ahora el default es SEGURO con doble barrera: (1) validación zod en `env.validation.ts` — unset → `undefined !== 'false'` → `true` (sandbox activo); (2) cableado en `comunicaciones.module.ts` — trata como envío real solo el `false`/`'false'` explícito. Con `sandbox=true`, `resend.email.adapter.ts` reescribe el destinatario a `delivered@resend.dev`. El opt-in al envío real exige `EMAIL_SANDBOX=false` explícito en el entorno; cualquier otro valor, incluido unset, mantiene el sandbox activo. Cobertura: 3 tests nuevos en `env.validation.spec.ts` (unset→true, 'true'→true, 'false'→false). | Code-review de US-045, segunda pasada (29/06/2026). Detectada como deuda operativa de seguridad (baja→operativa). | RESUELTA — US-045 fix Bj3 (29/06/2026) |
 | DT-CODIGO-01 | **Generación de `codigo` no atómica (count+1) — RESUELTA.** La implementación inicial generaba el correlativo `YY-NNNN` con `count(*)+1` dentro de la transacción: dos altas concurrentes podían leer el mismo recuento y colisionar en el índice `reserva_codigo_key`. Resuelto con **retry-on-conflict** en `UnidadDeTrabajoPrismaAdapter.ejecutar()` (hasta 3 reintentos): ante `P2002` sobre `reserva_codigo_key`, el adaptador reabre la `$transaction` y reintenta; el siguiente intento re-lee el `count` con el ganador ya confirmado. El índice UNIQUE permanece como red de seguridad final. Conexo: el controlador ya no enmascara errores como 500; cualquier `P2002` no capturado por el caso de uso se propaga al `HttpExceptionFilter` global → 409. | Code-review de US-003 (señalado como tolerable para MVP; corregido en los fixes finales de US-003) | RESUELTA — US-003 fixes finales (28/06/2026) |
 
@@ -677,6 +677,75 @@ El email E3 (`reserva_confirmada` + factura de señal aprobada) estaba marcado c
 
 ---
 
+### 2.15 Capability M12 Facturación — emisión atómica de liquidación y fianza (US-028 / UC-21 / UC-22)
+
+US-028 cierra la capability de facturación para los documentos de liquidación y fianza: toma los borradores creados por US-027 (con `numero_factura = NULL`) y los emite al cliente. Introduce **tres nuevos casos de uso de aplicación** y **un nuevo campo en el modelo `Comunicacion`**.
+
+#### Nuevos casos de uso
+
+| Use case | Endpoint | Efecto principal |
+|---|---|---|
+| `AprobarYEnviarLiquidacionUseCase` | `POST /reservas/{id}/facturas/liquidacion/aprobar-enviar` | Emite liquidación (+ fianza si no se envió separada), envía E4, actualiza `liquidacion_status = 'facturada'` y `fianza_status = 'recibo_enviado'` |
+| `EnviarReciboFianzaUseCase` | `POST /reservas/{id}/facturas/fianza/enviar` | Emite solo el recibo de fianza, email `manual`, actualiza `fianza_status = 'recibo_enviado'` sin tocar `liquidacion_status` |
+| `ReenviarLiquidacionUseCase` | `POST /reservas/{id}/facturas/liquidacion/reenviar` | Reenvía el PDF ya emitido sin reasignar numeración ni cambiar estado; crea `COMUNICACION E4` con `es_reenvio = true` |
+
+#### Patrón D-1: atomicidad estado↔E4 (excepción al post-commit)
+
+US-045/US-014/US-008 establecieron que el email es **post-commit y su fallo no revierte el estado**. US-028 exige lo contrario para `AprobarYEnviarLiquidacionUseCase`: la transición de estado y el envío de E4 son **síncronos y confirmados**. El motor de US-045 se invoca en **modo síncrono** (no fire-and-forget):
+
+1. Se preparan y verifican los PDFs adjuntos (ambos `pdf_url` existentes).
+2. Se asignan los `numero_factura = F-YYYY-NNNN` (reutilizando la numeración de US-022: `MAX+1`, retry ante `P2002`, nunca locks distribuidos).
+3. Se llama al motor de email E4 de forma **síncrona esperando la confirmación del proveedor**.
+4. **Solo si E4 se confirma**: se commitea el conjunto `numero_factura asignado + estado = 'enviada' (ambas facturas) + liquidacion_status = 'facturada' + fianza_status = 'recibo_enviado' + marcado RESERVA_EXTRA + COMUNICACION E4 enviado + AUDIT_LOG`.
+5. **Si E4 falla**: rollback total; ningún estado cambia; el `numero_factura` del intento no queda consolidado; se devuelve `502/503` recuperable.
+
+En `test`/CI el transporte es `FakeEmailAdapter` (confirmación simulada, sin red), manteniendo la misma semántica.
+
+#### Campo `esReenvio` en `Comunicacion` (migración D-4)
+
+Para permitir múltiples `COMUNICACION E4` por reserva cuando el Gestor reenvía la factura, se añadió el campo `esReenvio Boolean @default(false)` al modelo `Comunicacion`. El índice UNIQUE parcial de US-045 se actualizó con la condición adicional `AND es_reenvio = false`:
+
+```
+uq_comunicacion_reserva_codigo (reserva_id, codigo_email)
+  WHERE reserva_id IS NOT NULL AND es_reenvio = false
+```
+
+Los reenvíos (`esReenvio = true`) quedan fuera del constraint, permitiendo trazabilidad de cada envío sin violar la idempotencia del envío original.
+
+#### Descuento negociado antes de emitir (D-2)
+
+El Gestor puede aplicar un descuento sobre la factura de liquidación mientras está en `borrador`, antes de llamar a `aprobar-enviar`. El body opcional `{ descuento?, extrasCorregidos?, motivo? }` dispara la función pura `aplicarDescuentoLiquidacion` (dominio, reutiliza `calcularDesgloseFiscal` de US-022 con el total ajustado) y actualiza `RESERVA.importe_liquidacion`; el descuento y su motivo quedan en `AUDIT_LOG accion='actualizar'`.
+
+#### Envío separado del recibo de fianza (D-3)
+
+El recibo de fianza puede enviarse de forma independiente de la liquidación. `EnviarReciboFianzaUseCase` registra el email con `codigo_email = 'manual'` (no E4), por lo que no colisiona con la idempotencia `(reserva_id, E4)`. Si la fianza ya se envió por separado antes de aprobar la liquidación, `AprobarYEnviarLiquidacionUseCase` incluye solo la factura de liquidación en E4 y no sobreescribe `fianza_status = 'recibo_enviado'` (ya establecido).
+
+#### Módulo backend (extensión del módulo `facturacion`)
+
+```
+apps/api/src/facturacion/
+  application/
+    aprobar-enviar-liquidacion.use-case.ts   Atomicidad D-1
+    enviar-recibo-fianza.use-case.ts          D-3
+    reenviar-liquidacion.use-case.ts          D-4
+  infrastructure/
+    (6 nuevos adaptadores de infraestructura de facturación)
+```
+
+**Regla de dependencia hexagonal:** el dominio no importa el SDK del proveedor de email ni Prisma. El motor `DespacharEmailService` de US-045 se invoca en modo síncrono; el transport (real/fake) se inyecta.
+
+#### Actualización de DT-EMAIL-02 (E4 — RESUELTA)
+
+E4 pasa de "diseñada/inactiva" a activa con US-028. El trigger se cablea en `AprobarYEnviarLiquidacionUseCase` (modo síncrono con confirmación). Pendientes: E3→US-023, E5→US-034, E8→US-035. Ver `§2.9 DT-EMAIL-02`.
+
+#### Sin migración de FACTURA ni de RESERVA
+
+US-028 no añade columnas a `FACTURA` ni a `RESERVA`. Las únicas mutaciones de esquema son:
+1. **Campo `esReenvio`** en `COMUNICACION` (`Boolean @default(false)`).
+2. **Actualización del predicado** del índice UNIQUE parcial de `COMUNICACION` (añadido `AND es_reenvio = false`).
+
+---
+
 ## 3. Arquitectura objetivo de producción (visión a escala)
 
 > **Estado: visión de destino. NO se implementa en el MVP TFM.** Esta sección documenta a dónde evolucionaría Slotify como producto comercial multi-tenant. Cada componente se justifica por una necesidad que aparece *a escala*, y se anota por qué está sobredimensionado en la fase actual.
@@ -944,6 +1013,7 @@ El MVP tiene tres piezas, pero solo dos cuestan: el **frontend SPA** se sirve co
 
 ---
 
+*Documento de arquitectura v4.7, 04/07/2026. Cambios respecto a v4.6: refleja US-028 — Gestor Aprueba y Envía la Factura de Liquidación (UC-21 / UC-22): añade §2.15 (capability M12 Facturación — emisión atómica de liquidación y fianza) documentando: tres nuevos use cases (`AprobarYEnviarLiquidacionUseCase`, `EnviarReciboFianzaUseCase`, `ReenviarLiquidacionUseCase`) con sus endpoints bajo `/reservas/{id}/facturas/`; patrón D-1 de atomicidad síncrona estado↔E4 como excepción documentada al post-commit de US-045 (rollback total si E4 falla; `FakeEmailAdapter` en test/CI para cubrir la misma semántica sin red); campo `esReenvio Boolean @default(false)` en `Comunicacion` (migración D-4) y actualización del predicado del índice UNIQUE parcial de US-045 (`AND es_reenvio = false`); descuento negociado D-2 (`aplicarDescuentoLiquidacion` en dominio puro, reutiliza `calcularDesgloseFiscal` de US-022, actualiza `RESERVA.importe_liquidacion`); envío separado D-3 (`codigo_email='manual'`, sin colisión con idempotencia E4); regla de no-sobreescritura de `fianza_status` cuando la fianza ya se envió por separado; módulo backend (6 nuevos adaptadores de infraestructura; sin nuevas columnas en FACTURA ni RESERVA). Actualiza §2.9 DT-EMAIL-02: marca E4 como RESUELTA (04/07/2026) con descripción del modo síncrono y los tres endpoints de facturación.*
 *Documento de arquitectura v4.6, 04/07/2026. Cambios respecto a v4.5: refleja US-022 — Generar Factura de Señal al Confirmar Reserva (UC-18): añade §2.14 (capability M12 Facturación) documentando: módulo backend `apps/api/src/facturacion/` (hexagonal, domain/application/infrastructure/interface); patrón "efecto post-commit" — la creación de la FACTURA ocurre tras el commit de US-021, fuera de la transacción crítica `FOR UPDATE`, con la misma separación de capabilities que PDF+E2 en US-014; función pura `calcularDesgloseFiscal` (`base = round(total/1.21,2)`; `iva = total − base` por resta sin doble redondeo); numeración `F-YYYY-NNNN` con `MAX(NNNN)+1` y retry-on-conflict ante `P2002` en `UNIQUE(tenant_id, numero_factura)` (nunca locks distribuidos); idempotencia `findByReservaIdAndTipo + UNIQUE(reservaId, tipo)`; adaptador PDF FAKE determinista en MVP; tabla de endpoints (consultar/aprobar/rechazar/regenerar-pdf) con precondiciones y efectos; migración de constraints (sustitución de `@unique` global por `@@unique([tenantId, numeroFactura])` + adición de `@@unique([reservaId, tipo])`); nota de actualización de DT-EMAIL-02 (E3 se cablea en US-023, no en US-022).*
 *Documento de arquitectura v4.5, 03/07/2026. Cambios respecto a v4.4: refleja US-019 — promoción manual de consulta en cola (UC-12 flujo B): añade bloque `US-019` en §2.4 documentando `PromoverManualEnColaService` (locus de lock sobre `FECHA_BLOQUEADA` a diferencia de US-018; expiración forzosa de la bloqueante `2b/2c/2v → 2x`; re-asignación de la fila por UPDATE respetando `UNIQUE(tenant_id, fecha)`; reordenación por cierre de hueco; endpoint `POST /reservas/{id}/promover` con `{ confirmado: true }`; política de arbitraje FIFO estricto + primer lock, 409 al Gestor si pierde la carrera; sin migración de esquema); actualiza D-6 de US-018 indicando que US-019 ya está implementada y describe su locus de lock propio.*
 *Documento de arquitectura v4.4, 01/07/2026. Cambios respecto a v4.3: refleja US-018 — promoción automática de cola (UC-12): añade bloque `US-018` en §2.4 documentando el cierre del seam `PromocionColaPort` (sustitución del stub no-op por `PromocionColaPrismaAdapter`); describe la mecánica A15 en transacción única (lock sobre RESERVA `2d`, guarda "ya promovida", función pura `resolverPromocionCola`, re-bloqueo vía `bloquearFecha()`, reordenación FIFO, alerta interna al gestor); documenta el punto de serialización real (`SELECT … FOR UPDATE` sobre RESERVA `2d`, no sobre `FECHA_BLOQUEADA` que ya no existe); registra D-5 (sin email al cliente; US-044 diferida) y D-6 (FIFO + primer lock; coordinación con US-019 vía la guarda); actualiza el bloque de `liberarFecha()` y §2.12 para reflejar el adaptador real en lugar del stub.*

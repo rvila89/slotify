@@ -5,6 +5,8 @@ import {
   seleccionarBorradoresLiquidacionFianza,
 } from '../lib/alerta';
 import { FacturaBorradorCard } from './FacturaBorradorCard';
+import { AccionesFacturacion } from './AccionesFacturacion';
+import type { FianzaStatus, LiquidacionStatus } from '../model/types';
 
 /**
  * Sección "Documentos de liquidación y fianza" (US-027 · UC-21) de la ficha de una
@@ -20,9 +22,19 @@ import { FacturaBorradorCard } from './FacturaBorradorCard';
  * Se monta junto a la card de la factura de señal de US-022 en la misma vista.
  * Mobile-first: las cards apilan en una columna en `<lg` y pasan a dos columnas en
  * `lg:`; sin overflow horizontal.
+ *
+ * Cuando recibe los sub-procesos de la RESERVA (`liquidacionStatus`/`fianzaStatus`,
+ * US-028), renderiza además el panel de **acciones del Gestor** (`AccionesFacturacion`):
+ * aprobar y enviar la liquidación con descuento negociado, enviar el recibo de fianza
+ * por separado y reenviar la factura ya emitida. El panel se alimenta de los borradores
+ * de liquidación y fianza derivados aquí, y habilita cada acción según el status.
  */
 type Props = {
   reservaId: string;
+  /** Sub-proceso de liquidación de la RESERVA; habilita "Aprobar y enviar" y "Reenviar". */
+  liquidacionStatus?: LiquidacionStatus;
+  /** Sub-proceso de fianza de la RESERVA; habilita "Enviar recibo de fianza". */
+  fianzaStatus?: FianzaStatus;
 };
 
 const claseSeccion =
@@ -39,7 +51,11 @@ const Encabezado = () => (
   </div>
 );
 
-export const DocumentosLiquidacionFianza = ({ reservaId }: Props) => {
+export const DocumentosLiquidacionFianza = ({
+  reservaId,
+  liquidacionStatus,
+  fianzaStatus,
+}: Props) => {
   const { data: facturas, isLoading, isError } = useFacturasReserva(reservaId);
 
   if (isLoading) {
@@ -59,6 +75,22 @@ export const DocumentosLiquidacionFianza = ({ reservaId }: Props) => {
 
   const borradores = seleccionarBorradoresLiquidacionFianza(facturas);
   const alerta = derivarAlertaDocumentos(facturas);
+  const liquidacion = borradores.find((f) => f.tipo === 'liquidacion');
+  const fianza = borradores.find((f) => f.tipo === 'fianza');
+
+  // El panel de acciones (US-028) solo tiene sentido cuando la ficha conoce los
+  // sub-procesos de la reserva. Se muestra aunque no queden borradores (p. ej.
+  // `liquidacionStatus='facturada'` habilita únicamente "Reenviar factura").
+  const panelAcciones =
+    liquidacionStatus && fianzaStatus ? (
+      <AccionesFacturacion
+        reservaId={reservaId}
+        liquidacionStatus={liquidacionStatus}
+        fianzaStatus={fianzaStatus}
+        liquidacion={liquidacion}
+        fianza={fianza}
+      />
+    ) : null;
 
   if (isError) {
     return (
@@ -89,6 +121,7 @@ export const DocumentosLiquidacionFianza = ({ reservaId }: Props) => {
           Los borradores de liquidación y fianza se están preparando; estarán disponibles para
           revisión en breve.
         </p>
+        {panelAcciones}
       </section>
     );
   }
@@ -117,6 +150,8 @@ export const DocumentosLiquidacionFianza = ({ reservaId }: Props) => {
           <FacturaBorradorCard key={factura.idFactura} factura={factura} />
         ))}
       </div>
+
+      {panelAcciones}
     </section>
   );
 };

@@ -9,7 +9,7 @@
  * F2-01). Los flags `esBorradorInvalido`/`pdfPendiente` son DERIVADOS (design.md §D-9).
  */
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 /** Estado del ciclo de vida de la factura (contrato `EstadoFactura`). */
 export type EstadoFacturaDto = 'borrador' | 'enviada' | 'cobrada';
@@ -87,3 +87,92 @@ export class RechazarFacturaRequestDto {
 
 /** Cuerpo vacío del reintento de PDF (contrato `RegenerarPdfFacturaRequest`). */
 export class RegenerarPdfFacturaRequestDto {}
+
+/** Sub-estados de liquidación de la RESERVA (contrato `LiquidacionStatus`). */
+export type LiquidacionStatusDto = 'pendiente' | 'facturada' | 'cobrada';
+
+/** Sub-estados de fianza de la RESERVA (contrato `FianzaStatus`). */
+export type FianzaStatusDto =
+  | 'pendiente'
+  | 'recibo_enviado'
+  | 'cobrada'
+  | 'devuelta'
+  | 'retenida_parcial';
+
+/**
+ * Cuerpo OPCIONAL de "Aprobar y enviar" la liquidación (contrato `AprobarEnviarLiquidacionRequest`,
+ * US-028 / UC-21). Sin body emite la liquidación tal cual; con body aplica el descuento negociado
+ * (D-2) y registra el motivo en AUDIT_LOG.
+ */
+export class AprobarEnviarLiquidacionDto {
+  @ApiPropertyOptional({
+    example: '200.00',
+    description: 'Descuento negociado (> 0 y < total). Inválido → 422 DESCUENTO_INVALIDO.',
+  })
+  @IsOptional()
+  @IsString()
+  descuento?: string;
+
+  @ApiPropertyOptional({ description: 'Motivo del descuento, registrado en AUDIT_LOG.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  motivo?: string;
+}
+
+/**
+ * Respuesta de "Aprobar y enviar" la liquidación (contrato `AprobarEnviarLiquidacionResponse`).
+ * Devuelve ambas facturas emitidas (`fianza=null` si no se emitió aquí) + los status resultantes.
+ */
+export class AprobarEnviarLiquidacionResponseDto {
+  @ApiProperty({ type: FacturaDto })
+  liquidacion!: FacturaDto;
+
+  @ApiProperty({ type: FacturaDto, nullable: true })
+  fianza!: FacturaDto | null;
+
+  @ApiProperty({ enum: ['pendiente', 'facturada', 'cobrada'] })
+  liquidacionStatus!: LiquidacionStatusDto;
+
+  @ApiProperty({
+    enum: ['pendiente', 'recibo_enviado', 'cobrada', 'devuelta', 'retenida_parcial'],
+  })
+  fianzaStatus!: FianzaStatusDto;
+}
+
+/**
+ * Respuesta del envío separado del recibo de fianza (contrato `EnviarReciboFianzaResponse`).
+ */
+export class EnviarReciboFianzaResponseDto {
+  @ApiProperty({ type: FacturaDto })
+  fianza!: FacturaDto;
+
+  @ApiProperty({
+    enum: ['pendiente', 'recibo_enviado', 'cobrada', 'devuelta', 'retenida_parcial'],
+  })
+  fianzaStatus!: FianzaStatusDto;
+}
+
+/** Proyección de la NUEVA COMUNICACION creada por el reenvío. */
+export class ComunicacionReenvioDto {
+  @ApiProperty({ format: 'uuid' })
+  idComunicacion!: string;
+
+  @ApiPropertyOptional({ example: 'enviado' })
+  estado?: string;
+
+  @ApiPropertyOptional({ format: 'date-time', nullable: true })
+  fechaEnvio?: string | null;
+}
+
+/**
+ * Respuesta del reenvío de la liquidación (contrato `ReenviarLiquidacionResponse`). Devuelve la
+ * factura de liquidación SIN cambios y la NUEVA COMUNICACION creada por el reenvío (D-4).
+ */
+export class ReenviarLiquidacionResponseDto {
+  @ApiProperty({ type: FacturaDto })
+  liquidacion!: FacturaDto;
+
+  @ApiProperty({ type: ComunicacionReenvioDto })
+  comunicacion!: ComunicacionReenvioDto;
+}

@@ -40,3 +40,27 @@ export const CARGAR_EXTRAS_PENDIENTES_PORT = Symbol('CargarExtrasPendientesPort'
 export const CARGAR_FIANZA_DEFAULT_PORT = Symbol('CargarFianzaDefaultPort');
 /** Lectura de la colección de FACTURA de una reserva (GET /reservas/{id}/facturas). */
 export const LISTAR_FACTURAS_RESERVA_PORT = Symbol('ListarFacturasReservaPort');
+
+// --- US-028: emisión y envío de la liquidación / fianza (UC-21, UC-22, D-4) ---
+/** Unidad de trabajo transaccional de la emisión de la liquidación (tx + RLS). */
+export const UNIDAD_DE_TRABAJO_EMISION_PORT = Symbol('UnidadDeTrabajoEmisionPort');
+/** Lectura de la RESERVA para la emisión de la liquidación (email cliente). */
+export const CARGAR_RESERVA_EMISION_PORT = Symbol('CargarReservaEmisionPort');
+/** Envío SÍNCRONO/CONFIRMADO de E4 (liquidación + fianza). */
+export const ENVIAR_E4_EMISION_PORT = Symbol('EnviarE4EmisionPort');
+/** Unidad de trabajo transaccional del envío separado del recibo de fianza (tx + RLS). */
+export const UNIDAD_DE_TRABAJO_FIANZA_PORT = Symbol('UnidadDeTrabajoFianzaPort');
+/** Lectura de la RESERVA para el envío separado del recibo de fianza. */
+export const CARGAR_RESERVA_FIANZA_PORT = Symbol('CargarReservaFianzaPort');
+/** Envío SÍNCRONO/CONFIRMADO del recibo de fianza (email `manual`). */
+export const ENVIAR_RECIBO_FIANZA_PORT = Symbol('EnviarReciboFianzaPort');
+/** Lectura de la RESERVA para el reenvío de la liquidación. */
+export const CARGAR_RESERVA_REENVIO_PORT = Symbol('CargarReservaReenvioPort');
+/** Lectura de la FACTURA de liquidación ya emitida (reenvío). */
+export const CARGAR_LIQUIDACION_REENVIO_PORT = Symbol('CargarLiquidacionReenvioPort');
+/** Reenvío de E4 (reutiliza el PDF ya emitido). */
+export const REENVIAR_E4_PORT = Symbol('ReenviarE4Port');
+/** Registro de la NUEVA COMUNICACION de reenvío (excepción auditada a la idempotencia). */
+export const REGISTRAR_COMUNICACION_REENVIO_PORT = Symbol('RegistrarComunicacionReenvioPort');
+/** Registro de auditoría del reenvío. */
+export const REGISTRAR_AUDITORIA_REENVIO_PORT = Symbol('RegistrarAuditoriaReenvioPort');
