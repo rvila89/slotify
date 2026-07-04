@@ -49,6 +49,30 @@ export const esTransicionPreEventoValida = (
   destino: PreEventoStatus,
 ): boolean => TRANSICIONES[origen].includes(destino);
 
+/**
+ * Mapa declarativo del CIERRE AUTOMÁTICO A10 en T-1d (US-026 / UC-20 FA-01, actor
+ * Sistema): para cada `pre_evento_status` de origen, el destino del cierre forzado por
+ * el barrido. Los dos estados ABIERTOS (`pendiente`, `en_curso`) transicionan a
+ * `cerrado`; `cerrado` es ESTABLE y NO es candidato (idempotencia: no-op → sin destino).
+ * Es una ESTRUCTURA DE DATOS, no `if` dispersos (CLAUDE.md §Máquina de estados).
+ */
+const CIERRE_AUTOMATICO_A10: Readonly<Record<PreEventoStatus, PreEventoStatus | null>> = {
+  pendiente: 'cerrado',
+  en_curso: 'cerrado',
+  cerrado: null,
+};
+
+/**
+ * Resuelve el destino del cierre automático A10 para un `pre_evento_status` de origen:
+ * `'cerrado'` cuando la RESERVA es candidata (`pendiente`/`en_curso`); `null` cuando ya
+ * NO lo es (`cerrado`, idempotente/no-op). Base declarativa de la idempotencia del
+ * barrido: la guarda se re-evalúa dentro de la transacción de cada RESERVA (D-4/D-6).
+ * Función pura y determinista.
+ */
+export const resolverCierreAutomatico = (
+  origen: PreEventoStatus,
+): PreEventoStatus | null => CIERRE_AUTOMATICO_A10[origen];
+
 /** Nombres de los campos de texto de contenido (para la guarda de "dato de texto"). */
 const CAMPOS_TEXTO: ReadonlyArray<keyof ContenidoFicha> = [
   'menuSeleccionado',

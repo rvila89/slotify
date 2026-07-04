@@ -12,20 +12,46 @@ import { Injectable } from '@nestjs/common';
 import { AccionAudit, Prisma } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type { RegistroAuditoria } from '../../shared/audit/audit-log.port';
-import type {
-  DatosCierreFicha,
-  FichaCierreRepositoryPort,
-  FichaOperativa,
-  RepositoriosCierreFicha,
-  UnidadDeTrabajoFichaPort,
+import {
+  FichaYaCerradaError,
+  type DatosCierreFicha,
+  type FichaCierreRepositoryPort,
+  type FichaOperativa,
+  type RepositoriosCierreFicha,
+  type UnidadDeTrabajoFichaPort,
 } from '../domain/ficha-operativa.ports';
+import {
+  esTransicionPreEventoValida,
+  type PreEventoStatus,
+} from '../domain/maquina-estados-pre-evento';
 import { proyectarFicha } from './ficha-operativa.mapper';
+
+/** Fila cruda del `SELECT … FOR UPDATE` sobre la RESERVA (columna snake_case). */
+interface FilaReservaBloqueada {
+  pre_evento_status: PreEventoStatus;
+}
 
 /** Repositorio de FICHA_OPERATIVA (cierre) ligado a la transacción. */
 class FichaCierrePrismaRepository implements FichaCierreRepositoryPort {
   constructor(private readonly tx: Prisma.TransactionClient) {}
 
   async cerrar(reservaId: string, datos: DatosCierreFicha): Promise<FichaOperativa> {
+    // RE-EVALUACIÓN de la guarda de la máquina de estados DENTRO de la transacción, bajo
+    // `SELECT … FOR UPDATE` sobre la RESERVA (serialización por PostgreSQL, sin locks
+    // distribuidos). Si otra vía (barrido automático US-026 o un cierre concurrente) ya
+    // dejó `pre_evento_status = cerrado`, la transición `cerrado → cerrado` es inválida
+    // → se aborta la transacción (no muta, no audita): idempotencia + coordinación C-2.
+    const filas = await this.tx.$queryRaw<FilaReservaBloqueada[]>(Prisma.sql`
+      SELECT pre_evento_status
+      FROM reserva
+      WHERE id_reserva = ${reservaId}
+      FOR UPDATE
+    `);
+    const origen = filas.length > 0 ? filas[0].pre_evento_status : null;
+    if (origen === null || !esTransicionPreEventoValida(origen, datos.preEventoStatus)) {
+      throw new FichaYaCerradaError();
+    }
+
     const fila = await this.tx.fichaOperativa.update({
       where: { reservaId },
       data: {

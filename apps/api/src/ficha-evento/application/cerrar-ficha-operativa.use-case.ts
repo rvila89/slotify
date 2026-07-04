@@ -10,6 +10,7 @@
  */
 import {
   FichaNoDisponibleError,
+  FichaYaCerradaError,
   ReservaNoEncontradaError,
   permiteAccederFicha,
   type CargarReservaConFichaPort,
@@ -22,6 +23,7 @@ import type { ContenidoFicha } from '../domain/maquina-estados-pre-evento';
 
 export {
   FichaNoDisponibleError,
+  FichaYaCerradaError,
   ReservaNoEncontradaError,
 } from '../domain/ficha-operativa.ports';
 export type {
@@ -100,28 +102,64 @@ export class CerrarFichaOperativaUseCase {
     }
 
     const avisosCamposVacios = calcularAvisosCamposVacios(reserva.ficha);
+    const fichaCierreExistente = reserva.ficha;
     const fechaCierre = this.deps.clock.ahora();
 
-    const fichaCerrada = (await this.deps.unidadDeTrabajo.ejecutar(
-      tenantId,
-      async (repos) => {
-        const resultado = await repos.ficha.cerrar(reservaId, {
-          fichaCerrada: true,
-          fechaCierre,
-          preEventoStatus: 'cerrado',
-        });
-        await repos.auditoria.registrar({
+    let fichaCerrada: FichaOperativa;
+    try {
+      fichaCerrada = (await this.deps.unidadDeTrabajo.ejecutar(
+        tenantId,
+        async (repos) => {
+          const resultado = await repos.ficha.cerrar(reservaId, {
+            fichaCerrada: true,
+            fechaCierre,
+            preEventoStatus: 'cerrado',
+          });
+          await repos.auditoria.registrar({
+            tenantId,
+            usuarioId,
+            accion: 'transicion',
+            entidad: 'FICHA_OPERATIVA',
+            entidadId: reservaId,
+            datosNuevos: { preEventoStatus: 'cerrado', fichaCerrada: true },
+          });
+          return resultado;
+        },
+      )) as FichaOperativa;
+    } catch (error) {
+      // Coordinación C-2: bajo el lock, la ficha YA estaba `cerrado` (otra vía —el
+      // barrido A10 de US-026 o un cierre concurrente— ganó la carrera). La UoW abortó
+      // sin mutar ni auditar. El cierre manual es IDEMPOTENTE: el estado deseado por el
+      // gestor ya se cumplió → releemos la ficha cerrada actual y devolvemos 200 (no-op
+      // exitoso), sin re-mutar ni duplicar auditoría.
+      if (error instanceof FichaYaCerradaError) {
+        const fichaActual = await this.releerFichaCerrada(
           tenantId,
-          usuarioId,
-          accion: 'transicion',
-          entidad: 'FICHA_OPERATIVA',
-          entidadId: reservaId,
-          datosNuevos: { preEventoStatus: 'cerrado', fichaCerrada: true },
-        });
-        return resultado;
-      },
-    )) as FichaOperativa;
+          reservaId,
+          fichaCierreExistente,
+        );
+        return { ...fichaActual, avisosCamposVacios };
+      }
+      throw error;
+    }
 
     return { ...fichaCerrada, avisosCamposVacios };
+  }
+
+  /**
+   * Relee la ficha (ya cerrada por otra vía) para construir la respuesta idempotente.
+   * Si la relectura no la encuentra (carrera improbable), cae al snapshot cargado antes
+   * de la transacción, proyectado como cerrado — nunca degrada a error.
+   */
+  private async releerFichaCerrada(
+    tenantId: string,
+    reservaId: string,
+    respaldo: FichaOperativa,
+  ): Promise<FichaOperativa> {
+    const reserva = await this.deps.cargarReservaConFicha({ tenantId, reservaId });
+    if (reserva?.ficha != null) {
+      return reserva.ficha;
+    }
+    return { ...respaldo, fichaCerrada: true, preEventoStatus: 'cerrado' };
   }
 }

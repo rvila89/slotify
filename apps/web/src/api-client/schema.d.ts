@@ -2495,10 +2495,25 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Barrido periódico de TTLs, cola y recordatorios
-         * @description Endpoint protegido (token de servicio) invocado por el cron. Es idempotente:
-         *     barre reservas con `ttl_expiracion` vencido, las expira (2.b→2.x), libera la fecha,
-         *     promueve la cola y dispara recordatorios automáticos. No depende del reloj exacto.
+         * Barrido periódico de TTLs, cola, recordatorios y cierre de fichas
+         * @description Endpoint protegido (token de servicio `X-Cron-Token`, nunca JWT) invocado por el cron.
+         *     Es idempotente: barre reservas con `ttl_expiracion` vencido, las expira (2.b→2.x),
+         *     libera la fecha, promueve la cola y dispara recordatorios automáticos. No depende del
+         *     reloj exacto.
+         *
+         *     Con `tarea=fichas` (o `all`) ejecuta además el **cierre automático de la ficha
+         *     operativa en T-1d** ([US-026], automatización A10): selecciona cross-tenant las RESERVA
+         *     en `reserva_confirmada` con `pre_evento_status != 'cerrado'` y `date(fecha_evento) =
+         *     date(hoy) + 1 día`, y por cada una, en su **propia transacción** bajo el contexto RLS
+         *     del tenant de la RESERVA (cross-tenant read / RLS write), re-evalúa la guarda y aplica
+         *     la mutación de cierre reutilizada de US-025 (`FICHA_OPERATIVA.ficha_cerrada = true`,
+         *     `fecha_cierre = now()`, `RESERVA.pre_evento_status → cerrado`, `AUDIT_LOG
+         *     accion='transicion'` origen Sistema, causa `A10`). **Idempotente**: las fichas ya
+         *     cerradas (por un pase previo o por cierre manual US-025) no son candidatas → N
+         *     ejecuciones = 1 cierre y 1 auditoría. El **fallo de una candidata no aborta el lote**
+         *     (fallo aislado por RESERVA). El resumen del cierre de fichas se devuelve en
+         *     `BarridoResponse.fichas` (`candidatas`, `fichasCerradas`, `fallos`). No envía email ni
+         *     resumen al cliente (out-of-scope, sin código E).
          */
         post: {
             parameters: {
@@ -3591,6 +3606,7 @@ export interface components {
             fechasLiberadas?: number;
             consultasPromovidas?: number;
             recordatoriosEnviados?: number;
+            fichas?: components["schemas"]["BarridoFichasResumen"];
         };
         BarridoExpiracionResponse: {
             /**
@@ -3610,6 +3626,23 @@ export interface components {
             promocionesDisparadas: number;
             /**
              * @description Nº de candidatas cuya expiración falló de forma aislada (rollback de su propia transacción, sin afectar al resto del lote).
+             * @example 0
+             */
+            fallos: number;
+        };
+        BarridoFichasResumen: {
+            /**
+             * @description Nº de RESERVA seleccionadas como candidatas del cierre A10, cross-tenant: `estado = 'reserva_confirmada'` AND `pre_evento_status != 'cerrado'` AND `date(fecha_evento) = date(hoy) + 1 día` (T-1d, fecha de calendario en la zona horaria de negocio, no por instante ni string formateado).
+             * @example 3
+             */
+            candidatas: number;
+            /**
+             * @description Nº de fichas efectivamente cerradas en esta ejecución (`FICHA_OPERATIVA.ficha_cerrada = true` + `fecha_cierre = now()` + `RESERVA.pre_evento_status → cerrado` + `AUDIT_LOG accion='transicion'` origen Sistema). Menor que `candidatas` cuando una candidata dejó de serlo bajo transacción (idempotencia / cierre manual US-025 concurrente) o falló.
+             * @example 2
+             */
+            fichasCerradas: number;
+            /**
+             * @description Nº de candidatas cuyo cierre falló de forma aislada (rollback de su propia transacción, sin afectar al resto del lote).
              * @example 0
              */
             fallos: number;

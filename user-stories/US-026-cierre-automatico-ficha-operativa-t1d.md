@@ -1,8 +1,8 @@
 ---
 id: US-026
-estado: backlog
-branch: null
-pr: null
+estado: done
+branch: feature/us-026-cierre-automatico-ficha-operativa
+pr: https://github.com/rvila89/slotify/pull/47
 ---
 
 # 🧾 Historia de Usuario: Sistema cierra la ficha operativa automáticamente en T-1d
