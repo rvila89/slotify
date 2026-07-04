@@ -2,7 +2,7 @@
 id: US-022
 estado: completada
 branch: feature/us-022-generar-factura-senal
-pr: null
+pr: https://github.com/rvila89/slotify/pull/41
 ---
 
 # 🧾 Historia de Usuario: Generar Factura de Señal al Confirmar Reserva
