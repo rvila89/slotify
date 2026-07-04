@@ -1,7 +1,7 @@
 ---
 id: US-026
-estado: backlog
-branch: null
+estado: in_progress
+branch: feature/us-026-cierre-automatico-ficha-operativa
 pr: null
 ---
 

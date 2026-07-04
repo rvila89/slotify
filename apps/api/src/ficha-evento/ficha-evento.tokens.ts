@@ -20,3 +20,9 @@ export const UNIDAD_DE_TRABAJO_CIERRE_FICHA_PORT = Symbol(
 
 /** Reloj del sistema (aísla `new Date()`). */
 export const CLOCK_FICHA_PORT = Symbol('CLOCK_FICHA_PORT');
+
+/** Lectura cross-tenant de las candidatas al cierre automático A10 (US-026). */
+export const CANDIDATAS_CIERRE_FICHA_PORT = Symbol('CANDIDATAS_CIERRE_FICHA_PORT');
+
+/** UoW atómica del cierre automático A10 por RESERVA (US-026). */
+export const CIERRE_FICHA_VENCIDA_PORT = Symbol('CIERRE_FICHA_VENCIDA_PORT');

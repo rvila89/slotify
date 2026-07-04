@@ -149,6 +149,24 @@ export class ReservaNoEncontradaError extends Error {
   }
 }
 
+/**
+ * Señal de dominio (coordinación de concurrencia C-2): al re-evaluar la guarda de la
+ * máquina de estados DENTRO de la transacción (bajo `SELECT … FOR UPDATE`), la ficha ya
+ * estaba `cerrado`. Es decir, el cierre manual (US-025) PERDIÓ la carrera contra otra
+ * vía que ya la cerró (el barrido automático A10 de US-026, u otro cierre concurrente).
+ *
+ * La UoW aborta la transacción SIN mutar ni auditar (idempotencia: exactamente UNA vía
+ * aplica `→ cerrado`, la otra se autoexcluye). NO es un error HTTP: el caso de uso lo
+ * intercepta y resuelve el cierre manual de forma IDEMPOTENTE (la ficha YA está en el
+ * estado deseado por el gestor), devolviendo la ficha cerrada actual → HTTP 200.
+ */
+export class FichaYaCerradaError extends Error {
+  constructor(message = 'La ficha ya estaba cerrada (transición no aplicable)') {
+    super(message);
+    this.name = 'FichaYaCerradaError';
+  }
+}
+
 /** Estados en los que la ficha operativa es accesible (§D-3). */
 const ESTADOS_ACCESIBLES: ReadonlyArray<EstadoReservaFicha> = [
   'reserva_confirmada',
