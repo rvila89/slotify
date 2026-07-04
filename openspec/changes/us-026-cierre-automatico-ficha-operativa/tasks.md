@@ -10,13 +10,16 @@
 - [x] 0.2 Verificar la branch creada y la branch actual
 
 ## 1. ⏸ Gate revisión humana SDD (OBLIGATORIO — review-gate-sdd — human_review)
-- [ ] 1.1 Presentar al humano `proposal.md` + spec-delta (`specs/ficha-operativa/spec.md`) +
+- [x] 1.1 Presentar al humano `proposal.md` + spec-delta (`specs/ficha-operativa/spec.md`) +
       `design.md` y **ESPERAR su OK explícito**. Punto de gate a decidir:
       **D-2** — superficie del barrido en el contrato: (A) reutilizar `POST
       /cron/barrido?tarea=fichas` ampliando el resumen con `fichasCerradas`, o (B) endpoint
       dedicado `POST /cron/barrido-fichas` con `BarridoFichasResponse` (simetría con US-012).
       Auth `X-Cron-Token` (no JWT) e idempotencia son innegociables en ambas.
-- [ ] 1.2 No avanzar a contrato/TDD/implementación sin la aprobación del humano
+      → **Aprobado por humano**: gate SDD OK; D-2 resuelto en **Opción A**
+      (`POST /cron/barrido?tarea=fichas`).
+- [x] 1.2 No avanzar a contrato/TDD/implementación sin la aprobación del humano
+      → **Aprobado por humano**: se avanzó tras el OK explícito.
 
 ## 2. Contrato OpenAPI (post-gate — dueño: `contract-engineer`)
 - [x] 2.1 Materializar en `docs/api-spec.yml` la opción de barrido aprobada en el gate (D-2):
@@ -235,11 +238,13 @@
       vigente. Remanentes solo Media/Baja no bloqueantes.
 
 ## 11. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final — human_review)
-- [ ] 11.1 Tras code-review APTO + validación manual, **ESPERAR el OK humano** antes de
+- [x] 11.1 Tras code-review APTO + validación manual, **ESPERAR el OK humano** antes de
       archive/PR
+      → **Aprobado por humano**: gate final OK (Opción A: subsanar el hallazgo Alta y
+      archivar/PR tras re-review con `Veredicto: APTO` limpio).
 
 ## 12. Archivar change + abrir PR (OBLIGATORIO — archive — dueño: `spec-author`)
-- [ ] 12.1 `openspec archive us-026-cierre-automatico-ficha-operativa` (solo tras gate final
+- [x] 12.1 `openspec archive us-026-cierre-automatico-ficha-operativa` (solo tras gate final
       y code-review APTO; el hook `require-code-review` lo bloquea sin APTO)
-- [ ] 12.2 Actualizar `openspec/specs/` (capability `ficha-operativa` con los requisitos de
+- [x] 12.2 Actualizar `openspec/specs/` (capability `ficha-operativa` con los requisitos de
       cierre automático) y abrir PR (GitHub MCP / `gh`)
