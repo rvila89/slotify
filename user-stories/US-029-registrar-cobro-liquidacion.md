@@ -2,7 +2,7 @@
 id: US-029
 estado: done
 branch: feature/us-029-registrar-cobro-liquidacion
-pr: null
+pr: https://github.com/rvila89/slotify/pull/48
 ---
 
 # 🧾 Historia de Usuario: Gestor registra el cobro de la liquidación
