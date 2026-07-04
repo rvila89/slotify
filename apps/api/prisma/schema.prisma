@@ -441,7 +441,7 @@ model Factura {
   idFactura          String        @id @default(uuid()) @map("id_factura")
   tenantId           String        @map("tenant_id")
   reservaId          String        @map("reserva_id")
-  numeroFactura      String        @unique @map("numero_factura")
+  numeroFactura      String        @map("numero_factura")
   tipo               TipoFactura
   baseImponible      Decimal       @map("base_imponible") @db.Decimal(10, 2)
   ivaPorcentaje      Decimal       @map("iva_porcentaje") @db.Decimal(4, 2)
@@ -459,6 +459,12 @@ model Factura {
   reservaExtras ReservaExtra[]
   pagos         Pago[]
 
+  // US-022 (§D-7): numeración fiscal secuencial por tenant (el año va embebido en el
+  // literal F-YYYY-NNNN) — sustituye al @unique global sobre numero_factura, permitiendo
+  // que dos tenants distintos tengan F-2026-0001. Idempotencia de una factura por
+  // (reserva, tipo): red de seguridad ante disparos concurrentes del trigger post-commit.
+  @@unique([tenantId, numeroFactura])
+  @@unique([reservaId, tipo])
   @@map("factura")
 }
 

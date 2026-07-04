@@ -19,6 +19,8 @@ import { Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { PrismaModule } from '../shared/prisma/prisma.module';
 import { PrismaService } from '../shared/prisma/prisma.service';
+import { FacturacionModule } from '../facturacion/facturacion.module';
+import { GenerarFacturaSenalUseCase } from '../facturacion/application/generar-factura-senal.use-case';
 import {
   ConfirmarPagoSenalUseCase,
   type AlmacenarJustificantePort,
@@ -32,7 +34,7 @@ import { ConfirmarPagoSenalUoWPrismaAdapter } from './infrastructure/confirmar-p
 import { CargarReservaConfirmacionPrismaAdapter } from './infrastructure/cargar-reserva-confirmacion.prisma.adapter';
 import { TenantSettingsConfirmacionPrismaAdapter } from './infrastructure/tenant-settings-confirmacion.prisma.adapter';
 import { AlmacenarJustificanteFakeAdapter } from './infrastructure/almacenar-justificante.fake.adapter';
-import { PresentarFacturaSenalStubAdapter } from './infrastructure/presentar-factura-senal.stub.adapter';
+import { PresentarFacturaSenalFacturacionAdapter } from './infrastructure/presentar-factura-senal.facturacion.adapter';
 import { SistemaClockAdapter } from './infrastructure/sistema-clock.adapter';
 import { ConfirmarPagoSenalController } from './interface/confirmar-pago-senal.controller';
 import {
@@ -47,6 +49,9 @@ import {
 @Module({
   imports: [
     PrismaModule,
+    // US-022: el disparo post-commit de la factura de señal reutiliza el
+    // GenerarFacturaSenalUseCase que exporta FacturacionModule.
+    FacturacionModule,
     // Sin `dest`/`storage`: multer usa MemoryStorage por defecto y expone `file.buffer`
     // (autoritativo para validar formato/tamaño y almacenar el binario en el use-case).
     MulterModule.register({}),
@@ -76,8 +81,11 @@ import {
     },
     {
       provide: PRESENTAR_FACTURA_SENAL_BORRADOR_PORT,
-      useFactory: (): PresentarFacturaSenalBorradorPort =>
-        new PresentarFacturaSenalStubAdapter().presentar,
+      inject: [GenerarFacturaSenalUseCase],
+      useFactory: (
+        generarFactura: GenerarFacturaSenalUseCase,
+      ): PresentarFacturaSenalBorradorPort =>
+        new PresentarFacturaSenalFacturacionAdapter(generarFactura).presentar,
     },
     { provide: CONFIRMACION_CLOCK_PORT, useClass: SistemaClockAdapter },
     {

@@ -38,3 +38,7 @@ pnpm-debug.log*
 # Python (artefactos de hooks)
 __pycache__/
 *.pyc
+
+# Scaffolding de QA E2E (utilidades locales, no producto; credenciales en claro)
+apps/api/seed-e2e-dev.js
+apps/api/cleanup-e2e-dev.js

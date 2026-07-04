@@ -1,7 +1,7 @@
 ---
 id: US-022
-estado: backlog
-branch: null
+estado: completada
+branch: feature/us-022-generar-factura-senal
 pr: null
 ---
 

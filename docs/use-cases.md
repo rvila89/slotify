@@ -1031,23 +1031,63 @@ flowchart TD
 | **Nombre** | Generar Factura de Señal |
 | **Actor Principal** | Sistema |
 | **Actores Secundarios** | Gestor |
-| **Descripción** | El sistema genera automáticamente la factura correspondiente al 40% de señal |
-| **Precondiciones** | - Pago de señal confirmado<br>- Datos fiscales del cliente completos |
-| **Postcondiciones** | - Factura de señal generada<br>- Factura disponible para revisión |
+| **Descripción** | El sistema genera automáticamente la factura de señal (40%) como efecto post-commit de la transición `pre_reserva → reserva_confirmada` (US-021). La factura nace en `borrador`, se numera `F-YYYY-NNNN`, se genera su PDF con datos fiscales del emisor (TENANT) y del receptor (CLIENTE) y se presenta al Gestor para que la apruebe o rechace antes de que E3 pueda dispararse. Implementado en **US-022**. |
+| **Precondiciones** | - RESERVA en `estado = 'reserva_confirmada'` (transición US-021 ya commitada)<br>- `RESERVA.importe_senal` congelado y mayor que cero<br>- No existe ya una FACTURA con `tipo = 'senal'` para la misma `reserva_id` (idempotencia) |
+| **Postcondiciones** | - FACTURA creada con `tipo = 'senal'`, `estado = 'borrador'`, `total = RESERVA.importe_senal`, desglose fiscal calculado, `numero_factura = F-YYYY-NNNN`<br>- PDF generado post-commit y `pdf_url` almacenada (si datos fiscales completos y servicio disponible)<br>- `AUDIT_LOG` con `accion = 'crear'`, `entidad = 'FACTURA'`<br>- El fallo de la generación NO revierte la confirmación (la RESERVA permanece en `reserva_confirmada`) |
 | **Prioridad** | Crítica |
 | **Frecuencia** | Alta |
+| **US** | US-022 |
+| **Endpoints** | `GET /reservas/{id}/factura-senal` (consultar borrador) · `POST /facturas/{id}/aprobar` (borrador → enviada) · `POST /facturas/{id}/rechazar` (registrar rechazo) · `POST /facturas/{id}/regenerar-pdf` (reintento manual del PDF) |
+| **Entidades afectadas** | FACTURA (INSERT borrador + UPDATE pdf_url + UPDATE estado al aprobar), AUDIT_LOG — migración de constraints en FACTURA (ver `er-diagram.md §3.12`) |
 
-**Flujo Básico:**
-1. El sistema calcula el 40% del presupuesto aceptado
-2. El sistema desglosa base imponible e IVA 21%
-3. El sistema genera el PDF de factura con:
-   - Datos del tenant (emisor)
-   - Datos fiscales del cliente (receptor)
-   - Concepto: "Señal reserva evento [fecha]"
-   - Desglose: base imponible + IVA
-4. El sistema presenta la factura como borrador
-5. El gestor revisa y aprueba
-6. La factura queda lista para envío
+**Flujo Básico (happy path — datos fiscales completos):**
+1. El sistema detecta el disparo post-commit de US-021 (RESERVA acaba de pasar a `reserva_confirmada`)
+2. El use-case `GenerarFacturaSenalUseCase` verifica idempotencia: comprueba si ya existe `FACTURA WHERE reserva_id = X AND tipo = 'senal'`; si existe, devuelve la existente y registra el intento en `AUDIT_LOG`; si no, continúa
+3. El sistema calcula el desglose fiscal en dominio puro:
+   - `total = RESERVA.importe_senal` (congelado en US-021; **no se recalcula** tarifa ni porcentaje)
+   - `iva_porcentaje = 21,00` (IVA general MVP)
+   - `base_imponible = round(total / 1,21, 2)` (redondeo contable mitad hacia arriba)
+   - `iva_importe = total − base_imponible` (por resta, garantiza `base + iva = total` exactamente)
+4. El sistema asigna `numero_factura = F-{YYYY}-{NNNN}` donde `NNNN = MAX(NNNN del tenant en el año) + 1` con padding a 4 dígitos; ante colisión `P2002` en `UNIQUE(tenant_id, numero_factura)`, recalcula y reintenta (bucle acotado, nunca locks distribuidos)
+5. El sistema persiste la FACTURA en `borrador` con todos los campos calculados + `pdf_url = null` y registra `AUDIT_LOG accion = 'crear'`
+6. Post-commit: el sistema genera el PDF con datos del emisor (`TENANT.nombre/nif/iban/direccion`) y del receptor (`CLIENTE.nombre/apellidos/dni_nif/direccion/codigo_postal/poblacion/provincia`), concepto y desglose; almacena `pdf_url` en un UPDATE idempotente
+7. El sistema presenta la factura en borrador al Gestor (a través de `GET /reservas/{id}/factura-senal`)
+8. El Gestor revisa y pulsa "Aprobar factura"
+9. El sistema valida que `pdf_url` no sea nulo y que los datos fiscales sean válidos
+10. Al aprobar: `FACTURA.estado = 'enviada'`, `FACTURA.fecha_emision = now()`; `AUDIT_LOG accion = 'actualizar'` con `datos_anteriores.estado = 'borrador'` y `datos_nuevos.estado = 'enviada'`
+11. La factura queda lista para adjuntarse en E3 (disparo E3 diferido a US-023)
+
+**Flujos Alternativos:**
+- **FA-01** (idempotencia — factura de señal ya existente): el sistema detecta la FACTURA existente, la devuelve sin duplicar y registra el intento en `AUDIT_LOG`. La RESERVA no se modifica.
+- **FA-02** (datos fiscales del cliente incompletos — borrador inválido): `CLIENTE.dni_nif` o cualquier campo de dirección fiscal es nulo. La FACTURA se crea en `borrador` con `pdf_url = null`; el sistema alerta al Gestor "Datos fiscales incompletos"; la aprobación queda bloqueada (409 `"Datos fiscales del cliente incompletos"`) hasta que el Gestor complete los datos y regenere el PDF.
+- **FA-03** (fallo transitorio del servicio de PDF): la FACTURA se crea en `borrador` con `pdf_url = null`; el sistema registra "PDF pendiente de regenerar" y reintenta automáticamente; la aprobación queda bloqueada hasta que `pdf_url` esté disponible. El Gestor puede también invocar `POST /facturas/{id}/regenerar-pdf` manualmente.
+- **FA-04** (Gestor rechaza el borrador): `POST /facturas/{id}/rechazar` — `FACTURA.estado` permanece en `borrador`, el motivo se registra en `AUDIT_LOG`, E3 queda bloqueado. El Gestor puede corregir la incidencia (p. ej. datos del tenant en configuración) y regenerar el PDF.
+- **FA-05** (intento de aprobar un borrador inválido o sin PDF): el sistema responde 409 indicando el motivo del bloqueo; la FACTURA permanece en `borrador`.
+- **FA-06** (concurrencia — dos reservas del mismo tenant confirmadas simultáneamente): el constraint `UNIQUE(tenant_id, numero_factura)` hace que una inserción de numeración falle (`P2002`); la aplicación recalcula y reintenta; ambas reservas obtienen `numero_factura` únicos y consecutivos.
+
+```mermaid
+flowchart TD
+    A[Post-commit US-021: RESERVA en reserva_confirmada] --> B{Ya existe FACTURA tipo=senal para esta reserva?}
+    B -->|Sí — idempotencia| C[Devuelve existente + AUDIT_LOG intento]
+    B -->|No| D[Calcular desglose fiscal en dominio puro: base=round total/1.21,2; iva=total-base]
+    D --> E[Asignar numero_factura F-YYYY-NNNN MAX+1 con reintento ante P2002]
+    E --> F[INSERT FACTURA borrador + AUDIT_LOG crear]
+    F --> G{Datos fiscales CLIENTE completos?}
+    G -->|No| H[pdf_url=null — borrador inválido — alerta al Gestor]
+    G -->|Sí| I[Generar PDF post-commit con datos emisor/receptor]
+    I --> J{PDF generado?}
+    J -->|Error transitorio| K[pdf_url=null — PDF pendiente de regenerar — reintento automático]
+    J -->|OK| L[UPDATE FACTURA pdf_url — idempotente]
+    L --> M[Gestor revisa borrador vía GET /reservas/id/factura-senal]
+    H --> M
+    K --> M
+    M --> N{Gestor aprueba o rechaza?}
+    N -->|Rechaza| O[POST /facturas/id/rechazar — motivo a AUDIT_LOG — E3 bloqueado]
+    N -->|Aprueba| P{pdf_url disponible y datos válidos?}
+    P -->|No| Q[409 — motivo del bloqueo — FACTURA permanece borrador]
+    P -->|Sí| R[estado=enviada + fecha_emision=now — AUDIT_LOG actualizar]
+    R --> S[Factura lista para E3 — disparo E3 diferido a US-023]
+```
 
 ---
 
