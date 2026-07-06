@@ -150,9 +150,11 @@ describe('ListarReservasUseCase — pipeline de reservas activas (US-049)', () =
     // Act
     const resultado = await useCase.ejecutar(comando());
 
-    // Assert: los 9 estados activos aparecen, en el mismo orden DESC recibido
+    // Assert: los 9 estados activos aparecen, en el mismo orden DESC recibido.
+    // [US-050 §5b] El identificador del contrato `Reserva` es `idReserva` (required),
+    // NO `id`: la proyección debe exponer `idReserva`, no un `id` renombrado.
     expect(resultado.data).toHaveLength(9);
-    expect(resultado.data.map((r) => r.id)).toEqual([
+    expect(resultado.data.map((r) => r.idReserva)).toEqual([
       'r-2a', 'r-2b', 'r-2c', 'r-2d', 'r-2v', 'r-pre', 'r-conf', 'r-curso', 'r-post',
     ]);
     const fechas = resultado.data.map((r) => new Date(r.fechaCreacion).getTime());
@@ -417,6 +419,95 @@ describe('ListarReservasUseCase — pipeline de reservas activas (US-049)', () =
       expect(resultado.metadata.total).toBe(0);
     },
   );
+
+  // 5b.1 — CONFORMIDAD DE CONTRATO (US-050 ampliación de scope): la proyección debe
+  // exponer el identificador del contrato `Reserva` como `idReserva` (required) y
+  // TRANSPORTAR los cinco campos de datos del schema que hoy se OMITEN: `fechaEvento`,
+  // `numInvitadosFinal`, `numAdultosNinosMayores4`, `numNinosMenores4` y `notas`. Estos
+  // campos YA llegan del adaptador en el read-model `PipelineReservaLectura`; la pérdida
+  // está en la proyección (`ReservaPipelineItem` + `proyectar()`), que los recorta.
+  describe('conformidad de contrato: idReserva + campos de datos del schema Reserva (5b.1)', () => {
+    it('debe_exponer_idReserva_y_no_un_campo_id_en_la_proyeccion', async () => {
+      // Arrange
+      const listarActivas = jest.fn().mockResolvedValue(
+        pagina([filaActiva({ idReserva: 'reserva-abc' })], { total: 1 }),
+      );
+      const { useCase } = construir(listarActivas);
+
+      // Act
+      const resultado = await useCase.ejecutar(comando());
+
+      // Assert: el contrato exige `idReserva` (required); NO debe existir `id`.
+      const item = resultado.data[0] as unknown as Record<string, unknown>;
+      expect(item.idReserva).toBe('reserva-abc');
+      expect(item).not.toHaveProperty('id');
+    });
+
+    it('debe_transportar_fechaEvento_aforo_desglosado_y_notas_desde_el_read_model', async () => {
+      // Arrange: una reserva ACTIVA con los cinco campos de datos poblados.
+      const fechaEvento = new Date('2027-10-20T00:00:00.000Z');
+      const listarActivas = jest.fn().mockResolvedValue(
+        pagina(
+          [
+            filaActiva({
+              idReserva: 'reserva-datos',
+              fechaEvento,
+              numInvitadosFinal: 80,
+              numAdultosNinosMayores4: 72,
+              numNinosMenores4: 8,
+              notas: 'Alergia a frutos secos; montaje a las 17:00',
+            }),
+          ],
+          { total: 1 },
+        ),
+      );
+      const { useCase } = construir(listarActivas);
+
+      // Act
+      const resultado = await useCase.ejecutar(comando());
+
+      // Assert: la proyección conserva los cinco campos del contrato `Reserva`.
+      const item = resultado.data[0];
+      expect(item.numInvitadosFinal).toBe(80);
+      expect(item.numAdultosNinosMayores4).toBe(72);
+      expect(item.numNinosMenores4).toBe(8);
+      expect(item.notas).toBe('Alergia a frutos secos; montaje a las 17:00');
+      // `fechaEvento` se emite como `date` (YYYY-MM-DD) del contrato; nunca se pierde.
+      expect(item.fechaEvento).toBeDefined();
+      expect(String(item.fechaEvento)).toContain('2027-10-20');
+    });
+
+    it('debe_conservar_null_en_los_campos_de_datos_opcionales_cuando_no_estan_poblados', async () => {
+      // Arrange: reserva sin fecha/aforo/notas (todos null en el read-model).
+      const listarActivas = jest.fn().mockResolvedValue(
+        pagina(
+          [
+            filaActiva({
+              idReserva: 'reserva-nulls',
+              fechaEvento: null,
+              numInvitadosFinal: null,
+              numAdultosNinosMayores4: null,
+              numNinosMenores4: null,
+              notas: null,
+            }),
+          ],
+          { total: 1 },
+        ),
+      );
+      const { useCase } = construir(listarActivas);
+
+      // Act
+      const resultado = await useCase.ejecutar(comando());
+
+      // Assert: los campos existen en la proyección (nullable del contrato), con valor null.
+      const item = resultado.data[0];
+      expect(item.fechaEvento).toBeNull();
+      expect(item.numInvitadosFinal).toBeNull();
+      expect(item.numAdultosNinosMayores4).toBeNull();
+      expect(item.numNinosMenores4).toBeNull();
+      expect(item.notas).toBeNull();
+    });
+  });
 
   // 3.9 — no-mutación: el use-case no invoca escritura
   it('debe_ser_lectura_pura_y_no_invocar_ningun_metodo_de_escritura', async () => {
