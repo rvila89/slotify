@@ -1824,24 +1824,32 @@ flowchart TD
 | **Postcondiciones** | - Kanban mostrado con reservas activas del tenant agrupadas por fase |
 | **Prioridad** | Alta |
 | **Frecuencia** | Muy alta |
-| **US** | US-049 (backend endpoint), US-050 (frontend Kanban) |
-| **Endpoint** | `GET /reservas` — filtro activo: excluye terminales 2x/2y/2z, reserva_completada, reserva_cancelada |
-| **Entidades afectadas** | RESERVA (solo lectura)
+| **US** | US-049 (backend `GET /reservas` — implementado), US-050 (frontend Kanban) |
+| **Endpoint** | `GET /reservas` (`operationId: listarReservas`) — excluye siempre terminales `2x/2y/2z`, `reserva_completada`, `reserva_cancelada`; params opcionales: `estado`, `subEstado`, `fechaDesde`, `fechaHasta`, `search`, `page`, `limit` |
+| **Entidades leídas** | RESERVA (solo lectura) + join CLIENTE (para `nombreEvento`); `preEventoStatus` y `liquidacionStatus` de RESERVA para derivar los progresos. Sin migración de esquema. |
 
-**Flujo Básico:**
+**Flujo Básico (implementado en US-049):**
 1. El gestor navega a `/reservas` (tab "Flujo de Reserva" activo por defecto)
-2. El frontend llama a `GET /reservas` con filtro de estados activos
-3. El sistema devuelve la lista paginada de reservas activas del tenant (RLS por `tenant_id` JWT)
+2. El frontend llama a `GET /reservas` (sin filtros adicionales)
+3. El sistema — autenticado por JWT, `tenant_id` inyectado en la query y reforzado por RLS — devuelve la lista paginada de reservas activas ordenadas por `fechaCreacion` descendente. Cada elemento de `data[]` incluye `nombreEvento`, `progressLogistica` y `progressLiquidacion` ya derivados.
 4. El frontend agrupa en 5 columnas: Consulta (2a/2b/2c/2d/2v) · Pre-reserva · Confirmada · En Curso · Post-evento
-5. Cada tarjeta muestra: nombre evento, fecha · aforo, barras LOGÍSTICA y LIQUIDACIÓN, nota de estado
+5. Cada tarjeta muestra: `nombreEvento`, fecha, aforo estimado, barras LOGÍSTICA y LIQUIDACIÓN
 6. El gestor hace clic en cualquier tarjeta → navega a `/reservas/:id`
 
+**Flujos Alternativos:**
+- **FA-01** (sin reservas activas): el sistema responde `200` con `{ data: [], metadata: { total: 0, page: 1, limit: 20 } }`
+- **FA-02** (filtro por estado): `?estado=pre_reserva` devuelve solo las activas en ese estado; el filtro de exclusión de terminales se aplica siempre con independencia de los filtros de query
+- **FA-03** (sin sesión): `401` sin datos
+
 **Reglas de Negocio:**
-- Estados excluidos: `2x`, `2y`, `2z`, `reserva_completada`, `reserva_cancelada`
-- RLS: solo reservas con `tenant_id` del JWT del gestor autenticado
-- `progressLogistica` (0/50/100%) derivado de `preEventoStatus`: pendiente=0, en_curso=50, cerrado=100
-- `progressLiquidacion` (0/50/100%) derivado de `liquidacionStatus`: pendiente=0, facturada=50, cobrada=100
-- Para reservas en consulta o pre_reserva sin ficha operativa activa: ambos progresos = 0%
+- Estados activos (incluidos): `2a`, `2b`, `2c`, `2d`, `2v`, `pre_reserva`, `reserva_confirmada`, `evento_en_curso`, `post_evento`
+- Estados excluidos siempre: `2x`, `2y`, `2z`, `reserva_completada`, `reserva_cancelada`
+- RLS: solo reservas con `tenant_id` del JWT del gestor autenticado; el `tenant_id` no es configurable por el usuario
+- `nombreEvento` = `{CLIENTE.nombre} {CLIENTE.apellidos}`; fallback a `RESERVA.codigo` si no hay cliente resoluble
+- `progressLogistica` (0/50/100) derivado de `preEventoStatus`: `pendiente=0`, `en_curso=50`, `cerrado=100`; en estados de consulta (`2a`/`2b`/`2c`/`2d`/`2v`) y `pre_reserva` vale siempre `0`
+- `progressLiquidacion` (0/50/100) derivado de `liquidacionStatus`: `pendiente=0`, `facturada=50`, `cobrada=100`; en estados de consulta y `pre_reserva` vale siempre `0`
+- La derivación de progreso es una función pura de dominio (mapa declarativo estado→valor), no lógica dispersa
+- Operación de **lectura pura**: no muta ninguna entidad, no produce bloqueos, sin concurrencia mutante
 
 ---
 
@@ -1858,18 +1866,18 @@ flowchart TD
 | **Postcondiciones** | - Tabla mostrada con reservas activas del tenant |
 | **Prioridad** | Alta |
 | **Frecuencia** | Alta |
-| **US** | US-050 (frontend Listado; comparte el endpoint implementado en US-049) |
-| **Endpoint** | `GET /reservas` — mismo filtro que UC-37 |
-| **Entidades afectadas** | RESERVA (solo lectura)
+| **US** | US-050 (frontend Listado; comparte el endpoint `GET /reservas` implementado en US-049) |
+| **Endpoint** | `GET /reservas` (`operationId: listarReservas`) — mismo filtro que UC-37 |
+| **Entidades leídas** | RESERVA + join CLIENTE — igual que UC-37; sin migración de esquema. |
 
 **Flujo Básico:**
 1. El gestor accede a `/reservas` y selecciona el tab "Listado"
-2. El frontend usa el mismo hook de datos que UC-37 (sin llamada adicional)
+2. El frontend reutiliza los datos ya obtenidos en UC-37 (sin llamada adicional al endpoint)
 3. El frontend renderiza una tabla con columnas: Nombre · Estado · Fecha · Aforo · Acciones
 4. El gestor hace clic en cualquier fila → navega a `/reservas/:id`
 
 **Reglas de Negocio:**
-- Mismos filtros de exclusión que UC-37
+- Mismos filtros de exclusión, aislamiento multi-tenant y derivaciones de `nombreEvento`/progreso que UC-37
 - Tabla vacía con CTA "Nueva Reserva" cuando no hay reservas activas
 
 ---

@@ -118,7 +118,7 @@
       frontend. `required: false` en `config.yaml`
 
 ## 9. Docs: actualizar documentación técnica (OBLIGATORIO — step-N+4 — dueño: `docs-keeper`)
-- [ ] 9.1 Actualizar docs técnicas afectadas (nueva capability `pipeline`: lectura
+- [x] 9.1 Actualizar docs técnicas afectadas (nueva capability `pipeline`: lectura
       de reservas activas, exclusión de terminales, derivación de progreso/nombre,
       aislamiento multi-tenant/RLS) y la trazabilidad de la US (`docs/use-cases.md`
       UC-37/UC-38; `docs/er-diagram.md` lectura de `RESERVA`/`CLIENTE` y campos
