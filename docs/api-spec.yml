@@ -4444,7 +4444,9 @@ components:
         fechaEvento:
           type: string
           format: date
-          description: Fecha del evento de la reserva.
+          nullable: true
+          description: >-
+            null cuando la reserva no tiene fecha de evento asignada (p.ej. estado 2a).
         enlace:
           type: string
           format: uri

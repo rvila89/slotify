@@ -3749,9 +3749,9 @@ export interface components {
             subEstado: components["schemas"]["SubEstadoConsulta"] | null;
             /**
              * Format: date
-             * @description Fecha del evento de la reserva.
+             * @description null cuando la reserva no tiene fecha de evento asignada (p.ej. estado 2a).
              */
-            fechaEvento: string;
+            fechaEvento: string | null;
             /**
              * Format: uri
              * @description Enlace directo a la ficha de detalle de la RESERVA (§FA-02).
