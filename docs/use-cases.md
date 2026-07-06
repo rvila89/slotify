@@ -45,9 +45,10 @@ Menú de navegación principal ubicado en el lateral izquierdo, siempre visible:
 
 | Opción | Descripción |
 |--------|-------------|
+| **Dashboard** | Panel operativo con widgets de resumen y alertas. Primera entrada del sidebar (posición 1). La landing post-login sigue siendo `/calendario`. Implementado en US-044. |
 | **Calendario** | Vista principal del calendario de disponibilidad y reservas. Es la página de inicio tras el login. |
 | **Reservas** | Listado y gestión de todas las reservas (pipeline, histórico). |
-| **Dashboard** | Panel operativo con widgets de resumen y alertas. |
+| **Métricas** | KPIs y estadísticas del negocio (diferido a V1; entrada visible pero sin contenido en MVP). |
 
 #### Header (Cabecera fija)
 
@@ -1691,24 +1692,28 @@ Si dos workers liberan la misma `(tenant_id, fecha)` simultáneamente, el motor 
 | **Nombre** | Visualizar Dashboard Operativo |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor visualiza el dashboard operativo con la información clave del estado actual del negocio |
+| **Descripción** | El gestor visualiza el dashboard operativo con la información clave del estado actual del negocio, proyectada en 7 widgets de lectura pura agregados desde una única llamada a la API. |
 | **Precondiciones** | - El gestor está autenticado |
-| **Postcondiciones** | - Dashboard mostrado con datos actualizados |
+| **Postcondiciones** | - Dashboard mostrado con datos actualizados del tenant |
 | **Prioridad** | Alta |
 | **Frecuencia** | Muy alta |
+| **US** | US-044 |
+| **Endpoint** | `GET /dashboard` — sin parámetros; responde `DashboardResponse` con los 7 widgets agregados |
+| **Entidades afectadas** | RESERVA, FECHA_BLOQUEADA (solo lectura, sin mutación — dashboard es read-only puro)
 
 **Flujo Básico:**
-1. El gestor accede al sistema (o navega al dashboard)
-2. El sistema muestra los widgets:
-   - **Hoy y mañana**: eventos del día y siguiente
-   - **Pipeline**: consultas por sub-estado, pre-reservas, confirmadas
-   - **Sub-procesos críticos**: reservas con pre-evento/liquidación/fianza atrasada
-   - **Pendientes**: pagos vencidos, TTLs próximos a expirar
-   - **Consultas en cola**: leads en espera agrupados por fecha
-   - **Visitas programadas**: próximas visitas ordenadas por fecha
-   - **Próximos 30 días**: calendario resumen
-3. El gestor puede interactuar con cada widget para ver detalles
-4. El gestor puede navegar directamente a las fichas de reserva
+1. El gestor navega a `/dashboard` (entrada en posición 1 del sidebar)
+2. El frontend llama a `GET /dashboard` mediante el SDK generado; mientras espera muestra un esqueleto de carga
+3. El sistema agrega los datos del tenant y responde con los 7 widgets (`DashboardResponse`):
+   - **`hoyManana`** (`hoyMañana`): eventos del día actual y del día siguiente
+   - **`pipeline`**: consultas por sub-estado, pre-reservas y reservas confirmadas
+   - **`subProcesosCriticos`**: reservas con pre-evento, liquidación o fianza atrasada
+   - **`pendientes`**: pagos vencidos y TTLs próximos a expirar
+   - **`consultasEnCola`**: leads en espera agrupados por fecha bloqueada
+   - **`visitasProgramadas`**: próximas visitas ordenadas por fecha ascendente
+   - **`proximos30Dias`**: eventos y bloqueos en los próximos 30 días
+4. El gestor puede interactuar con cada widget para ver el detalle de cada ítem
+5. El gestor puede navegar directamente a las fichas de reserva desde cada widget
 
 ```mermaid
 flowchart TD
