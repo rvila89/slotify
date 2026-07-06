@@ -25,16 +25,16 @@
 - [ ] 1.2 No avanzar a contrato/TDD/implementación sin la aprobación del humano
 
 ## 2. Contrato OpenAPI (post-gate — dueño: `contract-engineer`)
-- [ ] 2.1 Añadir `operationId: listarReservas` al `GET /reservas` existente
+- [x] 2.1 Añadir `operationId: listarReservas` al `GET /reservas` existente
       (`docs/api-spec.yml` ~línea 194); mantener los parámetros de query ya
       definidos (`estado`, `subEstado`, `fechaDesde`, `fechaHasta`, `search`,
       `page`, `limit`) y el envoltorio `ReservaListResponse`
-- [ ] 2.2 Añadir al schema `Reserva` **tres propiedades opcionales** (cambio
+- [x] 2.2 Añadir al schema `Reserva` **tres propiedades opcionales** (cambio
       aditivo, no en `required`): `nombreEvento: string`,
       `progressLogistica: integer (0-100)`, `progressLiquidacion: integer (0-100)`
-- [ ] 2.3 `spectral lint docs/api-spec.yml` en verde (o `validate-openapi` equivalente);
+- [x] 2.3 `spectral lint docs/api-spec.yml` en verde (o `validate-openapi` equivalente);
       confirmar que no se rompen `ReservaDetalle`/`CreateReservaResponse`/`FichaConsulta`
-- [ ] 2.4 Regenerar el SDK del frontend `apps/web/src/api-client/` (nunca editar el
+- [x] 2.4 Regenerar el SDK del frontend `apps/web/src/api-client/` (nunca editar el
       cliente generado a mano)
 
 ## 3. Tests primero — TDD RED (OBLIGATORIO — tdd-first — dueño: `tdd-engineer`)

@@ -217,38 +217,7 @@ export interface paths {
          * Listar reservas (pipeline)
          * @description Lista paginada de reservas del tenant con filtros por estado, sub-estado, fecha y canal.
          */
-        get: {
-            parameters: {
-                query?: {
-                    /** @description Número de página */
-                    page?: components["parameters"]["Page"];
-                    /** @description Elementos por página */
-                    limit?: components["parameters"]["Limit"];
-                    estado?: components["schemas"]["EstadoReserva"];
-                    subEstado?: components["schemas"]["SubEstadoConsulta"];
-                    fechaDesde?: string;
-                    fechaHasta?: string;
-                    /** @description Búsqueda por código, nombre de cliente o notas */
-                    search?: string;
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Reservas recuperadas */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ReservaListResponse"];
-                    };
-                };
-                401: components["responses"]["Unauthorized"];
-            };
-        };
+        get: operations["listarReservas"];
         put?: never;
         /**
          * Dar de alta un nuevo lead/consulta (UC-03)
@@ -2768,6 +2737,12 @@ export interface components {
             notas?: string | null;
             /** Format: date-time */
             fechaCreacion?: string;
+            /** @description Nombre del evento derivado del cliente asociado como `{cliente.nombre} {cliente.apellidos}`, con fallback al `codigo` de la reserva cuando no hay cliente resoluble. Campo de presentación, no persistido en RESERVA. */
+            nombreEvento?: string;
+            /** @description Progreso de logística/pre-evento (0-100) derivado de `preEventoStatus`: `pendiente=0`, `en_curso=50`, `cerrado=100`. En estados de consulta (`2a`, `2b`, `2c`, `2d`, `2v`) y en `pre_reserva` arranca en `0` (aún no hay sub-proceso de pre-evento). */
+            progressLogistica?: number;
+            /** @description Progreso de liquidación (0-100) derivado de `liquidacionStatus`: `pendiente=0`, `facturada=50`, `cobrada=100`. En estados de consulta (`2a`, `2b`, `2c`, `2d`, `2v`) y en `pre_reserva` arranca en `0` (aún no hay liquidación en curso). */
+            progressLiquidacion?: number;
         };
         ReservaDetalle: components["schemas"]["Reserva"] & {
             cliente?: components["schemas"]["Cliente"];
@@ -3895,6 +3870,38 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listarReservas: {
+        parameters: {
+            query?: {
+                /** @description Número de página */
+                page?: components["parameters"]["Page"];
+                /** @description Elementos por página */
+                limit?: components["parameters"]["Limit"];
+                estado?: components["schemas"]["EstadoReserva"];
+                subEstado?: components["schemas"]["SubEstadoConsulta"];
+                fechaDesde?: string;
+                fechaHasta?: string;
+                /** @description Búsqueda por código, nombre de cliente o notas */
+                search?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reservas recuperadas */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReservaListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
     extenderBloqueo: {
         parameters: {
             query?: never;
