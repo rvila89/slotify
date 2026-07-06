@@ -1,5 +1,6 @@
 .DS_Store
 .worktrees/
+.playwright-mcp/
 
 # Dependencias
 node_modules/

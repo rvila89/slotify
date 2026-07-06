@@ -72,7 +72,9 @@ tags:
   - name: Historico
     description: Búsqueda y exportación del histórico (UC-32, UC-33)
   - name: Dashboard
-    description: KPIs operativos y financieros (UC-34)
+    description: >-
+      Vista de lectura agregada operativa: 7 widgets del estado de las reservas del tenant
+      (UC-34 / US-044). No incluye el dashboard financiero ni KPIs avanzados (§7.2, fuera de MVP).
   - name: Comunicaciones
     description: Envío y log de emails E1–E8 y manuales (UC-35, UC-36)
   - name: Documentos
@@ -2328,14 +2330,49 @@ paths:
   /dashboard:
     get:
       tags: [Dashboard]
-      summary: Visualizar dashboard operativo (UC-34)
-      description: Devuelve KPIs operativos (ocupación, conversión, pipeline) y financieros (ingresos, cobros pendientes).
+      summary: Visualizar dashboard operativo (UC-34 / US-044)
+      operationId: consultarDashboard
+      description: |
+        [US-044] Vista de **lectura pura** (NO muta estado) que agrega en una sola respuesta
+        el estado operativo del tenant en **7 widgets** (§7.1 SlotifyGeneralSpecs, design.md
+        §D-1: un único endpoint agregado en vez de 7). Cada widget devuelve sus `items` y el
+        `total` de elementos que satisfacen su criterio; cada ítem enlaza a la ficha de la
+        `RESERVA` (`enlace`). El widget `proximos30Dias` añade el `color` semántico canónico
+        derivado del par `(estado, subEstado)`, el **mismo código cromático que el Calendario
+        (US-039 / §11.3)** — reutilizado, no reimplementado (design.md §D-2).
+
+        Widgets (design.md §D-1):
+        - **hoyManana**: reservas con `fecha_evento ∈ {hoy, mañana}` en `reserva_confirmada`
+          o `evento_en_curso`, ordenadas por `fecha_evento` asc.
+        - **pipeline**: recuento de reservas `activo = true` agrupado por `estado`/`sub_estado`
+          (Exploratoria, Con fecha, Pendiente invitados, En cola, Visita programada,
+          Pre-reserva, Confirmada).
+        - **subProcesosCriticos**: `reserva_confirmada` con sub-proceso atrasado
+          (`pre_evento_status ≠ cerrado` con evento próximo, `liquidacion_status ≠ cobrada`
+          o `fianza_status ≠ cobrada`).
+        - **pendientes**: acciones requeridas (presupuesto `enviado` sin respuesta, TTL en las
+          próximas 24 h, factura `enviada` sin pago con vencimiento superado).
+        - **consultasEnCola**: reservas en `sub_estado = 2d`, agrupables por `fecha_evento`.
+        - **visitasProgramadas**: `sub_estado = 2v` con `visita_programada_fecha` futura,
+          ordenadas por `visita_programada_fecha` asc.
+        - **proximos30Dias**: reservas con `fecha_evento ∈ [hoy, hoy + 30 días]` (inclusive),
+          cada una con su `color` canónico.
+
+        Aislada por `tenant_id` del JWT (reforzada por RLS) y considera **solo** reservas con
+        `activo = true` (US-044 §FA-04). NO expone datos financieros del tenant ni
+        `CLIENTE.iban_devolucion` (§7.2, fuera de MVP). Sin parámetros de query: el filtrado
+        por tenant viaja en el JWT. Las ventanas temporales se calculan en backend (design.md
+        §D-3); cada widget gestiona su estado vacío de forma independiente (§FA-01).
       responses:
         '200':
-          description: KPIs del dashboard
+          description: Carga agregada de los 7 widgets del dashboard operativo del tenant.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DashboardResponse' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   # ============================ COMUNICACIONES ============================
   /reservas/{id}/comunicaciones:
@@ -4313,15 +4350,120 @@ components:
         tamanoBytes: { type: integer, nullable: true }
 
     # -------- Dashboard --------
+    # [US-044] Vista de lectura agregada: 7 widgets del estado operativo del tenant (design.md
+    # §D-1). Cada widget expone `items` + `total`; cada ítem enlaza a la ficha de la RESERVA
+    # (`enlace`). No expone datos financieros ni `iban_devolucion` (§7.2 fuera de MVP).
     DashboardResponse:
       type: object
+      description: Carga agregada de los 7 widgets del dashboard operativo (US-044, lectura pura).
+      required:
+        [hoyManana, pipeline, subProcesosCriticos, pendientes, consultasEnCola,
+         visitasProgramadas, proximos30Dias]
       properties:
-        ocupacionMesActual: { type: number, format: double, description: '% de fechas ocupadas (métrica de display)' }
-        tasaConversion: { type: number, format: double, description: 'consultas → reservas confirmadas (métrica de display)' }
-        pipelineActivo: { type: integer, description: 'reservas en consulta + pre_reserva' }
-        ingresosMes: { $ref: '#/components/schemas/Importe' }
-        cobrosPendientes: { $ref: '#/components/schemas/Importe' }
-        ticketMedio: { $ref: '#/components/schemas/Importe' }
+        hoyManana:
+          allOf: [{ $ref: '#/components/schemas/DashboardWidget' }]
+          description: >-
+            Reservas con `fecha_evento ∈ {hoy, mañana}` en `reserva_confirmada` o
+            `evento_en_curso`, ordenadas por `fecha_evento` ascendente.
+        pipeline:
+          allOf: [{ $ref: '#/components/schemas/DashboardWidget' }]
+          description: >-
+            Reservas `activo = true` agrupadas por `estado`/`sub_estado`; cada ítem representa
+            una reserva del pipeline (Exploratoria/Con fecha/Pendiente invitados/En cola/Visita
+            programada/Pre-reserva/Confirmada). El `total` es el recuento del pipeline activo.
+        subProcesosCriticos:
+          allOf: [{ $ref: '#/components/schemas/DashboardWidget' }]
+          description: >-
+            Reservas en `reserva_confirmada` con algún sub-proceso atrasado (pre-evento no
+            cerrado con evento próximo, liquidación no cobrada o fianza no cobrada).
+        pendientes:
+          allOf: [{ $ref: '#/components/schemas/DashboardWidget' }]
+          description: >-
+            Reservas con una acción requerida (presupuesto `enviado` sin respuesta, TTL en las
+            próximas 24 h, o factura `enviada` sin pago con vencimiento superado).
+        consultasEnCola:
+          allOf: [{ $ref: '#/components/schemas/DashboardWidget' }]
+          description: Reservas en `sub_estado = 2d` (agrupables por `fecha_evento` en el front).
+        visitasProgramadas:
+          allOf: [{ $ref: '#/components/schemas/DashboardWidget' }]
+          description: >-
+            Reservas en `sub_estado = 2v` con `visita_programada_fecha` futura, ordenadas por
+            `visita_programada_fecha` ascendente.
+        proximos30Dias:
+          allOf: [{ $ref: '#/components/schemas/DashboardProximos30DiasWidget' }]
+          description: >-
+            Reservas con `fecha_evento ∈ [hoy, hoy + 30 días]` (inclusive); cada ítem añade el
+            `color` semántico canónico del Calendario (US-039 / §11.3).
+
+    DashboardWidget:
+      # [US-044] Widget genérico del dashboard: lista de ítems + recuento. Cada widget gestiona
+      # su estado vacío de forma independiente (§FA-01): `items` vacío y `total = 0`.
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DashboardItem' }
+        total:
+          type: integer
+          minimum: 0
+          description: Nº total de elementos que satisfacen el criterio del widget.
+
+    DashboardProximos30DiasWidget:
+      # [US-044] Widget "Próximos 30 días": como DashboardWidget pero sus ítems incluyen el
+      # `color` canónico derivado de (estado, subEstado), idéntico al del Calendario (US-039).
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DashboardItemProximos30Dias' }
+        total:
+          type: integer
+          minimum: 0
+          description: Nº de reservas con `fecha_evento` en `[hoy, hoy + 30 días]`.
+
+    DashboardItem:
+      # [US-044] Ítem de widget: identifica la RESERVA y enlaza a su ficha. Lectura pura, sin
+      # datos financieros ni `iban_devolucion` (§7.2 fuera de MVP).
+      type: object
+      required: [reservaId, codigo, clienteNombre, estado, subEstado, fechaEvento, enlace]
+      properties:
+        reservaId: { type: string, format: uuid }
+        codigo:
+          type: string
+          description: Código legible de la reserva.
+        clienteNombre:
+          type: string
+          description: Nombre del cliente asociado a la reserva.
+        estado: { $ref: '#/components/schemas/EstadoReserva' }
+        subEstado:
+          allOf: [{ $ref: '#/components/schemas/SubEstadoConsulta' }]
+          nullable: true
+          description: Sub-estado de consulta; `null` para reservas fuera de la fase de consulta.
+        fechaEvento:
+          type: string
+          format: date
+          nullable: true
+          description: >-
+            null cuando la reserva no tiene fecha de evento asignada (p.ej. estado 2a).
+        enlace:
+          type: string
+          format: uri
+          description: Enlace directo a la ficha de detalle de la RESERVA (§FA-02).
+
+    DashboardItemProximos30Dias:
+      # [US-044] Ítem del widget "Próximos 30 días": DashboardItem + color canónico (US-039).
+      allOf:
+        - $ref: '#/components/schemas/DashboardItem'
+        - type: object
+          required: [color]
+          properties:
+            color:
+              allOf: [{ $ref: '#/components/schemas/ColorCalendario' }]
+              description: >-
+                Color semántico canónico derivado de `(estado, subEstado)`, idéntico al del
+                Calendario (US-039 / §11.3): gris|ambar|verde|azul|rojo.
 
     # -------- Cron --------
     BarridoResponse:

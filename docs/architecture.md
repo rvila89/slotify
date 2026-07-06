@@ -748,6 +748,71 @@ US-028 no añade columnas a `FACTURA` ni a `RESERVA`. Las únicas mutaciones de 
 
 ---
 
+### 2.16 Módulo M — Dashboard Operativo: agregación de lectura pura (US-044 / UC-34)
+
+El módulo `dashboards` entrega una **vista agregada del estado operativo del tenant** en una única llamada a la API. Es lectura pura: no muta ninguna entidad ni tabla; lee `RESERVA` y `FECHA_BLOQUEADA` existentes. Complementa al módulo `calendario` (§2.11) ofreciendo una perspectiva orientada a acciones pendientes y alertas, en lugar de una vista por fecha de calendario.
+
+#### Endpoint
+
+`GET /dashboard` — sin parámetros de query. El backend agrega los 7 widgets para el tenant del JWT y responde con `DashboardResponse`. Requiere JWT válido; sin parámetros de paginación (el dashboard es un resumen, no un listado).
+
+Respuestas: `200` (`DashboardResponse`), `401` (sin sesión válida).
+
+#### Los 7 widgets (`DashboardResponse`)
+
+| Widget (clave camelCase) | Descripción |
+|---|---|
+| `hoyManana` | Eventos del día actual y del día siguiente |
+| `pipeline` | Consultas por sub-estado, pre-reservas y reservas confirmadas |
+| `subProcesosCriticos` | Reservas con pre-evento, liquidación o fianza atrasada |
+| `pendientes` | Pagos vencidos y TTLs próximos a expirar |
+| `consultasEnCola` | Leads en espera agrupados por fecha bloqueada |
+| `visitasProgramadas` | Próximas visitas ordenadas por fecha ascendente |
+| `proximos30Dias` | Eventos y bloqueos en los próximos 30 días |
+
+Cada widget devuelve `{ total: number, items: DashboardItem[] }`. El campo `fechaEvento` en `DashboardItem` es **nullable** (`string | null`): consultas sin fecha asignada (sub-estado `2a`) no tienen `fechaEvento`.
+
+#### Arquitectura interna (hexagonal)
+
+```
+apps/api/src/dashboards/
+  domain/
+    dashboard.types.ts            Tipos de dominio: DashboardItem, DashboardResponse, los 7 widgets
+    dashboard-query.port.ts       Puerto de consulta (interfaz pura — sin NestJS ni Prisma)
+    clock.port.ts                 Puerto de reloj (inyectable para tests deterministas)
+    color-dashboard.ts            Función pura de derivación de color (tabla de datos, mismo patrón que derivarColor en calendario/)
+  application/
+    consultar-dashboard.use-case.ts  Agrega los 7 widgets invocando el puerto de consulta
+  infrastructure/
+    dashboard-query.prisma.adapter.ts  Adaptador Prisma con filtro por tenant_id + RLS
+    clock.adapter.ts                   Adaptador de reloj real (Date.now())
+  interface/
+    dashboard.controller.ts       GET /dashboard (JWT guard, mapeo 200/401)
+    dashboard.dto.ts              DTO de respuesta OpenAPI
+  dashboards.module.ts
+  dashboards.tokens.ts            Símbolos de inyección de dependencias
+```
+
+**Regla de dependencia hexagonal:** `domain/` no importa Prisma ni NestJS. El puerto `ClockPort` hace el use-case testeable con relojes inyectados sin depender de `Date.now()` real en los tests.
+
+#### `fechaEvento` nullable — alineación contrato + SDK + backend + frontend
+
+`DashboardItem.fechaEvento` es `string | null` en todos los niveles: contrato OpenAPI, SDK generado, adaptador Prisma y componentes React. Las consultas en sub-estado `2a` (exploratorias, sin fecha asignada) tienen `fechaEvento = null`; el frontend lo maneja mostrando "–" o "Sin fecha" según el widget.
+
+#### Frontend
+
+Feature `apps/web/src/features/dashboard/` (Bulletproof React: `api/ components/ lib/ model/ pages/` + barrel `index.ts`). El `DashboardPage` realiza una única llamada `GET /dashboard` vía `useDashboard` (TanStack Query). Ramas de estado: `isLoading` → `DashboardSkeleton`; `error` → `DashboardError` con reintento; datos → parrilla responsive de 7 `WidgetCard`. Layout mobile-first (1 columna móvil, 2 en `md`, 3 en `lg`/`xl`). El Dashboard es la entrada en posición 1 del sidebar; la landing post-login sigue siendo `/calendario`.
+
+#### Multi-tenancy y RLS
+
+La query filtra siempre por `tenant_id` del JWT, reforzado por RLS activo en PostgreSQL. Ningún dato de otro tenant es alcanzable aunque el filtro de aplicación fallara.
+
+#### Sin migración de esquema
+
+US-044 no añade ninguna entidad nueva ni modifica columnas: lee `RESERVA` y `FECHA_BLOQUEADA` (existentes desde US-000/US-040), y `FICHA_OPERATIVA` (existente desde US-021). No hay script de migración Prisma asociado a este change.
+
+---
+
 ## 3. Arquitectura objetivo de producción (visión a escala)
 
 > **Estado: visión de destino. NO se implementa en el MVP TFM.** Esta sección documenta a dónde evolucionaría Slotify como producto comercial multi-tenant. Cada componente se justifica por una necesidad que aparece *a escala*, y se anota por qué está sobredimensionado en la fase actual.
@@ -1014,6 +1079,8 @@ El MVP tiene tres piezas, pero solo dos cuestan: el **frontend SPA** se sirve co
 - **Razón de la divergencia:** la IA acelera el código de aplicación, no la operación de infraestructura. Para el plazo, el monolito libera tiempo hacia las zonas que defienden la nota; AWS lo consumiría en operación.
 
 ---
+
+*Documento de arquitectura v4.9, 06/07/2026. Cambios respecto a v4.8: refleja US-044 — Dashboard Operativo (UC-34): añade §2.16 (módulo `dashboards` — endpoint `GET /dashboard`; 7 widgets agregados `hoyManana`, `pipeline`, `subProcesosCriticos`, `pendientes`, `consultasEnCola`, `visitasProgramadas`, `proximos30Dias`; `DashboardItem.fechaEvento` nullable en contrato + SDK + backend + frontend; arquitectura hexagonal interna — `domain/` con `ClockPort` inyectable + función pura `color-dashboard.ts`, `application/` use-case `ConsultarDashboardUseCase`, `infrastructure/` adaptador Prisma + adaptador de reloj real, `interface/` controller + DTO; frontend `apps/web/src/features/dashboard/` Bulletproof React con `useDashboard`, `DashboardPage`, `WidgetCard`, `DashboardSkeleton`, `DashboardError` — responsive 1/2/3 columnas móvil/md/lg; Dashboard en posición 1 del sidebar, landing post-login sigue siendo `/calendario`; lectura pura sin migración de esquema).*
 
 *Documento de arquitectura v4.8, 04/07/2026. Cambios respecto a v4.7: refleja US-026 — Cierre Automático de Ficha Operativa en T-1d (automatización A10): amplía §2.5 (Procesos asíncronos) con el segundo barrido periódico concreto (`POST /cron/barrido?tarea=fichas`, auth `X-Cron-Token`/`CronTokenGuard` diario 01:00, selección cross-tenant por `date(fecha_evento) = date(hoy)+1` de calendario, mutaciones bajo `SET LOCAL app.tenant_id`, `SELECT … FOR UPDATE` + re-evaluación de guarda por RESERVA, triplete `FICHA_OPERATIVA.ficha_cerrada=true + fecha_cierre + RESERVA.pre_evento_status→cerrado`, `AUDIT_LOG usuario_id=NULL causa=A10`, fallo aislado por RESERVA, resumen `{ fichas: { candidatas, fichasCerradas, fallos } }`, idempotencia, sin email al cliente, sin migración de esquema, coordinación con cierre manual US-025 por `SELECT … FOR UPDATE` endurecido en el UoW manual).*
 
