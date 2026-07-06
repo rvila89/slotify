@@ -42,6 +42,7 @@ import { RegistrarResultadoVisitaController } from './interface/registrar-result
 import { ExtenderBloqueoController } from './interface/extender-bloqueo.controller';
 import { ObtenerReservaController } from './interface/obtener-reserva.controller';
 import { ObtenerColaEsperaController } from './interface/obtener-cola-espera.controller';
+import { ListarReservasController } from './interface/listar-reservas.controller';
 import {
   TransicionFechaUseCase,
   type ConfirmacionBloqueoEmailPort,
@@ -56,6 +57,11 @@ import {
   type ColaEsperaQueryPort,
 } from './application/obtener-cola-espera.query';
 import { ColaEsperaQueryPrismaAdapter } from './infrastructure/cola-espera-query.prisma.adapter';
+import {
+  ListarReservasUseCase,
+  type PipelineQueryPort,
+} from './application/listar-reservas.use-case';
+import { ListarReservasPrismaAdapter } from './infrastructure/listar-reservas.prisma.adapter';
 import {
   TransicionPendienteInvitadosUseCase,
   type UnidadDeTrabajoPendienteInvitadosPort,
@@ -141,6 +147,7 @@ import {
   PROMOCION_COLA_UOW_PORT,
   PROMOCION_MANUAL_COLA_UOW_PORT,
   COLA_ESPERA_QUERY_PORT,
+  PIPELINE_QUERY_PORT,
 } from './reservas.tokens';
 
 @Module({
@@ -159,6 +166,7 @@ import {
     ExtenderBloqueoController,
     ObtenerReservaController,
     ObtenerColaEsperaController,
+    ListarReservasController,
     BarridoExpiracionController,
     PromoverManualController,
   ],
@@ -375,6 +383,19 @@ import {
       useFactory: (colaEspera: ColaEsperaQueryPort) =>
         new ObtenerColaEsperaUseCase({ colaEspera }),
     },
+    // US-049 — pipeline de reservas activas (GET /reservas → ReservaListResponse).
+    {
+      provide: PIPELINE_QUERY_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new ListarReservasPrismaAdapter(prisma),
+    },
+    {
+      provide: ListarReservasUseCase,
+      inject: [PIPELINE_QUERY_PORT],
+      useFactory: (pipeline: PipelineQueryPort) =>
+        new ListarReservasUseCase({ pipeline }),
+    },
     {
       provide: FECHA_BLOQUEADA_REPOSITORY_PORT,
       inject: [PrismaService],
@@ -512,6 +533,7 @@ import {
     ExtenderBloqueoUseCase,
     ObtenerReservaUseCase,
     ObtenerColaEsperaUseCase,
+    ListarReservasUseCase,
     ExpirarConsultasVencidasService,
     PromoverPrimeroEnColaService,
     PromoverManualEnColaService,

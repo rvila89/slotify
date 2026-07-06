@@ -77,3 +77,6 @@ export const PROMOCION_MANUAL_COLA_UOW_PORT = Symbol('PromocionManualColaUoWPort
 
 // US-017 — lectura de la cola de espera (GET /reservas/{id}/cola → ColaEsperaResponse)
 export const COLA_ESPERA_QUERY_PORT = Symbol('ColaEsperaQueryPort');
+
+// US-049 — pipeline de reservas activas (GET /reservas → ReservaListResponse)
+export const PIPELINE_QUERY_PORT = Symbol('PipelineQueryPort');

@@ -63,23 +63,23 @@
       ausente; el use-case es un STUB TDD-RED que lanza a propósito)
 
 ## 4. Backend: revisar y actualizar tests unitarios existentes (OBLIGATORIO — step-N — dueño: `backend-developer`)
-- [ ] 4.1 Revisar tests existentes del módulo `reservas` y del agregado `RESERVA`;
+- [x] 4.1 Revisar tests existentes del módulo `reservas` y del agregado `RESERVA`;
       confirmar regresión cero (esta US no modifica escrituras ni transiciones,
       solo añade lectura y campos derivados opcionales)
 
 ## 5. Implementación backend (post-gate — dueño: `backend-developer`)
 > Scope hexagonal completo; `domain/` no importa Prisma/NestJS.
-- [ ] 5.1 Dominio: `listar-reservas.port.ts` (puerto de consulta en `domain/`) +
+- [x] 5.1 Dominio: `listar-reservas.port.ts` (puerto de consulta en `domain/`) +
       **función pura de derivación** de `progressLogistica`/`progressLiquidacion`
       (mapa declarativo estado→progreso) y de `nombreEvento` (fallback a `codigo`)
-- [ ] 5.2 Aplicación: `listar-reservas.use-case.ts` — orquesta la consulta de
+- [x] 5.2 Aplicación: `listar-reservas.use-case.ts` — orquesta la consulta de
       activas, aplica los filtros y proyecta cada `RESERVA` a `Reserva` con los
       tres campos derivados. Sin efectos de escritura
-- [ ] 5.3 Infraestructura: `listar-reservas.prisma.adapter.ts` — query de reservas
+- [x] 5.3 Infraestructura: `listar-reservas.prisma.adapter.ts` — query de reservas
       activas (excluye `2x/2y/2z/reserva_completada/reserva_cancelada`) con **join
       a `CLIENTE`**, filtro **obligatorio por `tenant_id`** + RLS, orden por
       `fechaCreacion` desc, paginación (`page`/`limit`) y filtros de query
-- [ ] 5.4 Interfaz: `listar-reservas.controller.ts` — `GET /reservas` (mapeo
+- [x] 5.4 Interfaz: `listar-reservas.controller.ts` — `GET /reservas` (mapeo
       200/401), `tenant_id` inyectado desde el JWT (no configurable por el usuario);
       registrar en el módulo `reservas`
 
