@@ -390,6 +390,34 @@ describe('ListarReservasUseCase — pipeline de reservas activas (US-049)', () =
     expect(resultado.data).toHaveLength(2);
   });
 
+  // 3.8bis — hallazgo ALTA: la exclusión de terminales/cerrados se aplica SIEMPRE, aun
+  // con filtro por un estado/subEstado terminal → el puerto devuelve lista vacía.
+  it.each<[string, Partial<ListarReservasComando>]>([
+    ['estado_reserva_completada', { estado: 'reserva_completada' }],
+    ['estado_reserva_cancelada', { estado: 'reserva_cancelada' }],
+    ['subEstado_2x', { subEstado: '2x' }],
+    ['subEstado_2y', { subEstado: '2y' }],
+    ['subEstado_2z', { subEstado: '2z' }],
+  ])(
+    'debe_devolver_vacio_cuando_se_filtra_por_%s_terminal_pese_a_existir_reservas',
+    async (_nombre, filtroTerminal) => {
+      // Arrange: el adaptador aplica SIEMPRE la exclusión, así que un filtro por un valor
+      // terminal produce un where incompatible → 0 filas (aunque en BD existan en ese estado).
+      const listarActivas = jest.fn().mockResolvedValue(pagina([], { total: 0 }));
+      const { useCase } = construir(listarActivas);
+
+      // Act
+      const resultado = await useCase.ejecutar(comando(filtroTerminal));
+
+      // Assert: el filtro viaja al puerto y el resultado es lista vacía (contrato del hallazgo)
+      expect(listarActivas).toHaveBeenCalledWith(
+        expect.objectContaining({ ...filtroTerminal, tenantId: TENANT }),
+      );
+      expect(resultado.data).toEqual([]);
+      expect(resultado.metadata.total).toBe(0);
+    },
+  );
+
   // 3.9 — no-mutación: el use-case no invoca escritura
   it('debe_ser_lectura_pura_y_no_invocar_ningun_metodo_de_escritura', async () => {
     // Arrange: puerto con SOLO el método de lectura + espías de posibles escrituras

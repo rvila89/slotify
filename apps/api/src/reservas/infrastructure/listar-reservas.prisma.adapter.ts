@@ -106,13 +106,21 @@ export class ListarReservasPrismaAdapter implements PipelineQueryPort {
   private construirWhere(
     filtros: PipelineQueryFiltros,
   ): Prisma.ReservaWhereInput {
+    // La exclusión de terminales/cerrados se aplica SIEMPRE (invariante del pipeline),
+    // con independencia de los filtros: se combina con el filtro de estado/subEstado vía
+    // `AND` en vez de sustituirse. Así `?estado=reserva_completada` o `?subEstado=2x`
+    // (valores terminales) devuelven lista vacía, porque el filtro pide un estado que la
+    // exclusión veta.
     const where: Prisma.ReservaWhereInput = {
       tenantId: filtros.tenantId,
       estado: filtros.estado
-        ? (filtros.estado as EstadoReserva)
+        ? { equals: filtros.estado as EstadoReserva, notIn: [...ESTADOS_CERRADOS] }
         : { notIn: [...ESTADOS_CERRADOS] },
       subEstado: filtros.subEstado
-        ? subEstadoDominioAPrisma(filtros.subEstado)
+        ? {
+            equals: subEstadoDominioAPrisma(filtros.subEstado),
+            notIn: [...SUB_ESTADOS_TERMINALES],
+          }
         : { notIn: [...SUB_ESTADOS_TERMINALES] },
     };
 
