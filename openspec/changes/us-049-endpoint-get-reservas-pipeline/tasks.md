@@ -40,25 +40,27 @@
 ## 3. Tests primero — TDD RED (OBLIGATORIO — tdd-first — dueño: `tdd-engineer`)
 > Sin tests de race condition (lectura pura; no hay bloqueo atómico ni mutación).
 > Ubicación: `apps/api/src/reservas/__tests__/listar-reservas.use-case.spec.ts`.
-- [ ] 3.1 Test: **lista vacía** cuando no hay reservas activas → `data: []`,
+- [x] 3.1 Test: **lista vacía** cuando no hay reservas activas → `data: []`,
       `metadata.total = 0` (en rojo)
-- [ ] 3.2 Test: incluye **todos los estados activos** (`2a`, `2b`, `2c`, `2d`, `2v`,
+- [x] 3.2 Test: incluye **todos los estados activos** (`2a`, `2b`, `2c`, `2d`, `2v`,
       `pre_reserva`, `reserva_confirmada`, `evento_en_curso`, `post_evento`),
       ordenados por `fechaCreacion` descendente (en rojo)
-- [ ] 3.3 Test: **excluye** `2x`, `2y`, `2z`, `reserva_completada`,
+- [x] 3.3 Test: **excluye** `2x`, `2y`, `2z`, `reserva_completada`,
       `reserva_cancelada` (en rojo)
-- [ ] 3.4 Test: **aislamiento multi-tenant** — con `tenant_id` T-001 no se devuelven
+- [x] 3.4 Test: **aislamiento multi-tenant** — con `tenant_id` T-001 no se devuelven
       reservas de otro tenant (en rojo)
-- [ ] 3.5 Test: **derivación `progressLogistica`** — `pendiente=0`, `en_curso=50`,
+- [x] 3.5 Test: **derivación `progressLogistica`** — `pendiente=0`, `en_curso=50`,
       `cerrado=100`; consulta/`pre_reserva` → `0` (en rojo)
-- [ ] 3.6 Test: **derivación `progressLiquidacion`** — `pendiente=0`, `facturada=50`,
+- [x] 3.6 Test: **derivación `progressLiquidacion`** — `pendiente=0`, `facturada=50`,
       `cobrada=100`; consulta sin liquidación → `0` (en rojo)
-- [ ] 3.7 Test: **`nombreEvento`** = `{cliente.nombre} {cliente.apellidos}`, con
+- [x] 3.7 Test: **`nombreEvento`** = `{cliente.nombre} {cliente.apellidos}`, con
       **fallback a `codigo`** cuando no hay cliente resoluble (en rojo)
-- [ ] 3.8 Test: **filtro por estado** (`?estado=pre_reserva`) devuelve solo ese
+- [x] 3.8 Test: **filtro por estado** (`?estado=pre_reserva`) devuelve solo ese
       estado, sobre el conjunto de activas (en rojo)
-- [ ] 3.9 Test de **no-mutación**: el use-case no escribe ninguna entidad (en rojo)
-- [ ] 3.10 Confirmar que toda la batería está **en rojo** antes de implementar
+- [x] 3.9 Test de **no-mutación**: el use-case no escribe ninguna entidad (en rojo)
+- [x] 3.10 Confirmar que toda la batería está **en rojo** antes de implementar
+      (22 tests, 22 failed; todos fallan por `NotImplementedError` — implementación
+      ausente; el use-case es un STUB TDD-RED que lanza a propósito)
 
 ## 4. Backend: revisar y actualizar tests unitarios existentes (OBLIGATORIO — step-N — dueño: `backend-developer`)
 - [ ] 4.1 Revisar tests existentes del módulo `reservas` y del agregado `RESERVA`;
