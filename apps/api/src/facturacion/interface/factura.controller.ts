@@ -73,6 +73,14 @@ import {
   FacturaLiquidacionNoEncontradaError as LiquidacionReenvioNoEncontradaError,
 } from '../application/reenviar-liquidacion.use-case';
 import {
+  RegistrarCobroLiquidacionUseCase,
+  CobroInvalidoError,
+  FacturaLiquidacionNoEncontradaError as CobroLiquidacionNoEncontradaError,
+  JustificanteNoEncontradoError,
+  LiquidacionNoFacturadaError,
+  LiquidacionYaCobradaError,
+} from '../application/registrar-cobro-liquidacion.use-case';
+import {
   AprobarEnviarLiquidacionDto,
   AprobarEnviarLiquidacionResponseDto,
   AprobarFacturaRequestDto,
@@ -82,6 +90,8 @@ import {
   RechazarFacturaRequestDto,
   RegenerarPdfFacturaRequestDto,
   ReenviarLiquidacionResponseDto,
+  RegistrarCobroLiquidacionDto,
+  RegistrarCobroLiquidacionResponseDto,
 } from './factura.dto';
 
 /** Tipos de factura admitidos por el filtro `?tipo=`. */
@@ -173,6 +183,7 @@ export class FacturaController {
     private readonly aprobarYEnviarLiquidacion: AprobarYEnviarLiquidacionUseCase,
     private readonly enviarReciboFianzaSeparado: EnviarReciboFianzaSeparadoUseCase,
     private readonly reenviarLiquidacion: ReenviarLiquidacionUseCase,
+    private readonly registrarCobroLiquidacion: RegistrarCobroLiquidacionUseCase,
   ) {}
 
   @Get('reservas/:id/facturas')
@@ -371,6 +382,51 @@ export class FacturaController {
     }
   }
 
+  @Post('reservas/:id/facturas/liquidacion/cobro')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Registrar el cobro de la factura de liquidación (UC-21 pasos 7-10 / US-029)',
+  })
+  async cobrarLiquidacion(
+    @Param('id') id: string,
+    @Body() body: RegistrarCobroLiquidacionDto,
+    @CurrentUser() usuario: UsuarioAutenticado,
+  ): Promise<RegistrarCobroLiquidacionResponseDto> {
+    try {
+      const resultado = await this.registrarCobroLiquidacion.ejecutar({
+        tenantId: usuario.tenantId,
+        usuarioId: usuario.sub,
+        reservaId: id,
+        importe: body.importe,
+        fechaCobro: body.fechaCobro,
+        justificanteDocId: body.justificanteDocId ?? null,
+      });
+      return {
+        pago: {
+          idPago: resultado.pago.idPago,
+          facturaId: resultado.pago.facturaId,
+          importe: resultado.pago.importe,
+          fechaCobro: resultado.pago.fechaCobro.toISOString().slice(0, 10),
+          justificanteDocId: resultado.pago.justificanteDocId,
+        },
+        liquidacion: aFacturaEmitidaDto({
+          idFactura: resultado.liquidacion.idFactura,
+          reservaId: resultado.liquidacion.reservaId,
+          numeroFactura: resultado.liquidacion.numeroFactura,
+          tipo: resultado.liquidacion.tipo,
+          total: resultado.liquidacion.total,
+          estado: resultado.liquidacion.estado,
+          pdfUrl: null,
+          fechaEmision: null,
+        }),
+        liquidacionStatus: resultado.liquidacionStatus,
+        alertaDiscrepancia: resultado.alertaDiscrepancia ?? null,
+      };
+    } catch (error) {
+      this.aHttp(error);
+    }
+  }
+
   /**
    * Recupera la liquidación ya emitida para incluirla SIN cambios en la respuesta del reenvío
    * (el use-case no muta la factura; su resultado solo trae la nueva COMUNICACION).
@@ -427,7 +483,9 @@ export class FacturaController {
       error instanceof ReservaFacturasNoEncontradaError ||
       error instanceof FacturaLiquidacionNoEncontradaError ||
       error instanceof LiquidacionReenvioNoEncontradaError ||
-      error instanceof FacturaFianzaNoEncontradaError
+      error instanceof FacturaFianzaNoEncontradaError ||
+      error instanceof CobroLiquidacionNoEncontradaError ||
+      error instanceof JustificanteNoEncontradoError
     ) {
       throw new NotFoundException({
         statusCode: HttpStatus.NOT_FOUND,
@@ -448,7 +506,9 @@ export class FacturaController {
     if (
       error instanceof LiquidacionNoBorradorError ||
       error instanceof FianzaNoBorradorError ||
-      error instanceof FacturaNoEnviadaError
+      error instanceof FacturaNoEnviadaError ||
+      error instanceof LiquidacionYaCobradaError ||
+      error instanceof LiquidacionNoFacturadaError
     ) {
       throw new ConflictException({
         statusCode: HttpStatus.CONFLICT,
@@ -456,6 +516,15 @@ export class FacturaController {
         message: error.message,
         codigo: error.codigo,
         motivo: error.motivo,
+      });
+    }
+    if (error instanceof CobroInvalidoError) {
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        error: 'Bad Request',
+        message: error.message,
+        codigo: error.codigo,
+        motivo: error.message,
       });
     }
     if (error instanceof DescuentoInvalidoError) {

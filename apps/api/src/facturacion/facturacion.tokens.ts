@@ -64,3 +64,7 @@ export const REENVIAR_E4_PORT = Symbol('ReenviarE4Port');
 export const REGISTRAR_COMUNICACION_REENVIO_PORT = Symbol('RegistrarComunicacionReenvioPort');
 /** Registro de auditoría del reenvío. */
 export const REGISTRAR_AUDITORIA_REENVIO_PORT = Symbol('RegistrarAuditoriaReenvioPort');
+
+// --- US-029: registro del cobro de la liquidación (UC-21 pasos 7-10, D-2) ---
+/** Unidad de trabajo transaccional del cobro (tx + RLS + SELECT ... FOR UPDATE sobre RESERVA). */
+export const UNIDAD_DE_TRABAJO_COBRO_PORT = Symbol('UnidadDeTrabajoCobroPort');

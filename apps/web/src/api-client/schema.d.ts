@@ -1821,6 +1821,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/facturas/liquidacion/cobro": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Registrar el cobro de la factura de liquidación (UC-21 pasos 7-10 / US-029)
+         * @description [US-029 / UC-21 pasos 7-10] El **Gestor registra el cobro** del 60 % restante de la RESERVA
+         *     `{id}` cuando recibe la transferencia bancaria externa (Slotify **registra**, no procesa el
+         *     pago; sin pasarela en MVP). Precondición: `RESERVA.liquidacionStatus='facturada'` y su
+         *     `FACTURA (tipo='liquidacion').estado='enviada'` (dejado por US-028).
+         *
+         *     En una **única unidad de trabajo atómica** (tx + RLS del tenant del JWT), releyendo el estado
+         *     de la RESERVA con `SELECT ... FOR UPDATE` para serializar el doble cobro concurrente (lock de
+         *     fila PostgreSQL, **nunca** locks distribuidos; design.md §D-2):
+         *     1. Crea un registro `PAGO` con `facturaId` de la factura de liquidación, `importe` (el importe
+         *        real cobrado), `fechaCobro` y, si se adjunta, `justificanteDocId` (referencia a un DOCUMENTO
+         *        `tipo='justificante_pago'` **ya subido**; opcional, `null` si no se adjunta).
+         *     2. Transiciona `FACTURA (liquidacion).estado='cobrada'`.
+         *     3. Transiciona `RESERVA.liquidacionStatus='cobrada'` (habilita una de las 3 precondiciones de
+         *        `evento_en_curso`, US-031; NO transiciona `RESERVA.estado`).
+         *     4. Registra `AUDIT_LOG` (`crear` del PAGO; `actualizar` de FACTURA y RESERVA; la discrepancia
+         *        si la hubo).
+         *
+         *     **Discrepancia de importe (alerta, NO bloquea)**: si `importe` difiere de `FACTURA.total`, el
+         *     cobro se registra igualmente con el importe real y la respuesta 200 incluye `alertaDiscrepancia`
+         *     (importe facturado, cobrado y diferencia) para que el Gestor la concilie. NO es un error.
+         *
+         *     Aislada por `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
+         */
+        post: operations["registrarCobroLiquidacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/condiciones-particulares": {
         parameters: {
             query?: never;
@@ -3112,6 +3156,78 @@ export interface components {
              */
             codigo: "FACTURA_LIQUIDACION_NO_ENCONTRADA" | "FACTURA_FIANZA_NO_ENCONTRADA" | "FACTURA_NO_BORRADOR" | "FACTURA_NO_ENVIADA" | "DESCUENTO_INVALIDO" | "EMISION_ENVIO_FALLIDO";
             /** @description Mensaje legible para la UI (presente en 409/422). */
+            motivo?: string;
+        };
+        PagoLiquidacion: {
+            /**
+             * Format: uuid
+             * @description Identificador del PAGO (er-diagram §3.13 id_pago).
+             */
+            idPago: string;
+            /**
+             * Format: uuid
+             * @description FACTURA de liquidación conciliada (er-diagram §3.13 factura_id).
+             */
+            facturaId: string;
+            /** @description Importe REAL cobrado, Decimal(10,2) como string. Puede diferir de `Factura.total`. */
+            importe: components["schemas"]["Importe"];
+            /**
+             * Format: date
+             * @description Fecha del cobro (DATE). Validada `<= hoy` (no futura) al registrar.
+             * @example 2026-06-15
+             */
+            fechaCobro: string;
+            /**
+             * Format: uuid
+             * @description Referencia al DOCUMENTO (`tipo='justificante_pago'`) del justificante de transferencia, o `null` si el cobro se registró sin adjuntar justificante (er-diagram §3.13 justificante_doc_id).
+             */
+            justificanteDocId?: string | null;
+            /**
+             * Format: date-time
+             * @description Instante de creación del registro de cobro (er-diagram §3.13 fecha_creacion).
+             */
+            fechaCreacion?: string;
+        };
+        RegistrarCobroLiquidacionRequest: {
+            /** @description Importe REAL cobrado (Importe string Decimal(10,2), p. ej. `"4100.00"`). DEBE ser `> 0` (`0`/negativo → 400 `COBRO_INVALIDO`). Puede diferir de `Factura.total` (→ `alertaDiscrepancia` en la respuesta 200; no bloquea). */
+            importe: components["schemas"]["Importe"];
+            /**
+             * Format: date
+             * @description Fecha del cobro (DATE). DEBE ser una fecha válida `<= hoy` (futura o mal formada → 400 `COBRO_INVALIDO`).
+             * @example 2026-06-15
+             */
+            fechaCobro: string;
+            /**
+             * Format: uuid
+             * @description OPCIONAL. Referencia a un DOCUMENTO (`tipo='justificante_pago'`) YA subido en el tenant. Si se omite o es `null`, el cobro se registra sin justificante (`PAGO.justificanteDocId=null`) y avanza igualmente a `cobrada`. Un id inexistente en el tenant → 404 `JUSTIFICANTE_NO_ENCONTRADO`.
+             */
+            justificanteDocId?: string | null;
+        };
+        AlertaDiscrepanciaCobro: {
+            /** @description Total de la FACTURA de liquidación (`Factura.total`), Decimal(10,2) como string. */
+            importeFacturado: components["schemas"]["Importe"];
+            /** @description Importe realmente cobrado (`Pago.importe`), Decimal(10,2) como string. */
+            importeCobrado: components["schemas"]["Importe"];
+            /** @description Diferencia `importeFacturado - importeCobrado` (Decimal(10,2) como string; positiva si se cobró de menos, negativa si de más). La conciliación se delega al Gestor. */
+            diferencia: components["schemas"]["Importe"];
+        };
+        RegistrarCobroLiquidacionResponse: {
+            /** @description El PAGO creado (con el importe real y, si se adjuntó, `justificanteDocId`). */
+            pago: components["schemas"]["PagoLiquidacion"];
+            /** @description Factura de liquidación actualizada (`estado=cobrada`). */
+            liquidacion: components["schemas"]["Factura"];
+            /** @description Sub-proceso de liquidación de la RESERVA tras el cobro (`cobrada`). */
+            liquidacionStatus: components["schemas"]["LiquidacionStatus"];
+            /** @description Presente SOLO si `pago.importe !== liquidacion.total`. Alerta informativa (no bloqueante); `null`/ausente cuando el importe cobrado coincide con el facturado. */
+            alertaDiscrepancia?: components["schemas"]["AlertaDiscrepanciaCobro"] | null;
+        };
+        CobroLiquidacionError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Código de error de dominio: `COBRO_INVALIDO` (400: `importe <= 0` o `fechaCobro` futura/ inválida), `FACTURA_LIQUIDACION_NO_ENCONTRADA`/`JUSTIFICANTE_NO_ENCONTRADO` (404), `LIQUIDACION_YA_COBRADA` (409, doble cobro), `LIQUIDACION_NO_FACTURADA` (409, `liquidacionStatus='pendiente'`).
+             * @enum {string}
+             */
+            codigo: "COBRO_INVALIDO" | "FACTURA_LIQUIDACION_NO_ENCONTRADA" | "JUSTIFICANTE_NO_ENCONTRADO" | "LIQUIDACION_YA_COBRADA" | "LIQUIDACION_NO_FACTURADA";
+            /** @description Mensaje legible para la UI ("La liquidación ya está marcada como cobrada", "La factura de liquidación debe estar enviada antes de registrar su cobro"). */
             motivo?: string;
         };
         Cliente: {
@@ -4725,6 +4841,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+        };
+    };
+    registrarCobroLiquidacion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistrarCobroLiquidacionRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Cobro registrado. La liquidación queda en `estado='cobrada'` y `liquidacionStatus='cobrada'`.
+             *     Devuelve el `PAGO` creado, la `FACTURA` de liquidación actualizada, el `liquidacionStatus`
+             *     resultante y, **solo si hubo discrepancia de importe**, `alertaDiscrepancia` (informativa,
+             *     no bloqueante).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrarCobroLiquidacionResponse"];
+                };
+            };
+            /**
+             * @description Validación de entrada (F5-01). El `importe` no es Decimal(10,2) positivo (`> 0`) o
+             *     `fechaCobro` no es una fecha válida `<= hoy` (futura o mal formada): `COBRO_INVALIDO`. No se
+             *     crea `PAGO` ni cambia el estado. Cuerpo = envelope estándar + `codigo` y `motivo`.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CobroLiquidacionError"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description La RESERVA no existe en el tenant (RLS), no tiene factura de liquidación
+             *     (`FACTURA_LIQUIDACION_NO_ENCONTRADA`), o el `justificanteDocId` indicado no existe en el
+             *     tenant (`JUSTIFICANTE_NO_ENCONTRADO`). No se muta nada. Cuerpo + `codigo`.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CobroLiquidacionError"];
+                };
+            };
+            /**
+             * @description Conflicto de precondición de estado (F5-02: 409), sin efectos, releído bajo
+             *     `SELECT ... FOR UPDATE`:
+             *     - `LIQUIDACION_YA_COBRADA` — la liquidación ya está `cobrada` (**doble cobro**, incl. dos
+             *       peticiones concurrentes: solo la primera registra el PAGO). "La liquidación ya está
+             *       marcada como cobrada".
+             *     - `LIQUIDACION_NO_FACTURADA` — `liquidacionStatus='pendiente'` (la factura de liquidación
+             *       aún no fue enviada, US-028 no ejecutada). "La factura de liquidación debe estar enviada
+             *       antes de registrar su cobro".
+             *     Cuerpo = envelope estándar + `codigo` y `motivo`.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CobroLiquidacionError"];
                 };
             };
         };

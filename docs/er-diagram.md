@@ -292,10 +292,11 @@ erDiagram
 
     PAGO {
         uuid id_pago PK
-        uuid factura_id FK
-        decimal importe
-        date fecha_cobro
-        uuid justificante_doc_id FK "-> DOCUMENTO"
+        uuid tenant_id FK "US-029 D-1: multi-tenancy/RLS directo"
+        uuid factura_id FK "FACTURA 1-N PAGO — sin UNIQUE(factura_id)"
+        decimal importe "DECIMAL(10,2) — importe real cobrado"
+        date fecha_cobro "≤ hoy; validación de dominio"
+        uuid justificante_doc_id FK "nullable → DOCUMENTO(tipo=justificante_pago)"
         timestamp fecha_creacion
     }
 
@@ -385,6 +386,7 @@ erDiagram
     TENANT ||--o{ TEMPORADA_CALENDARIO : "configura"
     TENANT ||--o{ EXTRA : "ofrece"
     TENANT ||--o{ FACTURA : "emite"
+    TENANT ||--o{ PAGO : "registra"
     TENANT ||--o{ DOCUMENTO : "almacena"
     TENANT ||--o{ COMUNICACION : "registra"
     TENANT ||--o{ AUDIT_LOG : "registra"
@@ -727,15 +729,26 @@ Tras el commit de la transición `pre_reserva → reserva_confirmada` (US-021), 
 - **Endpoint de consulta**: `GET /reservas/{id}/facturas` — devuelve la colección de facturas de la reserva filtrable por tipo; implementado en US-027.
 
 ### 3.13 PAGO
-Cobro conciliado contra una factura. El justificante es un documento.
+Cobro conciliado contra una factura. El justificante es un `DOCUMENTO(tipo=justificante_pago)`. Materializado en US-029 (migración aditiva `20260704150000_us029_pago_tenant_id`).
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
 | id_pago | UUID PK | Identificador único |
-| factura_id | UUID FK | Factura conciliada |
-| importe | DECIMAL(10,2) | Importe cobrado |
-| fecha_cobro | DATE | Fecha del cobro |
-| justificante_doc_id | UUID FK | Justificante (→ DOCUMENTO) |
+| tenant_id | UUID FK | Tenant propietario. **US-029 D-1**: campo explícito en PAGO por regla dura de multi-tenancy/RLS del proyecto. Policy RLS filtra por `tenant_id` directo (sin join a FACTURA). FK → TENANT. Índice `@@index([tenantId])`. |
+| factura_id | UUID FK | Factura conciliada. Índice `@@index([facturaId])`. **Cardinalidad FACTURA 1-N PAGO** (`||--o{`): prevé cobros parciales futuros. **SIN `UNIQUE(factura_id)`**: la unicidad de cobro del MVP la garantiza la guarda de estado (`liquidacion_status` bajo `SELECT ... FOR UPDATE`), no un constraint de BD. |
+| importe | DECIMAL(10,2) | Importe real cobrado por el Gestor (`> 0`). Puede diferir del `FACTURA.total`; la discrepancia alerta pero no bloquea. El PAGO no recalcula el desglose fiscal de la factura (inmutable desde la emisión). |
+| fecha_cobro | DATE | Fecha del cobro. Validación de dominio: `fecha_cobro ≤ hoy` (no futura). |
+| justificante_doc_id | UUID FK | FK nullable → `DOCUMENTO(tipo=justificante_pago)`. El justificante es **opcional**; si no se adjunta, `justificante_doc_id = NULL` y el cobro avanza igualmente a `cobrada`. |
+| fecha_creacion | TIMESTAMP | `DEFAULT now()` |
+
+**Guarda de doble cobro (US-029 / UC-21 — atomicidad):** el use-case `RegistrarCobroLiquidacionUseCase` abre una `$transaction`, relee `RESERVA.liquidacion_status` con `SELECT ... FOR UPDATE` sobre la fila de RESERVA y aplica la guarda:
+- `liquidacion_status = 'facturada'` → procede: crea el `DOCUMENTO` (si aplica) + el `PAGO` + transiciona `FACTURA(liquidacion).estado = 'cobrada'` + `RESERVA.liquidacion_status = 'cobrada'` + AUDIT_LOG, todo en el mismo commit.
+- `liquidacion_status = 'cobrada'` → aborta con error 409 "La liquidación ya está marcada como cobrada". Dos peticiones concurrentes se serializan: la segunda ve `cobrada` bajo lock y aborta. **Sin locks distribuidos** (regla dura del proyecto): es un lock de fila PostgreSQL, coherente con el patrón `bloquearFecha()`.
+- `liquidacion_status = 'pendiente'` → aborta con error 409 "La factura de liquidación debe estar enviada antes de registrar su cobro".
+
+**Discrepancia de importe (US-029 / D-3):** si `importe !== FACTURA(liquidacion).total`, el sistema crea igualmente el PAGO con el importe real y avanza a `cobrada`. La respuesta incluye `alertaDiscrepancia { importeFacturado, importeCobrado, diferencia }`. La conciliación se delega al Gestor; el MVP no ajusta la factura ni genera nota de crédito.
+
+**`liquidacion_status = cobrada` como precondición de `evento_en_curso` (US-031):** al dejar `RESERVA.liquidacion_status = 'cobrada'`, se habilita una de las tres precondiciones de la futura transición `reserva_confirmada → evento_en_curso`. Las otras dos son `pre_evento_status = cerrado` y `fianza_status = cobrada`. La transición a `evento_en_curso` no se evalúa en US-029; es responsabilidad de US-031.
 
 ### 3.14 FICHA_OPERATIVA
 Datos operativos del evento, cumplimentados progresivamente. Relación 1:1 con la reserva. La entidad se crea vacía (todos los campos de contenido a `NULL`, `ficha_cerrada = false`) en la misma transacción de confirmación de señal (US-021). US-025 añade la lectura, el guardado parcial y el cierre.
@@ -852,6 +865,8 @@ Registro de auditoría de todas las acciones sobre reservas, facturas y autentic
 | `UNIQUE PARTIAL (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL AND es_reenvio = false` en COMUNICACION | Idempotencia del motor de email (US-045, actualizado D-4 US-028): una `COMUNICACION` por `(reserva, codigo_email)` para envíos originales; emails `manual` sin reserva y reenvíos explícitos (`es_reenvio = true`) no aplican el constraint. La migración D-4 de US-028 amplió el predicado `WHERE` del índice añadiendo `AND es_reenvio = false`. |
 | `UNIQUE(tenant_id, numero_factura)` en FACTURA | Numeración fiscal secuencial por tenant (US-022 §D-3, D-7): sustituye el `@unique` global sobre `numero_factura`. Permite que dos tenants distintos tengan `F-2026-0001`; garantiza unicidad dentro del mismo tenant. El año va embebido en el literal `F-YYYY-NNNN`. Ante colisión `P2002`, la aplicación recalcula el siguiente número y reintenta (nunca locks distribuidos). |
 | `UNIQUE(reserva_id, tipo)` en FACTURA | Idempotencia de factura por tipo y reserva (US-022 §D-4): red de seguridad ante disparos concurrentes del trigger post-commit de US-021. Garantiza máximo una factura de señal, una de liquidación, una de fianza y una complementaria por reserva. Ante `P2002`, el use-case devuelve la existente sin duplicar. |
+| `@@index([tenantId])` en PAGO | Filtrado RLS directo por `tenant_id` en PAGO (US-029 D-1). La policy RLS filtra por `PAGO.tenant_id` directo, sin join a FACTURA. Migración `20260704150000_us029_pago_tenant_id`. |
+| `@@index([facturaId])` en PAGO | Búsqueda de pagos por factura (US-029). Soporta la relación FACTURA 1-N PAGO (sin `UNIQUE`, previendo cobros parciales futuros). Migración `20260704150000_us029_pago_tenant_id`. |
 
 ---
 
@@ -894,7 +909,9 @@ Estas invariantes son la última línea de defensa; el dominio las valida tambi�
 **`liberarFecha()` — DELETE serializado (UC-31 / US-041):** elimina la fila `(tenant_id, fecha)` vía `$executeRaw` dentro de `$transaction` + `SET LOCAL app.tenant_id` (RLS). La señal canónica son las filas afectadas: `1` = liberación efectiva → registrar en `AUDIT_LOG` con causa (TTL/descarte/cancelacion) + invocar `PromocionColaPort` si hay cola activa; `0` = éxito silencioso idempotente (fecha ya libre o nunca bloqueada) → registrar tentativa en `AUDIT_LOG`, sin disparar promoción. La guarda del bloqueo firme valida en dominio que la `RESERVA` esté en `reserva_cancelada` antes del DELETE; si no, rechaza con error tipado y audita el intento. Sin endpoint HTTP propio (decisión D-7 / US-041): el actor es el Sistema, no un usuario. La liberación en lote procesa N fechas expiradas en transacciones independientes con fallo aislado. Ver §3.6 para la tabla detallada de semántica por rows-affected y §5.2 para la integración con la cola.
 
 ### 5.4 Sub-procesos paralelos
-Los tres sub-procesos (pre_evento, liquidacion, fianza) se modelan como atributos ENUM de RESERVA. La transición a `evento_en_curso` tiene como guarda `pre_evento_status = cerrado AND liquidacion_status = cobrada AND fianza_status = cobrada` (US-031, fuera del alcance de US-025).
+Los tres sub-procesos (pre_evento, liquidacion, fianza) se modelan como atributos ENUM de RESERVA. La transición a `evento_en_curso` tiene como guarda `pre_evento_status = cerrado AND liquidacion_status = cobrada AND fianza_status = cobrada` (US-031, fuera del alcance de US-025 y US-029).
+
+**`liquidacion_status = cobrada` (US-029 / UC-21 pasos 7-10):** se alcanza cuando el use-case `RegistrarCobroLiquidacionUseCase` crea el registro `PAGO` y transiciona de forma atómica `FACTURA(liquidacion).estado: enviada → cobrada` y `RESERVA.liquidacion_status: facturada → cobrada`. Precondición: `liquidacion_status = 'facturada'` (la factura fue previamente enviada en US-028). La guarda de doble cobro (`SELECT ... FOR UPDATE` sobre RESERVA) impide crear un segundo PAGO concurrente. Ver §3.13 para la mecánica completa.
 
 **Sub-proceso `pre_evento_status` — máquina de estados (US-025 / UC-20 / US-026):**
 
@@ -917,6 +934,8 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 `EXTRA` es el catálogo del tenant (precio de referencia actual). `RESERVA_EXTRA` es la línea facturable, con `precio_unitario` congelado en el momento de añadirla. Esto desacopla el extra del presupuesto: un extra puede añadirse en el presupuesto inicial o durante la fase pre-evento (campo `origen`). El campo `factura_id` indica en qué factura se cobra cada línea; las líneas sin facturar (`factura_id IS NULL`) se recogen al generar la factura de liquidación (T-1d) o, si la petición llega más tarde, en una factura `complementaria` en post-evento. Para extras fuera de catálogo (p. ej. un catering negociado), `extra_id` es nulo y se usa `concepto_libre` con precio manual. Este diseño cubre la casuística de peticiones de última hora sin entidades adicionales y alimenta el KPI de upsell (ticket medio).
 
 ---
+
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.1 (05/07/2026): refleja US-029 — Gestor Registra el Cobro de la Liquidación (UC-21 pasos 7-10): actualiza el diagrama Mermaid de PAGO — añade `tenant_id` FK con nota de multi-tenancy/RLS, documenta cardinalidad `FACTURA ||--o{ PAGO` con nota de ausencia de `UNIQUE(factura_id)`, anota `justificante_doc_id` como nullable y `fecha_cobro` con validación de dominio; añade relación `TENANT ||--o{ PAGO : "registra"` en el diagrama; amplía §3.13 PAGO — documenta `tenant_id` explícito (D-1, migración `20260704150000_us029_pago_tenant_id`, FK a TENANT, policy RLS directa sin join), cardinalidad FACTURA 1-N PAGO sin `UNIQUE(factura_id)`, importe real con discrepancia informativa, `fecha_cobro ≤ hoy`, `justificante_doc_id` nullable, guarda de doble cobro por `SELECT ... FOR UPDATE` sobre RESERVA, flujo de discrepancia, `liquidacion_status = cobrada` como precondición de US-031; añade dos índices de PAGO en §4.1 (`tenantId`, `facturaId`); amplía §5.4 con la descripción de cómo se alcanza `liquidacion_status = cobrada` y la referencia a la guarda atómica. Sin entidades ni enums nuevos (enum `cobrada` en FACTURA/RESERVA y `justificante_pago` en DOCUMENTO ya existían desde US-022/US-021; la tabla PAGO se materializa aditivamente).*
 
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.0 (04/07/2026): refleja US-026 — Cierre Automático de Ficha Operativa en T-1d (automatización A10): amplía §5.4 — sustituye tabla de dos filas por tabla de cuatro filas añadiendo columna Actor; añade fila de transición `{pendiente|en_curso} → cerrado` por barrido automático A10 (disparador `POST /cron/barrido?tarea=fichas`, actor Sistema, guarda por fecha de calendario T-1d + re-evaluación bajo `SELECT … FOR UPDATE`); añade notas de `resolverCierreAutomatico` (tabla declarativa `CIERRE_AUTOMATICO_A10` en `maquina-estados-pre-evento.ts`) y de coordinación con US-031. Sin entidades, columnas ni índices nuevos.*
 

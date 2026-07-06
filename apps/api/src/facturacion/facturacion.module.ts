@@ -69,6 +69,11 @@ import {
   type RegistrarAuditoriaReenvioPort,
   type RegistrarComunicacionReenvioPort,
 } from './application/reenviar-liquidacion.use-case';
+import {
+  RegistrarCobroLiquidacionUseCase,
+  type UnidadDeTrabajoCobroPort,
+} from './application/registrar-cobro-liquidacion.use-case';
+import { CobroLiquidacionUoWPrismaAdapter } from './infrastructure/cobro-liquidacion-uow.prisma.adapter';
 import type { FacturaSenal } from './application/generar-factura-senal.use-case';
 import {
   EmisionUoWPrismaAdapter,
@@ -140,6 +145,7 @@ import {
   REENVIAR_E4_PORT,
   REGISTRAR_COMUNICACION_REENVIO_PORT,
   REGISTRAR_AUDITORIA_REENVIO_PORT,
+  UNIDAD_DE_TRABAJO_COBRO_PORT,
 } from './facturacion.tokens';
 
 /** Firma del puerto de auditoría de aprobación/rechazo (acepta ambos registros). */
@@ -318,6 +324,13 @@ type CargarFacturaFn = (params: {
       inject: [PrismaService],
       useFactory: (prisma: PrismaService): RegistrarAuditoriaReenvioPort =>
         new RegistrarAuditoriaReenvioPrismaAdapter(prisma).registrar,
+    },
+
+    // --- US-029: unidad de trabajo del cobro de la liquidación (FOR UPDATE sobre RESERVA) ---
+    {
+      provide: UNIDAD_DE_TRABAJO_COBRO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) => new CobroLiquidacionUoWPrismaAdapter(prisma),
     },
 
     // --- Casos de uso ---
@@ -527,6 +540,12 @@ type CargarFacturaFn = (params: {
           clock,
         }),
     },
+    {
+      provide: RegistrarCobroLiquidacionUseCase,
+      inject: [UNIDAD_DE_TRABAJO_COBRO_PORT, FACTURACION_CLOCK_PORT],
+      useFactory: (unidadDeTrabajo: UnidadDeTrabajoCobroPort, clock: ClockPort) =>
+        new RegistrarCobroLiquidacionUseCase({ unidadDeTrabajo, clock }),
+    },
   ],
   exports: [
     GenerarFacturaSenalUseCase,
@@ -534,6 +553,7 @@ type CargarFacturaFn = (params: {
     AprobarYEnviarLiquidacionUseCase,
     EnviarReciboFianzaSeparadoUseCase,
     ReenviarLiquidacionUseCase,
+    RegistrarCobroLiquidacionUseCase,
   ],
 })
 export class FacturacionModule {}
