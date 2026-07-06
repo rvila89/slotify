@@ -2368,29 +2368,39 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Visualizar dashboard operativo (UC-34)
-         * @description Devuelve KPIs operativos (ocupación, conversión, pipeline) y financieros (ingresos, cobros pendientes).
+         * Visualizar dashboard operativo (UC-34 / US-044)
+         * @description [US-044] Vista de **lectura pura** (NO muta estado) que agrega en una sola respuesta
+         *     el estado operativo del tenant en **7 widgets** (§7.1 SlotifyGeneralSpecs, design.md
+         *     §D-1: un único endpoint agregado en vez de 7). Cada widget devuelve sus `items` y el
+         *     `total` de elementos que satisfacen su criterio; cada ítem enlaza a la ficha de la
+         *     `RESERVA` (`enlace`). El widget `proximos30Dias` añade el `color` semántico canónico
+         *     derivado del par `(estado, subEstado)`, el **mismo código cromático que el Calendario
+         *     (US-039 / §11.3)** — reutilizado, no reimplementado (design.md §D-2).
+         *
+         *     Widgets (design.md §D-1):
+         *     - **hoyManana**: reservas con `fecha_evento ∈ {hoy, mañana}` en `reserva_confirmada`
+         *       o `evento_en_curso`, ordenadas por `fecha_evento` asc.
+         *     - **pipeline**: recuento de reservas `activo = true` agrupado por `estado`/`sub_estado`
+         *       (Exploratoria, Con fecha, Pendiente invitados, En cola, Visita programada,
+         *       Pre-reserva, Confirmada).
+         *     - **subProcesosCriticos**: `reserva_confirmada` con sub-proceso atrasado
+         *       (`pre_evento_status ≠ cerrado` con evento próximo, `liquidacion_status ≠ cobrada`
+         *       o `fianza_status ≠ cobrada`).
+         *     - **pendientes**: acciones requeridas (presupuesto `enviado` sin respuesta, TTL en las
+         *       próximas 24 h, factura `enviada` sin pago con vencimiento superado).
+         *     - **consultasEnCola**: reservas en `sub_estado = 2d`, agrupables por `fecha_evento`.
+         *     - **visitasProgramadas**: `sub_estado = 2v` con `visita_programada_fecha` futura,
+         *       ordenadas por `visita_programada_fecha` asc.
+         *     - **proximos30Dias**: reservas con `fecha_evento ∈ [hoy, hoy + 30 días]` (inclusive),
+         *       cada una con su `color` canónico.
+         *
+         *     Aislada por `tenant_id` del JWT (reforzada por RLS) y considera **solo** reservas con
+         *     `activo = true` (US-044 §FA-04). NO expone datos financieros del tenant ni
+         *     `CLIENTE.iban_devolucion` (§7.2, fuera de MVP). Sin parámetros de query: el filtrado
+         *     por tenant viaja en el JWT. Las ventanas temporales se calculan en backend (design.md
+         *     §D-3); cada widget gestiona su estado vacío de forma independiente (§FA-01).
          */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description KPIs del dashboard */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["DashboardResponse"];
-                    };
-                };
-            };
-        };
+        get: operations["consultarDashboard"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3700,22 +3710,57 @@ export interface components {
             mimeType?: string;
             tamanoBytes?: number | null;
         };
+        /** @description Carga agregada de los 7 widgets del dashboard operativo (US-044, lectura pura). */
         DashboardResponse: {
+            /** @description Reservas con `fecha_evento ∈ {hoy, mañana}` en `reserva_confirmada` o `evento_en_curso`, ordenadas por `fecha_evento` ascendente. */
+            hoyManana: components["schemas"]["DashboardWidget"];
+            /** @description Reservas `activo = true` agrupadas por `estado`/`sub_estado`; cada ítem representa una reserva del pipeline (Exploratoria/Con fecha/Pendiente invitados/En cola/Visita programada/Pre-reserva/Confirmada). El `total` es el recuento del pipeline activo. */
+            pipeline: components["schemas"]["DashboardWidget"];
+            /** @description Reservas en `reserva_confirmada` con algún sub-proceso atrasado (pre-evento no cerrado con evento próximo, liquidación no cobrada o fianza no cobrada). */
+            subProcesosCriticos: components["schemas"]["DashboardWidget"];
+            /** @description Reservas con una acción requerida (presupuesto `enviado` sin respuesta, TTL en las próximas 24 h, o factura `enviada` sin pago con vencimiento superado). */
+            pendientes: components["schemas"]["DashboardWidget"];
+            /** @description Reservas en `sub_estado = 2d` (agrupables por `fecha_evento` en el front). */
+            consultasEnCola: components["schemas"]["DashboardWidget"];
+            /** @description Reservas en `sub_estado = 2v` con `visita_programada_fecha` futura, ordenadas por `visita_programada_fecha` ascendente. */
+            visitasProgramadas: components["schemas"]["DashboardWidget"];
+            /** @description Reservas con `fecha_evento ∈ [hoy, hoy + 30 días]` (inclusive); cada ítem añade el `color` semántico canónico del Calendario (US-039 / §11.3). */
+            proximos30Dias: components["schemas"]["DashboardProximos30DiasWidget"];
+        };
+        DashboardWidget: {
+            items: components["schemas"]["DashboardItem"][];
+            /** @description Nº total de elementos que satisfacen el criterio del widget. */
+            total: number;
+        };
+        DashboardProximos30DiasWidget: {
+            items: components["schemas"]["DashboardItemProximos30Dias"][];
+            /** @description Nº de reservas con `fecha_evento` en `[hoy, hoy + 30 días]`. */
+            total: number;
+        };
+        DashboardItem: {
+            /** Format: uuid */
+            reservaId: string;
+            /** @description Código legible de la reserva. */
+            codigo: string;
+            /** @description Nombre del cliente asociado a la reserva. */
+            clienteNombre: string;
+            estado: components["schemas"]["EstadoReserva"];
+            /** @description Sub-estado de consulta; `null` para reservas fuera de la fase de consulta. */
+            subEstado: components["schemas"]["SubEstadoConsulta"] | null;
             /**
-             * Format: double
-             * @description % de fechas ocupadas (métrica de display)
+             * Format: date
+             * @description Fecha del evento de la reserva.
              */
-            ocupacionMesActual?: number;
+            fechaEvento: string;
             /**
-             * Format: double
-             * @description consultas → reservas confirmadas (métrica de display)
+             * Format: uri
+             * @description Enlace directo a la ficha de detalle de la RESERVA (§FA-02).
              */
-            tasaConversion?: number;
-            /** @description reservas en consulta + pre_reserva */
-            pipelineActivo?: number;
-            ingresosMes?: components["schemas"]["Importe"];
-            cobrosPendientes?: components["schemas"]["Importe"];
-            ticketMedio?: components["schemas"]["Importe"];
+            enlace: string;
+        };
+        DashboardItemProximos30Dias: components["schemas"]["DashboardItem"] & {
+            /** @description Color semántico canónico derivado de `(estado, subEstado)`, idéntico al del Calendario (US-039 / §11.3): gris|ambar|verde|azul|rojo. */
+            color: components["schemas"]["ColorCalendario"];
         };
         BarridoResponse: {
             reservasExpiradas?: number;
@@ -5057,6 +5102,28 @@ export interface operations {
             };
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    consultarDashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Carga agregada de los 7 widgets del dashboard operativo del tenant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     barridoExpiracion: {
