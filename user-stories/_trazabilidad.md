@@ -24,9 +24,10 @@
 | 10 | Histórico | UC-32, UC-33 | US-042, US-043 | ✅ Completo |
 | 11 | Dashboard | UC-34 | US-044 | ✅ Completo |
 | 12 | Comunicaciones | UC-35, UC-36 | US-045, US-046 | ✅ Completo |
+| 13 | Gestión del Pipeline de Reservas | UC-37, UC-38 | US-049, US-050 | ✅ Completo |
 
-**UC cubiertos: 36/36** ✅
-+**Historias que pasan la puerta INVEST: 48/48** ✅ *(incluye US-000 y US-000A — Technical Foundation Stories)*
+**UC cubiertos: 38/38** ✅
++**Historias que pasan la puerta INVEST: 50/50** ✅ *(incluye US-000 y US-000A — Technical Foundation Stories)*
 
 ---
 
@@ -370,11 +371,32 @@ Ninguno. Todos los 36 UC del MVP están cubiertos.
 
 ---
 
+### Área 13: Gestión del Pipeline de Reservas (UC-37, UC-38)
+
+| UC | Historia(s) US | Área | Prioridad | Dolor | Alcance | INVEST | Cubierto |
+|----|----------------|------|-----------|-------|---------|--------|----------|
+| UC-37, UC-38 | [US-049](US-049-implementar-endpoint-get-reservas.md) — Implementar endpoint GET /reservas del pipeline | Gestión del Pipeline de Reservas | Alta | D2, D7 | ✅ Implementado (pendiente) | OK (excepción I declarada: depende de US-001 para JWT/tenant y US-003 para reservas existentes. Endpoint ya en spec, pendiente de backend hexagonal) | ✅ |
+| UC-37, UC-38 | [US-050](US-050-visualizar-pipeline-reservas.md) — Visualizar Pipeline de Reservas (Kanban + Listado) | Gestión del Pipeline de Reservas | Alta | D2, D7 | ✅ Implementado (pendiente) | OK (excepción S declarada: dos tabs (Kanban + Listado) en la misma pantalla comparten hook y estado; partir en 2 US no aporta valor independiente — ambas dependen del mismo endpoint US-049) | ✅ |
+
+**Verificación del lote:**
+- UC cubiertos en este lote: **2/2** (UC-37, UC-38 — área Gestión del Pipeline completa)
+- Historias generadas: **2** (US-049 backend + US-050 frontend; split por capa de responsabilidad)
+- Historias que pasan la puerta INVEST: **2/2**
+- US sin UC de origen (invenciones): **ninguna**
+- UC sin cobertura en este lote: **ninguno**
+
+**Gaps de spec detectados en este lote:**
+1. **Transiciones de estado inline desde el Kanban (modal)**: el usuario mencionó la posibilidad de actualizar estados desde el Kanban sin ir a la FichaConsulta, pero el alcance quedó pendiente de definir. No se incluye en US-049/050; los endpoints de transición ya existen en el backend.
+2. **Avatares de equipo**: el Figma muestra avatares de miembros de equipo en la columna "Confirmada". Requiere una entidad de asignación de equipo a reservas no incluida en el MVP. Excluido explícitamente de US-050.
+3. **Progreso exacto de logística (%)**: el Figma muestra valores como 20%, 65%, etc., que provienen de items individuales de la Ficha Operativa. MVP usa aproximación 0/50/100% desde enum `preEventoStatus`. Refinable en US futura.
+
+---
+
 ## Resumen final de cobertura
 
-**UC cubiertos: 36/36** ✅  
-**Historias emitidas: 46**  
-**Historias que pasan la puerta INVEST: 46/46** ✅  
+**UC cubiertos: 38/38** ✅  
+**Historias emitidas: 48**  
+**Historias que pasan la puerta INVEST: 48/48** ✅  
 **US sin UC de origen (invenciones): 0** ✅  
 **UC sin cobertura: 0** ✅
 
@@ -392,3 +414,4 @@ Ninguno. Todos los 36 UC del MVP están cubiertos.
 | Histórico | UC-32–33 | US-042–043 |
 | Dashboard | UC-34 | US-044 |
 | Comunicaciones | UC-35–36 | US-045–046 |
+| Gestión del Pipeline de Reservas | UC-37–38 | US-049–050 |

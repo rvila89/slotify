@@ -47,7 +47,7 @@ Menú de navegación principal ubicado en el lateral izquierdo, siempre visible:
 |--------|-------------|
 | **Dashboard** | Panel operativo con widgets de resumen y alertas. Primera entrada del sidebar (posición 1). La landing post-login sigue siendo `/calendario`. Implementado en US-044. |
 | **Calendario** | Vista principal del calendario de disponibilidad y reservas. Es la página de inicio tras el login. |
-| **Reservas** | Listado y gestión de todas las reservas (pipeline, histórico). |
+| **Reservas** | Hub del pipeline activo — dos tabs: "Flujo de Reserva" (Kanban por fase) y "Listado" (tabla de activas). Clic en cualquier reserva navega a su FichaConsulta. Implementado en US-049 (backend) y US-050 (frontend). |
 | **Métricas** | KPIs y estadísticas del negocio (diferido a V1; entrada visible pero sin contenido en MVP). |
 
 #### Header (Cabecera fija)
@@ -79,8 +79,9 @@ Barra superior persistente con elementos de acceso rápido:
 | Calendario y Disponibilidad | UC-29 a UC-31 | 3 |
 | Histórico | UC-32, UC-33 | 2 |
 | Dashboard | UC-34 | 1 |
+| Gestión del Pipeline de Reservas | UC-37, UC-38 | 2 |
 | Comunicaciones | UC-35, UC-36 | 2 |
-| **Total** | | **36** |
+| **Total** | | **38** |
 
 ---
 
@@ -1806,6 +1807,73 @@ flowchart TD
 
 ---
 
+### ÁREA: GESTIÓN DEL PIPELINE DE RESERVAS
+
+---
+
+#### UC-37: Visualizar Pipeline de Reservas Activas
+
+| Campo | Descripción |
+|-------|-------------|
+| **ID** | UC-37 |
+| **Nombre** | Visualizar Pipeline de Reservas Activas |
+| **Actor Principal** | Gestor |
+| **Actores Secundarios** | Sistema |
+| **Descripción** | El gestor visualiza un tablero Kanban con todas las reservas activas del tenant agrupadas en 5 columnas por fase del pipeline: Consulta, Pre-reserva, Confirmada, En Curso y Post-evento. Cada tarjeta muestra el nombre del evento, fecha, aforo estimado, progreso de logística y liquidación, y una nota de estado. Clic en tarjeta navega a la FichaConsulta. |
+| **Precondiciones** | - El gestor está autenticado |
+| **Postcondiciones** | - Kanban mostrado con reservas activas del tenant agrupadas por fase |
+| **Prioridad** | Alta |
+| **Frecuencia** | Muy alta |
+| **US** | US-049 (backend endpoint), US-050 (frontend Kanban) |
+| **Endpoint** | `GET /reservas` — filtro activo: excluye terminales 2x/2y/2z, reserva_completada, reserva_cancelada |
+| **Entidades afectadas** | RESERVA (solo lectura)
+
+**Flujo Básico:**
+1. El gestor navega a `/reservas` (tab "Flujo de Reserva" activo por defecto)
+2. El frontend llama a `GET /reservas` con filtro de estados activos
+3. El sistema devuelve la lista paginada de reservas activas del tenant (RLS por `tenant_id` JWT)
+4. El frontend agrupa en 5 columnas: Consulta (2a/2b/2c/2d/2v) · Pre-reserva · Confirmada · En Curso · Post-evento
+5. Cada tarjeta muestra: nombre evento, fecha · aforo, barras LOGÍSTICA y LIQUIDACIÓN, nota de estado
+6. El gestor hace clic en cualquier tarjeta → navega a `/reservas/:id`
+
+**Reglas de Negocio:**
+- Estados excluidos: `2x`, `2y`, `2z`, `reserva_completada`, `reserva_cancelada`
+- RLS: solo reservas con `tenant_id` del JWT del gestor autenticado
+- `progressLogistica` (0/50/100%) derivado de `preEventoStatus`: pendiente=0, en_curso=50, cerrado=100
+- `progressLiquidacion` (0/50/100%) derivado de `liquidacionStatus`: pendiente=0, facturada=50, cobrada=100
+- Para reservas en consulta o pre_reserva sin ficha operativa activa: ambos progresos = 0%
+
+---
+
+#### UC-38: Visualizar Listado de Reservas Activas
+
+| Campo | Descripción |
+|-------|-------------|
+| **ID** | UC-38 |
+| **Nombre** | Visualizar Listado de Reservas Activas |
+| **Actor Principal** | Gestor |
+| **Actores Secundarios** | Sistema |
+| **Descripción** | Desde la misma página `/reservas`, el gestor selecciona el tab "Listado" y visualiza una tabla con todas las reservas activas. Cada fila muestra el nombre del evento, estado, fecha y aforo. Clic en fila navega a la FichaConsulta. |
+| **Precondiciones** | - El gestor está autenticado |
+| **Postcondiciones** | - Tabla mostrada con reservas activas del tenant |
+| **Prioridad** | Alta |
+| **Frecuencia** | Alta |
+| **US** | US-050 (frontend Listado; comparte el endpoint implementado en US-049) |
+| **Endpoint** | `GET /reservas` — mismo filtro que UC-37 |
+| **Entidades afectadas** | RESERVA (solo lectura)
+
+**Flujo Básico:**
+1. El gestor accede a `/reservas` y selecciona el tab "Listado"
+2. El frontend usa el mismo hook de datos que UC-37 (sin llamada adicional)
+3. El frontend renderiza una tabla con columnas: Nombre · Estado · Fecha · Aforo · Acciones
+4. El gestor hace clic en cualquier fila → navega a `/reservas/:id`
+
+**Reglas de Negocio:**
+- Mismos filtros de exclusión que UC-37
+- Tabla vacía con CTA "Nueva Reserva" cuando no hay reservas activas
+
+---
+
 ## 4. Diagrama de Interconexión de Casos de Uso
 
 ```mermaid
@@ -1882,8 +1950,15 @@ flowchart TB
         UC36[UC-36: Email Borrador]
     end
     
+    subgraph Pipeline[Pipeline de Reservas]
+        UC37[UC-37: Visualizar Pipeline]
+        UC38[UC-38: Listado Activas]
+    end
+    
     %% Flujo principal
     UC01 --> UC34
+    UC01 --> UC37
+    UC37 --> UC38
     UC03 --> UC04
     UC03 --> UC30
     UC04 --> UC14

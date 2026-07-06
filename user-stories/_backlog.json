@@ -1,13 +1,13 @@
 {
   "meta": {
     "proyecto": "Slotify MVP",
-    "generado": "2026-05-31T22:00:00+00:00",
-    "total_historias": 48,
+    "generado": "2026-07-06T00:00:00+00:00",
+    "total_historias": 50,
     "ventana_codigo": { "inicio": "2026-06-12", "fin_codigo": "2026-07-10" }
   },
   "validacion": {
-    "historias_ordenadas": "48/48",
-    "profundidad_max_grafo": 21,
+    "historias_ordenadas": "50/50",
+    "profundidad_max_grafo": 22,
     "historias_fundacionales": 10,
     "ciclos": [],
     "huerfanos": ["US-016"],
@@ -685,6 +685,34 @@
       "fan_out": 0,
       "depende_de": ["US-001", "US-003", "US-043"],
       "dolores": ["D11", "D2", "D7"]
+    },
+    {
+      "orden": 49,
+      "id": "US-049",
+      "titulo": "Implementar endpoint GET /reservas del pipeline",
+      "area": "Gestión del Pipeline de Reservas",
+      "prioridad": "Alta",
+      "tipo": "Soporte",
+      "talla_tecnica": "M",
+      "talla_justificacion": "Nuevo use case hexagonal + adaptador Prisma + controller para listar reservas activas; extiende schema Reserva con campos opcionales; concurrencia_critica por RLS",
+      "concurrencia_critica": true,
+      "fan_out": 1,
+      "depende_de": ["US-001", "US-003"],
+      "dolores": ["D2", "D7"]
+    },
+    {
+      "orden": 50,
+      "id": "US-050",
+      "titulo": "Visualizar Pipeline de Reservas (Kanban + Listado)",
+      "area": "Gestión del Pipeline de Reservas",
+      "prioridad": "Alta",
+      "tipo": "Soporte",
+      "talla_tecnica": "M",
+      "talla_justificacion": "Nueva página con dos tabs (Kanban 5 columnas + tabla responsive); hook TanStack Query; consume el endpoint de US-049",
+      "concurrencia_critica": false,
+      "fan_out": 0,
+      "depende_de": ["US-049", "US-001"],
+      "dolores": ["D2", "D7"]
     }
   ]
 }
