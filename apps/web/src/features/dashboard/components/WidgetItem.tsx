@@ -23,7 +23,7 @@ export const WidgetItem = ({
   reservaId: string;
   codigo: string;
   clienteNombre: string;
-  fechaEvento: string;
+  fechaEvento: string | null;
   color?: ColorCalendario;
 }) => (
   <li>
