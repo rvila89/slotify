@@ -127,12 +127,12 @@
       migración (sin cambios de esquema)
 
 ## 10. Code review (OBLIGATORIO — code-review — EL AGENTE DEBE EJECUTARLO)
-- [ ] 10.1 Ejecutar `code-reviewer` sobre el diff (guardrails: hexagonal — `domain/`
+- [x] 10.1 Ejecutar `code-reviewer` sobre el diff (guardrails: hexagonal — `domain/`
       sin Prisma/NestJS; RLS + filtro por `tenant_id`; **lectura pura sin mutación**;
       exclusión de estados terminales; derivación de progreso como **mapa
       declarativo/función pura**, no código disperso; campos nuevos del contrato
       **opcionales** — no rompen consumidores; SDK regenerado, no editado a mano)
-- [ ] 10.2 Dejar informe `reports/YYYY-MM-DD-step-review-code-review.md` con la línea
+- [x] 10.2 Dejar informe `reports/YYYY-MM-DD-step-review-code-review.md` con la línea
       literal `Veredicto: APTO` (si NO APTO, volver a implementación)
 
 ## 11. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final)
