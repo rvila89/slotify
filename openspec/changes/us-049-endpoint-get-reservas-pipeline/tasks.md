@@ -84,33 +84,33 @@
       registrar en el módulo `reservas`
 
 ## 6. QA: unit tests + verificación de BD (OBLIGATORIO — step-N+1 — EL AGENTE DEBE EJECUTARLO)
-- [ ] 6.1 Capturar baseline de BD (counts de `reserva`, `cliente`) para confirmar
+- [x] 6.1 Capturar baseline de BD (counts de `reserva`, `cliente`) para confirmar
       **lectura pura**
-- [ ] 6.2 Ejecutar tests dirigidos del módulo cambiado (listar-reservas: estados,
+- [x] 6.2 Ejecutar tests dirigidos del módulo cambiado (listar-reservas: estados,
       exclusiones, aislamiento, progresos, nombreEvento, filtros, no-mutación)
-- [ ] 6.3 Ejecutar la suite requerida (`pnpm test`)
-- [ ] 6.4 Verificar que la BD queda **idéntica** al baseline (la lectura no muta
+- [x] 6.3 Ejecutar la suite requerida (`pnpm test`)
+- [x] 6.4 Verificar que la BD queda **idéntica** al baseline (la lectura no muta
       nada); restaurar si hace falta
-- [ ] 6.5 Crear report `reports/YYYY-MM-DD-step-N+1-unit-test-and-db-verification.md`
-- [ ] 6.6 Marcar completado solo tras tests en verde y report creado
+- [x] 6.5 Crear report `reports/YYYY-MM-DD-step-N+1-unit-test-and-db-verification.md`
+- [x] 6.6 Marcar completado solo tras tests en verde y report creado
 
 ## 7. QA: pruebas manuales con curl (OBLIGATORIO — step-N+2 — EL AGENTE DEBE EJECUTARLO)
-- [ ] 7.1 Levantar el backend y autenticarse (JWT del gestor seed)
-- [ ] 7.2 GET `/reservas` con datos en distintos estados → 200; verificar que
+- [x] 7.1 Levantar el backend y autenticarse (JWT del gestor seed)
+- [x] 7.2 GET `/reservas` con datos en distintos estados → 200; verificar que
       aparecen todas las activas ordenadas por `fechaCreacion` desc, con
       `nombreEvento`, `progressLogistica` y `progressLiquidacion`
-- [ ] 7.3 GET `/reservas` con un tenant sin reservas activas → 200 con
+- [x] 7.3 GET `/reservas` con un tenant sin reservas activas → 200 con
       `{ data: [], metadata: { total: 0, page: 1, limit: 20 } }`
-- [ ] 7.4 Verificar exclusión: reservas en `2x/2y/2z/reserva_completada/
+- [x] 7.4 Verificar exclusión: reservas en `2x/2y/2z/reserva_completada/
       reserva_cancelada` NO aparecen
-- [ ] 7.5 GET `/reservas?estado=pre_reserva` → solo reservas en `pre_reserva`
-- [ ] 7.6 Verificar derivaciones sobre datos reales: `preEventoStatus=en_curso` →
+- [x] 7.5 GET `/reservas?estado=pre_reserva` → solo reservas en `pre_reserva`
+- [x] 7.6 Verificar derivaciones sobre datos reales: `preEventoStatus=en_curso` →
       `progressLogistica=50`; `liquidacionStatus=cobrada` → `progressLiquidacion=100`;
       consulta → ambos `0`; `nombreEvento` correcto (y fallback a `codigo`)
-- [ ] 7.7 GET con **JWT de otro tenant** → no aparecen reservas del primero
+- [x] 7.7 GET con **JWT de otro tenant** → no aparecen reservas del primero
       (aislamiento); sin sesión → 401 con formato de error del contrato OpenAPI
-- [ ] 7.8 Confirmar que ningún GET muta la BD (lectura pura: counts intactos)
-- [ ] 7.9 Crear report `reports/YYYY-MM-DD-step-N+2-curl-endpoint-tests.md`
+- [x] 7.8 Confirmar que ningún GET muta la BD (lectura pura: counts intactos)
+- [x] 7.9 Crear report `reports/YYYY-MM-DD-step-N+2-curl-endpoint-tests.md`
 
 ## 8. QA: E2E con Playwright MCP (step-N+3 — NO APLICA)
 - [ ] 8.1 **No aplica**: US-049 no entrega frontend (Kanban/Listado es US aparte).
