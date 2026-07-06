@@ -1,7 +1,7 @@
 ---
 id: US-049
-estado: backlog
-branch: null
+estado: en-revision
+branch: feature/us-049-050-pipeline-reservas
 pr: null
 ---
 
