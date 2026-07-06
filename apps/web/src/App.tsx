@@ -5,6 +5,7 @@ import { AppShell, SectionPlaceholder, NotFound } from './components/layout';
 import { NuevaConsultaPage, FichaConsultaPage } from './features/reservas';
 import { CalendarioPage } from './features/calendario';
 import { ColaEsperaPage } from './features/cola-espera';
+import { DashboardPage } from './features/dashboard';
 import { InterceptorRegistrar, RequireAuth } from './features/auth';
 
 // QueryClient para estado de servidor (TanStack Query) sobre el cliente API
@@ -36,6 +37,9 @@ const App = () => (
     <Route element={<RequireAuth />}>
       <Route element={<AppShell />}>
         <Route path="/" element={<Navigate to="/calendario" replace />} />
+        {/* US-044 — Dashboard operativo (lectura pura). Nueva entrada del shell;
+            la landing post-login sigue siendo /calendario (decisión de gate). */}
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/calendario" element={<CalendarioPage />} />
         <Route path="/reservas" element={<SectionPlaceholder nombre="Reservas" />} />
         <Route path="/reservas/nueva" element={<NuevaConsultaPage />} />

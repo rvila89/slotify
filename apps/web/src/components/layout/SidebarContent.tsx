@@ -1,11 +1,13 @@
 import { NavLink } from 'react-router-dom';
-import { BarChart3, CalendarDays, ClipboardList, LogOut } from 'lucide-react';
+import { BarChart3, CalendarDays, ClipboardList, LayoutDashboard, LogOut } from 'lucide-react';
 import { useLogout, useSession } from '@/features/auth';
 import { cn } from '@/lib/utils';
 
 /**
  * Contenido del sidebar del App Shell (US-000A): marca "Slotify",
- * navegación principal (Calendario · Reservas · Métricas) y card de usuario.
+ * navegación principal (Dashboard · Calendario · Reservas · Métricas) y card de
+ * usuario. Dashboard (US-044) es la entrada en primera posición; la landing
+ * post-login sigue siendo /calendario.
  *
  * Se reutiliza en dos contenedores:
  *  - el `<aside>` fijo de escritorio (`≥ lg`), y
@@ -16,6 +18,7 @@ import { cn } from '@/lib/utils';
  * border-border-default, bg-accent-active, bg-state-confirmada, …).
  */
 const navItems = [
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/calendario', label: 'Calendario', icon: CalendarDays },
   { to: '/reservas', label: 'Reservas', icon: ClipboardList },
   { to: '/metricas', label: 'Métricas', icon: BarChart3 },
