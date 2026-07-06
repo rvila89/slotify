@@ -194,6 +194,7 @@ paths:
   /reservas:
     get:
       tags: [Reservas]
+      operationId: listarReservas
       summary: Listar reservas (pipeline)
       description: Lista paginada de reservas del tenant con filtros por estado, sub-estado, fecha y canal.
       parameters:
@@ -2754,6 +2755,31 @@ components:
         consultaBloqueanteId: { type: string, format: uuid, nullable: true }
         notas: { type: string, nullable: true }
         fechaCreacion: { type: string, format: date-time }
+        # [US-049] Campos derivados de presentación para el pipeline (Kanban/Listado). OPCIONALES
+        # (cambio aditivo): el backend del GET /reservas los proyecta; los demás endpoints que
+        # heredan `Reserva` (ReservaDetalle, CreateReservaResponse, FichaConsulta) pueden omitirlos.
+        nombreEvento:
+          type: string
+          description: >-
+            Nombre del evento derivado del cliente asociado como
+            `{cliente.nombre} {cliente.apellidos}`, con fallback al `codigo` de la reserva cuando no
+            hay cliente resoluble. Campo de presentación, no persistido en RESERVA.
+        progressLogistica:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >-
+            Progreso de logística/pre-evento (0-100) derivado de `preEventoStatus`:
+            `pendiente=0`, `en_curso=50`, `cerrado=100`. En estados de consulta (`2a`, `2b`, `2c`,
+            `2d`, `2v`) y en `pre_reserva` arranca en `0` (aún no hay sub-proceso de pre-evento).
+        progressLiquidacion:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >-
+            Progreso de liquidación (0-100) derivado de `liquidacionStatus`:
+            `pendiente=0`, `facturada=50`, `cobrada=100`. En estados de consulta (`2a`, `2b`, `2c`,
+            `2d`, `2v`) y en `pre_reserva` arranca en `0` (aún no hay liquidación en curso).
       required: [idReserva, codigo, clienteId, estado, canalEntrada]
     ReservaDetalle:
       allOf:

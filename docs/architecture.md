@@ -813,6 +813,58 @@ US-044 no añade ninguna entidad nueva ni modifica columnas: lee `RESERVA` y `FE
 
 ---
 
+### 2.17 Capability `pipeline` — Listado de Reservas Activas (US-049 / UC-37 / UC-38)
+
+La capability `pipeline` expone el endpoint `GET /reservas` (`operationId: listarReservas`) que devuelve la lista paginada de reservas **activas** del tenant con los campos de progreso y nombre ya derivados, para alimentar el Kanban (UC-37 / US-050) y el Listado (UC-38 / US-050) de la pantalla de Reservas sin múltiples llamadas adicionales. Es una **operación de lectura pura**: no muta ninguna entidad, no produce bloqueos y no tiene concurrencia mutante. La capability `consultas` sigue siendo dueña del ciclo de vida y las transiciones del agregado `RESERVA`; `pipeline` solo lo lee.
+
+#### Endpoint
+
+`GET /reservas` — query params heredados del contrato ya declarado: `estado`, `subEstado`, `fechaDesde`, `fechaHasta`, `search`, `page` (≥1), `limit` (1-100; default 20). El filtro de exclusión de terminales y el aislamiento por `tenant_id` se aplican **siempre**, con independencia de los demás filtros. Las reservas se devuelven ordenadas por `fechaCreacion` descendente.
+
+Respuestas: `200` (`ReservaListResponse` = `{ data: Reserva[], metadata: { total, page, limit } }`), `401` (sin JWT válido).
+
+#### Reglas de negocio
+
+| Regla | Detalle |
+|-------|---------|
+| Estados activos | `2a`, `2b`, `2c`, `2d`, `2v`, `pre_reserva`, `reserva_confirmada`, `evento_en_curso`, `post_evento` |
+| Estados excluidos siempre | `2x`, `2y`, `2z`, `reserva_completada`, `reserva_cancelada` |
+| `nombreEvento` | `{CLIENTE.nombre} {CLIENTE.apellidos}`; fallback a `RESERVA.codigo` si no hay cliente resoluble |
+| `progressLogistica` | Entero 0/50/100 derivado de `pre_evento_status`: `pendiente=0`, `en_curso=50`, `cerrado=100`. Vale `0` para consultas y `pre_reserva`. |
+| `progressLiquidacion` | Entero 0/50/100 derivado de `liquidacion_status`: `pendiente=0`, `facturada=50`, `cobrada=100`. Vale `0` para consultas y `pre_reserva`. |
+| Multi-tenancy | `tenant_id` extraído del JWT, nunca configurable por el usuario; reforzado por RLS en PostgreSQL. |
+
+#### Cambio aditivo al schema `Reserva` del contrato
+
+Los tres campos (`nombreEvento: string`, `progressLogistica: integer`, `progressLiquidacion: integer`) se añaden como **opcionales** al schema `Reserva` de `docs/api-spec.yml`. No están en `required`; no rompen `ReservaDetalle`, `CreateReservaResponse` ni `FichaConsulta`. SDK del frontend regenerado (`apps/web/src/api-client/`), nunca editado a mano.
+
+#### Arquitectura interna (hexagonal)
+
+```
+apps/api/src/reservas/
+  domain/
+    listar-reservas.port.ts              Puerto de consulta (interfaz pura — sin NestJS ni Prisma)
+    [funciones puras de derivación]       progressLogistica/Liquidacion y nombreEvento como mapas declarativos
+  application/
+    listar-reservas.use-case.ts          Orquesta la consulta de activas; proyecta cada RESERVA con los tres campos derivados. Sin efectos de escritura.
+  infrastructure/
+    listar-reservas.prisma.adapter.ts    Query de activas con JOIN a CLIENTE, filtro por tenant_id + RLS, ORDER BY fechaCreacion DESC, paginación, filtros de query
+  interface/
+    listar-reservas.controller.ts        GET /reservas (JwtAuthGuard, mapeo 200/401); tenant_id inyectado desde el JWT
+```
+
+**Regla de dependencia hexagonal:** `domain/` no importa Prisma ni NestJS. La derivación de progreso y de `nombreEvento` son **funciones puras de dominio** (mapas declarativos estado→valor, mismo patrón que `derivarColor` en `calendario/` y `resolverExpiracionTtl` en `cron/`). Cambiar la lógica de derivación solo requiere editar los mapas.
+
+#### Multi-tenancy y RLS
+
+La query del adaptador filtra **siempre** por `tenant_id` del JWT. El RLS activo en PostgreSQL actúa como defensa en profundidad: ninguna fila de otro tenant es alcanzable aunque el filtro de aplicación fallara.
+
+#### Sin migración de esquema
+
+US-049 no añade entidades ni columnas nuevas: lee `RESERVA` (con `pre_evento_status` y `liquidacion_status` existentes desde US-000/US-021) y `CLIENTE` (existente desde US-003). Los tres campos derivados se calculan en memoria a partir de datos ya almacenados; no hay script de migración Prisma asociado a este change.
+
+---
+
 ## 3. Arquitectura objetivo de producción (visión a escala)
 
 > **Estado: visión de destino. NO se implementa en el MVP TFM.** Esta sección documenta a dónde evolucionaría Slotify como producto comercial multi-tenant. Cada componente se justifica por una necesidad que aparece *a escala*, y se anota por qué está sobredimensionado en la fase actual.
@@ -1079,6 +1131,8 @@ El MVP tiene tres piezas, pero solo dos cuestan: el **frontend SPA** se sirve co
 - **Razón de la divergencia:** la IA acelera el código de aplicación, no la operación de infraestructura. Para el plazo, el monolito libera tiempo hacia las zonas que defienden la nota; AWS lo consumiría en operación.
 
 ---
+
+*Documento de arquitectura v5.0, 06/07/2026. Cambios respecto a v4.9: refleja US-049 — Capability `pipeline` (UC-37 / UC-38): añade §2.17 (endpoint `GET /reservas` `operationId: listarReservas`; arquitectura hexagonal interna — `domain/` con puerto de consulta + funciones puras de derivación de progreso/nombre, `application/` `listar-reservas.use-case.ts`, `infrastructure/` adaptador Prisma con join a CLIENTE + filtro tenant_id + RLS + ORDER BY fechaCreacion DESC + paginación, `interface/` controller con JwtAuthGuard; tabla de reglas de negocio: estados activos vs excluidos, derivación `progressLogistica`/`progressLiquidacion` (0/50/100) desde `pre_evento_status`/`liquidacion_status`, derivación `nombreEvento` con fallback a `codigo`; cambio aditivo al schema `Reserva` del contrato — tres campos opcionales sin romper consumidores; sin migración de esquema; lectura pura sin mutación).*
 
 *Documento de arquitectura v4.9, 06/07/2026. Cambios respecto a v4.8: refleja US-044 — Dashboard Operativo (UC-34): añade §2.16 (módulo `dashboards` — endpoint `GET /dashboard`; 7 widgets agregados `hoyManana`, `pipeline`, `subProcesosCriticos`, `pendientes`, `consultasEnCola`, `visitasProgramadas`, `proximos30Dias`; `DashboardItem.fechaEvento` nullable en contrato + SDK + backend + frontend; arquitectura hexagonal interna — `domain/` con `ClockPort` inyectable + función pura `color-dashboard.ts`, `application/` use-case `ConsultarDashboardUseCase`, `infrastructure/` adaptador Prisma + adaptador de reloj real, `interface/` controller + DTO; frontend `apps/web/src/features/dashboard/` Bulletproof React con `useDashboard`, `DashboardPage`, `WidgetCard`, `DashboardSkeleton`, `DashboardError` — responsive 1/2/3 columnas móvil/md/lg; Dashboard en posición 1 del sidebar, landing post-login sigue siendo `/calendario`; lectura pura sin migración de esquema).*
 

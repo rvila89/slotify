@@ -466,6 +466,8 @@ Datos de contacto y fiscales del cliente. Es un atributo de la reserva, no un pu
 | direccion, codigo_postal, poblacion, provincia | VARCHAR | Datos fiscales |
 | iban_devolucion | VARCHAR(34) | IBAN para devolución de fianza |
 
+**Lectura en el pipeline (US-049 / UC-37-38 — sin migración):** el endpoint `GET /reservas` (`operationId: listarReservas`) hace join a `CLIENTE` para derivar `nombreEvento = {nombre} {apellidos}`. Si el `cliente_id` de la RESERVA no resuelve a un CLIENTE (nulo o inexistente), `nombreEvento` usa el `codigo` de la RESERVA como fallback. La lectura es de solo dos campos (`nombre`, `apellidos`); no se leen datos fiscales ni de contacto en esta operación.
+
 ### 3.5 RESERVA
 Entidad central única. Recorre toda la máquina de estados, desde los sub-estados de consulta hasta el archivo. Incluye los campos de cola, visita, sub-procesos paralelos y fianza.
 
@@ -502,6 +504,13 @@ Entidad central única. Recorre toda la máquina de estados, desde los sub-estad
 | cond_part_firmadas | BOOLEAN | Si las condiciones particulares están firmadas |
 | cond_part_enviadas_fecha | TIMESTAMP | Envío de condiciones particulares |
 | cond_part_firmadas_fecha | TIMESTAMP | Firma de condiciones particulares |
+
+**Lectura en el pipeline (US-049 / UC-37-38 — sin migración):** el endpoint `GET /reservas` (`operationId: listarReservas`) lee `RESERVA` con join a `CLIENTE` y proyecta tres campos derivados opcionales (cambio aditivo al schema `Reserva` del contrato; no rompe `ReservaDetalle`, `FichaConsulta` ni otros consumidores):
+- `nombreEvento` — derivado de `CLIENTE.nombre + apellidos`; fallback a `RESERVA.codigo`.
+- `progressLogistica` — entero 0/50/100 derivado de `pre_evento_status`: `pendiente=0`, `en_curso=50`, `cerrado=100`. Vale `0` para estados de consulta y `pre_reserva`.
+- `progressLiquidacion` — entero 0/50/100 derivado de `liquidacion_status`: `pendiente=0`, `facturada=50`, `cobrada=100`. Vale `0` para estados de consulta y `pre_reserva`.
+
+La derivación se implementa como función pura de dominio (mapa declarativo, no condicionales dispersos). El filtro de exclusión de terminales (`2x`, `2y`, `2z`, `reserva_completada`, `reserva_cancelada`) y el filtro por `tenant_id` (reforzado por RLS) se aplican siempre en el adaptador Prisma. Sin migración: `pre_evento_status` y `liquidacion_status` existen en el schema desde US-000/US-021.
 
 **Estados y sub-estados de consulta:**
 - `2a`: Consulta exploratoria (sin fecha, sin bloqueo)

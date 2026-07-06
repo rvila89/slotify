@@ -1,8 +1,8 @@
 ---
 id: US-049
-estado: backlog
-branch: null
-pr: null
+estado: en-revision
+branch: feature/us-049-050-pipeline-reservas
+pr: https://github.com/rvila89/slotify/pull/51
 ---
 
 # Historia de Usuario: Implementar Endpoint GET /reservas del Pipeline
