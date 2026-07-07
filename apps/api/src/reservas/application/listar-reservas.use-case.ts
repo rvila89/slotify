@@ -48,11 +48,16 @@ export interface ReservaListMetadata {
 
 /** Elemento proyectado a la forma del contrato `Reserva` con los derivados del pipeline. */
 export interface ReservaPipelineItem {
-  id: string;
+  idReserva: string;
   codigo: string;
   estado: EstadoReserva;
   subEstado: SubEstadoConsulta | null;
   fechaCreacion: string;
+  fechaEvento: string | null;
+  numInvitadosFinal: number | null;
+  numAdultosNinosMayores4: number | null;
+  numNinosMenores4: number | null;
+  notas: string | null;
   nombreEvento: string;
   progressLogistica: number;
   progressLiquidacion: number;
@@ -85,6 +90,14 @@ export interface ListarReservasComando {
 const calcularTotalPaginas = (total: number, limit: number): number =>
   limit <= 0 ? 0 : Math.ceil(total / limit);
 
+/**
+ * Serializa un `Date` (columna DATE) al `date` del contrato (`YYYY-MM-DD`) en UTC;
+ * `null` si la fecha del evento aún no está fijada. Mismo criterio que el resto del
+ * backend (`toISOString().slice(0, 10)`): NUNCA emite un date-time ISO completo.
+ */
+const aFechaDate = (fecha: Date | null): string | null =>
+  fecha === null ? null : fecha.toISOString().slice(0, 10);
+
 export class ListarReservasUseCase {
   constructor(private readonly deps: ListarReservasDeps) {}
 
@@ -109,11 +122,17 @@ export class ListarReservasUseCase {
   /** Proyecta una fila del read-model a la forma del contrato `Reserva` con derivados. */
   private proyectar(fila: PipelineReservaLectura): ReservaPipelineItem {
     return {
-      id: fila.idReserva,
+      idReserva: fila.idReserva,
       codigo: fila.codigo,
       estado: fila.estado,
       subEstado: fila.subEstado,
       fechaCreacion: fila.fechaCreacion.toISOString(),
+      // `fechaEvento` es una columna DATE: se emite como `date` (YYYY-MM-DD), no ISO.
+      fechaEvento: aFechaDate(fila.fechaEvento),
+      numInvitadosFinal: fila.numInvitadosFinal,
+      numAdultosNinosMayores4: fila.numAdultosNinosMayores4,
+      numNinosMenores4: fila.numNinosMenores4,
+      notas: fila.notas,
       nombreEvento: derivarNombreEvento(fila.cliente, fila.codigo),
       progressLogistica: derivarProgressLogistica(fila.estado, fila.preEventoStatus),
       progressLiquidacion: derivarProgressLiquidacion(

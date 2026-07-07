@@ -863,6 +863,50 @@ La query del adaptador filtra **siempre** por `tenant_id` del JWT. El RLS activo
 
 US-049 no añade entidades ni columnas nuevas: lee `RESERVA` (con `pre_evento_status` y `liquidacion_status` existentes desde US-000/US-021) y `CLIENTE` (existente desde US-003). Los tres campos derivados se calculan en memoria a partir de datos ya almacenados; no hay script de migración Prisma asociado a este change.
 
+#### Fixes de conformidad del backend (US-050 — sin cambio de contrato ni de esquema)
+
+Durante la implementación del frontend de US-050 se detectaron dos defectos en la implementación de US-049 que impedían el funcionamiento con datos reales. Ambos se corrigieron alineando la implementación al contrato ya congelado:
+
+**Fix 1 — Proyección incompleta (`ReservaPipelineItemDto`):** la proyección emitía `id` en vez de `idReserva` (campo `required` en el schema `Reserva` del contrato) y omitía `fechaEvento`, `numInvitadosFinal`, `numAdultosNinosMayores4`, `numNinosMenores4` y `notas`. Corregido en `interface/listar-reservas.dto.ts`, `application/listar-reservas.use-case.ts` e `interface/listar-reservas.controller.ts`. El contrato (`docs/api-spec.yml`) y el SDK generado no se modificaron: ya eran correctos.
+
+**Fix 2 — Filtro de sub-estado con `NULL` (`listar-reservas.prisma.adapter.ts`):** el constructor `construirWhere()` aplicaba `subEstado: { notIn: [...SUB_ESTADOS_TERMINALES] }`, que en SQL produce `sub_estado NOT IN ('2x','2y','2z')`. Por la lógica ternaria de SQL, `NULL NOT IN (...)` evalúa a NULL (no TRUE), por lo que todas las reservas con `subEstado = null` (`pre_reserva`, `reserva_confirmada`, `evento_en_curso`, `post_evento`) quedaban excluidas. Corregido combinando vía `AND` explícito: `{ OR: [{ subEstado: null }, { subEstado: { notIn: [...] } }] }`, dejando `where.OR` reservado al filtro `search`. El filtro explícito `?subEstado=<valor>` mantiene su rama `equals + notIn` original (no admite NULL: un filtro pide un valor concreto).
+
+#### Capability `pipeline-ui` — Pantalla `/reservas` (US-050 / UC-37 / UC-38)
+
+La pantalla `/reservas` (implementada en US-050) es la capa de presentación de la capability `pipeline`. Consume `GET /reservas` a través del SDK generado sin añadir llamadas adicionales al backend.
+
+**Estructura frontend** (`apps/web/src/features/reservas/` — Bulletproof React):
+
+```
+features/reservas/
+  api/
+    useReservasActivas.ts     Hook TanStack Query sobre el SDK listarReservas (staleTime: 30 s); compartido por ambos tabs
+  lib/
+    columnasKanban.ts         Mapa declarativo estado/subEstado → columna (5 columnas)
+    aforo.ts                  Helper: numInvitadosFinal con fallback a suma adultos/niños
+  pages/ReservasPage/
+    ReservasPage.tsx          Orquestador de tabs (flujo|listado; flujo activo por defecto)
+    KanbanView.tsx            Vista Kanban: 5 columnas por fase
+    KanbanColumn.tsx          Cabecera con dot de color + label + count
+    ReservaKanbanCard.tsx     Tarjeta: nombre, fecha+pax, barras LOGÍSTICA/LIQUIDACIÓN, nota si existe
+    ListadoView.tsx           Tabla en ≥lg; cards apiladas en <lg
+    ProgressBar.tsx           Barra de progreso reutilizable
+    constants.ts              Tokens Figma (colores de columna, labels)
+  index.ts                    Barrel (único punto de import externo)
+```
+
+**Agrupación estado → columna Kanban:**
+
+| Columna | Estados / sub-estados |
+|---------|----------------------|
+| Consulta | `2a`, `2b`, `2c`, `2d`, `2v` |
+| Pre-reserva | `pre_reserva` |
+| Confirmada | `reserva_confirmada` |
+| En Curso | `evento_en_curso` |
+| Post-evento | `post_evento` |
+
+**Estados de vista:** skeleton en carga (FA-02), estado vacío con CTA "Nueva Reserva" (FA-01), estado de error con reintento que hace `refetch` (FA-03). Responsive mobile-first (390/768/1280): Kanban con scroll horizontal en `<lg`; Listado en cards apiladas en `<lg`, tabla en `≥lg`. Sin overflow horizontal; objetivos táctiles accesibles.
+
 ---
 
 ## 3. Arquitectura objetivo de producción (visión a escala)
@@ -1131,6 +1175,8 @@ El MVP tiene tres piezas, pero solo dos cuestan: el **frontend SPA** se sirve co
 - **Razón de la divergencia:** la IA acelera el código de aplicación, no la operación de infraestructura. Para el plazo, el monolito libera tiempo hacia las zonas que defienden la nota; AWS lo consumiría en operación.
 
 ---
+
+*Documento de arquitectura v5.1, 07/07/2026. Cambios respecto a v5.0: refleja US-050 — Capability `pipeline-ui` (pantalla `/reservas` Kanban + Listado, UC-37 / UC-38). Añade dentro de §2.17: (a) dos fixes de conformidad del backend sin cambio de contrato ni de esquema — Fix 1: proyección `ReservaPipelineItemDto` corregida para emitir `idReserva` (no `id`) y propagar `fechaEvento`, `numInvitadosFinal`, `numAdultosNinosMayores4`, `numNinosMenores4`, `notas`; Fix 2: `construirWhere()` del adaptador Prisma corregido para admitir `subEstado IS NULL` vía `AND [{ subEstado: null } OR { subEstado: { notIn: [...] } }]`, de modo que `pre_reserva`/`reserva_confirmada`/`evento_en_curso`/`post_evento` aparecen en el pipeline; (b) subsección `Capability pipeline-ui` con la estructura Bulletproof React de `features/reservas/` (hook compartido `useReservasActivas`, mapa declarativo estado→columna, `ReservasPage` con tabs flujo|listado, `KanbanView`/`KanbanColumn`/`ReservaKanbanCard`/`ListadoView`/`ProgressBar`), la tabla de agrupación estado→columna Kanban (5 columnas) y los tres estados de vista (skeleton/vacío+CTA/error+reintento).*
 
 *Documento de arquitectura v5.0, 06/07/2026. Cambios respecto a v4.9: refleja US-049 — Capability `pipeline` (UC-37 / UC-38): añade §2.17 (endpoint `GET /reservas` `operationId: listarReservas`; arquitectura hexagonal interna — `domain/` con puerto de consulta + funciones puras de derivación de progreso/nombre, `application/` `listar-reservas.use-case.ts`, `infrastructure/` adaptador Prisma con join a CLIENTE + filtro tenant_id + RLS + ORDER BY fechaCreacion DESC + paginación, `interface/` controller con JwtAuthGuard; tabla de reglas de negocio: estados activos vs excluidos, derivación `progressLogistica`/`progressLiquidacion` (0/50/100) desde `pre_evento_status`/`liquidacion_status`, derivación `nombreEvento` con fallback a `codigo`; cambio aditivo al schema `Reserva` del contrato — tres campos opcionales sin romper consumidores; sin migración de esquema; lectura pura sin mutación).*
 

@@ -68,7 +68,19 @@ describe('ListarReservasPrismaAdapter — exclusión de terminales/cerrados (hal
 
     const where = whereDeFindMany(findMany);
     expect(where.estado).toEqual({ notIn: ESTADOS_CERRADOS });
-    expect(where.subEstado).toEqual({ notIn: SUB_ESTADOS_TERMINALES });
+    // SIN filtro de subEstado la exclusión de terminales se aplica ADMITIENDO NULL
+    // (estados `pre_reserva`/`reserva_confirmada`/... tienen `sub_estado IS NULL`) y se
+    // combina vía `AND` para no pisar el `OR` de `search`. `NULL NOT IN (...)` excluiría
+    // esas filas, de ahí el `OR: [{ subEstado: null }, { subEstado: { notIn } }]`.
+    expect(where.subEstado).toBeUndefined();
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { subEstado: null },
+          { subEstado: { notIn: SUB_ESTADOS_TERMINALES } },
+        ],
+      },
+    ]);
     expect(where.tenantId).toBe(TENANT);
   });
 

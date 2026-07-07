@@ -64,11 +64,16 @@ export class ListarReservasController {
   private aResponse(resultado: ReservaListResponse): ReservaListResponseDto {
     return {
       data: resultado.data.map((item) => ({
-        id: item.id,
+        idReserva: item.idReserva,
         codigo: item.codigo,
         estado: item.estado,
         subEstado: item.subEstado,
         fechaCreacion: item.fechaCreacion,
+        fechaEvento: item.fechaEvento,
+        numInvitadosFinal: item.numInvitadosFinal,
+        numAdultosNinosMayores4: item.numAdultosNinosMayores4,
+        numNinosMenores4: item.numNinosMenores4,
+        notas: item.notas,
         nombreEvento: item.nombreEvento,
         progressLogistica: item.progressLogistica,
         progressLiquidacion: item.progressLiquidacion,

@@ -1,8 +1,8 @@
 ---
 id: US-050
-estado: backlog
-branch: null
-pr: null
+estado: en-revision
+branch: feature/us-049-050-pipeline-reservas
+pr: https://github.com/rvila89/slotify/pull/52
 ---
 
 # Historia de Usuario: Visualizar Pipeline de Reservas (Kanban + Listado)

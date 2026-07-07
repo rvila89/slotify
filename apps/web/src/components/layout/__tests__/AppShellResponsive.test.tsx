@@ -9,12 +9,31 @@
  * estado por defecto (cerrado) el Radix Dialog no monta su contenido, así que
  * los tests existentes que esperan UN único `nav` siguen verdes.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from '@/App';
 import { SessionProvider } from '@/features/auth';
+
+// US-050: /reservas ya monta ReservasPage, que consume el SDK. Se DOBLA solo el
+// `GET` (conservando el resto del cliente real, p. ej. `.use` del interceptor)
+// para que la navegación a la sección no dispare una petición real. Devuelve una
+// lista vacía → estado estable de la página.
+vi.mock('@/api-client', async () => {
+  const actual = await vi.importActual<typeof import('@/api-client')>('@/api-client');
+  return {
+    ...actual,
+    apiClient: {
+      ...actual.apiClient,
+      GET: vi.fn().mockResolvedValue({
+        data: { data: [], metadata: { total: 0, page: 1, pageSize: 20 } },
+        error: undefined,
+        response: { status: 200 },
+      }),
+    },
+  };
+});
 
 const sesionValida = {
   status: 'authenticated',
@@ -74,9 +93,12 @@ describe('App Shell — drawer responsive (< lg)', () => {
 
     await user.click(within(dialog).getByRole('link', { name: /reservas/i }));
 
-    // El outlet cambia a Reservas (SPA)...
-    const outlet = await screen.findByTestId('section-placeholder');
-    expect(within(outlet).getByText(/reservas/i)).toBeInTheDocument();
+    // El outlet cambia a Reservas (SPA). US-050: /reservas ya renderiza la
+    // ReservasPage real (no el SectionPlaceholder); verificamos su cabecera <h1>,
+    // que se pinta con independencia del estado del query.
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /reservas/i }),
+    ).toBeInTheDocument();
 
     // ...y el drawer se cierra.
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());

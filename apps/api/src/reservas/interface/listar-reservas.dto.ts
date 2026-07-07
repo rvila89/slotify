@@ -103,7 +103,7 @@ export class ListarReservasQueryDto {
 /** Elemento del listado del pipeline (contrato `Reserva` con derivados). */
 export class ReservaPipelineItemDto {
   @ApiProperty({ type: String, format: 'uuid' })
-  id!: string;
+  idReserva!: string;
 
   @ApiProperty({ type: String, example: 'SLO-2026-0001' })
   codigo!: string;
@@ -116,6 +116,30 @@ export class ReservaPipelineItemDto {
 
   @ApiProperty({ type: String, format: 'date-time' })
   fechaCreacion!: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date',
+    nullable: true,
+    example: '2027-10-20',
+  })
+  fechaEvento!: string | null;
+
+  @ApiPropertyOptional({ type: Number, nullable: true, example: 80 })
+  numInvitadosFinal!: number | null;
+
+  @ApiPropertyOptional({ type: Number, nullable: true, example: 72 })
+  numAdultosNinosMayores4!: number | null;
+
+  @ApiPropertyOptional({ type: Number, nullable: true, example: 8 })
+  numNinosMenores4!: number | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'Alergia a frutos secos; montaje a las 17:00',
+  })
+  notas!: string | null;
 
   @ApiProperty({ type: String, example: 'Ana García López' })
   nombreEvento!: string;

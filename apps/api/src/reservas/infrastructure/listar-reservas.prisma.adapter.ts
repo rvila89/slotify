@@ -116,13 +116,31 @@ export class ListarReservasPrismaAdapter implements PipelineQueryPort {
       estado: filtros.estado
         ? { equals: filtros.estado as EstadoReserva, notIn: [...ESTADOS_CERRADOS] }
         : { notIn: [...ESTADOS_CERRADOS] },
-      subEstado: filtros.subEstado
-        ? {
-            equals: subEstadoDominioAPrisma(filtros.subEstado),
-            notIn: [...SUB_ESTADOS_TERMINALES],
-          }
-        : { notIn: [...SUB_ESTADOS_TERMINALES] },
     };
+
+    if (filtros.subEstado) {
+      // Filtro EXPLÍCITO de sub-estado: pide un valor concreto no nulo (no admite NULL).
+      // La exclusión de terminales se conserva por si se pide un valor terminal (→ vacío).
+      where.subEstado = {
+        equals: subEstadoDominioAPrisma(filtros.subEstado),
+        notIn: [...SUB_ESTADOS_TERMINALES],
+      };
+    } else {
+      // SIN filtro de sub-estado: el pipeline debe incluir las reservas con `sub_estado
+      // IS NULL` (estados `pre_reserva`, `reserva_confirmada`, `evento_en_curso`,
+      // `post_evento`). Como `NULL NOT IN (...)` evalúa a NULL (excluiría esas filas),
+      // se admite NULL explícitamente vía `OR`. Se cuelga de `where.AND` (NO de `where.OR`,
+      // reservado a `search`) para no pisar el filtro de búsqueda ni romper el AND implícito.
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        {
+          OR: [
+            { subEstado: null },
+            { subEstado: { notIn: [...SUB_ESTADOS_TERMINALES] } },
+          ],
+        },
+      ];
+    }
 
     const fechaEvento = this.construirRangoFecha(filtros);
     if (fechaEvento) {

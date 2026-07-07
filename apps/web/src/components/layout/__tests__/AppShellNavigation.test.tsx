@@ -11,12 +11,31 @@
  *    "section-placeholder"` que incluye el nombre de la seccion (ver task 2.5).
  *  - `@/features/auth` -> `SessionProvider` para INYECTAR la sesion valida.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from '@/App';
 import { SessionProvider } from '@/features/auth';
+
+// US-050: /reservas ya monta ReservasPage, que consume el SDK. Se DOBLA solo el
+// `GET` (conservando el resto del cliente real, p. ej. `.use` del interceptor)
+// para que la navegación a la sección no dispare una petición real. Devuelve una
+// lista vacía → estado estable de la página.
+vi.mock('@/api-client', async () => {
+  const actual = await vi.importActual<typeof import('@/api-client')>('@/api-client');
+  return {
+    ...actual,
+    apiClient: {
+      ...actual.apiClient,
+      GET: vi.fn().mockResolvedValue({
+        data: { data: [], metadata: { total: 0, page: 1, pageSize: 20 } },
+        error: undefined,
+        response: { status: 200 },
+      }),
+    },
+  };
+});
 
 const sesionValida = {
   status: 'authenticated',
@@ -49,9 +68,12 @@ describe('App Shell — navegacion SPA con item activo', () => {
     // Act: navegar a Reservas (SPA, click en el NavLink).
     await user.click(linkReservas);
 
-    // Assert: el outlet cambia a la seccion Reservas...
-    const outlet = await screen.findByTestId('section-placeholder');
-    expect(within(outlet).getByText(/reservas/i)).toBeInTheDocument();
+    // Assert: el outlet cambia a la seccion Reservas (US-050: la ruta /reservas
+    // ya renderiza la ReservasPage real, no el SectionPlaceholder). Verificamos la
+    // cabecera <h1> de la página, que se pinta con independencia del estado del query.
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /reservas/i }),
+    ).toBeInTheDocument();
 
     // ...el item activo pasa a Reservas y Calendario deja de estarlo...
     expect(linkReservas).toHaveAttribute('aria-current', 'page');

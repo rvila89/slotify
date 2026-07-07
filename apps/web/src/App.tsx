@@ -2,7 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginPage } from './pages/LoginPage';
 import { AppShell, SectionPlaceholder, NotFound } from './components/layout';
-import { NuevaConsultaPage, FichaConsultaPage } from './features/reservas';
+import { NuevaConsultaPage, FichaConsultaPage, ReservasPage } from './features/reservas';
 import { CalendarioPage } from './features/calendario';
 import { ColaEsperaPage } from './features/cola-espera';
 import { DashboardPage } from './features/dashboard';
@@ -41,7 +41,7 @@ const App = () => (
             la landing post-login sigue siendo /calendario (decisión de gate). */}
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/calendario" element={<CalendarioPage />} />
-        <Route path="/reservas" element={<SectionPlaceholder nombre="Reservas" />} />
+        <Route path="/reservas" element={<ReservasPage />} />
         <Route path="/reservas/nueva" element={<NuevaConsultaPage />} />
         <Route path="/reservas/:id" element={<FichaConsultaPage />} />
         {/* US-017 — vista de cola de espera (SOLO LECTURA). Destino del clic en
