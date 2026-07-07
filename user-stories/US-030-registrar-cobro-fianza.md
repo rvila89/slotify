@@ -1,8 +1,8 @@
 ---
 id: US-030
-estado: backlog
-branch: null
-pr: null
+estado: en-revision
+branch: feature/us-030-registrar-cobro-fianza
+pr: https://github.com/rvila89/slotify/pull/53
 ---
 
 # 🧾 Historia de Usuario: Gestor registra el cobro de la fianza
