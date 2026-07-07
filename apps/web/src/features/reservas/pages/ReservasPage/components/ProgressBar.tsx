@@ -1,4 +1,4 @@
-import { PROGRESS_TRACK } from './constants';
+import { PROGRESS_TRACK } from '../constants';
 
 type ProgressBarProps = {
   /** Etiqueta en versalitas (p. ej. "LOGÍSTICA", "LIQUIDACIÓN"). */

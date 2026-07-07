@@ -1,7 +1,7 @@
-import type { Reserva } from '../../model/types';
-import type { ColumnaKanban } from '../../lib/columnasKanban';
+import type { Reserva } from '../../../model/types';
+import type { ColumnaKanban } from '../../../lib/columnasKanban';
 import { ReservaKanbanCard } from './ReservaKanbanCard';
-import { COLUMNA_BG, COLUMNA_WIDTH_CLASS } from './constants';
+import { COLUMNA_BG, COLUMNA_WIDTH_CLASS } from '../constants';
 
 type KanbanColumnProps = {
   columna: ColumnaKanban;

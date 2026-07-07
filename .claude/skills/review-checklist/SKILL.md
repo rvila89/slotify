@@ -22,7 +22,7 @@ Revisar el diff contra este checklist y reportar cada hallazgo:
 10. **Cliente HTTP del frontend** generado, no editado a mano.
 11. **Convenciones de nombres**: PascalCase / camelCase / kebab-case, en español.
 12. **Responsive (frontend)**: UI mobile-first que se adapta a móvil/tablet/escritorio sin layout roto ni overflow; nav lateral colapsa a drawer en `<lg`; sin anchos px fijos que rompan en móvil; evidencia en 3 viewports (390/768/1280).
-13. **Estructura por dominio (frontend)**: feature en `features/<dominio>/` con segmentos (`api/components/lib/model/pages/`) y barrel `index.ts`; páginas complejas co-localizan schema/constantes/sub-componentes (sin componentes monolíticos que mezclen todo); se importa una feature solo por su barrel (no archivos internos); lo compartido (`components/`,`hooks/`,`lib/`) no importa de `features/`; archivos ≤300 líneas. (`pnpm lint` lo verifica vía boundaries/no-restricted-imports/max-lines.)
+13. **Estructura por dominio (frontend)**: feature en `features/<dominio>/` con segmentos (`api/components/lib/model/pages/`) y barrel `index.ts`; páginas complejas co-localizan schema/constantes/sub-componentes (sin componentes monolíticos que mezclen todo); **los sub-componentes privados de una página van en `<Pagina>/components/`, nunca planos en la raíz de `<Pagina>/`** (verificar que exista la subcarpeta y que todos los `.tsx` que no sean la propia página estén dentro); se importa una feature solo por su barrel (no archivos internos); lo compartido (`components/`,`hooks/`,`lib/`) no importa de `features/`; archivos ≤300 líneas. (`pnpm lint` lo verifica vía boundaries/no-restricted-imports/max-lines.)
 
 ## Patrón de referencia
 Formato del informe:

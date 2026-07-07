@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useReservasActivas } from '../../api/useReservasActivas';
-import { KanbanView } from './KanbanView';
-import { ListadoView } from './ListadoView';
-import { PipelineSkeleton } from './PipelineSkeleton';
-import { PipelineError, PipelineVacio } from './PipelineEstados';
+import { KanbanView } from './components/KanbanView';
+import { ListadoView } from './components/ListadoView';
+import { PipelineSkeleton } from './components/PipelineSkeleton';
+import { PipelineError, PipelineVacio } from './components/PipelineEstados';
 
 type TabId = 'flujo' | 'listado';
 

@@ -1,9 +1,9 @@
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
-import type { Reserva } from '../../model/types';
-import { aforoDeReserva } from '../../lib/aforo';
-import { formatearFecha } from '../../lib/fecha';
-import { etiquetaEstado } from './estadoLabel';
+import type { Reserva } from '../../../model/types';
+import { aforoDeReserva } from '../../../lib/aforo';
+import { formatearFecha } from '../../../lib/fecha';
+import { etiquetaEstado } from '../estadoLabel';
 
 type ListadoViewProps = {
   reservas: Reserva[];

@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom';
 import { ExternalLink, MessageSquare } from 'lucide-react';
-import type { Reserva } from '../../model/types';
-import { aforoDeReserva } from '../../lib/aforo';
-import { formatearFecha } from '../../lib/fecha';
+import type { Reserva } from '../../../model/types';
+import { aforoDeReserva } from '../../../lib/aforo';
+import { formatearFecha } from '../../../lib/fecha';
 import { ProgressBar } from './ProgressBar';
 import {
   PROGRESS_LIQUIDACION,
@@ -10,7 +10,7 @@ import {
   TARJETA_BG,
   TARJETA_BORDER,
   TARJETA_SHADOW,
-} from './constants';
+} from '../constants';
 
 type ReservaKanbanCardProps = {
   reserva: Reserva;

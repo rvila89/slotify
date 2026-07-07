@@ -5,8 +5,8 @@
 export { NuevaConsultaPage } from './pages/NuevaConsulta/NuevaConsultaPage';
 export { FichaConsultaPage } from './pages/FichaConsulta/FichaConsultaPage';
 export { ReservasPage } from './pages/ReservasPage/ReservasPage';
-export { ReservaKanbanCard } from './pages/ReservasPage/ReservaKanbanCard';
-export { ListadoView } from './pages/ReservasPage/ListadoView';
+export { ReservaKanbanCard } from './pages/ReservasPage/components/ReservaKanbanCard';
+export { ListadoView } from './pages/ReservasPage/components/ListadoView';
 export { useReservasActivas, reservasActivasQueryKey } from './api/useReservasActivas';
 export type { Reserva, ReservaDetalle } from './model/types';
 export { useReserva, reservaQueryKey } from './api/useReserva';

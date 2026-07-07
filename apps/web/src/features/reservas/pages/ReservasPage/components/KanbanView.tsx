@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import type { Reserva } from '../../model/types';
-import { COLUMNAS_KANBAN, agruparPorColumna } from '../../lib/columnasKanban';
+import type { Reserva } from '../../../model/types';
+import { COLUMNAS_KANBAN, agruparPorColumna } from '../../../lib/columnasKanban';
 import { KanbanColumn } from './KanbanColumn';
 
 type KanbanViewProps = {

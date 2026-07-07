@@ -53,6 +53,7 @@ export const useReservas = () =>
 
 ## Errores comunes
 - Meterlo todo en el componente de página (schema + sub-componentes + helpers inline).
+- Poner sub-componentes de una página directamente en la raíz de `<Pagina>/` en vez de en `<Pagina>/components/` — todos los `.tsx` que no sean la propia página van en esa subcarpeta (ejemplo canónico: `NuevaConsultaPage/components/`).
 - Organizar por tipo técnico (`components/`, `hooks/` globales) en vez de por dominio.
 - Importar archivos internos de otra feature en vez de su barrel.
 - Tipar respuestas a mano en vez de usar el cliente generado.

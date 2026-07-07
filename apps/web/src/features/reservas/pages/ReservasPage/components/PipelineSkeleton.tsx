@@ -1,5 +1,5 @@
-import { COLUMNAS_KANBAN } from '../../lib/columnasKanban';
-import { COLUMNA_BG, COLUMNA_WIDTH_CLASS } from './constants';
+import { COLUMNAS_KANBAN } from '../../../lib/columnasKanban';
+import { COLUMNA_BG, COLUMNA_WIDTH_CLASS } from '../constants';
 
 /**
  * Estado de carga del pipeline (US-050 · FA-02, D-5): las 5 columnas con
