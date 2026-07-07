@@ -245,6 +245,9 @@ export const FichaConsultaPage = () => {
           reservaId={id}
           liquidacionStatus={reserva.liquidacionStatus}
           fianzaStatus={reserva.fianzaStatus}
+          fechaEvento={reserva.fechaEvento}
+          fianzaEur={reserva.fianzaEur}
+          fianzaCobradaFecha={reserva.fianzaCobradaFecha}
         />
       )}
 

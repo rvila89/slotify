@@ -33,8 +33,14 @@ type Props = {
   reservaId: string;
   /** Sub-proceso de liquidación de la RESERVA; habilita "Aprobar y enviar" y "Reenviar". */
   liquidacionStatus?: LiquidacionStatus;
-  /** Sub-proceso de fianza de la RESERVA; habilita "Enviar recibo de fianza". */
+  /** Sub-proceso de fianza de la RESERVA; habilita "Enviar recibo de fianza" y "Registrar cobro". */
   fianzaStatus?: FianzaStatus;
+  /** Fecha del evento (`YYYY-MM-DD`) para acotar/validar la fecha de cobro de fianza (US-030). */
+  fechaEvento?: string | null;
+  /** Importe cobrado de la fianza (`RESERVA.fianzaEur`); se muestra cuando `fianzaStatus='cobrada'`. */
+  fianzaEur?: string | null;
+  /** Fecha del cobro de la fianza (`RESERVA.fianzaCobradaFecha`); idem. */
+  fianzaCobradaFecha?: string | null;
 };
 
 const claseSeccion =
@@ -55,6 +61,9 @@ export const DocumentosLiquidacionFianza = ({
   reservaId,
   liquidacionStatus,
   fianzaStatus,
+  fechaEvento,
+  fianzaEur,
+  fianzaCobradaFecha,
 }: Props) => {
   const { data: facturas, isLoading, isError } = useFacturasReserva(reservaId);
 
@@ -89,6 +98,9 @@ export const DocumentosLiquidacionFianza = ({
         fianzaStatus={fianzaStatus}
         liquidacion={liquidacion}
         fianza={fianza}
+        fechaEvento={fechaEvento}
+        fianzaEur={fianzaEur}
+        fianzaCobradaFecha={fianzaCobradaFecha}
       />
     ) : null;
 

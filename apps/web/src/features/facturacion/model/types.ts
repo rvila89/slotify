@@ -50,6 +50,48 @@ export type AprobarEnviarLiquidacionRequest =
   components['schemas']['AprobarEnviarLiquidacionRequest'];
 
 /**
+ * Tipos del **cobro de fianza** (US-030 · UC-22), sobre el SDK generado:
+ *  - `RegistrarCobroFianzaRequest`: body `{ importe, fechaCobro, justificanteDocId?, confirmarSinRecibo }`.
+ *  - `RegistrarCobroFianzaResponse`: unión discriminada por `resultado`:
+ *      - `RegistrarCobroFianzaCobrado` (`resultado='cobrado'`): PAGO creado, fianza `cobrada`,
+ *        `fianzaEur`, `fianzaCobradaFecha`.
+ *      - `RegistrarCobroFianzaConfirmacionRequerida` (`resultado='confirmacion_requerida'`): aviso
+ *        Negociable (`RECIBO_FIANZA_NO_ENVIADO`) cuando `fianzaStatus='pendiente'` sin
+ *        `confirmarSinRecibo`; NO crea PAGO. El frontend muestra el diálogo y reintenta con el flag.
+ */
+export type RegistrarCobroFianzaRequest =
+  components['schemas']['RegistrarCobroFianzaRequest'];
+export type RegistrarCobroFianzaResponse =
+  components['schemas']['RegistrarCobroFianzaResponse'];
+export type RegistrarCobroFianzaCobrado =
+  components['schemas']['RegistrarCobroFianzaCobrado'];
+export type RegistrarCobroFianzaConfirmacionRequerida =
+  components['schemas']['RegistrarCobroFianzaConfirmacionRequerida'];
+
+/** Envelope de error CRUDO del cobro de fianza (`ErrorResponse` + `codigo` + `motivo`). */
+export type CobroFianzaErrorResponse = components['schemas']['CobroFianzaError'];
+
+/**
+ * Error NORMALIZADO del cobro de fianza (US-030), para que la UI ramifique en español sin
+ * volver a mirar códigos HTTP. Cada `tipo` mapea a un caso del contrato OpenAPI de US-030
+ * (via `normalizarErrorCobroFianza`):
+ *  - `ya-cobrada` (409 `FIANZA_YA_COBRADA`): doble cobro; la fianza ya está `cobrada`.
+ *  - `cobro-invalido` (400 `COBRO_INVALIDO`): `importe <= 0` o `fechaCobro` posterior al evento.
+ *  - `factura-no-encontrada` (404 `FACTURA_FIANZA_NO_ENCONTRADA`).
+ *  - `justificante-no-encontrado` (404 `JUSTIFICANTE_NO_ENCONTRADO`).
+ *  - `generico` (401/403/otros/red).
+ */
+export type CobroFianzaError = {
+  tipo:
+    | 'ya-cobrada'
+    | 'cobro-invalido'
+    | 'factura-no-encontrada'
+    | 'justificante-no-encontrado'
+    | 'generico';
+  mensaje: string;
+};
+
+/**
  * Envelope de error del contrato para las acciones de US-028 (`ErrorResponse` + `codigo`
  * + `motivo`). Forma CRUDA tal cual la devuelve el SDK; `normalizarErrorLiquidacion` la
  * traduce a la unión `LiquidacionError` en español (más abajo).

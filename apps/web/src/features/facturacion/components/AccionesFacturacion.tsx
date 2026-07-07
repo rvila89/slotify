@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { RefreshCw, Send, ShieldCheck } from 'lucide-react';
+import { Banknote, RefreshCw, Send, ShieldCheck } from 'lucide-react';
 import { useReenviarLiquidacion } from '../api/useReenviarLiquidacion';
 import { toastLiquidacionError, toastLiquidacionExito } from '../lib/toastLiquidacion';
 import { AprobarEnviarLiquidacionDialog } from './AprobarEnviarLiquidacionDialog';
 import { EnviarReciboFianzaDialog } from './EnviarReciboFianzaDialog';
+import { RegistrarCobroFianzaDialog } from './RegistrarCobroFianzaDialog';
+import { FianzaCobradaResumen } from './FianzaCobradaResumen';
 import type { Factura, FianzaStatus, LiquidacionStatus } from '../model/types';
 
 /**
@@ -17,6 +19,9 @@ import type { Factura, FianzaStatus, LiquidacionStatus } from '../model/types';
  *    de envío separado del recibo de fianza (`EnviarReciboFianzaDialog`), edge case sin liquidación.
  *  - "Reenviar factura" → activo solo si `liquidacionStatus === 'facturada'`. Reenvía el PDF ya
  *    emitido sin reasignar número ni cambiar estados.
+ *  - "Registrar cobro de fianza" (US-030) → activo si `fianzaStatus` es `recibo_enviado` o
+ *    `pendiente` (política Negociable, con diálogo de confirmación); si es `cobrada`, la acción se
+ *    oculta y se muestra el resumen del cobro (`fianzaEur`, `fianzaCobradaFecha`).
  *
  * Feedback: éxito → toast de confirmación; error → toast (409 mensaje descriptivo, 502/503
  * "Error de envío, reintenta") vía `toastLiquidacion`. El detalle inline por diálogo se mantiene.
@@ -37,6 +42,12 @@ type Props = {
   liquidacion?: Factura;
   /** Borrador del recibo de fianza (para el diálogo de envío separado). */
   fianza?: Factura;
+  /** Fecha del evento (`YYYY-MM-DD`) para acotar/validar la fecha de cobro (US-030). */
+  fechaEvento?: string | null;
+  /** Importe cobrado de la fianza (`RESERVA.fianzaEur`); se muestra cuando `fianzaStatus='cobrada'`. */
+  fianzaEur?: string | null;
+  /** Fecha del cobro de la fianza (`RESERVA.fianzaCobradaFecha`); idem. */
+  fianzaCobradaFecha?: string | null;
 };
 
 const claseBotonPrimario =
@@ -51,9 +62,13 @@ export const AccionesFacturacion = ({
   fianzaStatus,
   liquidacion,
   fianza,
+  fechaEvento,
+  fianzaEur,
+  fianzaCobradaFecha,
 }: Props) => {
   const [editorAbierto, setEditorAbierto] = useState(false);
   const [fianzaAbierta, setFianzaAbierta] = useState(false);
+  const [cobroFianzaAbierto, setCobroFianzaAbierto] = useState(false);
   const reenviar = useReenviarLiquidacion();
 
   // Habilitación por status de la reserva (espejo de las guardas del backend; el servidor
@@ -62,6 +77,11 @@ export const AccionesFacturacion = ({
   const puedeReenviar = liquidacionStatus === 'facturada';
   const puedeEnviarFianza = fianzaStatus === 'pendiente' && Boolean(fianza);
   const fianzaPendiente = fianzaStatus === 'pendiente';
+  // US-030: registrar cobro disponible mientras la fianza no esté cobrada. `pendiente` activa la
+  // política Negociable (diálogo de confirmación); `cobrada` oculta la acción y muestra el resumen.
+  const fianzaCobrada = fianzaStatus === 'cobrada';
+  const puedeRegistrarCobro =
+    fianzaStatus === 'recibo_enviado' || fianzaStatus === 'pendiente';
 
   const onReenviar = () => {
     reenviar.mutate(
@@ -74,42 +94,66 @@ export const AccionesFacturacion = ({
   };
 
   return (
-    <div
-      data-testid="acciones-facturacion"
-      className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center"
-    >
-      <button
-        type="button"
-        onClick={() => setEditorAbierto(true)}
-        disabled={!puedeAprobar}
-        data-testid="accion-aprobar-enviar"
-        className={claseBotonPrimario}
-      >
-        <Send aria-hidden className="size-5" />
-        Aprobar y enviar factura
-      </button>
+    <div data-testid="acciones-facturacion" className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
+        <button
+          type="button"
+          onClick={() => setEditorAbierto(true)}
+          disabled={!puedeAprobar}
+          data-testid="accion-aprobar-enviar"
+          className={claseBotonPrimario}
+        >
+          <Send aria-hidden className="size-5" />
+          Aprobar y enviar factura
+        </button>
 
-      <button
-        type="button"
-        onClick={() => setFianzaAbierta(true)}
-        disabled={!puedeEnviarFianza}
-        data-testid="accion-enviar-fianza"
-        className={claseBotonSecundario}
-      >
-        <ShieldCheck aria-hidden className="size-5" />
-        Enviar recibo de fianza
-      </button>
+        <button
+          type="button"
+          onClick={() => setFianzaAbierta(true)}
+          disabled={!puedeEnviarFianza}
+          data-testid="accion-enviar-fianza"
+          className={claseBotonSecundario}
+        >
+          <ShieldCheck aria-hidden className="size-5" />
+          Enviar recibo de fianza
+        </button>
 
-      <button
-        type="button"
-        onClick={onReenviar}
-        disabled={!puedeReenviar || reenviar.isPending}
-        data-testid="accion-reenviar"
-        className={claseBotonSecundario}
-      >
-        <RefreshCw aria-hidden className="size-5" />
-        {reenviar.isPending ? 'Reenviando…' : 'Reenviar factura'}
-      </button>
+        <button
+          type="button"
+          onClick={onReenviar}
+          disabled={!puedeReenviar || reenviar.isPending}
+          data-testid="accion-reenviar"
+          className={claseBotonSecundario}
+        >
+          <RefreshCw aria-hidden className="size-5" />
+          {reenviar.isPending ? 'Reenviando…' : 'Reenviar factura'}
+        </button>
+
+        {!fianzaCobrada && (
+          <button
+            type="button"
+            onClick={() => setCobroFianzaAbierto(true)}
+            disabled={!puedeRegistrarCobro}
+            data-testid="accion-registrar-cobro-fianza"
+            className={claseBotonSecundario}
+          >
+            <Banknote aria-hidden className="size-5" />
+            Registrar cobro de fianza
+          </button>
+        )}
+      </div>
+
+      {fianzaCobrada && (
+        <FianzaCobradaResumen fianzaEur={fianzaEur} fianzaCobradaFecha={fianzaCobradaFecha} />
+      )}
+
+      <RegistrarCobroFianzaDialog
+        reservaId={reservaId}
+        fechaEvento={fechaEvento}
+        abierto={cobroFianzaAbierto}
+        onAbiertoChange={setCobroFianzaAbierto}
+        onCobrado={() => toastLiquidacionExito('Cobro de fianza registrado correctamente.')}
+      />
 
       {liquidacion && (
         <AprobarEnviarLiquidacionDialog

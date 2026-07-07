@@ -1243,30 +1243,35 @@ flowchart TD
 | **Nombre** | Gestionar Sub-proceso Fianza |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor gestiona el cobro de la fianza (depósito reembolsable) antes o el día del evento |
-| **Precondiciones** | - Reserva en estado reserva_confirmada<br>- fianza_status = pendiente o recibo_enviado |
-| **Postcondiciones** | - fianza_status actualizado<br>- fianza_eur y fianza_cobrada_fecha registrados |
+| **Descripción** | El gestor gestiona el cobro de la fianza (depósito reembolsable) antes o el día del evento. El ciclo completo abarca la generación del recibo (US-027), su emisión al cliente (US-028) y el registro del cobro (US-030). |
+| **Precondiciones** | - Reserva en estado `reserva_confirmada`<br>- `fianza_status ∈ {pendiente, recibo_enviado}` |
+| **Postcondiciones** | - `fianza_status = 'cobrada'`<br>- `FACTURA(fianza).estado = 'cobrada'`<br>- `RESERVA.fianza_eur` y `RESERVA.fianza_cobrada_fecha` registrados<br>- `PAGO` creado conciliado contra el recibo de fianza<br>- Habilitada la **tercera precondición** de la transición a `evento_en_curso` (US-031) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Alta |
+| **US** | US-027 (pasos 1-2), US-028 (pasos 3-4), US-030 (pasos 5-9) |
+| **Endpoint cobro** | `POST /reservas/{id}/facturas/fianza/cobro` — operationId `registrarCobroFianza` |
 
 **Flujo Básico:**
 1. El sistema genera automáticamente el recibo de fianza en borrador (`tipo='fianza'`, `estado='borrador'`, `numero_factura=NULL`, `total = TENANT_SETTINGS.fianza_default_eur`) como efecto post-commit de la activación de sub-procesos de US-021, a través del use-case `GenerarBorradoresLiquidacionFianzaUseCase` (US-027). **Edge case**: si `fianza_default_eur = 0`, el recibo **no se genera**; `fianza_status` permanece `pendiente` y la alerta al Gestor menciona solo la liquidación. La generación de la fianza es independiente de la de la liquidación. El fallo de este paso **no revierte** la confirmación; la operación es idempotente por `(reserva_id, tipo)`.
 2. El sistema alerta al gestor en la UI: "Documentos de liquidación y fianza pendientes de revisión" (US-027). Esta alerta es una señal de UI, no un email (E4 se dispara en US-028 tras la aprobación).
 3. El gestor puede enviar el recibo de fianza al cliente **de forma independiente** mediante **`EnviarReciboFianzaUseCase`** (US-028 / `POST /reservas/{id}/facturas/fianza/enviar`, D-3 US-028): asigna `numero_factura = F-YYYY-NNNN` al recibo de fianza, pasa a `estado='enviada'` y actualiza `fianza_status = 'recibo_enviado'`. El email enviado se registra en `COMUNICACION` con `codigo_email = 'manual'` (no E4); `liquidacion_status` **no cambia**. Alternativamente, si la liquidación y la fianza se aprueban juntas vía `aprobar-enviar` (UC-21 paso 4), la fianza también se emite y `fianza_status` pasa a `recibo_enviado` en el mismo commit.
 4. El sistema actualiza `fianza_status = 'recibo_enviado'`.
-5. El cliente realiza el pago (antes o el día del evento).
-6. El gestor recibe justificante.
-7. El gestor sube justificante al sistema.
-8. El sistema registra:
-   - `fianza_eur`
-   - `fianza_cobrada_fecha`
-9. El sistema actualiza fianza_status = cobrada.
-10. El sistema registra en audit log.
+5. El cliente realiza el pago externo por transferencia bancaria o efectivo (Slotify registra el cobro, **no** procesa el pago; sin integración de pasarela en MVP).
+6. El gestor recibe el justificante del pago (opcional; el cobro es válido sin justificante).
+7. El gestor accede a la ficha de la reserva y abre el formulario de registro de cobro de fianza (`RegistrarCobroFianzaDialog`). Introduce `importe` (`> 0`), `fecha_cobro` (`≤ RESERVA.fecha_evento`; el cobro en T-0 es válido) y, opcionalmente, el `justificante_doc_id` referenciando un `DOCUMENTO(tipo='justificante_pago')` ya subido.
+8. El sistema ejecuta `RegistrarCobroFianzaUseCase` en una **única unidad transaccional atómica** (con `SELECT ... FOR UPDATE` sobre la fila de RESERVA para serializar el doble cobro concurrente; nunca locks distribuidos): crea el `PAGO` con `factura_id` del recibo de fianza, `importe`, `fecha_cobro` y `justificante_doc_id` (nullable); si se adjuntó justificante, referencia el `DOCUMENTO(tipo='justificante_pago')`; transiciona `FACTURA(fianza).estado = 'cobrada'`; establece `RESERVA.fianza_eur = importe` y `RESERVA.fianza_cobrada_fecha = fecha_cobro`; y registra `AUDIT_LOG` con `accion='crear'` (PAGO y, si aplica, DOCUMENTO) y `accion='actualizar'` (transición de FACTURA y RESERVA, incluidos `fianza_eur`/`fianza_cobrada_fecha`).
+9. El sistema transiciona `RESERVA.fianza_status = 'cobrada'` (dentro de la misma transacción del paso 8). `RESERVA.estado` **permanece** `reserva_confirmada`; este paso habilita la **tercera de las tres precondiciones** de la transición a `evento_en_curso` (las otras dos son `pre_evento_status = cerrado` y `liquidacion_status = cobrada`; la transición es responsabilidad de US-031).
+10. La UI actualiza la ficha de la reserva mostrando `fianza_status = 'cobrada'`, `fianza_eur` y `fianza_cobrada_fecha`; oculta el botón de registro de cobro.
 
 **Flujos Alternativos:**
-- **FA-01**: T-0 sin cobro → Política "Negociable" activada, decisión manual del gestor
-- **FA-02**: `fianza_default_eur = 0` → El recibo de fianza no se genera en US-027; `fianza_status` permanece `pendiente`. El Gestor puede crear el recibo manualmente con un importe negociado en una US posterior.
+- **FA-01** (T-0 sin cobro — alerta no bloqueante): si en el día del evento `fianza_status ≠ 'cobrada'`, la política hardcoded "Negociable" genera una alerta crítica **no bloqueante** ("⚠️ Fianza pendiente de cobro. Puede registrarla ahora o proceder sin ella (política Negociable)"). El inicio del evento **no se bloquea** por fianza impagada; el Gestor decide manualmente. La integración de esta alerta en el flujo de transición a `evento_en_curso` es responsabilidad de US-031.
+- **FA-02** (`fianza_default_eur = 0`): el recibo de fianza no se genera en US-027; `fianza_status` permanece `pendiente`. El Gestor puede aún registrar el cobro vía la política "Negociable" (FA-04 a continuación).
 - **FA-03** (fianza ya enviada por separado antes de la aprobación de la liquidación): cuando la liquidación se aprueba vía `aprobar-enviar` (UC-21), si la fianza ya está en `estado='enviada'` / `fianza_status='recibo_enviado'`, el use-case incluye solo la factura de liquidación en E4 sin volver a cambiar `fianza_status` (D-3 US-028: E4 no sobreescribe `recibo_enviado` ya establecido).
+- **FA-04** (política "Negociable" — `fianza_status = 'pendiente'` sin recibo enviado): si el Gestor intenta registrar el cobro con `fianza_status = 'pendiente'` sin el flag `confirmarSinRecibo`, el sistema devuelve 200 `confirmacion_requerida` ("El recibo de fianza no ha sido enviado al cliente. ¿Desea registrar el cobro igualmente?") sin crear PAGO ni cambiar estados; el frontend muestra el diálogo de confirmación. Si el Gestor **confirma** (reintento con `confirmarSinRecibo: true`), el cobro se registra igualmente: (a) si la FACTURA(fianza) existe en `borrador`, salta directamente `borrador → cobrada` (sin pasar por `enviada`), documentando el salto en AUDIT_LOG; (b) si no existe FACTURA(fianza), se crea al vuelo y se marca `cobrada`. Si el Gestor **cancela**, no se realiza ninguna acción. Este comportamiento **diverge** del bloqueo duro de la liquidación (US-029).
+- **FA-05** (doble cobro — `fianza_status = 'cobrada'`): intento de registrar un cobro sobre fianza ya cobrada → el sistema responde 409 `FIANZA_YA_COBRADA` ("La fianza ya está marcada como cobrada"); no se crea ningún `PAGO` adicional. Dos peticiones concurrentes se serializan por el `SELECT ... FOR UPDATE`: solo la primera registra el cobro; la segunda ve `cobrada` y aborta.
+- **FA-06** (validación de entrada — `importe ≤ 0` o `fecha_cobro > fecha_evento`): el sistema responde 400 `COBRO_INVALIDO` sin crear PAGO ni cambiar estados.
+- **FA-07** (reserva, factura de fianza o justificante inexistente): el sistema responde 404 con código `FACTURA_FIANZA_NO_ENCONTRADA` o `JUSTIFICANTE_NO_ENCONTRADO` según corresponda.
+- **FA-08** (sin auth / rol insuficiente): 401/403.
 
 ---
 

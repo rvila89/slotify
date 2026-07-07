@@ -1834,6 +1834,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/facturas/fianza/cobro": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Registrar el cobro del recibo de la fianza (UC-22 pasos 5-9 / US-030)
+         * @description [US-030 / UC-22 pasos 5-9] El **Gestor registra el cobro** de la fianza (depósito reembolsable)
+         *     de la RESERVA `{id}` cuando recibe el ingreso externo (Slotify **registra**, no procesa el pago;
+         *     sin pasarela en MVP). Precondición del happy path: `RESERVA.fianzaStatus='recibo_enviado'` y su
+         *     `FACTURA (tipo='fianza').estado='enviada'` (dejado por US-028).
+         *
+         *     En una **única unidad de trabajo atómica** (tx + RLS del tenant del JWT), releyendo el estado de
+         *     la RESERVA con `SELECT ... FOR UPDATE` para serializar el doble cobro concurrente (lock de fila
+         *     PostgreSQL, **nunca** locks distribuidos; design.md §D-1):
+         *     1. Crea un registro `PAGO` con `facturaId` del recibo de fianza, `importe` (el importe real
+         *        cobrado), `fechaCobro` y, si se adjunta, `justificanteDocId` (referencia a un DOCUMENTO
+         *        `tipo='justificante_pago'` **ya subido**; opcional, `null` si no se adjunta).
+         *     2. Transiciona `FACTURA (fianza).estado='cobrada'`.
+         *     3. Transiciona `RESERVA.fianzaStatus='cobrada'`, y establece `RESERVA.fianzaEur=importe` y
+         *        `RESERVA.fianzaCobradaFecha=fechaCobro` (habilita la 3.ª de las 3 precondiciones de
+         *        `evento_en_curso`, US-031; NO transiciona `RESERVA.estado`).
+         *     4. Registra `AUDIT_LOG` (`crear` del PAGO/DOCUMENTO; `actualizar` de FACTURA y RESERVA; y la
+         *        traza del flujo excepcional "Negociable" si se cobró sobre `pendiente`).
+         *
+         *     **Política "Negociable" (design.md §D-2, diverge de US-029)**: si `RESERVA.fianzaStatus='pendiente'`
+         *     (el recibo de fianza nunca se envió), el cobro **NO se bloquea de forma dura**. Sin
+         *     `confirmarSinRecibo=true` en el body, la respuesta es **200 con `confirmacionRequerida`** (aviso, NO
+         *     crea PAGO ni FACTURA) para que el frontend muestre el diálogo y reintente; con `confirmarSinRecibo=true`,
+         *     el cobro se registra igualmente (si la FACTURA(fianza) está en `borrador` salta `borrador → cobrada`;
+         *     si no existe se crea al vuelo `cobrada`) y el flujo excepcional queda trazado en `AUDIT_LOG`.
+         *
+         *     Aislada por `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
+         */
+        post: operations["registrarCobroFianza"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/condiciones-particulares": {
         parameters: {
             query?: never;
@@ -3213,6 +3261,82 @@ export interface components {
              */
             codigo: "COBRO_INVALIDO" | "FACTURA_LIQUIDACION_NO_ENCONTRADA" | "JUSTIFICANTE_NO_ENCONTRADO" | "LIQUIDACION_YA_COBRADA" | "LIQUIDACION_NO_FACTURADA";
             /** @description Mensaje legible para la UI ("La liquidación ya está marcada como cobrada", "La factura de liquidación debe estar enviada antes de registrar su cobro"). */
+            motivo?: string;
+        };
+        RegistrarCobroFianzaRequest: {
+            /** @description Importe REAL cobrado (Importe string Decimal(10,2), p. ej. `"1000.00"`). DEBE ser `> 0` (`0`/negativo → 400 `COBRO_INVALIDO`). Se registra como `RESERVA.fianzaEur`. */
+            importe: components["schemas"]["Importe"];
+            /**
+             * Format: date
+             * @description Fecha del cobro (DATE). DEBE ser una fecha válida `<= RESERVA.fechaEvento` (relativo al evento, NO a hoy; posterior al evento o mal formada → 400 `COBRO_INVALIDO`). `fechaCobro = fechaEvento` (cobro en T-0) es válida y se procesa como el happy path.
+             * @example 2026-07-10
+             */
+            fechaCobro: string;
+            /**
+             * Format: uuid
+             * @description OPCIONAL. Referencia a un DOCUMENTO (`tipo='justificante_pago'`) YA subido en el tenant. Si se omite o es `null`, el cobro se registra sin justificante (`PAGO.justificanteDocId=null`) y avanza igualmente a `cobrada`. Un id inexistente en el tenant → 404 `JUSTIFICANTE_NO_ENCONTRADO`.
+             */
+            justificanteDocId?: string | null;
+            /**
+             * @description Política "Negociable" (design.md §D-2). Solo relevante si `fianzaStatus='pendiente'` (el recibo de fianza nunca se envió). Ausente o `false` sobre `pendiente` → respuesta 200 `confirmacion_requerida` (aviso, NO crea PAGO). `true` → el Gestor confirma el cobro sin recibo enviado: se registra igualmente (FACTURA(fianza) `borrador → cobrada` o creada al vuelo `cobrada`) y se traza el flujo excepcional en `AUDIT_LOG`. Irrelevante sobre `recibo_enviado`.
+             * @default false
+             */
+            confirmarSinRecibo: boolean;
+        };
+        RegistrarCobroFianzaResponse: components["schemas"]["RegistrarCobroFianzaCobrado"] | components["schemas"]["RegistrarCobroFianzaConfirmacionRequerida"];
+        RegistrarCobroFianzaCobrado: {
+            /**
+             * @description Discriminador: el cobro se registró correctamente. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            resultado: "cobrado";
+            /** @description El PAGO creado (con el importe real y, si se adjuntó, `justificanteDocId`). Misma forma de lectura del PAGO que en US-029 (`facturaId` = recibo de fianza). */
+            pago: components["schemas"]["PagoLiquidacion"];
+            /** @description Recibo de fianza actualizado (`estado=cobrada`); creado al vuelo si no existía (D-2b). */
+            facturaFianza: components["schemas"]["Factura"];
+            /** @description Sub-proceso de fianza de la RESERVA tras el cobro (`cobrada`). */
+            fianzaStatus: components["schemas"]["FianzaStatus"];
+            /** @description Importe cobrado registrado en `RESERVA.fianzaEur` (Decimal(10,2) como string). */
+            fianzaEur: components["schemas"]["Importe"];
+            /**
+             * Format: date
+             * @description Fecha del cobro registrada en `RESERVA.fianzaCobradaFecha` (= `fechaCobro`).
+             * @example 2026-07-10
+             */
+            fianzaCobradaFecha: string;
+        };
+        RegistrarCobroFianzaConfirmacionRequerida: {
+            /**
+             * @description Discriminador: aviso no bloqueante; NO se registró el cobro. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            resultado: "confirmacion_requerida";
+            /**
+             * @description Código del aviso Negociable (recibo de fianza nunca enviado, `fianzaStatus=pendiente`).
+             * @enum {string}
+             */
+            codigo: "RECIBO_FIANZA_NO_ENVIADO";
+            /**
+             * @description Texto del diálogo de confirmación que muestra el frontend.
+             * @example El recibo de fianza no ha sido enviado al cliente. ¿Desea registrar el cobro igualmente?
+             */
+            mensaje: string;
+            /** @description Indica al frontend cómo reintentar para forzar el cobro tras la confirmación del Gestor. */
+            reintentarCon: {
+                /**
+                 * @description Reenviar la misma petición con `confirmarSinRecibo: true` para registrar el cobro.
+                 * @enum {boolean}
+                 */
+                confirmarSinRecibo: true;
+            };
+        };
+        CobroFianzaError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Código de error de dominio: `COBRO_INVALIDO` (400: `importe <= 0` o `fechaCobro` posterior a `fechaEvento`/inválida), `FACTURA_FIANZA_NO_ENCONTRADA`/`JUSTIFICANTE_NO_ENCONTRADO` (404), `FIANZA_YA_COBRADA` (409, doble cobro).
+             * @enum {string}
+             */
+            codigo: "COBRO_INVALIDO" | "FACTURA_FIANZA_NO_ENCONTRADA" | "JUSTIFICANTE_NO_ENCONTRADO" | "FIANZA_YA_COBRADA";
+            /** @description Mensaje legible para la UI ("La fianza ya está marcada como cobrada"). */
             motivo?: string;
         };
         Cliente: {
@@ -4972,6 +5096,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CobroLiquidacionError"];
+                };
+            };
+        };
+    };
+    registrarCobroFianza: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistrarCobroFianzaRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Resultado del registro. **Dos formas discriminadas por el campo `resultado`**:
+             *     - `resultado='cobrado'` (`RegistrarCobroFianzaCobrado`): el cobro se registró. La fianza queda
+             *       en `estado='cobrada'` y `fianzaStatus='cobrada'`. Devuelve el `PAGO` creado, la
+             *       `FACTURA (fianza)` actualizada, el `fianzaStatus`, `fianzaEur` y `fianzaCobradaFecha`.
+             *     - `resultado='confirmacion_requerida'` (`RegistrarCobroFianzaConfirmacionRequerida`): política
+             *       "Negociable" — `fianzaStatus='pendiente'` sin `confirmarSinRecibo=true`. **NO se creó PAGO
+             *       ni FACTURA** ni se cambió el estado. Devuelve `codigo=RECIBO_FIANZA_NO_ENVIADO`, un `mensaje`
+             *       para el diálogo y `reintentarCon` indicando el flag a enviar. El frontend confirma y reintenta.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrarCobroFianzaResponse"];
+                };
+            };
+            /**
+             * @description Validación de entrada. El `importe` no es Decimal(10,2) positivo (`> 0`) o `fechaCobro` no es
+             *     una fecha válida `<= RESERVA.fechaEvento` (posterior al evento o mal formada): `COBRO_INVALIDO`.
+             *     No se crea `PAGO` ni cambia el estado. Cuerpo = envelope estándar + `codigo` y `motivo`.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CobroFianzaError"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description La RESERVA no existe en el tenant (RLS), no tiene recibo de fianza cuando se esperaba
+             *     (`FACTURA_FIANZA_NO_ENCONTRADA`), o el `justificanteDocId` indicado no existe en el tenant
+             *     (`JUSTIFICANTE_NO_ENCONTRADO`). No se muta nada. Cuerpo + `codigo`.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CobroFianzaError"];
+                };
+            };
+            /**
+             * @description Conflicto de precondición de estado (doble cobro), sin efectos, releído bajo
+             *     `SELECT ... FOR UPDATE`:
+             *     - `FIANZA_YA_COBRADA` — la fianza ya está `cobrada` (**doble cobro**, incl. dos peticiones
+             *       concurrentes: solo la primera registra el PAGO). "La fianza ya está marcada como cobrada".
+             *     Cuerpo = envelope estándar + `codigo` y `motivo`.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CobroFianzaError"];
                 };
             };
         };

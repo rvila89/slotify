@@ -295,7 +295,7 @@ erDiagram
         uuid tenant_id FK "US-029 D-1: multi-tenancy/RLS directo"
         uuid factura_id FK "FACTURA 1-N PAGO — sin UNIQUE(factura_id)"
         decimal importe "DECIMAL(10,2) — importe real cobrado"
-        date fecha_cobro "≤ hoy; validación de dominio"
+        date fecha_cobro "liquidación: ≤ hoy; fianza (US-030): ≤ fecha_evento"
         uuid justificante_doc_id FK "nullable → DOCUMENTO(tipo=justificante_pago)"
         timestamp fecha_creacion
     }
@@ -738,26 +738,33 @@ Tras el commit de la transición `pre_reserva → reserva_confirmada` (US-021), 
 - **Endpoint de consulta**: `GET /reservas/{id}/facturas` — devuelve la colección de facturas de la reserva filtrable por tipo; implementado en US-027.
 
 ### 3.13 PAGO
-Cobro conciliado contra una factura. El justificante es un `DOCUMENTO(tipo=justificante_pago)`. Materializado en US-029 (migración aditiva `20260704150000_us029_pago_tenant_id`).
+Cobro conciliado contra una factura. El justificante es un `DOCUMENTO(tipo=justificante_pago)`. Materializado en US-029 (migración aditiva `20260704150000_us029_pago_tenant_id`). La entidad se reutiliza sin cambios de modelo para el cobro de la fianza (US-030).
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
 | id_pago | UUID PK | Identificador único |
 | tenant_id | UUID FK | Tenant propietario. **US-029 D-1**: campo explícito en PAGO por regla dura de multi-tenancy/RLS del proyecto. Policy RLS filtra por `tenant_id` directo (sin join a FACTURA). FK → TENANT. Índice `@@index([tenantId])`. |
-| factura_id | UUID FK | Factura conciliada. Índice `@@index([facturaId])`. **Cardinalidad FACTURA 1-N PAGO** (`||--o{`): prevé cobros parciales futuros. **SIN `UNIQUE(factura_id)`**: la unicidad de cobro del MVP la garantiza la guarda de estado (`liquidacion_status` bajo `SELECT ... FOR UPDATE`), no un constraint de BD. |
-| importe | DECIMAL(10,2) | Importe real cobrado por el Gestor (`> 0`). Puede diferir del `FACTURA.total`; la discrepancia alerta pero no bloquea. El PAGO no recalcula el desglose fiscal de la factura (inmutable desde la emisión). |
-| fecha_cobro | DATE | Fecha del cobro. Validación de dominio: `fecha_cobro ≤ hoy` (no futura). |
+| factura_id | UUID FK | Factura conciliada. Índice `@@index([facturaId])`. **Cardinalidad FACTURA 1-N PAGO** (`||--o{`): prevé cobros parciales futuros. **SIN `UNIQUE(factura_id)`**: la unicidad de cobro del MVP la garantiza la guarda de estado (`liquidacion_status` / `fianza_status` bajo `SELECT ... FOR UPDATE`), no un constraint de BD. |
+| importe | DECIMAL(10,2) | Importe real cobrado por el Gestor (`> 0`). Puede diferir del `FACTURA.total`; para la liquidación la discrepancia alerta pero no bloquea; para la fianza `RESERVA.fianza_eur` registra el importe real sin alerta de discrepancia. El PAGO no recalcula el desglose fiscal de la factura (inmutable desde la emisión). |
+| fecha_cobro | DATE | Fecha del cobro. La validación de dominio depende del tipo: para la **liquidación** (US-029), `fecha_cobro ≤ hoy` (no futura); para la **fianza** (US-030), `fecha_cobro ≤ RESERVA.fecha_evento` (relativo al evento, no a hoy; el cobro en T-0 es válido). |
 | justificante_doc_id | UUID FK | FK nullable → `DOCUMENTO(tipo=justificante_pago)`. El justificante es **opcional**; si no se adjunta, `justificante_doc_id = NULL` y el cobro avanza igualmente a `cobrada`. |
 | fecha_creacion | TIMESTAMP | `DEFAULT now()` |
 
-**Guarda de doble cobro (US-029 / UC-21 — atomicidad):** el use-case `RegistrarCobroLiquidacionUseCase` abre una `$transaction`, relee `RESERVA.liquidacion_status` con `SELECT ... FOR UPDATE` sobre la fila de RESERVA y aplica la guarda:
+**Guarda de doble cobro — liquidación (US-029 / UC-21 — atomicidad):** el use-case `RegistrarCobroLiquidacionUseCase` abre una `$transaction`, relee `RESERVA.liquidacion_status` con `SELECT ... FOR UPDATE` sobre la fila de RESERVA y aplica la guarda:
 - `liquidacion_status = 'facturada'` → procede: crea el `DOCUMENTO` (si aplica) + el `PAGO` + transiciona `FACTURA(liquidacion).estado = 'cobrada'` + `RESERVA.liquidacion_status = 'cobrada'` + AUDIT_LOG, todo en el mismo commit.
 - `liquidacion_status = 'cobrada'` → aborta con error 409 "La liquidación ya está marcada como cobrada". Dos peticiones concurrentes se serializan: la segunda ve `cobrada` bajo lock y aborta. **Sin locks distribuidos** (regla dura del proyecto): es un lock de fila PostgreSQL, coherente con el patrón `bloquearFecha()`.
 - `liquidacion_status = 'pendiente'` → aborta con error 409 "La factura de liquidación debe estar enviada antes de registrar su cobro".
 
-**Discrepancia de importe (US-029 / D-3):** si `importe !== FACTURA(liquidacion).total`, el sistema crea igualmente el PAGO con el importe real y avanza a `cobrada`. La respuesta incluye `alertaDiscrepancia { importeFacturado, importeCobrado, diferencia }`. La conciliación se delega al Gestor; el MVP no ajusta la factura ni genera nota de crédito.
+**Guarda de doble cobro — fianza (US-030 / UC-22 pasos 5-9 — atomicidad):** el use-case `RegistrarCobroFianzaUseCase` abre una `$transaction`, relee `RESERVA.fianza_status` con `SELECT ... FOR UPDATE` sobre la fila de RESERVA y aplica la guarda:
+- `fianza_status = 'recibo_enviado'` → procede (happy path): crea el `DOCUMENTO` (si aplica) + el `PAGO` con `factura_id` del recibo de fianza, transiciona `FACTURA(fianza).estado = 'cobrada'` + `RESERVA.fianza_status = 'cobrada'`, actualiza `RESERVA.fianza_eur = importe` y `RESERVA.fianza_cobrada_fecha = fecha_cobro` + AUDIT_LOG, todo en el mismo commit.
+- `fianza_status = 'cobrada'` → aborta con error 409 `FIANZA_YA_COBRADA` ("La fianza ya está marcada como cobrada"). Dos peticiones concurrentes se serializan: la segunda ve `cobrada` bajo lock y aborta. **Sin locks distribuidos** (misma regla dura del proyecto, misma mecánica que la liquidación).
+- `fianza_status = 'pendiente'` → **política "Negociable"** (diverge del bloqueo duro de la liquidación): el sistema **no bloquea de forma dura**. Sin `confirmarSinRecibo = true` → respuesta 200 `confirmacion_requerida` (aviso, sin crear PAGO ni cambiar estados); con `confirmarSinRecibo = true` → el cobro se registra igualmente y el flujo excepcional queda trazado en AUDIT_LOG. Tratamiento de la FACTURA(fianza) en la confirmación (D-2b, gate SDD aprobado): si existe en `'borrador'` → salta directamente `borrador → cobrada` (salto documentado en AUDIT_LOG); si no existe → se crea al vuelo como `cobrada` (traza de `'crear'` en AUDIT_LOG).
+
+**Discrepancia de importe (US-029 / D-3):** aplica únicamente al cobro de la liquidación. Para la fianza (US-030), `RESERVA.fianza_eur` registra el importe real cobrado; no se emite alerta de discrepancia.
 
 **`liquidacion_status = cobrada` como precondición de `evento_en_curso` (US-031):** al dejar `RESERVA.liquidacion_status = 'cobrada'`, se habilita una de las tres precondiciones de la futura transición `reserva_confirmada → evento_en_curso`. Las otras dos son `pre_evento_status = cerrado` y `fianza_status = cobrada`. La transición a `evento_en_curso` no se evalúa en US-029; es responsabilidad de US-031.
+
+**`fianza_status = cobrada` como tercera precondición de `evento_en_curso` (US-030 / US-031):** al registrar el cobro de la fianza, `RESERVA.fianza_status = 'cobrada'` habilita la **tercera** de las tres precondiciones de la transición `reserva_confirmada → evento_en_curso` (junto con `pre_evento_status = cerrado` y `liquidacion_status = cobrada`). `RESERVA.estado` permanece `reserva_confirmada` tras el cobro; la transición a `evento_en_curso` no se evalúa en US-030 y es responsabilidad de US-031. Alerta FA-01 no bloqueante: si en el día del evento `fianza_status ≠ 'cobrada'`, la política hardcoded "Negociable" genera una alerta crítica no bloqueante; el inicio del evento no se bloquea por fianza impagada.
 
 ### 3.14 FICHA_OPERATIVA
 Datos operativos del evento, cumplimentados progresivamente. Relación 1:1 con la reserva. La entidad se crea vacía (todos los campos de contenido a `NULL`, `ficha_cerrada = false`) en la misma transacción de confirmación de señal (US-021). US-025 añade la lectura, el guardado parcial y el cierre.
