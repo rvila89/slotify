@@ -22,6 +22,16 @@ export { useRechazarFactura } from './api/useRechazarFactura';
 export type { RechazarFacturaVars } from './api/useRechazarFactura';
 export { useRegenerarPdf } from './api/useRegenerarPdf';
 export type { RegenerarPdfVars } from './api/useRegenerarPdf';
+export { useRegistrarCobroFianza } from './api/useRegistrarCobroFianza';
+export type { RegistrarCobroFianzaVars } from './api/useRegistrarCobroFianza';
+export { RegistrarCobroFianzaDialog } from './components/RegistrarCobroFianzaDialog';
+export { FianzaCobradaResumen } from './components/FianzaCobradaResumen';
+export type {
+  CobroFianzaError,
+  RegistrarCobroFianzaResponse,
+  RegistrarCobroFianzaCobrado,
+  RegistrarCobroFianzaConfirmacionRequerida,
+} from './model/types';
 export { estadoVisualFactura } from './lib/estado';
 export type { EstadoVisualFactura } from './lib/estado';
 export { ETIQUETA_TIPO_FACTURA } from './lib/estado';

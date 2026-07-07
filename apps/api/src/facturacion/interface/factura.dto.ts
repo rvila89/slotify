@@ -8,8 +8,14 @@
  * Los importes viajan como string Decimal de 2 decimales (wrapper `Importe`/`Porcentaje`,
  * F2-01). Los flags `esBorradorInvalido`/`pdfPendiente` son DERIVADOS (design.md §D-9).
  */
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ApiExtraModels,
+  ApiProperty,
+  ApiPropertyOptional,
+  getSchemaPath,
+} from '@nestjs/swagger';
+import {
+  IsBoolean,
   IsDateString,
   IsNotEmpty,
   IsOptional,
@@ -270,4 +276,126 @@ export class RegistrarCobroLiquidacionResponseDto {
 
   @ApiPropertyOptional({ type: AlertaDiscrepanciaCobroDto, nullable: true })
   alertaDiscrepancia?: AlertaDiscrepanciaCobroDto | null;
+}
+
+/**
+ * Cuerpo de "Registrar el cobro de la fianza" (contrato `RegistrarCobroFianzaRequest`,
+ * US-030 / UC-22 pasos 5-9). `importe` Decimal(10,2) como string `> 0`; `fechaCobro` DATE
+ * `<= RESERVA.fechaEvento` (validación de negocio en dominio, relativa al evento, NO a hoy);
+ * `justificanteDocId` OPCIONAL (referencia a un DOCUMENTO `tipo='justificante_pago'` ya subido;
+ * `null` si no se adjunta); `confirmarSinRecibo` materializa la política "Negociable" (design.md
+ * §D-2) para `fianzaStatus='pendiente'`. `tenant_id` viaja en el JWT.
+ */
+export class RegistrarCobroFianzaDto {
+  @ApiProperty({ example: '1000.00', description: 'Importe real cobrado, Decimal(10,2) string > 0.' })
+  @IsString()
+  @Matches(IMPORTE_PATTERN, { message: 'importe debe ser Decimal(10,2) como string' })
+  importe!: string;
+
+  @ApiProperty({
+    format: 'date',
+    example: '2026-07-10',
+    description: 'Fecha del cobro, <= RESERVA.fechaEvento (relativo al evento).',
+  })
+  @IsDateString()
+  fechaCobro!: string;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    description: 'DOCUMENTO justificante ya subido (tipo=justificante_pago). null si no se adjunta.',
+  })
+  @IsOptional()
+  @IsUUID()
+  justificanteDocId?: string | null;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Política "Negociable": confirma el cobro sobre fianzaStatus=pendiente (recibo no enviado). ' +
+      'Ausente/false sobre pendiente => respuesta confirmacion_requerida sin crear PAGO.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  confirmarSinRecibo?: boolean;
+}
+
+/**
+ * Forma "cobro registrado" de la respuesta discriminada de cobro de fianza (contrato
+ * `RegistrarCobroFianzaCobrado`). `resultado='cobrado'`. Devuelve el PAGO creado, la FACTURA
+ * (fianza) actualizada (`estado=cobrada`), el `fianzaStatus` resultante (`cobrada`), y
+ * `fianzaEur`/`fianzaCobradaFecha` de la RESERVA.
+ */
+export class RegistrarCobroFianzaCobradoDto {
+  @ApiProperty({ enum: ['cobrado'] })
+  resultado!: 'cobrado';
+
+  @ApiProperty({ type: PagoLiquidacionDto })
+  pago!: PagoLiquidacionDto;
+
+  @ApiProperty({ type: FacturaDto })
+  facturaFianza!: FacturaDto;
+
+  @ApiProperty({
+    enum: ['pendiente', 'recibo_enviado', 'cobrada', 'devuelta', 'retenida_parcial'],
+  })
+  fianzaStatus!: FianzaStatusDto;
+
+  @ApiProperty({ example: '1000.00', description: 'RESERVA.fianzaEur (Decimal(10,2) string).' })
+  fianzaEur!: string;
+
+  @ApiProperty({ format: 'date', example: '2026-07-10', description: 'RESERVA.fianzaCobradaFecha.' })
+  fianzaCobradaFecha!: string;
+}
+
+/** Indica al frontend cómo reintentar el cobro tras confirmar la política "Negociable". */
+export class RegistrarCobroFianzaReintentarConDto {
+  @ApiProperty({ enum: [true], description: 'Reenviar con confirmarSinRecibo: true.' })
+  confirmarSinRecibo!: true;
+}
+
+/**
+ * Forma "confirmación requerida" de la respuesta discriminada (contrato
+ * `RegistrarCobroFianzaConfirmacionRequerida`). Política "Negociable": `fianzaStatus='pendiente'`
+ * sin `confirmarSinRecibo=true`. NO crea PAGO ni FACTURA ni cambia el estado; el frontend muestra
+ * el aviso y reintenta con el flag. `resultado='confirmacion_requerida'`.
+ */
+export class RegistrarCobroFianzaConfirmacionRequeridaDto {
+  @ApiProperty({ enum: ['confirmacion_requerida'] })
+  resultado!: 'confirmacion_requerida';
+
+  @ApiProperty({ enum: ['RECIBO_FIANZA_NO_ENVIADO'] })
+  codigo!: 'RECIBO_FIANZA_NO_ENVIADO';
+
+  @ApiProperty({
+    example: 'El recibo de fianza no ha sido enviado al cliente. ¿Desea registrar el cobro igualmente?',
+  })
+  mensaje!: string;
+
+  @ApiProperty({ type: RegistrarCobroFianzaReintentarConDto })
+  reintentarCon!: RegistrarCobroFianzaReintentarConDto;
+}
+
+/**
+ * Respuesta discriminada por `resultado` de "Registrar el cobro de la fianza" (contrato
+ * `RegistrarCobroFianzaResponse`, oneOf). El frontend distingue el cobro efectivo
+ * (`RegistrarCobroFianzaCobradoDto`) de la respuesta "confirmación requerida" de la política
+ * "Negociable" (`RegistrarCobroFianzaConfirmacionRequeridaDto`) para mostrar el diálogo y reintentar.
+ */
+@ApiExtraModels(RegistrarCobroFianzaCobradoDto, RegistrarCobroFianzaConfirmacionRequeridaDto)
+export class RegistrarCobroFianzaResponseDto {
+  @ApiProperty({
+    oneOf: [
+      { $ref: getSchemaPath(RegistrarCobroFianzaCobradoDto) },
+      { $ref: getSchemaPath(RegistrarCobroFianzaConfirmacionRequeridaDto) },
+    ],
+    discriminator: {
+      propertyName: 'resultado',
+      mapping: {
+        cobrado: getSchemaPath(RegistrarCobroFianzaCobradoDto),
+        confirmacion_requerida: getSchemaPath(RegistrarCobroFianzaConfirmacionRequeridaDto),
+      },
+    },
+  })
+  value!: RegistrarCobroFianzaCobradoDto | RegistrarCobroFianzaConfirmacionRequeridaDto;
 }

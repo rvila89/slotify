@@ -74,6 +74,11 @@ import {
   type UnidadDeTrabajoCobroPort,
 } from './application/registrar-cobro-liquidacion.use-case';
 import { CobroLiquidacionUoWPrismaAdapter } from './infrastructure/cobro-liquidacion-uow.prisma.adapter';
+import {
+  RegistrarCobroFianzaUseCase,
+  type UnidadDeTrabajoCobroFianzaPort,
+} from './application/registrar-cobro-fianza.use-case';
+import { CobroFianzaUoWPrismaAdapter } from './infrastructure/cobro-fianza-uow.prisma.adapter';
 import type { FacturaSenal } from './application/generar-factura-senal.use-case';
 import {
   EmisionUoWPrismaAdapter,
@@ -146,6 +151,7 @@ import {
   REGISTRAR_COMUNICACION_REENVIO_PORT,
   REGISTRAR_AUDITORIA_REENVIO_PORT,
   UNIDAD_DE_TRABAJO_COBRO_PORT,
+  UNIDAD_DE_TRABAJO_COBRO_FIANZA_PORT,
 } from './facturacion.tokens';
 
 /** Firma del puerto de auditoría de aprobación/rechazo (acepta ambos registros). */
@@ -331,6 +337,13 @@ type CargarFacturaFn = (params: {
       provide: UNIDAD_DE_TRABAJO_COBRO_PORT,
       inject: [PrismaService],
       useFactory: (prisma: PrismaService) => new CobroLiquidacionUoWPrismaAdapter(prisma),
+    },
+
+    // --- US-030: unidad de trabajo del cobro de la fianza (FOR UPDATE sobre RESERVA) ---
+    {
+      provide: UNIDAD_DE_TRABAJO_COBRO_FIANZA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) => new CobroFianzaUoWPrismaAdapter(prisma),
     },
 
     // --- Casos de uso ---
@@ -546,6 +559,12 @@ type CargarFacturaFn = (params: {
       useFactory: (unidadDeTrabajo: UnidadDeTrabajoCobroPort, clock: ClockPort) =>
         new RegistrarCobroLiquidacionUseCase({ unidadDeTrabajo, clock }),
     },
+    {
+      provide: RegistrarCobroFianzaUseCase,
+      inject: [UNIDAD_DE_TRABAJO_COBRO_FIANZA_PORT],
+      useFactory: (unidadDeTrabajo: UnidadDeTrabajoCobroFianzaPort) =>
+        new RegistrarCobroFianzaUseCase({ unidadDeTrabajo }),
+    },
   ],
   exports: [
     GenerarFacturaSenalUseCase,
@@ -554,6 +573,7 @@ type CargarFacturaFn = (params: {
     EnviarReciboFianzaSeparadoUseCase,
     ReenviarLiquidacionUseCase,
     RegistrarCobroLiquidacionUseCase,
+    RegistrarCobroFianzaUseCase,
   ],
 })
 export class FacturacionModule {}

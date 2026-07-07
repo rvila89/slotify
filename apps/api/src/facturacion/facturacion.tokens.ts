@@ -68,3 +68,10 @@ export const REGISTRAR_AUDITORIA_REENVIO_PORT = Symbol('RegistrarAuditoriaReenvi
 // --- US-029: registro del cobro de la liquidación (UC-21 pasos 7-10, D-2) ---
 /** Unidad de trabajo transaccional del cobro (tx + RLS + SELECT ... FOR UPDATE sobre RESERVA). */
 export const UNIDAD_DE_TRABAJO_COBRO_PORT = Symbol('UnidadDeTrabajoCobroPort');
+
+// --- US-030: registro del cobro de la fianza (UC-22 pasos 5-9, D-1/D-2) ---
+/**
+ * Unidad de trabajo transaccional del cobro de la FIANZA (tx + RLS + SELECT ... FOR UPDATE sobre
+ * RESERVA para serializar el doble cobro; política "Negociable" para `fianza_status = pendiente`).
+ */
+export const UNIDAD_DE_TRABAJO_COBRO_FIANZA_PORT = Symbol('UnidadDeTrabajoCobroFianzaPort');

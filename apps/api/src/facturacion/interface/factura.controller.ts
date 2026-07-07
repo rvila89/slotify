@@ -81,6 +81,13 @@ import {
   LiquidacionYaCobradaError,
 } from '../application/registrar-cobro-liquidacion.use-case';
 import {
+  RegistrarCobroFianzaUseCase,
+  CobroInvalidoError as CobroFianzaInvalidoError,
+  FacturaFianzaNoEncontradaError as CobroFianzaNoEncontradaError,
+  FianzaYaCobradaError,
+  JustificanteNoEncontradoError as JustificanteFianzaNoEncontradoError,
+} from '../application/registrar-cobro-fianza.use-case';
+import {
   AprobarEnviarLiquidacionDto,
   AprobarEnviarLiquidacionResponseDto,
   AprobarFacturaRequestDto,
@@ -92,6 +99,9 @@ import {
   ReenviarLiquidacionResponseDto,
   RegistrarCobroLiquidacionDto,
   RegistrarCobroLiquidacionResponseDto,
+  RegistrarCobroFianzaDto,
+  RegistrarCobroFianzaCobradoDto,
+  RegistrarCobroFianzaConfirmacionRequeridaDto,
 } from './factura.dto';
 
 /** Tipos de factura admitidos por el filtro `?tipo=`. */
@@ -184,6 +194,7 @@ export class FacturaController {
     private readonly enviarReciboFianzaSeparado: EnviarReciboFianzaSeparadoUseCase,
     private readonly reenviarLiquidacion: ReenviarLiquidacionUseCase,
     private readonly registrarCobroLiquidacion: RegistrarCobroLiquidacionUseCase,
+    private readonly registrarCobroFianza: RegistrarCobroFianzaUseCase,
   ) {}
 
   @Get('reservas/:id/facturas')
@@ -427,6 +438,63 @@ export class FacturaController {
     }
   }
 
+  @Post('reservas/:id/facturas/fianza/cobro')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Registrar el cobro del recibo de la fianza (UC-22 pasos 5-9 / US-030)',
+  })
+  async cobrarFianza(
+    @Param('id') id: string,
+    @Body() body: RegistrarCobroFianzaDto,
+    @CurrentUser() usuario: UsuarioAutenticado,
+  ): Promise<RegistrarCobroFianzaCobradoDto | RegistrarCobroFianzaConfirmacionRequeridaDto> {
+    try {
+      const resultado = await this.registrarCobroFianza.ejecutar({
+        tenantId: usuario.tenantId,
+        usuarioId: usuario.sub,
+        reservaId: id,
+        importe: body.importe,
+        fechaCobro: body.fechaCobro,
+        justificanteDocId: body.justificanteDocId ?? null,
+        confirmarSinRecibo: body.confirmarSinRecibo ?? false,
+      });
+      // Política "Negociable" (D-2): aviso no bloqueante en 200, sin PAGO creado.
+      if (resultado.resultado === 'confirmacion_requerida') {
+        return {
+          resultado: 'confirmacion_requerida',
+          codigo: resultado.codigo,
+          mensaje: resultado.mensaje,
+          reintentarCon: { confirmarSinRecibo: true },
+        };
+      }
+      return {
+        resultado: 'cobrado',
+        pago: {
+          idPago: resultado.pago.idPago,
+          facturaId: resultado.pago.facturaId,
+          importe: resultado.pago.importe,
+          fechaCobro: resultado.pago.fechaCobro.toISOString().slice(0, 10),
+          justificanteDocId: resultado.pago.justificanteDocId,
+        },
+        facturaFianza: aFacturaEmitidaDto({
+          idFactura: resultado.facturaFianza.idFactura,
+          reservaId: resultado.facturaFianza.reservaId,
+          numeroFactura: resultado.facturaFianza.numeroFactura,
+          tipo: resultado.facturaFianza.tipo,
+          total: resultado.facturaFianza.total,
+          estado: resultado.facturaFianza.estado,
+          pdfUrl: null,
+          fechaEmision: null,
+        }),
+        fianzaStatus: resultado.fianzaStatus,
+        fianzaEur: resultado.fianzaEur,
+        fianzaCobradaFecha: resultado.fianzaCobradaFecha,
+      };
+    } catch (error) {
+      this.aHttp(error);
+    }
+  }
+
   /**
    * Recupera la liquidación ya emitida para incluirla SIN cambios en la respuesta del reenvío
    * (el use-case no muta la factura; su resultado solo trae la nueva COMUNICACION).
@@ -485,7 +553,9 @@ export class FacturaController {
       error instanceof LiquidacionReenvioNoEncontradaError ||
       error instanceof FacturaFianzaNoEncontradaError ||
       error instanceof CobroLiquidacionNoEncontradaError ||
-      error instanceof JustificanteNoEncontradoError
+      error instanceof JustificanteNoEncontradoError ||
+      error instanceof CobroFianzaNoEncontradaError ||
+      error instanceof JustificanteFianzaNoEncontradoError
     ) {
       throw new NotFoundException({
         statusCode: HttpStatus.NOT_FOUND,
@@ -508,7 +578,8 @@ export class FacturaController {
       error instanceof FianzaNoBorradorError ||
       error instanceof FacturaNoEnviadaError ||
       error instanceof LiquidacionYaCobradaError ||
-      error instanceof LiquidacionNoFacturadaError
+      error instanceof LiquidacionNoFacturadaError ||
+      error instanceof FianzaYaCobradaError
     ) {
       throw new ConflictException({
         statusCode: HttpStatus.CONFLICT,
@@ -518,7 +589,7 @@ export class FacturaController {
         motivo: error.motivo,
       });
     }
-    if (error instanceof CobroInvalidoError) {
+    if (error instanceof CobroInvalidoError || error instanceof CobroFianzaInvalidoError) {
       throw new BadRequestException({
         statusCode: HttpStatus.BAD_REQUEST,
         error: 'Bad Request',
