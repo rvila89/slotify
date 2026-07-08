@@ -80,3 +80,8 @@ export const COLA_ESPERA_QUERY_PORT = Symbol('ColaEsperaQueryPort');
 
 // US-049 — pipeline de reservas activas (GET /reservas → ReservaListResponse)
 export const PIPELINE_QUERY_PORT = Symbol('PipelineQueryPort');
+
+// US-031 — barrido de inicio automático de evento en T-0 (cross-tenant read + UoW por RESERVA)
+export const CANDIDATAS_INICIO_EVENTO_PORT = Symbol('CandidatasInicioEventoPort');
+export const INICIO_EVENTO_PORT = Symbol('InicioEventoPort');
+export const ALERTA_INICIO_EVENTO_PORT = Symbol('AlertaInicioEventoPort');

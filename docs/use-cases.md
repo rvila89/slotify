@@ -1285,45 +1285,55 @@ flowchart TD
 |-------|-------------|
 | **ID** | UC-23 |
 | **Nombre** | Iniciar Evento |
-| **Actor Principal** | Sistema / Gestor |
-| **Actores Secundarios** | Equipo |
-| **Descripción** | El sistema transiciona la reserva al estado evento_en_curso cuando se cumplen las precondiciones |
-| **Precondiciones** | - Reserva en estado reserva_confirmada<br>- pre_evento_status = cerrado<br>- liquidacion_status = cobrada<br>- fianza_status = cobrada<br>- Es el día del evento |
-| **Postcondiciones** | - Estado cambia a evento_en_curso<br>- Vista móvil activada<br>- Checklist de documentación visible |
+| **Actor Principal** | Sistema |
+| **Actores Secundarios** | Gestor (via US-032, fuera de alcance MVP), Equipo (briefing 📐, fuera de alcance MVP) |
+| **Descripción** | El Sistema transiciona automáticamente la reserva al estado `evento_en_curso` a las 00:00 del día del evento (T-0), cuando se cumplen las tres precondiciones. Implementado en US-031 (barrido `POST /cron/barrido-eventos`). |
+| **Precondiciones** | - Reserva en estado `reserva_confirmada`<br>- `pre_evento_status = cerrado` (producido por US-025/US-026)<br>- `liquidacion_status = cobrada` (producido por US-029)<br>- `fianza_status = cobrada` (producido por US-030)<br>- `date(fecha_evento) = date(hoy)` (es el día del evento, T-0) |
+| **Postcondiciones** | - `RESERVA.estado = evento_en_curso`<br>- `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`, `datos_anteriores = {estado: reserva_confirmada}`, `datos_nuevos = {estado: evento_en_curso}`, origen Sistema (`usuario_id` nulo)<br>- El estado `evento_en_curso` habilita la vista móvil (US-033) y el checklist de documentación (US-034) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
+| **US** | US-031 (flujo básico automático); US-032 (forzado manual — pendiente); US-033/US-034 (vista móvil + checklist — pendiente) |
+| **Endpoint** | `POST /cron/barrido-eventos` — auth `X-Cron-Token` (`CronTokenGuard`); invocado por cron `@nestjs/schedule` diario a las 00:00 (`CRON_BARRIDO_EVENTOS`) |
 
-**Flujo Básico:**
-1. El sistema detecta que es el día del evento (00:00)
-2. El sistema verifica las precondiciones
-3. Todas las precondiciones se cumplen
-4. El sistema cambia estado a evento_en_curso
-5. El sistema envía briefing operativo al equipo
-6. El sistema activa vista móvil "evento en curso"
-7. El sistema muestra checklist de documentación pendiente
+**Flujo Básico (US-031 — implementado):**
+1. El cron `BarridoEventosScheduler` invoca `POST /cron/barrido-eventos` con `X-Cron-Token` válido a las 00:00
+2. El sistema selecciona todas las RESERVA con `estado = 'reserva_confirmada'` AND `date(fecha_evento) = CURRENT_DATE` de todos los tenants (lectura cross-tenant del proceso de Sistema)
+3. Por cada candidata, en su propia transacción con `SELECT … FOR UPDATE`, re-evalúa la guarda de origen (`reserva_confirmada → evento_en_curso`) y las tres precondiciones dentro del lock
+4. Las tres precondiciones se cumplen: el sistema fija `RESERVA.estado = evento_en_curso` y registra la transición en `AUDIT_LOG` con origen Sistema (paso 3); si `cond_part_firmadas = false`, emite además la alerta no bloqueante A29 sin impedir la transición
+5. El sistema devuelve el resumen `{ candidatas, eventosIniciados, precondicionesIncumplidas, fallos }`
+6. 📐 **Fuera de alcance MVP**: el sistema envía el briefing operativo al equipo (US-044 + diseño de plantilla pendiente)
+7. La vista móvil "evento en curso" (US-033) y el checklist de documentación (US-034) se activan al detectar `RESERVA.estado = evento_en_curso` desde `GET /reservas` (US-049)
 
 **Flujos Alternativos:**
-- **FA-01**: Precondiciones no cumplidas → Alerta crítica, gestor puede forzar inicio
+- **FA-01 (precondiciones incumplidas — US-031):** si alguna de las tres precondiciones no se cumple en T-0 → el sistema no transiciona la RESERVA (permanece en `reserva_confirmada`) y genera una alerta crítica al gestor con la lista de precondiciones incumplidas. El forzado manual de la transición ante precondiciones incumplidas corresponde a **US-032** (pendiente de implementación).
+- **FA-02 (A29 — condiciones particulares no firmadas — US-031):** `cond_part_firmadas = false` en T-0 → el sistema emite la alerta no bloqueante A29 ("Las condiciones particulares de esta reserva no están firmadas. El cliente puede firmarlas presencialmente.") con independencia del resultado de la transición; la RESERVA transiciona igualmente a `evento_en_curso` si las tres precondiciones se cumplen.
+- **FA-03 (idempotencia):** una RESERVA ya en `evento_en_curso` (pase previo o gestor US-032) no es candidata; el barrido la omite sin duplicar auditorías.
+- **FA-04 (sin token / token inválido):** `POST /cron/barrido-eventos` sin `X-Cron-Token` o con valor incorrecto → `401`; ninguna RESERVA se transiciona.
 
 ```mermaid
 flowchart TD
-    A[Día del evento T-0] --> B{Verificar precondiciones}
-    B --> C{pre_evento = cerrado?}
-    C -->|Sí| D{liquidacion = cobrada?}
-    C -->|No| E[ALERTA: Pre-evento pendiente]
-    D -->|Sí| F{fianza = cobrada?}
-    D -->|No| G[ALERTA: Liquidación pendiente]
-    F -->|Sí| H[evento_en_curso]
-    F -->|No| I[ALERTA: Fianza pendiente]
-    E --> J{Gestor fuerza inicio?}
-    G --> J
-    I --> J
-    J -->|Sí| H
-    J -->|No| K[Evento bloqueado]
-    H --> L[Enviar briefing equipo]
-    L --> M[Activar vista móvil]
-    M --> N[Mostrar checklist documentación]
+    A[Cron T-0 00:00] --> B[POST /cron/barrido-eventos]
+    B --> C{X-Cron-Token válido?}
+    C -->|No| Z[401 — sin transiciones]
+    C -->|Sí| D[Seleccionar candidatas: estado=reserva_confirmada AND fecha_evento=hoy]
+    D --> E{¿Hay candidatas?}
+    E -->|No| F[Resumen vacío — 200]
+    E -->|Sí| G[Por cada candidata: SELECT FOR UPDATE]
+    G --> H{¿3 precondiciones cumplidas?}
+    H -->|Sí| I[estado = evento_en_curso + AUDIT_LOG Sistema]
+    H -->|No| J[Alerta crítica al gestor — RESERVA sin cambio]
+    I --> K{cond_part_firmadas = false?}
+    K -->|Sí| L[Alerta A29 no bloqueante]
+    K -->|No| M[Continuar]
+    L --> M
+    J --> M
+    M --> N[Resumen: candidatas / eventosIniciados / precondicionesIncumplidas / fallos]
 ```
+
+**Nota de alcance (US-031):**
+- **Implementado:** barrido automático a T-0, transición atómica `reserva_confirmada → evento_en_curso`, auditoría de Sistema, alerta crítica por precondiciones incumplidas, alerta A29 no bloqueante, idempotencia, concurrencia cron↔gestor por `SELECT … FOR UPDATE`.
+- **Fuera de alcance (📐):** briefing operativo al equipo (UC-23 paso 6, diseñado pero no implementado en MVP); A9 (briefing en T-3d, lista negra).
+- **US coordinadas:** US-032 (forzado manual ante precondiciones incumplidas); US-033/US-034 (vista móvil "evento en curso" + checklist de documentación que se activan con `RESERVA.estado = evento_en_curso`).
 
 ---
 

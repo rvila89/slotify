@@ -1,7 +1,7 @@
 ---
 id: US-031
-estado: backlog
-branch: null
+estado: in-progress
+branch: feature/us-031-inicio-automatico-evento
 pr: null
 ---
 

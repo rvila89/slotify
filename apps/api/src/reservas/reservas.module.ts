@@ -103,6 +103,17 @@ import { PromocionManualColaUoWPrismaAdapter } from './infrastructure/promocion-
 import { PromoverManualController } from './interface/promover-manual.controller';
 import { BarridoExpiracionController } from './interface/barrido-expiracion.controller';
 import { BarridoExpiracionScheduler } from './interface/barrido-expiracion.scheduler';
+import { BarridoEventosController } from './interface/barrido-eventos.controller';
+import { BarridoEventosScheduler } from './interface/barrido-eventos.scheduler';
+import {
+  IniciarEventosDelDiaService,
+  type AlertaInicioEventoPort,
+  type CandidatasInicioEventoPort,
+  type InicioEventoPort,
+} from './application/iniciar-eventos-del-dia.service';
+import { CandidatasInicioEventoPrismaAdapter } from './infrastructure/candidatas-inicio-evento.prisma.adapter';
+import { InicioEventoUoWPrismaAdapter } from './infrastructure/inicio-evento-uow.prisma.adapter';
+import { AlertaInicioEventoAdapter } from './infrastructure/alerta-inicio-evento.adapter';
 import { CronTokenGuard } from '../shared/auth/cron-token.guard';
 import { ReservaDetalleQueryPrismaAdapter } from './infrastructure/reserva-detalle-query.prisma.adapter';
 import {
@@ -148,6 +159,9 @@ import {
   PROMOCION_MANUAL_COLA_UOW_PORT,
   COLA_ESPERA_QUERY_PORT,
   PIPELINE_QUERY_PORT,
+  CANDIDATAS_INICIO_EVENTO_PORT,
+  INICIO_EVENTO_PORT,
+  ALERTA_INICIO_EVENTO_PORT,
 } from './reservas.tokens';
 
 @Module({
@@ -168,6 +182,7 @@ import {
     ObtenerColaEsperaController,
     ListarReservasController,
     BarridoExpiracionController,
+    BarridoEventosController,
     PromoverManualController,
   ],
   providers: [
@@ -518,8 +533,37 @@ import {
       useFactory: (uow: PromocionManualColaUoWPort) =>
         new PromoverManualEnColaService({ uow }),
     },
+    // US-031 — barrido de inicio automático de evento en T-0 (cross-tenant read + UoW
+    // por RESERVA con SELECT … FOR UPDATE bajo RLS del tenant de la fila; alertas de
+    // Sistema desacopladas de la superficie de notificaciones US-044).
+    {
+      provide: CANDIDATAS_INICIO_EVENTO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CandidatasInicioEventoPrismaAdapter(prisma),
+    },
+    {
+      provide: INICIO_EVENTO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) => new InicioEventoUoWPrismaAdapter(prisma),
+    },
+    { provide: ALERTA_INICIO_EVENTO_PORT, useClass: AlertaInicioEventoAdapter },
+    {
+      provide: IniciarEventosDelDiaService,
+      inject: [
+        CANDIDATAS_INICIO_EVENTO_PORT,
+        INICIO_EVENTO_PORT,
+        ALERTA_INICIO_EVENTO_PORT,
+      ],
+      useFactory: (
+        candidatas: CandidatasInicioEventoPort,
+        inicio: InicioEventoPort,
+        alerta: AlertaInicioEventoPort,
+      ) => new IniciarEventosDelDiaService({ candidatas, inicio, alerta }),
+    },
     CronTokenGuard,
     BarridoExpiracionScheduler,
+    BarridoEventosScheduler,
   ],
   exports: [
     BloquearFechaService,
@@ -537,6 +581,7 @@ import {
     ExpirarConsultasVencidasService,
     PromoverPrimeroEnColaService,
     PromoverManualEnColaService,
+    IniciarEventosDelDiaService,
   ],
 })
 export class ReservasModule {}
