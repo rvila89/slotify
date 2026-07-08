@@ -195,11 +195,11 @@
       `Veredicto: APTO` (si NO APTO, volver a implementación)
 
 ## 11. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final — human_review)
-- [ ] 11.1 Tras code-review APTO + validación manual, **ESPERAR el OK humano** antes de
-      archive/PR
+- [x] 11.1 Tras code-review APTO + validación manual, **ESPERAR el OK humano** antes de
+      archive/PR. **OK humano final 2026-07-08.**
 
 ## 12. Archivar change + abrir PR (OBLIGATORIO — archive — dueño: `spec-author`)
-- [ ] 12.1 `openspec archive us-031-inicio-automatico-evento` (solo tras gate final y
+- [x] 12.1 `openspec archive us-031-inicio-automatico-evento` (solo tras gate final y
       code-review APTO; el hook `require-code-review` lo bloquea sin APTO)
-- [ ] 12.2 Actualizar `openspec/specs/` (capability `consultas` con los requisitos de inicio
-      automático de evento) y abrir PR (GitHub MCP / `gh`)
+- [x] 12.2 Actualizar `openspec/specs/` (capability `consultas` con los requisitos de inicio
+      automático de evento) y abrir PR (GitHub MCP / `gh`) — **PR #54**

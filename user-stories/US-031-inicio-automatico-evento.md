@@ -1,8 +1,8 @@
 ---
 id: US-031
-estado: in-progress
+estado: en-revision
 branch: feature/us-031-inicio-automatico-evento
-pr: null
+pr: https://github.com/rvila89/slotify/pull/54
 ---
 
 # 🧾 Historia de Usuario: Sistema transiciona reserva a evento en curso cuando se cumplen las precondiciones
