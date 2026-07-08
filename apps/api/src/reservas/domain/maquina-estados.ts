@@ -691,3 +691,137 @@ export const resolverExpiracionForzosaBloqueante = (
   );
   return transicion ? transicion.destino : null;
 };
+
+// ---------------------------------------------------------------------------
+// Transición de INICIO AUTOMÁTICO de EVENTO en T-0 (US-031 / UC-23 / §D-3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Destino resuelto del inicio automático de evento: el `(estado, subEstado)` al que
+ * transiciona una RESERVA candidata (`reserva_confirmada`) el día del evento (T-0)
+ * cuando cumple las tres precondiciones. Es el resultado puro de `resolverInicioEvento`;
+ * `null` (no representado aquí) indica que el origen NO es candidato (guarda de origen).
+ */
+export interface ResultadoInicioEvento {
+  estado: EstadoReserva;
+  subEstado: SubEstadoConsulta | null;
+}
+
+/**
+ * Entrada de la tabla declarativa de inicio de evento: `origen` candidato → `destino`.
+ * Modela la transición como ESTRUCTURA DE DATOS (skill `state-machine`, NO condicionales
+ * dispersos), en paralelo estricto a `MAPA_EXPIRACION_TTL`/`MAPA_PROMOCION_COLA`.
+ */
+interface TransicionInicioEvento {
+  origen: { estado: EstadoReserva; subEstado: SubEstadoConsulta | null };
+  destino: ResultadoInicioEvento;
+}
+
+/**
+ * Tabla declarativa `MAPA_INICIO_EVENTO` (US-031, §D-3): mapea el ÚNICO origen candidato
+ * del inicio automático de evento a su destino. Es la única fuente de verdad de qué se
+ * inicia y a dónde (no `if` dispersos):
+ *   { reserva_confirmada, null } → { evento_en_curso, null }
+ *
+ * Guarda de ORIGEN ESTRICTA: solo `reserva_confirmada` con sub_estado NULL es candidato.
+ * Cualquier otro estado principal (`consulta`/`pre_reserva`/`evento_en_curso`/`post_evento`/
+ * `reserva_completada`/`reserva_cancelada`), los sub-estados de consulta y hasta un
+ * `reserva_confirmada` con un sub-estado espurio (dato inconsistente) NO son candidatos:
+ * `resolverInicioEvento` devuelve `null`. Las TRES precondiciones se evalúan aparte
+ * (`preconditionesEventoCumplidas`). Al ser pura y re-evaluable, la guarda se invoca DENTRO
+ * de la transacción de cada RESERVA (base de la idempotencia y de RC-1/RC-2).
+ */
+export const MAPA_INICIO_EVENTO: ReadonlyArray<TransicionInicioEvento> = [
+  {
+    origen: { estado: 'reserva_confirmada', subEstado: null },
+    destino: { estado: 'evento_en_curso', subEstado: null },
+  },
+];
+
+/**
+ * Guarda + resolución declarativa del inicio automático de evento (US-031, §D-3): función
+ * PURA que consulta `MAPA_INICIO_EVENTO` y devuelve el destino (`evento_en_curso`) del
+ * origen `(estado, subEstado)`, o `null` si NO es un origen candidato. Es la guarda de
+ * ORIGEN; se re-evalúa bajo el `SELECT … FOR UPDATE` de la fila RESERVA para garantizar
+ * idempotencia y la coordinación cron↔gestor (US-032) sin locks distribuidos.
+ */
+export const resolverInicioEvento = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): ResultadoInicioEvento | null => {
+  const transicion = MAPA_INICIO_EVENTO.find(
+    (t) => t.origen.estado === estado && t.origen.subEstado === subEstado,
+  );
+  return transicion ? transicion.destino : null;
+};
+
+// ---------------------------------------------------------------------------
+// Guarda PURA de las TRES PRECONDICIONES del inicio de evento (US-031 / §D-3)
+// ---------------------------------------------------------------------------
+
+/** Estado del cierre de la ficha pre-evento (valor de dominio; espejo del enum Prisma). */
+export type PreEventoStatusDominio = 'pendiente' | 'en_curso' | 'cerrado';
+
+/** Estado de cobro de la liquidación (valor de dominio; espejo del enum Prisma). */
+export type LiquidacionStatusDominio = 'pendiente' | 'facturada' | 'cobrada';
+
+/** Estado de cobro de la fianza (valor de dominio; espejo del enum Prisma). */
+export type FianzaStatusDominio =
+  | 'pendiente'
+  | 'recibo_enviado'
+  | 'cobrada'
+  | 'devuelta'
+  | 'retenida_parcial';
+
+/**
+ * Lectura ÚNICA de los tres `*_status` de una RESERVA candidata (D-3): la guarda las
+ * evalúa juntas en una sola llamada, tal como se leen de la fila bajo el lock.
+ */
+export interface PrecondicionesEvento {
+  preEventoStatus: PreEventoStatusDominio;
+  liquidacionStatus: LiquidacionStatusDominio;
+  fianzaStatus: FianzaStatusDominio;
+}
+
+/**
+ * Resultado de la guarda de precondiciones: `cumple = true` solo con las tres a su valor
+ * requerido; en los casos negativos, `faltantes` enumera —por su nombre de dominio— las
+ * precondiciones incumplidas, para alimentar la alerta crítica al gestor (D-8) sin lógica
+ * dispersa.
+ */
+export interface ResultadoPrecondicionesEvento {
+  cumple: boolean;
+  faltantes: string[];
+}
+
+/**
+ * Tabla declarativa de las tres precondiciones del inicio de evento (US-031, §D-3): cada
+ * entrada nombra la precondición (para la alerta) y su valor requerido. Una sola fuente de
+ * verdad del AND estricto `pre_evento_status = 'cerrado'` AND `liquidacion_status =
+ * 'cobrada'` AND `fianza_status = 'cobrada'` (no `if` dispersos).
+ */
+const PRECONDICIONES_INICIO_EVENTO: ReadonlyArray<{
+  nombre: string;
+  cumplida: (p: PrecondicionesEvento) => boolean;
+}> = [
+  { nombre: 'pre_evento_status', cumplida: (p) => p.preEventoStatus === 'cerrado' },
+  { nombre: 'liquidacion_status', cumplida: (p) => p.liquidacionStatus === 'cobrada' },
+  { nombre: 'fianza_status', cumplida: (p) => p.fianzaStatus === 'cobrada' },
+];
+
+/**
+ * Guarda PURA de las tres precondiciones (US-031, §D-3): evalúa `pre_evento_status =
+ * 'cerrado'` AND `liquidacion_status = 'cobrada'` AND `fianza_status = 'cobrada'` en una
+ * única lectura de la fila y devuelve `{ cumple, faltantes }`. `cumple = true` solo si las
+ * tres se satisfacen; si no, `faltantes` enumera todas las incumplidas (para la alerta
+ * crítica). Función determinista y sin efectos; se invoca bajo el lock junto a la guarda
+ * de origen (`resolverInicioEvento`).
+ */
+export const preconditionesEventoCumplidas = (
+  precondiciones: PrecondicionesEvento,
+): ResultadoPrecondicionesEvento => {
+  const faltantes = PRECONDICIONES_INICIO_EVENTO.filter(
+    (p) => !p.cumplida(precondiciones),
+  ).map((p) => p.nombre);
+  return { cumple: faltantes.length === 0, faltantes };
+};

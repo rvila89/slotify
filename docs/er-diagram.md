@@ -851,6 +851,8 @@ Registro de auditoría de todas las acciones sobre reservas, facturas y autentic
 
 **Registros generados por `liberarFecha()` (UC-31 / US-041):** toda liberación exitosa, tentativa idempotente (0 filas) e intento rechazado de bloqueo firme producen un registro con `accion = 'eliminar'`, `entidad = 'FECHA_BLOQUEADA'` y la causa de la operación (`TTL` / `descarte` / `cancelacion`) en `datos_nuevos`. Esto permite auditar el ciclo completo bloqueo→liberación de cada fecha por tenant.
 
+**Convención de auditoría de Sistema (barridos periódicos):** las transiciones de estado ejecutadas por un proceso de Sistema (barrido de cron, no por acción de un usuario) se registran con `usuario_id = NULL` (nulo — no hay usuario final) y `accion = 'transicion'`. La causa de la automatización se refleja en `datos_nuevos`. Esta convención la siguen los tres barridos periódicos implementados: **US-012** (expiración de TTL: `datos_anteriores = {estado: <estado>}`, `datos_nuevos = {estado: <terminal>}`), **US-026** (cierre de ficha A10: `datos_anteriores = {estado: reserva_confirmada}`, `datos_nuevos = {estado: reserva_confirmada, causa: 'A10'}`) y **US-031** (inicio automático de evento T-0: `datos_anteriores = {estado: reserva_confirmada}`, `datos_nuevos = {estado: evento_en_curso, causa: 'T-0'}`). Un proceso de Sistema puede leer candidatas de todos los tenants (lectura cross-tenant) pero siempre escribe bajo el contexto RLS del tenant de la RESERVA candidata (`SET LOCAL app.tenant_id`).
+
 ---
 
 ## 4. Validaciones Aplicadas

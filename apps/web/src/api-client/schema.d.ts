@@ -2667,6 +2667,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cron/barrido-eventos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Barrido de inicio automático del evento en T-0 (UC-23 / US-031)
+         * @description [US-031] Endpoint **interno protegido** invocado por el cron scheduler
+         *     (`@nestjs/schedule`) para iniciar automáticamente el evento en su día (T-0), actor
+         *     Sistema. Cierra el patrón obligatorio "estado en fila + barrido periódico"
+         *     (`CLAUDE.md §Jobs asíncronos`; skill `async-jobs`): NUNCA Lambda/EventBridge ni timers
+         *     exactos; el trabajo pendiente es estado en la BBDD (`RESERVA.estado` + `fecha_evento`).
+         *     El `@Cron` se dispara **una vez al día a las 00:00**; endpoint dedicado, gemelo de
+         *     `POST /cron/barrido-expiracion` (US-012), en el módulo `reservas`.
+         *
+         *     Autenticación **service-to-service** mediante la cabecera `X-Cron-Token` (comparada
+         *     con `CRON_TOKEN` del entorno vía `CronTokenGuard`), **NO** el JWT de usuario: sin
+         *     token válido devuelve `401`. El scheduler no ejecuta lógica de negocio, solo dispara
+         *     este endpoint (invocable también manualmente/por otro scheduler externo y testeable
+         *     por HTTP).
+         *
+         *     Selecciona **cross-tenant** las RESERVA con `estado = 'reserva_confirmada'` **AND**
+         *     `date(fecha_evento) = date(hoy)` (T-0, filtro **estricto** por fecha de calendario en
+         *     la zona horaria de negocio, no por instante ni string formateado). Por cada candidata,
+         *     en su **propia transacción** bajo el contexto RLS del tenant de la RESERVA (cross-tenant
+         *     read / RLS write) y con `SELECT … FOR UPDATE` sobre la fila, re-evalúa la guarda de
+         *     origen y **las tres precondiciones en una única lectura** (`pre_evento_status =
+         *     'cerrado'` AND `liquidacion_status = 'cobrada'` AND `fianza_status = 'cobrada'`): si se
+         *     cumplen, transiciona atómicamente `reserva_confirmada → evento_en_curso` y registra
+         *     `AUDIT_LOG accion='transicion'` origen Sistema (`datos_anteriores={estado:reserva_confirmada}`,
+         *     `datos_nuevos={estado:evento_en_curso}`); si no, **no transiciona** y emite una **alerta
+         *     crítica** al gestor con las precondiciones incumplidas (el forzado manual es US-032,
+         *     fuera de alcance). Emite además la **A29 no bloqueante** cuando `cond_part_firmadas =
+         *     false`, con independencia del resultado de la transición.
+         *
+         *     **Idempotente**: las RESERVA ya en `evento_en_curso` (por un pase previo o por el gestor
+         *     US-032) no son candidatas → N ejecuciones = 1 transición y 1 auditoría; la re-evaluación
+         *     bajo el lock hace que un pase concurrente re-lea el `estado` ya actualizado y la UPDATE
+         *     afecte 0 filas (no-op sin error). El **fallo de una candidata no aborta el lote** (fallo
+         *     aislado por RESERVA); el resumen registra los fallos. No envía email ni briefing
+         *     (out-of-scope, sin código E); la vista móvil "evento en curso" consume `RESERVA.estado`
+         *     de `GET /reservas` (US-049/US-033/US-034).
+         */
+        post: operations["barridoEventos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3903,6 +3957,28 @@ export interface components {
             fichasCerradas: number;
             /**
              * @description Nº de candidatas cuyo cierre falló de forma aislada (rollback de su propia transacción, sin afectar al resto del lote).
+             * @example 0
+             */
+            fallos: number;
+        };
+        BarridoEventosResponse: {
+            /**
+             * @description Nº de RESERVA seleccionadas como candidatas del inicio de evento, cross-tenant: `estado = 'reserva_confirmada'` AND `date(fecha_evento) = date(hoy)` (T-0, fecha de calendario en la zona horaria de negocio, no por instante ni string formateado).
+             * @example 4
+             */
+            candidatas: number;
+            /**
+             * @description Nº de candidatas efectivamente transicionadas `reserva_confirmada → evento_en_curso` en esta ejecución (con las tres precondiciones cumplidas + `AUDIT_LOG accion='transicion'` origen Sistema). Menor que `candidatas` cuando alguna dejó de serlo bajo lock (idempotencia / carrera con el forzado manual US-032) o falló.
+             * @example 2
+             */
+            eventosIniciados: number;
+            /**
+             * @description Nº de candidatas que NO transicionaron por no cumplir las tres precondiciones (`pre_evento_status = 'cerrado'` AND `liquidacion_status = 'cobrada'` AND `fianza_status = 'cobrada'`); generan una alerta crítica al gestor. El forzado manual de la transición es US-032.
+             * @example 1
+             */
+            precondicionesIncumplidas: number;
+            /**
+             * @description Nº de candidatas cuya transición falló de forma aislada (rollback de su propia transacción, sin afectar al resto del lote).
              * @example 0
              */
             fallos: number;
@@ -5356,6 +5432,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BarridoExpiracionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    barridoEventos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description Barrido ejecutado. Devuelve un **resumen** del barrido (sin datos de negocio
+             *     sensibles): candidatas evaluadas, eventos efectivamente iniciados, precondiciones
+             *     incumplidas (alerta crítica) y fallos aislados.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BarridoEventosResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];
