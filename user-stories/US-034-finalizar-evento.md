@@ -1,8 +1,8 @@
 ---
 id: US-034
-estado: implementada
+estado: en-revision
 branch: feature/us-034-finalizar-evento
-pr: null
+pr: https://github.com/rvila89/slotify/pull/55
 ---
 
 # 🧾 Historia de Usuario: Gestor finaliza el evento y activa el proceso de post-evento
