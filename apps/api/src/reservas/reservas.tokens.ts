@@ -85,3 +85,11 @@ export const PIPELINE_QUERY_PORT = Symbol('PipelineQueryPort');
 export const CANDIDATAS_INICIO_EVENTO_PORT = Symbol('CandidatasInicioEventoPort');
 export const INICIO_EVENTO_PORT = Symbol('InicioEventoPort');
 export const ALERTA_INICIO_EVENTO_PORT = Symbol('AlertaInicioEventoPort');
+
+// US-034 — finalización manual del evento (evento_en_curso → post_evento + E5 condicionado)
+export const CARGAR_RESERVA_FINALIZACION_PORT = Symbol('CargarReservaFinalizacionPort');
+export const UNIDAD_DE_TRABAJO_FINALIZACION_PORT = Symbol(
+  'UnidadDeTrabajoFinalizacionPort',
+);
+export const DISPARAR_E5_PORT = Symbol('DispararE5Port');
+export const DOCUMENTACION_EVENTO_PORT = Symbol('DocumentacionEventoPort');

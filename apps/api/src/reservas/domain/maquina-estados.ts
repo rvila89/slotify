@@ -825,3 +825,88 @@ export const preconditionesEventoCumplidas = (
   ).map((p) => p.nombre);
   return { cumple: faltantes.length === 0, faltantes };
 };
+
+// ---------------------------------------------------------------------------
+// Transición de FINALIZACIÓN MANUAL de EVENTO (US-034 / UC-25 / §D-2/§D-9)
+// ---------------------------------------------------------------------------
+
+/**
+ * Destino resuelto de la finalización manual del evento: el `(estado, subEstado)` al que
+ * transiciona una RESERVA en ejecución (`evento_en_curso`) cuando el Gestor la marca como
+ * finalizada. Es el resultado puro de `resolverFinalizacionEvento`; `null` (no representado
+ * aquí) indica que el origen NO es candidato (guarda de origen: conflicto de estado).
+ */
+export interface ResultadoFinalizacionEvento {
+  estado: EstadoReserva;
+  subEstado: SubEstadoConsulta | null;
+}
+
+/**
+ * Entrada de la tabla declarativa de finalización de evento: `origen` candidato →
+ * `destino`. Modela la transición como ESTRUCTURA DE DATOS (skill `state-machine`, NO
+ * condicionales dispersos), en paralelo estricto a `MAPA_INICIO_EVENTO` (US-031).
+ */
+interface TransicionFinalizacionEvento {
+  origen: { estado: EstadoReserva; subEstado: SubEstadoConsulta | null };
+  destino: ResultadoFinalizacionEvento;
+}
+
+/**
+ * Tabla declarativa `MAPA_FINALIZACION_EVENTO` (US-034, §D-2): mapea el ÚNICO origen
+ * candidato de la finalización manual del evento a su destino. Es la única fuente de
+ * verdad de qué se finaliza y a dónde (no `if` dispersos):
+ *   { evento_en_curso, null } → { post_evento, null }
+ *
+ * Guarda de ORIGEN ESTRICTA: solo `evento_en_curso` con sub_estado NULL es candidato.
+ * IRREVERSIBILIDAD (spec-delta `consultas`): NO existe arista de retorno `post_evento →
+ * evento_en_curso` en la tabla — `post_evento` (segunda finalización), `reserva_confirmada`
+ * (estado previo), el resto de estados principales, los sub-estados de consulta y hasta un
+ * `evento_en_curso` con sub-estado espurio (dato inconsistente) NO son candidatos:
+ * `resolverFinalizacionEvento` devuelve `null` (conflicto de estado → 409). La transición
+ * es INCONDICIONAL respecto a la fianza y al email (el disparo de E5 lo decide aparte
+ * `debeEnviarseE5`). Al ser pura y re-evaluable, la guarda se invoca DENTRO de la
+ * transacción bajo el `SELECT … FOR UPDATE` de la fila RESERVA (base de la idempotencia y
+ * de la concurrencia de doble finalización, D-8) — sin locks distribuidos.
+ */
+export const MAPA_FINALIZACION_EVENTO: ReadonlyArray<TransicionFinalizacionEvento> = [
+  {
+    origen: { estado: 'evento_en_curso', subEstado: null },
+    destino: { estado: 'post_evento', subEstado: null },
+  },
+];
+
+/**
+ * Guarda + resolución declarativa de la finalización manual del evento (US-034, §D-2):
+ * función PURA que consulta `MAPA_FINALIZACION_EVENTO` y devuelve el destino
+ * (`post_evento`) del origen `(estado, subEstado)`, o `null` si NO es un origen candidato
+ * (conflicto de estado). Es la guarda de ORIGEN; se re-evalúa bajo el `SELECT … FOR UPDATE`
+ * de la fila RESERVA para garantizar la idempotencia y que la doble finalización
+ * concurrente termine con exactamente una transición ganadora (D-8).
+ */
+export const resolverFinalizacionEvento = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): ResultadoFinalizacionEvento | null => {
+  const transicion = MAPA_FINALIZACION_EVENTO.find(
+    (t) => t.origen.estado === estado && t.origen.subEstado === subEstado,
+  );
+  return transicion ? transicion.destino : null;
+};
+
+// ---------------------------------------------------------------------------
+// Guarda PURA de la fianza para el disparo de E5 (US-034 / §D-4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guarda PURA de la fianza (US-034, §D-4): ¿corresponde disparar el email E5 (solicitud de
+ * IBAN) al finalizar el evento? `true` SOLO si `fianzaEur != null && fianzaEur > 0`. `NULL`
+ * y `0` colapsan a `false` (sin E5); un negativo (defensivo) también es `false`.
+ *
+ * Es la ÚNICA fuente de verdad de la condición del envío: la transición a `post_evento` es
+ * incondicional, pero E5 está condicionado a esta guarda. `fianza_eur` MANDA sobre
+ * `fianza_status` (nunca se envía IBAN sin importe): si `fianza_status='cobrada'` pero
+ * `fianza_eur IS NULL` (dato anómalo), esta guarda devuelve `false` y la inconsistencia se
+ * audita aparte. Función determinista y sin efectos (dominio puro).
+ */
+export const debeEnviarseE5 = (fianzaEur: number | null): boolean =>
+  fianzaEur !== null && fianzaEur > 0;

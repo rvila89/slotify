@@ -1,7 +1,7 @@
 ---
 id: US-034
-estado: backlog
-branch: null
+estado: implementada
+branch: feature/us-034-finalizar-evento
 pr: null
 ---
 
