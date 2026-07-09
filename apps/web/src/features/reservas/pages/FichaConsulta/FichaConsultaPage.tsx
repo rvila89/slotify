@@ -1,25 +1,12 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { CalendarPlus, User } from 'lucide-react';
-import {
-  AvisoPresupuestoConfirmado,
-  GenerarPresupuestoDialog,
-  type ConfirmarPresupuestoResponse,
-} from '@/features/presupuestos';
-import {
-  AvisoReservaConfirmada,
-  ConfirmarSenalDialog,
-  type ConfirmarSenalResponse,
-} from '@/features/confirmacion';
+import { AvisoPresupuestoConfirmado, type ConfirmarPresupuestoResponse } from '@/features/presupuestos';
+import { AvisoReservaConfirmada, type ConfirmarSenalResponse } from '@/features/confirmacion';
 import { FacturaSenalCard, DocumentosLiquidacionFianza } from '@/features/facturacion';
 import { FichaOperativaCard } from '@/features/ficha-operativa';
 import { useReserva } from '../../api/useReserva';
-import { AnadirFechaDialog } from '../../components/AnadirFechaDialog';
-import { PendienteInvitadosDialog } from '../../components/PendienteInvitadosDialog';
-import { ProgramarVisitaDialog } from '../../components/ProgramarVisitaDialog';
-import { RegistrarResultadoVisitaDialog } from '../../components/RegistrarResultadoVisitaDialog';
-import { ExtenderBloqueoDialog } from '../../components/ExtenderBloqueoDialog';
-import { MAX_DIAS_PROGRAMAR_VISITA_DEFAULT, formatearFecha } from '../../lib/fecha';
+import { formatearFecha } from '../../lib/fecha';
 import { Badge } from './components/Badge';
 import { Dato } from './components/Dato';
 import { AccionesConsulta } from './components/AccionesConsulta';
@@ -29,17 +16,20 @@ import { AvisoVisitaProgramada } from './components/AvisoVisitaProgramada';
 import { AvisoResultadoVisita } from './components/AvisoResultadoVisita';
 import { AvisoReservaInmediata } from './components/AvisoReservaInmediata';
 import { AvisoBloqueoExtendido } from './components/AvisoBloqueoExtendido';
+import { AvisoEventoFinalizado } from './components/AvisoEventoFinalizado';
+import { DialogosFicha } from './components/DialogosFicha';
 import type { PendienteInvitadosResultado, Reserva } from '../../model/types';
+import type { components } from '@/api-client';
+type FinalizarEventoResponse = components['schemas']['FinalizarEventoResponse'];
 
 const claseSeccion =
   'flex flex-col gap-6 rounded-[20px] border border-border-default/20 bg-surface-subtle/30 p-4 sm:p-6 lg:p-8';
 
 /**
- * Ficha de consulta (US-005/US-007/US-008/US-006 · UC-04/06/07/05). Muestra el detalle
- * de una RESERVA y, según su sub-estado, ofrece las acciones de transición (Añadir
- * fecha, Pendiente de invitados, Programar visita) y el override de extensión del
- * bloqueo (Extender bloqueo) vía diálogos de dominio. Los avisos del desenlace y los
- * fragmentos visuales viven en `components/`.
+ * Ficha de consulta/reserva. Muestra el detalle de una RESERVA y, según su estado y
+ * sub-estado, ofrece las acciones de transición del pipeline (US-005/007/008/006/
+ * 014/021/034) vía diálogos de dominio. Los avisos del desenlace y los fragmentos
+ * visuales viven en `components/`.
  */
 export const FichaConsultaPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -52,6 +42,7 @@ export const FichaConsultaPage = () => {
   const [dialogoExtenderAbierto, setDialogoExtenderAbierto] = useState(false);
   const [dialogoPresupuestoAbierto, setDialogoPresupuestoAbierto] = useState(false);
   const [dialogoSenalAbierto, setDialogoSenalAbierto] = useState(false);
+  const [dialogoFinalizarAbierto, setDialogoFinalizarAbierto] = useState(false);
   // RESERVA resultante de la transición de fecha (US-005): alimenta el aviso 2b/2d.
   const [resultado, setResultado] = useState<Reserva | null>(null);
   // Resultado de la transición 2.b → 2.c (US-007): alimenta su aviso (TTL + cola).
@@ -71,6 +62,8 @@ export const FichaConsultaPage = () => {
     useState<ConfirmarPresupuestoResponse | null>(null);
   // Resultado de la confirmación de señal (US-021): alimenta su aviso (reserva_confirmada).
   const [resultadoSenal, setResultadoSenal] = useState<ConfirmarSenalResponse | null>(null);
+  // Resultado de la finalización del evento (US-034, post_evento + E5 + docs pendiente).
+  const [resultadoFinalizar, setResultadoFinalizar] = useState<FinalizarEventoResponse | null>(null);
 
   if (isLoading) {
     return (
@@ -113,53 +106,46 @@ export const FichaConsultaPage = () => {
       </header>
 
       {resultado && <AvisosTransicion resultado={resultado} onCerrar={() => setResultado(null)} />}
-
       {resultadoInvitados && (
         <AvisoPendienteInvitados
           resultado={resultadoInvitados}
           onCerrar={() => setResultadoInvitados(null)}
         />
       )}
-
       {resultadoVisita && (
-        <AvisoVisitaProgramada
-          reserva={resultadoVisita}
-          onCerrar={() => setResultadoVisita(null)}
-        />
+        <AvisoVisitaProgramada reserva={resultadoVisita} onCerrar={() => setResultadoVisita(null)} />
       )}
-
       {resultadoInteresado && (
         <AvisoResultadoVisita
           reserva={resultadoInteresado}
           onCerrar={() => setResultadoInteresado(null)}
         />
       )}
-
       {resultadoReservaInmediata && (
         <AvisoReservaInmediata
           reserva={resultadoReservaInmediata}
           onCerrar={() => setResultadoReservaInmediata(null)}
         />
       )}
-
       {resultadoExtension && (
         <AvisoBloqueoExtendido
           reserva={resultadoExtension}
           onCerrar={() => setResultadoExtension(null)}
         />
       )}
-
       {resultadoPresupuesto && (
         <AvisoPresupuestoConfirmado
           resultado={resultadoPresupuesto}
           onCerrar={() => setResultadoPresupuesto(null)}
         />
       )}
-
       {resultadoSenal && (
-        <AvisoReservaConfirmada
-          resultado={resultadoSenal}
-          onCerrar={() => setResultadoSenal(null)}
+        <AvisoReservaConfirmada resultado={resultadoSenal} onCerrar={() => setResultadoSenal(null)} />
+      )}
+      {resultadoFinalizar && (
+        <AvisoEventoFinalizado
+          resultado={resultadoFinalizar}
+          onCerrar={() => setResultadoFinalizar(null)}
         />
       )}
 
@@ -235,6 +221,10 @@ export const FichaConsultaPage = () => {
             setResultadoSenal(null);
             setDialogoSenalAbierto(true);
           }}
+          onFinalizarEvento={() => {
+            setResultadoFinalizar(null);
+            setDialogoFinalizarAbierto(true);
+          }}
         />
       </section>
 
@@ -260,68 +250,28 @@ export const FichaConsultaPage = () => {
           reserva.estado === 'post_evento') && <FichaOperativaCard reservaId={id} />}
 
       {id && (
-        <AnadirFechaDialog
+        <DialogosFicha
           reservaId={id}
-          abierto={dialogoAbierto}
-          onAbiertoChange={setDialogoAbierto}
-          onResuelto={setResultado}
-        />
-      )}
-
-      {id && (
-        <PendienteInvitadosDialog
-          reservaId={id}
-          abierto={dialogoInvitadosAbierto}
-          onAbiertoChange={setDialogoInvitadosAbierto}
-          onResuelto={setResultadoInvitados}
-        />
-      )}
-
-      {id && (
-        <ProgramarVisitaDialog
-          reservaId={id}
-          maxDias={MAX_DIAS_PROGRAMAR_VISITA_DEFAULT}
-          abierto={dialogoVisitaAbierto}
-          onAbiertoChange={setDialogoVisitaAbierto}
-          onResuelto={setResultadoVisita}
-        />
-      )}
-
-      {id && (
-        <RegistrarResultadoVisitaDialog
           reserva={reserva}
-          abierto={dialogoResultadoAbierto}
-          onAbiertoChange={setDialogoResultadoAbierto}
+          dialogos={{
+            fecha: [dialogoAbierto, setDialogoAbierto],
+            invitados: [dialogoInvitadosAbierto, setDialogoInvitadosAbierto],
+            visita: [dialogoVisitaAbierto, setDialogoVisitaAbierto],
+            resultado: [dialogoResultadoAbierto, setDialogoResultadoAbierto],
+            extender: [dialogoExtenderAbierto, setDialogoExtenderAbierto],
+            presupuesto: [dialogoPresupuestoAbierto, setDialogoPresupuestoAbierto],
+            senal: [dialogoSenalAbierto, setDialogoSenalAbierto],
+            finalizar: [dialogoFinalizarAbierto, setDialogoFinalizarAbierto],
+          }}
+          onResuelto={setResultado}
+          onResueltoInvitados={setResultadoInvitados}
+          onResueltoVisita={setResultadoVisita}
           onResueltoInteresado={setResultadoInteresado}
           onResueltoReservaInmediata={setResultadoReservaInmediata}
-        />
-      )}
-
-      {id && (
-        <ExtenderBloqueoDialog
-          reservaId={id}
-          ttlActual={reserva.ttlExpiracion}
-          abierto={dialogoExtenderAbierto}
-          onAbiertoChange={setDialogoExtenderAbierto}
-          onResuelto={setResultadoExtension}
-        />
-      )}
-
-      {id && (
-        <GenerarPresupuestoDialog
-          reservaId={id}
-          abierto={dialogoPresupuestoAbierto}
-          onAbiertoChange={setDialogoPresupuestoAbierto}
-          onConfirmado={setResultadoPresupuesto}
-        />
-      )}
-
-      {id && (
-        <ConfirmarSenalDialog
-          reservaId={id}
-          abierto={dialogoSenalAbierto}
-          onAbiertoChange={setDialogoSenalAbierto}
-          onConfirmado={setResultadoSenal}
+          onResueltoExtension={setResultadoExtension}
+          onConfirmadoPresupuesto={setResultadoPresupuesto}
+          onConfirmadoSenal={setResultadoSenal}
+          onFinalizado={setResultadoFinalizar}
         />
       )}
     </div>

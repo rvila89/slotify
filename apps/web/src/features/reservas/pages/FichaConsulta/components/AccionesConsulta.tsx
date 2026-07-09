@@ -3,6 +3,7 @@ import {
   CalendarPlus,
   CheckCircle2,
   ClipboardCheck,
+  Flag,
   FileText,
   Info,
   Mail,
@@ -12,6 +13,7 @@ import {
 import { motivoNoPuedeGenerar, puedeGenerarPresupuesto } from '@/features/presupuestos';
 import { puedeConfirmarSenal } from '@/features/confirmacion';
 import { bloqueoVigente, puedeExtenderBloqueo } from '../../../lib/fecha';
+import { puedeFinalizarEvento } from '../../../lib/finalizarEvento';
 import type { Reserva } from '../../../model/types';
 
 /**
@@ -46,6 +48,7 @@ type Props = {
   onExtenderBloqueo: () => void;
   onGenerarPresupuesto: () => void;
   onConfirmarSenal: () => void;
+  onFinalizarEvento: () => void;
 };
 
 export const AccionesConsulta = ({
@@ -57,6 +60,7 @@ export const AccionesConsulta = ({
   onExtenderBloqueo,
   onGenerarPresupuesto,
   onConfirmarSenal,
+  onFinalizarEvento,
 }: Props) => {
   const subEstado = reserva.subEstado;
   const esExploratoria = subEstado === '2a';
@@ -90,6 +94,9 @@ export const AccionesConsulta = ({
   // US-021 (UC-17): "Confirmar pago de señal" SOLO cuando la RESERVA está en
   // `pre_reserva`. En cualquier otro estado la acción no se ofrece.
   const puedeConfirmar = puedeConfirmarSenal({ estado: reserva.estado });
+  // US-034 (UC-25): "Marcar evento como finalizado" SOLO cuando la RESERVA está en
+  // `evento_en_curso`. La transición a `post_evento` es irreversible.
+  const puedeFinalizar = puedeFinalizarEvento(reserva.estado);
 
   const botonVisita = (
     <button
@@ -280,6 +287,26 @@ export const AccionesConsulta = ({
         </div>
       )}
 
+      {/* US-034: "Marcar evento como finalizado" — solo en `evento_en_curso`. */}
+      {puedeFinalizar && (
+        <div className="flex flex-col gap-3">
+          <p className="font-body text-sm text-text-secondary">
+            El evento ya está en curso. Al finalizarlo, la reserva pasará a post-evento (acción
+            irreversible) y, si hay fianza cobrada, se enviará al cliente la solicitud del IBAN
+            para su devolución junto al agradecimiento y la encuesta de satisfacción.
+          </p>
+          <button
+            type="button"
+            data-testid="boton-finalizar-evento"
+            onClick={onFinalizarEvento}
+            className={claseBotonAccion}
+          >
+            <Flag aria-hidden className="size-5" />
+            Marcar evento como finalizado
+          </button>
+        </div>
+      )}
+
       {/* Terminales u otros estados sin acciones disponibles. */}
       {!esExploratoria &&
         !puedePendienteInvitados &&
@@ -288,7 +315,8 @@ export const AccionesConsulta = ({
         !enCola &&
         !puedeExtender &&
         !mostrarPresupuesto &&
-        !puedeConfirmar && (
+        !puedeConfirmar &&
+        !puedeFinalizar && (
           <p className={claseTextoInfo}>
             <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
             No hay acciones disponibles para esta consulta en su estado actual.

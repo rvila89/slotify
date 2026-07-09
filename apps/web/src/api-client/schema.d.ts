@@ -2079,6 +2079,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/finalizar-evento": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finalizar evento y disparar solicitud de IBAN (UC-25 / US-034)
+         * @description [US-034] El **Gestor** (JWT de usuario, rol gestor, RLS del tenant del JWT — NUNCA
+         *     `X-Cron-Token`: es acción manual, no barrido de Sistema) marca como **finalizado** un
+         *     evento en ejecución. Sobre una RESERVA en `estado='evento_en_curso'`, la acción realiza
+         *     **dos operaciones separadas** disparadas por el mismo click (design.md §D-2):
+         *
+         *     1. **Paso transaccional (crítico, all-or-nothing)**: bajo `SELECT … FOR UPDATE` de la
+         *        fila RESERVA, re-evalúa la guarda de origen (`estado='evento_en_curso'`), transiciona
+         *        `evento_en_curso → post_evento` (**irreversible**, incondicional respecto a fianza y
+         *        email), marca la NPS como **programada** (T+3d, marca derivada; el envío real es US
+         *        futura, fuera de MVP — design.md §D-6) y escribe `AUDIT_LOG accion='transicion'`,
+         *        `entidad='RESERVA'`, `datos_anteriores.estado='evento_en_curso'`,
+         *        `datos_nuevos.estado='post_evento'`, con el `usuarioId` del Gestor (origen **Usuario**,
+         *        a diferencia del barrido de Sistema de US-031). Si `fianzaStatus='cobrada'` **y**
+         *        `fianzaEur IS NULL` (dato anómalo, D-4), registra una **alerta de dato anómalo** en
+         *        `AUDIT_LOG` (no bloquea, no envía E5). Commit.
+         *     2. **Paso post-commit (best-effort)**: **solo si `fianzaEur > 0`** (guarda pura
+         *        `debeEnviarseE5`: `NULL` y `0` colapsan a "sin fianza", D-4) invoca el motor de email
+         *        de `comunicaciones` (US-045) con el trigger **E5** hacia `CLIENTE.email`, creando
+         *        COMUNICACION (`codigoEmail='E5'`). El envío vive **fuera** de la transacción de la
+         *        transición: un fallo del proveedor deja `COMUNICACION.estado='fallido'` **SIN**
+         *        revertir el estado ya commiteado (`post_evento` se mantiene).
+         *
+         *     La respuesta expone el resultado para las alertas de los criterios de aceptación:
+         *     `e5.resultado` (`enviado` / `fallido` / `no_aplica`) y `documentacionPendiente` (lista de
+         *     ítems del checklist de documentación sin subir — advertencia informativa **no
+         *     bloqueante**, consultada a la superficie de US-033; fail-open si aún no está expuesta,
+         *     design.md §D-7).
+         *
+         *     **Concurrencia (D-8)**: dos peticiones concurrentes (doble click) se serializan por
+         *     `SELECT … FOR UPDATE` sobre la fila RESERVA; exactamente una gana, la segunda observa
+         *     `estado ≠ evento_en_curso` y termina como **409** sin doble transición, doble AUDIT_LOG
+         *     ni doble E5. Sin locks distribuidos (no toca `FECHA_BLOQUEADA` ni la cola).
+         */
+        post: operations["finalizarEvento"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/calendario": {
         parameters: {
             query?: never;
@@ -3764,6 +3818,41 @@ export interface components {
              */
             code: "ficha_no_disponible";
         };
+        /** @description Cuerpo (opcional, vacío) de la acción de finalizar evento. No hay parámetros de negocio: la única entrada es la RESERVA (path) y el Gestor autenticado (JWT). */
+        FinalizarEventoRequest: Record<string, never>;
+        /**
+         * @description `enviado`: E5 enviado al cliente (COMUNICACION.estado='enviado'). `fallido`: la transición se mantiene pero el proveedor falló (COMUNICACION.estado='fallido'); el Gestor puede reenviar desde la ficha (US futura). `no_aplica`: sin fianza (`fianzaEur` null o 0), no se envía E5.
+         * @enum {string}
+         */
+        ResultadoE5: "enviado" | "fallido" | "no_aplica";
+        /** @description Estado del disparo condicionado del email E5 tras finalizar el evento. */
+        FinalizarEventoE5: {
+            resultado: components["schemas"]["ResultadoE5"];
+            /**
+             * Format: uuid
+             * @description ID de la COMUNICACION creada (E5), presente cuando `resultado` es `enviado` o `fallido`; `null` cuando `resultado='no_aplica'`.
+             */
+            comunicacionId?: string | null;
+        };
+        FinalizarEventoResponse: components["schemas"]["Reserva"] & {
+            e5: components["schemas"]["FinalizarEventoE5"];
+            /**
+             * @description Ítems del checklist de documentación del evento (superficie de US-033) que quedaron sin subir. Advertencia INFORMATIVA no bloqueante: la finalización procede igualmente. Vacío (`[]`) si la documentación está completa o el checklist no aplica (fail-open, design.md §D-7).
+             * @example [
+             *       "dni_anverso",
+             *       "clausula_responsabilidad"
+             *     ]
+             */
+            documentacionPendiente: string[];
+        };
+        FinalizarEventoConflictError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Discriminador del 409: la RESERVA no está en `evento_en_curso`, así que la transición `evento_en_curso → post_evento` no es aplicable (estado actual distinto o ya finalizada por una petición concurrente).
+             * @example transicion_no_permitida
+             * @enum {string}
+             */
+            code: "transicion_no_permitida";
+        };
         /** @description Rango efectivo agregado por el backend (eco de los query params `desde`/`hasta`). */
         CalendarioRango: {
             /** Format: date */
@@ -5357,6 +5446,53 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FichaOperativaNoDisponibleError"];
+                };
+            };
+        };
+    };
+    finalizarEvento: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["FinalizarEventoRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Evento finalizado: RESERVA en `post_evento`. Devuelve la RESERVA actualizada más el
+             *     resultado del disparo de E5 (`e5`) y la advertencia no bloqueante de documentación
+             *     pendiente (`documentacionPendiente`).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinalizarEventoResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado (mapeo F5-02): la RESERVA `{id}` no está en `evento_en_curso`
+             *     (transición `evento_en_curso → post_evento` no permitida desde el estado actual, o
+             *     carrera de doble finalización perdida — D-8). Sin efectos, sin doble transición.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinalizarEventoConflictError"];
                 };
             };
         };

@@ -1289,10 +1289,10 @@ flowchart TD
 | **Actores Secundarios** | Gestor (via US-032, fuera de alcance MVP), Equipo (briefing 📐, fuera de alcance MVP) |
 | **Descripción** | El Sistema transiciona automáticamente la reserva al estado `evento_en_curso` a las 00:00 del día del evento (T-0), cuando se cumplen las tres precondiciones. Implementado en US-031 (barrido `POST /cron/barrido-eventos`). |
 | **Precondiciones** | - Reserva en estado `reserva_confirmada`<br>- `pre_evento_status = cerrado` (producido por US-025/US-026)<br>- `liquidacion_status = cobrada` (producido por US-029)<br>- `fianza_status = cobrada` (producido por US-030)<br>- `date(fecha_evento) = date(hoy)` (es el día del evento, T-0) |
-| **Postcondiciones** | - `RESERVA.estado = evento_en_curso`<br>- `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`, `datos_anteriores = {estado: reserva_confirmada}`, `datos_nuevos = {estado: evento_en_curso}`, origen Sistema (`usuario_id` nulo)<br>- El estado `evento_en_curso` habilita la vista móvil (US-033) y el checklist de documentación (US-034) |
+| **Postcondiciones** | - `RESERVA.estado = evento_en_curso`<br>- `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`, `datos_anteriores = {estado: reserva_confirmada}`, `datos_nuevos = {estado: evento_en_curso}`, origen Sistema (`usuario_id` nulo)<br>- El estado `evento_en_curso` habilita la captura de documentación del evento (US-033 / UC-24) y la acción de finalización del evento del gestor (US-034 / UC-25) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
-| **US** | US-031 (flujo básico automático); US-032 (forzado manual — pendiente); US-033/US-034 (vista móvil + checklist — pendiente) |
+| **US** | US-031 (flujo básico automático); US-032 (forzado manual — pendiente); US-033 (captura de documentación — pendiente); US-034 (finalización del evento — implementada) |
 | **Endpoint** | `POST /cron/barrido-eventos` — auth `X-Cron-Token` (`CronTokenGuard`); invocado por cron `@nestjs/schedule` diario a las 00:00 (`CRON_BARRIDO_EVENTOS`) |
 
 **Flujo Básico (US-031 — implementado):**
@@ -1302,7 +1302,7 @@ flowchart TD
 4. Las tres precondiciones se cumplen: el sistema fija `RESERVA.estado = evento_en_curso` y registra la transición en `AUDIT_LOG` con origen Sistema (paso 3); si `cond_part_firmadas = false`, emite además la alerta no bloqueante A29 sin impedir la transición
 5. El sistema devuelve el resumen `{ candidatas, eventosIniciados, precondicionesIncumplidas, fallos }`
 6. 📐 **Fuera de alcance MVP**: el sistema envía el briefing operativo al equipo (US-044 + diseño de plantilla pendiente)
-7. La vista móvil "evento en curso" (US-033) y el checklist de documentación (US-034) se activan al detectar `RESERVA.estado = evento_en_curso` desde `GET /reservas` (US-049)
+7. La captura de documentación del evento (US-033) y la acción de finalización del evento (US-034 / UC-25, implementada) se activan al detectar `RESERVA.estado = evento_en_curso` desde `GET /reservas` (US-049)
 
 **Flujos Alternativos:**
 - **FA-01 (precondiciones incumplidas — US-031):** si alguna de las tres precondiciones no se cumple en T-0 → el sistema no transiciona la RESERVA (permanece en `reserva_confirmada`) y genera una alerta crítica al gestor con la lista de precondiciones incumplidas. El forzado manual de la transición ante precondiciones incumplidas corresponde a **US-032** (pendiente de implementación).
@@ -1333,7 +1333,7 @@ flowchart TD
 **Nota de alcance (US-031):**
 - **Implementado:** barrido automático a T-0, transición atómica `reserva_confirmada → evento_en_curso`, auditoría de Sistema, alerta crítica por precondiciones incumplidas, alerta A29 no bloqueante, idempotencia, concurrencia cron↔gestor por `SELECT … FOR UPDATE`.
 - **Fuera de alcance (📐):** briefing operativo al equipo (UC-23 paso 6, diseñado pero no implementado en MVP); A9 (briefing en T-3d, lista negra).
-- **US coordinadas:** US-032 (forzado manual ante precondiciones incumplidas); US-033/US-034 (vista móvil "evento en curso" + checklist de documentación que se activan con `RESERVA.estado = evento_en_curso`).
+- **US coordinadas:** US-032 (forzado manual ante precondiciones incumplidas); US-033 (captura de documentación del evento en `evento_en_curso`); US-034 (finalización del evento, implementada — transición `evento_en_curso → post_evento`, UC-25).
 
 ---
 
@@ -1377,22 +1377,65 @@ flowchart TD
 | **Nombre** | Finalizar Evento |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor marca el evento como finalizado, iniciando el proceso de post-evento |
-| **Precondiciones** | - Reserva en estado evento_en_curso |
-| **Postcondiciones** | - Estado cambia a post_evento<br>- Solicitud de IBAN enviada (si hay fianza)<br>- NPS programada |
+| **Descripción** | El gestor marca el evento como finalizado, transicionando la reserva a `post_evento` e iniciando el sub-proceso post-evento. Si hay fianza cobrada (`fianza_eur > 0`), el sistema envía automáticamente el email E5 (agradecimiento + solicitud de IBAN + enlace NPS). Implementado en **US-034** (change `2026-07-09-us-034-finalizar-evento`). |
+| **Precondiciones** | - Reserva en `estado = evento_en_curso` (precondición provista automáticamente por US-031 en T-0 o manualmente por US-032 cuando esté implementada)<br>- Gestor autenticado con rol gestor sobre el tenant (autenticación JWT de usuario, nunca `X-Cron-Token`) |
+| **Postcondiciones** | - `RESERVA.estado = post_evento` (transición **irreversible**, incondicional respecto a fianza y email)<br>- Si `fianza_eur > 0`: `COMUNICACION` creada con `codigo_email = E5`, `estado = enviado` (o `fallido` si el proveedor falla); email E5 enviado al `CLIENTE.email`<br>- Si `fianza_eur = 0` o `IS NULL`: no se envía E5 ni se crea `COMUNICACION` para E5<br>- NPS marcada como programada (T+3d), independientemente de la fianza (el envío real es 📐 fuera de MVP)<br>- `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`, `datos_anteriores = {estado: evento_en_curso}`, `datos_nuevos = {estado: post_evento}`, **origen Usuario** (gestor autenticado, `usuario_id` poblado — a diferencia del barrido de Sistema de UC-23/US-031) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
+| **US** | US-034 (flujo básico); US-032 (forzado manual — pendiente) |
+| **Endpoint** | `POST /reservas/{id}/finalizar-evento` — body vacío o `{}` |
+| **Entidades afectadas** | RESERVA (UPDATE `estado`), COMUNICACION (INSERT si `fianza_eur > 0`), AUDIT_LOG — sin migración de esquema (todos los campos y enums ya existían) |
 
-**Flujo Básico:**
-1. El gestor accede a la ficha de reserva
-2. El gestor selecciona "Marcar evento como finalizado"
-3. El sistema verifica documentación del evento
-4. Si falta documentación: el sistema muestra alerta (no bloquea)
-5. El sistema cambia estado a post_evento
-6. Si hay fianza cobrada (`fianza_eur` > 0):
-   a. El sistema envía email E5 solicitando IBAN
-7. El sistema programa envío de NPS a T+3d
-8. El sistema registra en audit log
+**Flujo Básico (US-034 — implementado):**
+1. El gestor accede a la ficha de la reserva en `evento_en_curso`
+2. El gestor selecciona "Marcar evento como finalizado" (acción visible solo en `evento_en_curso`; la UI la oculta en cualquier otro estado)
+3. El sistema consulta el checklist de documentación del evento (superficie de US-033); si hay ítems pendientes, muestra advertencia informativa: "Documentación pendiente: [lista]. Puedes continuar igualmente." (no bloqueante; fail-open si el checklist no está disponible → `[]`)
+4. El gestor confirma la acción
+5. El sistema re-evalúa la guarda de origen (`estado = evento_en_curso`) dentro de una transacción con `SELECT … FOR UPDATE` sobre la fila RESERVA; si el estado ya no es `evento_en_curso` (doble finalización concurrente), la segunda request termina como conflicto de estado sin efectos
+6. **Paso transaccional (crítico):** el sistema fija `RESERVA.estado = post_evento` y registra la transición en `AUDIT_LOG` (origen Usuario); la NPS queda marcada como programada (T+3d, marca derivada)
+7. **Paso post-commit (best-effort):** si `fianza_eur > 0`, el motor de email de `comunicaciones` (US-045) dispara el trigger E5 al `CLIENTE.email`; crea `COMUNICACION` con `codigo_email = 'E5'`, `estado = enviado` (o `fallido` si el proveedor falla); si `fianza_eur = 0` o `IS NULL`, no se envía E5 ni se crea `COMUNICACION`
+8. Si E5 falla: la transición a `post_evento` se mantiene; `COMUNICACION.estado = fallido`; el gestor ve la alerta "La reserva ha pasado a post-evento, pero el email E5 no pudo enviarse. Puedes reenviarlo desde la ficha."
+9. El sistema responde 200 con `FinalizarEventoResponse = allOf(Reserva)` (objeto Reserva completo, ya en `estado = post_evento`, rehidratado post-commit vía el read-model de `GET /reservas/{id}`) + `e5: { resultado: enviado|fallido|no_aplica, comunicacionId }` + `documentacionPendiente: string[]`
+
+**Flujos Alternativos:**
+- **FA-01 (documentación incompleta):** checklist de documentación del evento con ítems pendientes → el sistema muestra advertencia informativa (no bloqueante) antes de la confirmación; si el gestor confirma, la transición se ejecuta igualmente; el checklist sigue accesible para subidas tardías en `post_evento`
+- **FA-02 (sin fianza — `fianza_eur = 0` o `NULL`):** la RESERVA transiciona a `post_evento`; no se envía E5 ni se crea `COMUNICACION` para E5; la NPS queda marcada como programada igualmente
+- **FA-03 (dato anómalo de fianza — `fianza_status = cobrada` con `fianza_eur IS NULL`):** el sistema trata la condición como "sin fianza" (`fianza_eur IS NULL` ≡ 0); no se envía E5; la inconsistencia se registra en `AUDIT_LOG` como alerta de dato anómalo; la transición procede igualmente
+- **FA-04 (fallo de E5):** si el proveedor de email falla post-commit, la transición a `post_evento` no se revierte; `COMUNICACION.estado = fallido`; el gestor puede reintentar el envío desde la ficha
+- **FA-05 (estado incorrecto — guarda de origen):** RESERVA en cualquier estado distinto de `evento_en_curso` → el sistema responde 409 (`transicion_no_permitida`); la RESERVA no se modifica, E5 no se dispara, `AUDIT_LOG` no registra transición
+- **FA-06 (doble finalización concurrente):** dos peticiones simultáneas sobre la misma RESERVA → exactamente una transición gana; la segunda observa el lock (`estado ≠ evento_en_curso`, 0 filas afectadas) y termina como conflicto de estado; `AUDIT_LOG` recibe exactamente una entrada de transición; E5 se dispara a lo sumo una vez
+
+```mermaid
+flowchart TD
+    A[Gestor: Marcar evento como finalizado en evento_en_curso] --> B{Guarda de origen: RESERVA en evento_en_curso?}
+    B -->|No| C[409 transicion_no_permitida — sin efectos]
+    B -->|Sí| D[Consultar checklist documentación — fail-open]
+    D --> E{Ítems pendientes?}
+    E -->|Sí| F[Advertencia informativa — no bloqueante]
+    E -->|No| G[Gestor confirma]
+    F --> G
+    G --> H[Tx SELECT…FOR UPDATE sobre fila RESERVA]
+    H --> I{estado sigue siendo evento_en_curso?}
+    I -->|No — carrera perdida| C
+    I -->|Sí| J[UPDATE RESERVA: estado=post_evento + NPS programada]
+    J --> K[INSERT AUDIT_LOG: transicion + origen Usuario]
+    K --> L{fianza_eur > 0?}
+    L -->|No 0 o NULL| M[e5: no_aplica — sin COMUNICACION E5]
+    L -->|NULL con fianza_status=cobrada| N[Sin E5 + alerta dato anómalo en AUDIT_LOG]
+    L -->|Sí| O[Motor US-045: disparar E5 al CLIENTE.email]
+    O --> P{Envío exitoso?}
+    P -->|Sí| Q[COMUNICACION E5 estado=enviado]
+    P -->|No| R[COMUNICACION E5 estado=fallido + alerta al gestor]
+    M --> S[200 estado=post_evento + e5 + documentacionPendiente]
+    N --> S
+    Q --> S
+    R --> S
+```
+
+**Nota de alcance (US-034):**
+- **Implementado:** transición manual `evento_en_curso → post_evento` (irreversible), E5 condicional a `fianza_eur > 0`, separación transición↔envío (fallo de E5 no revierte el estado), NPS marcada como programada (sin envío), advertencia no bloqueante de documentación incompleta, dato anómalo de fianza (`NULL` con `fianza_status=cobrada`), concurrencia doble finalización por `SELECT … FOR UPDATE`, auditoría con origen Usuario.
+- **Fuera de alcance (📐):** envío real de la NPS a T+3d (recordatorios automáticos extendidos); A23 (T+3d recordatorio IBAN); A24 (T+7d segundo recordatorio IBAN); factura complementaria post-evento; construcción del checklist de documentación (→ US-033); reenvío de E5 desde la ficha (→ US futura); UI del dashboard de notificaciones (→ US-044).
+- **US coordinadas:** US-031 (precondición de estado `evento_en_curso`); US-032 (forzado manual del inicio — pendiente); US-033 (checklist de documentación, consultado por US-034); US-045 (motor de email `comunicaciones`, reutilizado para E5).
 
 ---
 

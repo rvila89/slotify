@@ -37,3 +37,12 @@ export type {
   ExtenderBloqueoError,
   ExtenderBloqueoVars,
 } from './api/useExtenderBloqueo';
+export { useFinalizarEvento } from './api/useFinalizarEvento';
+export type {
+  FinalizarEventoError,
+  FinalizarEventoVars,
+} from './api/useFinalizarEvento';
+export {
+  puedeFinalizarEvento,
+  etiquetaDocumentacionPendiente,
+} from './lib/finalizarEvento';

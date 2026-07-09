@@ -114,6 +114,19 @@ import {
 import { CandidatasInicioEventoPrismaAdapter } from './infrastructure/candidatas-inicio-evento.prisma.adapter';
 import { InicioEventoUoWPrismaAdapter } from './infrastructure/inicio-evento-uow.prisma.adapter';
 import { AlertaInicioEventoAdapter } from './infrastructure/alerta-inicio-evento.adapter';
+import {
+  FinalizarEventoUseCase,
+  type DispararE5Port,
+  type DocumentacionEventoPort,
+  type FinalizarEventoComando,
+  type ReservaFinalizacion,
+  type UnidadDeTrabajoFinalizacionPort,
+} from './application/finalizar-evento.use-case';
+import { CargarReservaFinalizacionPrismaAdapter } from './infrastructure/cargar-reserva-finalizacion.prisma.adapter';
+import { UnidadDeTrabajoFinalizacionPrismaAdapter } from './infrastructure/finalizar-evento-uow.prisma.adapter';
+import { DispararE5Adapter } from './infrastructure/disparar-e5.adapter';
+import { DocumentacionEventoStubAdapter } from './infrastructure/documentacion-evento.stub.adapter';
+import { FinalizarEventoController } from './interface/finalizar-evento.controller';
 import { CronTokenGuard } from '../shared/auth/cron-token.guard';
 import { ReservaDetalleQueryPrismaAdapter } from './infrastructure/reserva-detalle-query.prisma.adapter';
 import {
@@ -162,6 +175,10 @@ import {
   CANDIDATAS_INICIO_EVENTO_PORT,
   INICIO_EVENTO_PORT,
   ALERTA_INICIO_EVENTO_PORT,
+  CARGAR_RESERVA_FINALIZACION_PORT,
+  UNIDAD_DE_TRABAJO_FINALIZACION_PORT,
+  DISPARAR_E5_PORT,
+  DOCUMENTACION_EVENTO_PORT,
 } from './reservas.tokens';
 
 @Module({
@@ -184,6 +201,7 @@ import {
     BarridoExpiracionController,
     BarridoEventosController,
     PromoverManualController,
+    FinalizarEventoController,
   ],
   providers: [
     {
@@ -561,6 +579,61 @@ import {
         alerta: AlertaInicioEventoPort,
       ) => new IniciarEventosDelDiaService({ candidatas, inicio, alerta }),
     },
+    // US-034 — finalización manual del evento (evento_en_curso → post_evento). La
+    // transición + AUDIT_LOG (origen Usuario) + marca NPS van en la transacción bajo
+    // SELECT … FOR UPDATE de la fila RESERVA; el disparo de E5 es POST-COMMIT best-effort
+    // (reuso del motor de comunicaciones US-045); la advertencia de documentación (US-033)
+    // es fail-open.
+    {
+      provide: CARGAR_RESERVA_FINALIZACION_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CargarReservaFinalizacionPrismaAdapter(prisma),
+    },
+    {
+      provide: UNIDAD_DE_TRABAJO_FINALIZACION_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new UnidadDeTrabajoFinalizacionPrismaAdapter(prisma),
+    },
+    {
+      provide: DISPARAR_E5_PORT,
+      inject: [DespacharEmailService, PrismaService],
+      useFactory: (motor: DespacharEmailService, prisma: PrismaService) =>
+        new DispararE5Adapter(motor, prisma),
+    },
+    { provide: DOCUMENTACION_EVENTO_PORT, useClass: DocumentacionEventoStubAdapter },
+    {
+      provide: FinalizarEventoUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_FINALIZACION_PORT,
+        CARGAR_RESERVA_FINALIZACION_PORT,
+        RESERVA_DETALLE_QUERY_PORT,
+        DISPARAR_E5_PORT,
+        DOCUMENTACION_EVENTO_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoFinalizacionPort,
+        cargador: CargarReservaFinalizacionPrismaAdapter,
+        reservaDetalle: ReservaDetalleQueryPort,
+        dispararE5: DispararE5Port,
+        documentacion: DocumentacionEventoPort,
+      ) =>
+        new FinalizarEventoUseCase({
+          unidadDeTrabajo,
+          cargarReserva: (comando: FinalizarEventoComando): Promise<ReservaFinalizacion | null> =>
+            cargador.cargar(comando),
+          // Relectura POST-COMMIT de la RESERVA completa reusando la MISMA lectura de
+          // GET /reservas/{id} (bajo RLS del tenant) para hidratar `allOf(Reserva)` (US-034 D-2).
+          cargarReservaDetalle: (comando: FinalizarEventoComando) =>
+            reservaDetalle.buscarDetalle({
+              tenantId: comando.tenantId,
+              reservaId: comando.reservaId,
+            }),
+          dispararE5,
+          documentacion,
+        }),
+    },
     CronTokenGuard,
     BarridoExpiracionScheduler,
     BarridoEventosScheduler,
@@ -582,6 +655,7 @@ import {
     PromoverPrimeroEnColaService,
     PromoverManualEnColaService,
     IniciarEventosDelDiaService,
+    FinalizarEventoUseCase,
   ],
 })
 export class ReservasModule {}
