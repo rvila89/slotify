@@ -1,7 +1,7 @@
 ---
 id: US-038
-estado: backlog
-branch: null
+estado: en-revision
+branch: feature/us-038-archivado-manual-reserva-completada
 pr: null
 ---
 
