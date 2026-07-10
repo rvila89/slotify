@@ -19,7 +19,7 @@ import { normalizarErrorDevolucionFianza } from '../api/normalizarErrorDevolucio
 import { AvisoErrorDevolucionFianza } from './AvisoErrorDevolucionFianza';
 import { ConfirmacionDevolucionFianza } from './ConfirmacionDevolucionFianza';
 import { DevolucionFianzaFormFields } from './DevolucionFianzaFormFields';
-import { aImporte, construirEsquemaDevolucion, type FormularioDevolucion } from './devolucionFianzaSchema';
+import { aImporte, construirEsquemaDevolucion, type FormularioDevolucion } from '../lib/devolucionFianzaSchema';
 import type { DevolucionFianzaError, RegistrarDevolucionFianzaResponse } from '../model/types';
 
 /**

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { aCentimos } from '../lib/devolucionFianza';
+import { aCentimos } from './devolucionFianza';
 
 /** Solo dígitos y separadores (miles/decimal): "1.000,50", "1000.50", "1000". */
 const CARACTERES_IMPORTE_RE = /^[\d.,]+$/;

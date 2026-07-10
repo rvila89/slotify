@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { formatearEuros } from '../lib/dinero';
 import { ACCEPT_JUSTIFICANTE, formatearTamano } from '../lib/justificante';
 import type { ResultadoDevolucion } from '../lib/devolucionFianza';
-import type { FormularioDevolucion } from './devolucionFianzaSchema';
+import type { FormularioDevolucion } from '../lib/devolucionFianzaSchema';
 
 /**
  * Campos del formulario de devolución de fianza (US-036), extraídos del diálogo para respetar el
