@@ -135,6 +135,16 @@ import {
 } from './application/finalizar-evento.use-case';
 import { CargarReservaFinalizacionPrismaAdapter } from './infrastructure/cargar-reserva-finalizacion.prisma.adapter';
 import { UnidadDeTrabajoFinalizacionPrismaAdapter } from './infrastructure/finalizar-evento-uow.prisma.adapter';
+import {
+  ArchivarReservaManualUseCase,
+  type ArchivarReservaManualComando,
+  type ReservaArchivable,
+  type ReservaHidratadaArchivado,
+  type UnidadDeTrabajoArchivadoManualPort,
+} from './application/archivar-reserva-manual.use-case';
+import { CargarReservaArchivadoManualPrismaAdapter } from './infrastructure/cargar-reserva-archivado-manual.prisma.adapter';
+import { ArchivarReservaManualUoWPrismaAdapter } from './infrastructure/archivar-reserva-manual-uow.prisma.adapter';
+import { ArchivarReservaManualController } from './interface/archivar-reserva-manual.controller';
 import { DispararE5Adapter } from './infrastructure/disparar-e5.adapter';
 import { DocumentacionEventoStubAdapter } from './infrastructure/documentacion-evento.stub.adapter';
 import { FinalizarEventoController } from './interface/finalizar-evento.controller';
@@ -207,6 +217,8 @@ import {
   CANDIDATAS_ARCHIVADO_PORT,
   ARCHIVADO_PORT,
   ALERTA_FIANZA_PENDIENTE_PORT,
+  CARGAR_RESERVA_ARCHIVADO_MANUAL_PORT,
+  UNIDAD_DE_TRABAJO_ARCHIVADO_MANUAL_PORT,
 } from './reservas.tokens';
 
 @Module({
@@ -232,6 +244,7 @@ import {
     PromoverManualController,
     FinalizarEventoController,
     RegistrarIbanDevolucionController,
+    ArchivarReservaManualController,
   ],
   providers: [
     {
@@ -751,6 +764,50 @@ import {
           dispararE8,
         }),
     },
+    // US-038 — archivado MANUAL de la reserva por el Gestor (post_evento →
+    // reserva_completada). Reutiliza las guardas puras de US-037 (resolverArchivadoAutomatico
+    // + fianzaResuelta); UoW propia delgada scoped a UNA RESERVA del tenant del JWT con
+    // SELECT … FOR UPDATE + AUDIT_LOG origen Gestor. Sin email, sin cron, sin filtro T+7d.
+    {
+      provide: CARGAR_RESERVA_ARCHIVADO_MANUAL_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CargarReservaArchivadoManualPrismaAdapter(prisma),
+    },
+    {
+      provide: UNIDAD_DE_TRABAJO_ARCHIVADO_MANUAL_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new ArchivarReservaManualUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: ArchivarReservaManualUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_ARCHIVADO_MANUAL_PORT,
+        CARGAR_RESERVA_ARCHIVADO_MANUAL_PORT,
+        RESERVA_DETALLE_QUERY_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoArchivadoManualPort,
+        cargador: CargarReservaArchivadoManualPrismaAdapter,
+        reservaDetalle: ReservaDetalleQueryPort,
+      ) =>
+        new ArchivarReservaManualUseCase({
+          unidadDeTrabajo,
+          cargarReserva: (
+            comando: ArchivarReservaManualComando,
+          ): Promise<ReservaArchivable | null> => cargador.cargar(comando),
+          // Relectura POST-COMMIT de la RESERVA completa reusando la MISMA lectura de
+          // GET /reservas/{id} (bajo RLS del tenant) para hidratar `allOf(Reserva)`.
+          cargarReservaDetalle: (
+            comando: ArchivarReservaManualComando,
+          ): Promise<ReservaHidratadaArchivado | null> =>
+            reservaDetalle.buscarDetalle({
+              tenantId: comando.tenantId,
+              reservaId: comando.reservaId,
+            }),
+        }),
+    },
     CronTokenGuard,
     BarridoExpiracionScheduler,
     BarridoEventosScheduler,
@@ -776,6 +833,7 @@ import {
     FinalizarEventoUseCase,
     RegistrarIbanDevolucionUseCase,
     ArchivarReservasCompletadasService,
+    ArchivarReservaManualUseCase,
   ],
 })
 export class ReservasModule {}

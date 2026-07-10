@@ -1522,18 +1522,19 @@ flowchart TD
 | **Actores Secundarios** | - |
 | **Descripción** | La reserva pasa al histórico consultable, quedando en estado terminal `reserva_completada` (inmutable). Hay dos mecanismos: el automático por barrido periódico en T+7d (US-037) y el manual por acción del gestor (US-038). |
 | **Precondiciones** | - Reserva en `estado = post_evento`<br>- Guarda de fianza resuelta: `fianza_status ∈ {devuelta, retenida_parcial}` O `fianza_eur <= 0` O `fianza_eur IS NULL`<br>- (Solo flujo automático) `date(fecha_post_evento) <= date(hoy) - 7` |
-| **Postcondiciones** | - `RESERVA.estado = reserva_completada` (terminal, sin arista de salida)<br>- `AUDIT_LOG` con `accion='transicion'`, `datos_nuevos={estado:reserva_completada, causa:'T+7d'}`, `usuario_id` nulo (Sistema)<br>- Reserva visible y filtrable en el módulo Histórico (UC-32); excluida del pipeline activo (`GET /reservas`)<br>- No se envía ningún email al cliente ni al gestor |
+| **Postcondiciones** | - `RESERVA.estado = reserva_completada` (terminal, sin arista de salida)<br>- Flujo automático: `AUDIT_LOG` con `accion='transicion'`, `datos_nuevos={estado:reserva_completada, causa:'T+7d'}`, `usuario_id` nulo (Sistema)<br>- Flujo manual: `AUDIT_LOG` con `accion='transicion'`, `datos_nuevos={estado:reserva_completada}`, `usuario_id` del gestor (origen Gestor, NO Sistema)<br>- Reserva visible y filtrable en el módulo Histórico (UC-32); excluida del pipeline activo (`GET /reservas`)<br>- No se envía ningún email al cliente ni al gestor (ninguno de los dos flujos) |
 | **Prioridad** | Media |
 | **Frecuencia** | Media |
 | **US (flujo automático)** | US-037 |
 | **US (flujo manual)** | US-038 |
 | **Endpoint (flujo automático)** | `POST /cron/barrido-completadas` (`X-Cron-Token`, `CronTokenGuard`) — respuesta `200 BarridoCompletadasResponse { candidatas, archivadas, fianzaPendiente, fallos }` |
+| **Endpoint (flujo manual)** | `POST /reservas/{id}/archivar` (JWT de usuario, `@Roles('gestor')`) — `operationId: archivarReservaManual`; body vacío opcional; respuesta `200 Reserva` en `reserva_completada`; `409 transicion_no_permitida` (origen ≠ `post_evento` o carrera perdida); `422 fianza_no_resuelta` (fianza pendiente); `404` (inexistente/otro tenant); `401/403` |
 
 **Flujo Básico (automático T+7d — US-037):**
 1. El cron diario (`@nestjs/schedule`) invoca `POST /cron/barrido-completadas` con `X-Cron-Token`.
 2. El sistema selecciona candidatas cross-tenant: `estado = 'post_evento'` AND `date(fecha_post_evento) <= date(hoy) - 7`.
 3. Por cada candidata, en una transacción atómica bajo RLS del tenant (`SELECT … FOR UPDATE`): re-evalúa la guarda de origen y la guarda de fianza resuelta bajo el lock.
-4. Si la guarda de fianza se satisface: transiciona `RESERVA.estado → reserva_completada` y registra en `AUDIT_LOG` (origen Sistema, `causa='T+7d'`).
+4. Si la guarda de fianza se satisface: transiciona `RESERVA.estado → reserva_completada` y registra en `AUDIT_LOG` (origen Sistema, `usuario_id` nulo, `causa='T+7d'`).
 5. El sistema devuelve el resumen del barrido (`candidatas`, `archivadas`, `fianzaPendiente`, `fallos`).
 
 **Flujo Alternativo A (fianza pendiente en T+7d — FA-01):**
@@ -1542,16 +1543,28 @@ flowchart TD
 3. El sistema registra una alerta en `AUDIT_LOG` (`datos_nuevos.tipo='fianza_pendiente_t7d'`, `usuario_id` nulo), con anti-duplicación: no se duplica la alerta mientras el estado de fianza no cambie (Opción 4.2 del gate).
 4. La candidata se contabiliza como `fianzaPendiente` en el resumen del barrido.
 
-**Flujo Alternativo B (manual — US-038):**
-1. El gestor abre la ficha de reserva en `post_evento`.
-2. El gestor selecciona "Archivar reserva".
-3. El sistema verifica que se cumple la guarda de fianza resuelta.
-4. En una transacción atómica (`SELECT … FOR UPDATE`): transiciona `RESERVA.estado → reserva_completada` y registra en `AUDIT_LOG` (origen Usuario, `usuario_id` del gestor).
+**Flujo Alternativo B — archivado manual por el gestor (US-038):**
+1. El gestor abre la ficha de la reserva en `post_evento`. El botón "Archivar reserva" es visible solo en ese estado; se deshabilita con mensaje explicativo cuando la fianza no está resuelta (`fianza_status ∈ {cobrada, recibo_enviado, pendiente}` con `fianza_eur > 0`).
+2. El gestor hace clic en "Archivar reserva" y confirma en el diálogo de confirmación (patrón `FinalizarEventoDialog` de US-034). No se aplica ningún filtro de antigüedad T+7d: el gestor puede archivar en cualquier momento tras entrar en `post_evento`.
+3. El frontend llama a `POST /reservas/{id}/archivar` con el JWT del gestor (rol gestor). El `tenant_id` y el `usuario_id` se derivan siempre del JWT, nunca del path ni del body.
+4. En una transacción atómica bajo el contexto RLS del tenant del JWT, con `SELECT … FOR UPDATE` sobre la fila RESERVA, el sistema re-evalúa bajo el lock dos guardas reutilizadas de US-037 (no se crean guardas nuevas):
+   - **Guarda de origen** (`resolverArchivadoAutomatico`): si `estado ≠ post_evento` (incluido ya `reserva_completada`) → **409** `code: 'transicion_no_permitida'`, sin transicionar ni auditar. Cubre la idempotencia (doble clic del gestor) y la race condition con el cron de US-037.
+   - **Guarda de fianza** (`fianzaResuelta`, idéntica a US-037): resuelta si `fianza_status ∈ {devuelta, retenida_parcial}` O `fianza_eur ≤ 0` O `fianza_eur IS NULL`. Si el origen es `post_evento` válido pero la fianza no está resuelta → **422** `code: 'fianza_no_resuelta'` con el mensaje "No se puede archivar la reserva: la fianza está pendiente de resolución. Registra la devolución o retención de fianza antes de archivar."; la RESERVA permanece en `post_evento` sin auditoría. El backend valida siempre (defensa en profundidad), aunque la UI deshabilite el botón preventivamente.
+5. Si ambas guardas se satisfacen: fija `RESERVA.estado = reserva_completada` y registra en `AUDIT_LOG` con `accion='transicion'`, `entidad='RESERVA'`, `datos_anteriores={estado: post_evento}`, `datos_nuevos={estado: reserva_completada}`, `usuario_id=<id del gestor del JWT>` (origen Gestor, `usuario_id` no nulo — a diferencia del barrido de US-037, que audita `usuario_id` nulo y `causa='T+7d'`). No se emite ningún email.
+6. El frontend muestra el toast de éxito: "Reserva [código] archivada correctamente. Ya está disponible en el Histórico." La reserva sale del pipeline activo.
 
-**Notas de alcance (US-037):**
-- La "indexación" de la reserva en Histórico es **visibilidad y filtrabilidad** por estado terminal, no un índice full-text técnico (decisión D-5: índice full-text/TSVECTOR fuera de alcance de este change).
+**Flujo Alternativo C — fianza no resuelta en archivado manual (FA-01/FA-02 — US-038):**
+1. El gestor intenta archivar una reserva en `post_evento` cuya fianza no está resuelta (`fianza_status ∈ {cobrada, recibo_enviado, pendiente}` con `fianza_eur > 0`).
+2. El sistema bloquea la acción y devuelve **422** `code: 'fianza_no_resuelta'` con el mensaje específico de FA-01/FA-02. La RESERVA permanece en `post_evento`; no se registra ninguna entrada de transición en `AUDIT_LOG`.
+
+**Concurrencia cron (US-037) vs. archivado manual (US-038):**
+Si el barrido de Sistema y el gestor intentan transicionar simultáneamente la misma RESERVA de `post_evento` a `reserva_completada`, exactamente una operación gana; la segunda observa bajo el `SELECT … FOR UPDATE` que el estado ya no es `post_evento` — no-op para el cron, **409** `transicion_no_permitida` para el gestor — sin doble transición ni doble `AUDIT_LOG`. La serialización la da PostgreSQL sobre la fila RESERVA, sin locks distribuidos (prohibidos por `no-distributed-lock`).
+
+**Notas de alcance:**
+- La "indexación" de la reserva en Histórico es **visibilidad y filtrabilidad** por estado terminal, no un índice full-text técnico (decisión D-5 de US-037: índice full-text/TSVECTOR fuera de alcance).
 - La construcción del módulo Histórico (UC-32) y su UI de consulta/filtrado son responsabilidad de otra US.
-- Sin email al cliente ni al gestor en el happy path.
+- Sin email al cliente ni al gestor en ninguno de los dos flujos.
+- US-038 no añade aristas nuevas a la máquina de estados; reutiliza la guarda `resolverArchivadoAutomatico` (`MAPA_ARCHIVADO_AUTOMATICO`: `post_evento → reserva_completada`, terminal) y la guarda `fianzaResuelta`, ambas introducidas por US-037.
 
 ---
 

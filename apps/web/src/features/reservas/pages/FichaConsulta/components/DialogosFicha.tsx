@@ -7,6 +7,7 @@ import { ProgramarVisitaDialog } from '../../../components/ProgramarVisitaDialog
 import { RegistrarResultadoVisitaDialog } from '../../../components/RegistrarResultadoVisitaDialog';
 import { ExtenderBloqueoDialog } from '../../../components/ExtenderBloqueoDialog';
 import { FinalizarEventoDialog } from '../../../components/FinalizarEventoDialog';
+import { ArchivarReservaDialog } from '../../../components/ArchivarReservaDialog';
 import { MAX_DIAS_PROGRAMAR_VISITA_DEFAULT } from '../../../lib/fecha';
 import type { PendienteInvitadosResultado, Reserva } from '../../../model/types';
 import type { components } from '@/api-client';
@@ -33,6 +34,7 @@ type Props = {
     presupuesto: [boolean, Setter<boolean>];
     senal: [boolean, Setter<boolean>];
     finalizar: [boolean, Setter<boolean>];
+    archivar: [boolean, Setter<boolean>];
   };
   onResuelto: Setter<Reserva | null>;
   onResueltoInvitados: Setter<PendienteInvitadosResultado | null>;
@@ -43,6 +45,7 @@ type Props = {
   onConfirmadoPresupuesto: Setter<ConfirmarPresupuestoResponse | null>;
   onConfirmadoSenal: Setter<ConfirmarSenalResponse | null>;
   onFinalizado: Setter<FinalizarEventoResponse | null>;
+  onArchivado: Setter<Reserva | null>;
 };
 
 export const DialogosFicha = ({
@@ -58,6 +61,7 @@ export const DialogosFicha = ({
   onConfirmadoPresupuesto,
   onConfirmadoSenal,
   onFinalizado,
+  onArchivado,
 }: Props) => (
   <>
     <AnadirFechaDialog
@@ -110,6 +114,13 @@ export const DialogosFicha = ({
       abierto={dialogos.finalizar[0]}
       onAbiertoChange={dialogos.finalizar[1]}
       onFinalizado={onFinalizado}
+    />
+    <ArchivarReservaDialog
+      reservaId={reservaId}
+      codigo={reserva.codigo}
+      abierto={dialogos.archivar[0]}
+      onAbiertoChange={dialogos.archivar[1]}
+      onArchivado={onArchivado}
     />
   </>
 );

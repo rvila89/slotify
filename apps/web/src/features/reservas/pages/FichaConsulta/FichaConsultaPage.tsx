@@ -49,6 +49,7 @@ export const FichaConsultaPage = () => {
   const [dialogoPresupuestoAbierto, setDialogoPresupuestoAbierto] = useState(false);
   const [dialogoSenalAbierto, setDialogoSenalAbierto] = useState(false);
   const [dialogoFinalizarAbierto, setDialogoFinalizarAbierto] = useState(false);
+  const [dialogoArchivarAbierto, setDialogoArchivarAbierto] = useState(false);
   // RESERVA resultante de la transición de fecha (US-005): alimenta el aviso 2b/2d.
   const [resultado, setResultado] = useState<Reserva | null>(null);
   // Resultado de la transición 2.b → 2.c (US-007): alimenta su aviso (TTL + cola).
@@ -70,6 +71,9 @@ export const FichaConsultaPage = () => {
   const [resultadoSenal, setResultadoSenal] = useState<ConfirmarSenalResponse | null>(null);
   // Resultado de la finalización del evento (US-034, post_evento + E5 + docs pendiente).
   const [resultadoFinalizar, setResultadoFinalizar] = useState<FinalizarEventoResponse | null>(null);
+  // Resultado del archivado manual (US-038): la RESERVA en `reserva_completada`. El éxito
+  // se comunica por toast; la reserva se refetch y sale del pipeline (el botón desaparece).
+  const [, setResultadoArchivar] = useState<Reserva | null>(null);
 
   if (isLoading) {
     return (
@@ -231,6 +235,10 @@ export const FichaConsultaPage = () => {
             setResultadoFinalizar(null);
             setDialogoFinalizarAbierto(true);
           }}
+          onArchivarReserva={() => {
+            setResultadoArchivar(null);
+            setDialogoArchivarAbierto(true);
+          }}
         />
       </section>
 
@@ -293,6 +301,7 @@ export const FichaConsultaPage = () => {
             presupuesto: [dialogoPresupuestoAbierto, setDialogoPresupuestoAbierto],
             senal: [dialogoSenalAbierto, setDialogoSenalAbierto],
             finalizar: [dialogoFinalizarAbierto, setDialogoFinalizarAbierto],
+            archivar: [dialogoArchivarAbierto, setDialogoArchivarAbierto],
           }}
           onResuelto={setResultado}
           onResueltoInvitados={setResultadoInvitados}
@@ -303,6 +312,7 @@ export const FichaConsultaPage = () => {
           onConfirmadoPresupuesto={setResultadoPresupuesto}
           onConfirmadoSenal={setResultadoSenal}
           onFinalizado={setResultadoFinalizar}
+          onArchivado={setResultadoArchivar}
         />
       )}
     </div>
