@@ -34,6 +34,14 @@ export interface RegistrarComunicacionParams {
   destinatarioEmail: string;
   estado: EstadoComunicacion;
   fechaEnvio: Date | null;
+  /**
+   * Marca de REENVÍO manual del Gestor (US-028 D-4 / US-035 D-3A). Cuando es `true`, la
+   * fila queda FUERA del índice UNIQUE parcial `(reserva_id, codigo_email) WHERE
+   * es_reenvio = false`, permitiendo múltiples COMUNICACION del mismo código para la
+   * misma reserva (excepción auditada a la idempotencia). Ausente/`false` = disparo
+   * automático normal, protegido por el índice. Default en persistencia: `false`.
+   */
+  esReenvio?: boolean;
 }
 
 /** Clave de búsqueda idempotente por reserva + código. */

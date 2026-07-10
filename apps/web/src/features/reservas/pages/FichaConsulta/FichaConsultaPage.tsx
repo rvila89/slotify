@@ -18,6 +18,8 @@ import { AvisoReservaInmediata } from './components/AvisoReservaInmediata';
 import { AvisoBloqueoExtendido } from './components/AvisoBloqueoExtendido';
 import { AvisoEventoFinalizado } from './components/AvisoEventoFinalizado';
 import { DialogosFicha } from './components/DialogosFicha';
+import { IbanDevolucionCard } from '../../components/IbanDevolucionCard';
+import { puedeRegistrarIban } from '../../lib/ibanDevolucion';
 import type { PendienteInvitadosResultado, Reserva } from '../../model/types';
 import type { components } from '@/api-client';
 type FinalizarEventoResponse = components['schemas']['FinalizarEventoResponse'];
@@ -248,6 +250,13 @@ export const FichaConsultaPage = () => {
         (reserva.estado === 'reserva_confirmada' ||
           reserva.estado === 'evento_en_curso' ||
           reserva.estado === 'post_evento') && <FichaOperativaCard reservaId={id} />}
+
+      {/* US-035: registrar el IBAN de devolución. Solo visible en `post_evento` con
+          fianza cobrada (`fianzaEur > 0`) — FA-04; precarga el IBAN existente del
+          cliente en corrección — FA-02. El backend revalida la precondición (409). */}
+      {id && puedeRegistrarIban(reserva.estado, reserva.fianzaEur) && (
+        <IbanDevolucionCard reservaId={id} ibanExistente={reserva.cliente?.ibanDevolucion} />
+      )}
 
       {id && (
         <DialogosFicha
