@@ -92,4 +92,4 @@
 ## 12. Archivar change + abrir PR (OBLIGATORIO — archive — dueño: spec-author)
 - [x] 12.1 `openspec archive us-036-registrar-devolucion-fianza` (solo tras gate final y code-review APTO; lo verifica el hook `require-code-review`)
 - [x] 12.2 Actualizar `openspec/specs/facturacion/` con los requisitos añadidos
-- [ ] 12.3 Abrir PR (gh / GitHub MCP); registrar el PR en el front-matter de `user-stories/US-036-*.md`
+- [x] 12.3 Abrir PR (gh / GitHub MCP); registrar el PR en el front-matter de `user-stories/US-036-*.md`

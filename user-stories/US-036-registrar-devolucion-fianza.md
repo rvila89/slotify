@@ -2,7 +2,7 @@
 id: US-036
 estado: en-revision
 branch: feature/us-036-registrar-devolucion-fianza
-pr: null
+pr: 57
 ---
 
 # 🧾 Historia de Usuario: Gestor registra la devolución (completa o parcial) de la fianza al cliente
