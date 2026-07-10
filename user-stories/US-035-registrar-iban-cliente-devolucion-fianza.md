@@ -1,8 +1,8 @@
 ---
 id: US-035
-estado: backlog
-branch: null
-pr: null
+estado: en-revision
+branch: feature/us-035-registrar-iban-devolucion
+pr: 56
 ---
 
 # 🧾 Historia de Usuario: Gestor registra el IBAN del cliente para la devolución de fianza y el sistema confirma la recepción (E8)
