@@ -26,11 +26,27 @@ export { useRegistrarCobroFianza } from './api/useRegistrarCobroFianza';
 export type { RegistrarCobroFianzaVars } from './api/useRegistrarCobroFianza';
 export { RegistrarCobroFianzaDialog } from './components/RegistrarCobroFianzaDialog';
 export { FianzaCobradaResumen } from './components/FianzaCobradaResumen';
+export { useRegistrarDevolucionFianza } from './api/useRegistrarDevolucionFianza';
+export type { RegistrarDevolucionFianzaVars } from './api/useRegistrarDevolucionFianza';
+export { useSubirJustificante } from './api/useSubirJustificante';
+export type { SubirJustificanteVars } from './api/useSubirJustificante';
+export { RegistrarDevolucionFianzaDialog } from './components/RegistrarDevolucionFianzaDialog';
+export { DevolucionFianzaCard } from './components/DevolucionFianzaCard';
+export { FianzaDevueltaResumen } from './components/FianzaDevueltaResumen';
+export {
+  derivarResultadoDevolucion,
+  esDevolucionParcial,
+  puedeRegistrarDevolucion,
+  devolucionYaRegistrada,
+} from './lib/devolucionFianza';
+export type { ResultadoDevolucion } from './lib/devolucionFianza';
 export type {
   CobroFianzaError,
   RegistrarCobroFianzaResponse,
   RegistrarCobroFianzaCobrado,
   RegistrarCobroFianzaConfirmacionRequerida,
+  DevolucionFianzaError,
+  RegistrarDevolucionFianzaResponse,
 } from './model/types';
 export { estadoVisualFactura } from './lib/estado';
 export type { EstadoVisualFactura } from './lib/estado';

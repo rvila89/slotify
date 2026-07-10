@@ -3,7 +3,11 @@ import { useParams } from 'react-router-dom';
 import { CalendarPlus, User } from 'lucide-react';
 import { AvisoPresupuestoConfirmado, type ConfirmarPresupuestoResponse } from '@/features/presupuestos';
 import { AvisoReservaConfirmada, type ConfirmarSenalResponse } from '@/features/confirmacion';
-import { FacturaSenalCard, DocumentosLiquidacionFianza } from '@/features/facturacion';
+import {
+  FacturaSenalCard,
+  DocumentosLiquidacionFianza,
+  DevolucionFianzaCard,
+} from '@/features/facturacion';
 import { FichaOperativaCard } from '@/features/ficha-operativa';
 import { useReserva } from '../../api/useReserva';
 import { formatearFecha } from '../../lib/fecha';
@@ -256,6 +260,24 @@ export const FichaConsultaPage = () => {
           cliente en corrección — FA-02. El backend revalida la precondición (409). */}
       {id && puedeRegistrarIban(reserva.estado, reserva.fianzaEur) && (
         <IbanDevolucionCard reservaId={id} ibanExistente={reserva.cliente?.ibanDevolucion} />
+      )}
+
+      {/* US-036: registrar la devolución de la fianza. Visible en `post_evento` con fianza cobrada
+          (`fianzaEur > 0`). La tarjeta habilita la acción solo cuando además hay IBAN de devolución
+          (precondición triple), muestra el resumen final si ya está devuelta/retenida_parcial y el
+          aviso de FA-04 si se registró sin justificante. El backend revalida (409). */}
+      {id && reserva.estado === 'post_evento' && puedeRegistrarIban(reserva.estado, reserva.fianzaEur) && (
+        <DevolucionFianzaCard
+          reservaId={id}
+          estado={reserva.estado}
+          fianzaStatus={reserva.fianzaStatus}
+          fianzaEur={reserva.fianzaEur}
+          fianzaCobradaFecha={reserva.fianzaCobradaFecha}
+          fianzaDevueltaEur={reserva.fianzaDevueltaEur}
+          fianzaDevueltaFecha={reserva.fianzaDevueltaFecha}
+          motivoRetencion={reserva.motivoRetencion}
+          ibanDevolucion={reserva.cliente?.ibanDevolucion}
+        />
       )}
 
       {id && (

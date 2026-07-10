@@ -79,6 +79,12 @@ import {
   type UnidadDeTrabajoCobroFianzaPort,
 } from './application/registrar-cobro-fianza.use-case';
 import { CobroFianzaUoWPrismaAdapter } from './infrastructure/cobro-fianza-uow.prisma.adapter';
+import {
+  RegistrarDevolucionFianzaUseCase,
+  type UnidadDeTrabajoDevolucionFianzaPort,
+} from './application/registrar-devolucion-fianza.use-case';
+import { DevolucionFianzaUoWPrismaAdapter } from './infrastructure/devolucion-fianza-uow.prisma.adapter';
+import { RegistrarDevolucionFianzaController } from './interface/registrar-devolucion-fianza.controller';
 import type { FacturaSenal } from './application/generar-factura-senal.use-case';
 import {
   EmisionUoWPrismaAdapter,
@@ -152,6 +158,7 @@ import {
   REGISTRAR_AUDITORIA_REENVIO_PORT,
   UNIDAD_DE_TRABAJO_COBRO_PORT,
   UNIDAD_DE_TRABAJO_COBRO_FIANZA_PORT,
+  UNIDAD_DE_TRABAJO_DEVOLUCION_FIANZA_PORT,
 } from './facturacion.tokens';
 
 /** Firma del puerto de auditoría de aprobación/rechazo (acepta ambos registros). */
@@ -173,7 +180,7 @@ type CargarFacturaFn = (params: {
 
 @Module({
   imports: [PrismaModule, ComunicacionesModule],
-  controllers: [FacturaController],
+  controllers: [FacturaController, RegistrarDevolucionFianzaController],
   providers: [
     // --- Adaptadores por token (Symbol) ---
     {
@@ -344,6 +351,13 @@ type CargarFacturaFn = (params: {
       provide: UNIDAD_DE_TRABAJO_COBRO_FIANZA_PORT,
       inject: [PrismaService],
       useFactory: (prisma: PrismaService) => new CobroFianzaUoWPrismaAdapter(prisma),
+    },
+
+    // --- US-036: unidad de trabajo de la devolución de la fianza (FOR UPDATE sobre RESERVA) ---
+    {
+      provide: UNIDAD_DE_TRABAJO_DEVOLUCION_FIANZA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) => new DevolucionFianzaUoWPrismaAdapter(prisma),
     },
 
     // --- Casos de uso ---
@@ -565,6 +579,12 @@ type CargarFacturaFn = (params: {
       useFactory: (unidadDeTrabajo: UnidadDeTrabajoCobroFianzaPort) =>
         new RegistrarCobroFianzaUseCase({ unidadDeTrabajo }),
     },
+    {
+      provide: RegistrarDevolucionFianzaUseCase,
+      inject: [UNIDAD_DE_TRABAJO_DEVOLUCION_FIANZA_PORT],
+      useFactory: (unidadDeTrabajo: UnidadDeTrabajoDevolucionFianzaPort) =>
+        new RegistrarDevolucionFianzaUseCase({ unidadDeTrabajo }),
+    },
   ],
   exports: [
     GenerarFacturaSenalUseCase,
@@ -574,6 +594,7 @@ type CargarFacturaFn = (params: {
     ReenviarLiquidacionUseCase,
     RegistrarCobroLiquidacionUseCase,
     RegistrarCobroFianzaUseCase,
+    RegistrarDevolucionFianzaUseCase,
   ],
 })
 export class FacturacionModule {}

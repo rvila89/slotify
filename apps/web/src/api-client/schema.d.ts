@@ -1980,7 +1980,7 @@ export interface paths {
         };
         trace?: never;
     };
-    "/reservas/{id}/fianza/devolver": {
+    "/reservas/{id}/fianza/devolucion": {
         parameters: {
             query?: never;
             header?: never;
@@ -1993,36 +1993,38 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Procesar devolución de fianza (UC-27)
-         * @description Registra la devolución total o parcial (retención por desperfectos) de la fianza.
+         * Registrar la devolución de la fianza (UC-27 pasos 4-8 / US-036)
+         * @description [US-036 / UC-27 pasos 4-8] El **Gestor registra la devolución** de la fianza (depósito
+         *     reembolsable) de la RESERVA `{id}` tras ejecutarla externamente en su banca (Slotify
+         *     **registra**, no procesa el pago; sin pasarela en MVP). Es el **paso simétrico inverso** del
+         *     cobro de US-030. Precondición del happy path (triple): `RESERVA.estado='post_evento'` **Y**
+         *     `RESERVA.fianzaStatus='cobrada'` **Y** `CLIENTE.iban_devolucion IS NOT NULL`.
+         *
+         *     En una **única unidad de trabajo atómica** (tx + RLS del tenant del JWT), releyendo el estado
+         *     de la RESERVA con `SELECT ... FOR UPDATE` para serializar el doble registro concurrente (lock
+         *     de fila PostgreSQL, **nunca** locks distribuidos; design.md §D-1/§D-4):
+         *     1. Valida importe (`importeDevuelto`, `0.00 ≤ x ≤ RESERVA.fianzaEur`) y fecha
+         *        (`fechaCobro ≥ RESERVA.fianzaCobradaFecha`).
+         *     2. Deriva el estado final: `importeDevuelto == fianzaEur` ⇒ `fianzaStatus='devuelta'`;
+         *        `importeDevuelto < fianzaEur` (incl. `"0.00"`) ⇒ `fianzaStatus='retenida_parcial'`.
+         *     3. Si `fianzaStatus` resulta `retenida_parcial`, `motivoRetencion` es **obligatorio**
+         *        (validación de dominio) y se persiste en `RESERVA.motivoRetencion` (campo dedicado, G1-1);
+         *        en `devuelta`, `motivoRetencion` se ignora / queda `null`.
+         *     4. Si se referenció `justificanteDocId` (opcional), lo **vincula** validando que el DOCUMENTO
+         *        (`tipo='justificante_pago'`) exista en el tenant; NO es multipart (G1-3).
+         *     5. Establece `RESERVA.fianzaDevueltaEur=importeDevuelto`,
+         *        `RESERVA.fianzaDevueltaFecha=fechaCobro`, `RESERVA.fianzaStatus` al estado final y
+         *        `RESERVA.motivoRetencion` (si parcial). NO transiciona `RESERVA.estado`.
+         *     6. Registra `AUDIT_LOG` (`actualizar` de RESERVA; vínculo del DOCUMENTO si aplica).
+         *
+         *     **Estado final irreversible** (MVP): una vez en `devuelta`/`retenida_parcial`, un nuevo
+         *     intento se rechaza con 409 `DEVOLUCION_YA_REGISTRADA` (doble registro, incl. concurrentes:
+         *     solo la primera aplica). **Justificante opcional (FA-04)**: si se omite `justificanteDocId`,
+         *     la devolución se registra igualmente con `avisoSinJustificante=true`.
+         *
+         *     Aislada por `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
          */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description ID de la reserva */
-                    id: components["parameters"]["IdReserva"];
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["DevolucionFianzaRequest"];
-                };
-            };
-            responses: {
-                /** @description Devolución procesada */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Reserva"];
-                    };
-                };
-            };
-        };
+        post: operations["registrarDevolucionFianza"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2927,6 +2929,8 @@ export interface components {
             /** Format: date */
             fianzaDevueltaFecha?: string | null;
             fianzaDevueltaEur?: components["schemas"]["Importe"] | null;
+            /** @description Motivo de retención de la fianza (solo en retenida_parcial; null en devuelta / sin devolver). */
+            motivoRetencion?: string | null;
             condPartFirmadas?: boolean | null;
             /** Format: date-time */
             condPartFechaEnvio?: string | null;
@@ -3495,6 +3499,40 @@ export interface components {
             /** @description Mensaje legible para la UI ("La fianza ya está marcada como cobrada"). */
             motivo?: string;
         };
+        RegistrarDevolucionFianzaRequest: {
+            /** @description Importe devuelto (Importe string Decimal(10,2), p. ej. `"1000.00"`). DEBE ser `0.00 ≤ x ≤ RESERVA.fianzaEur`. `"0.00"` es válido (retención total). `x > fianzaEur` → 400 `IMPORTE_SUPERA_FIANZA` (FA-02). `== fianzaEur` ⇒ `devuelta`; `< fianzaEur` ⇒ `retenida_parcial`. */
+            importeDevuelto: components["schemas"]["Importe"];
+            /**
+             * Format: date
+             * @description Fecha real del abono de la devolución (DATE). DEBE ser `>= RESERVA.fianzaCobradaFecha` (anterior o mal formada → 400 `FECHA_DEVOLUCION_INVALIDA`, FA-03). Naming `fechaCobro` por coherencia con US-030.
+             * @example 2026-07-10
+             */
+            fechaCobro: string;
+            /** @description Motivo de la retención. OBLIGATORIO solo en devolución parcial (`importeDevuelto < fianzaEur` ⇒ `retenida_parcial`); si falta en ese caso → 400 `MOTIVO_RETENCION_REQUERIDO`. En devolución completa (`devuelta`) se ignora / `null`. Se persiste en `RESERVA.motivoRetencion` (campo dedicado, G1-1). */
+            motivoRetencion?: string | null;
+            /**
+             * Format: uuid
+             * @description OPCIONAL. Referencia a un DOCUMENTO (`tipo='justificante_pago'`) YA subido en el tenant (vía `POST /documentos`, NO multipart aquí — G1-3). Omitido o `null` → la devolución se registra sin justificante (FA-04) con `avisoSinJustificante=true`. Un id inexistente en el tenant → 404 `JUSTIFICANTE_NO_ENCONTRADO` (misma semántica que US-030).
+             */
+            justificanteDocId?: string | null;
+        };
+        RegistrarDevolucionFianzaResponse: {
+            /** @description La RESERVA actualizada: `fianzaStatus` derivado (`devuelta`|`retenida_parcial`), `fianzaDevueltaEur`, `fianzaDevueltaFecha` y `motivoRetencion` (si parcial). */
+            reserva: components["schemas"]["Reserva"];
+            /** @description El DOCUMENTO justificante vinculado (`tipo='justificante_pago'`), o `null`/ausente si no se referenció (FA-04). */
+            documentoJustificante?: components["schemas"]["Documento"] | null;
+            /** @description `true` si la devolución se registró sin justificante (FA-04); el frontend muestra el aviso "Devolución registrada sin justificante. Puedes adjuntarlo más tarde.". */
+            avisoSinJustificante: boolean;
+        };
+        DevolucionFianzaError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Código de error de dominio: `IMPORTE_SUPERA_FIANZA` (400, FA-02: importe > fianzaEur o negativo), `FECHA_DEVOLUCION_INVALIDA` (400, FA-03: fecha < fianzaCobradaFecha), `MOTIVO_RETENCION_REQUERIDO` (400, parcial sin motivo), `JUSTIFICANTE_NO_ENCONTRADO` (404, reutilizado de US-030), `PRECONDICION_NO_CUMPLIDA` (409, estado≠post_evento / fianzaStatus≠cobrada / iban_devolucion null), `DEVOLUCION_YA_REGISTRADA` (409, doble registro sobre estado final irreversible).
+             * @enum {string}
+             */
+            codigo: "IMPORTE_SUPERA_FIANZA" | "FECHA_DEVOLUCION_INVALIDA" | "MOTIVO_RETENCION_REQUERIDO" | "JUSTIFICANTE_NO_ENCONTRADO" | "PRECONDICION_NO_CUMPLIDA" | "DEVOLUCION_YA_REGISTRADA";
+            /** @description Mensaje legible para la UI ("El importe a devolver no puede superar la fianza cobrada"). */
+            motivo?: string;
+        };
         Cliente: {
             /** Format: uuid */
             idCliente: string;
@@ -3811,11 +3849,6 @@ export interface components {
             preEventoStatus?: components["schemas"]["PreEventoStatus"];
             liquidacionStatus?: components["schemas"]["LiquidacionStatus"];
             fianzaStatus?: components["schemas"]["FianzaStatus"];
-        };
-        DevolucionFianzaRequest: {
-            /** @description Menor que fianza_eur si hay retención parcial */
-            importeDevuelto: components["schemas"]["Importe"];
-            motivoRetencion?: string;
         };
         FichaOperativa: {
             /** Format: uuid */
@@ -5430,6 +5463,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CobroFianzaError"];
+                };
+            };
+        };
+    };
+    registrarDevolucionFianza: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistrarDevolucionFianzaRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Devolución registrada. Devuelve la RESERVA actualizada (`fianzaStatus` derivado a
+             *     `devuelta`|`retenida_parcial`, `fianzaDevueltaEur`, `fianzaDevueltaFecha`,
+             *     `motivoRetencion` si parcial); el DOCUMENTO justificante si se referenció; y
+             *     `avisoSinJustificante=true` si se registró sin justificante (FA-04).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrarDevolucionFianzaResponse"];
+                };
+            };
+            /**
+             * @description Validación de entrada / dominio, sin efectos: `IMPORTE_SUPERA_FIANZA` (FA-02:
+             *     `importeDevuelto > RESERVA.fianzaEur`; también importe negativo o no Decimal(10,2)) o
+             *     `FECHA_DEVOLUCION_INVALIDA` (FA-03: `fechaCobro < RESERVA.fianzaCobradaFecha` o mal
+             *     formada), o `MOTIVO_RETENCION_REQUERIDO` (resultado parcial sin `motivoRetencion`).
+             *     Cuerpo = envelope estándar + `codigo` y `motivo`.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevolucionFianzaError"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description La RESERVA no existe en el tenant (RLS) o el `justificanteDocId` indicado no existe en el
+             *     tenant (`JUSTIFICANTE_NO_ENCONTRADO`, misma semántica que US-030). No se muta nada.
+             *     Cuerpo + `codigo`.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevolucionFianzaError"];
+                };
+            };
+            /**
+             * @description Conflicto de precondición / estado, sin efectos, releído bajo `SELECT ... FOR UPDATE`:
+             *     - `PRECONDICION_NO_CUMPLIDA` — la precondición triple no se cumple
+             *       (`RESERVA.estado ≠ post_evento`, `RESERVA.fianzaStatus ≠ cobrada`, o
+             *       `CLIENTE.iban_devolucion` ausente).
+             *     - `DEVOLUCION_YA_REGISTRADA` — la fianza ya está `devuelta`/`retenida_parcial` (**doble
+             *       registro**, incl. dos peticiones concurrentes: solo la primera aplica; estado
+             *       irreversible). Cuerpo = envelope estándar + `codigo` y `motivo`.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevolucionFianzaError"];
                 };
             };
         };

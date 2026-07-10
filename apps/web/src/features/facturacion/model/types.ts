@@ -72,6 +72,51 @@ export type RegistrarCobroFianzaConfirmacionRequerida =
 export type CobroFianzaErrorResponse = components['schemas']['CobroFianzaError'];
 
 /**
+ * Tipos de la **devolución de fianza** (US-036 · UC-27, acción simétrica inversa del cobro de
+ * US-030), sobre el SDK generado:
+ *  - `RegistrarDevolucionFianzaRequest`: body JSON
+ *    `{ importeDevuelto, fechaCobro, motivoRetencion?, justificanteDocId? }` (G1-3: NO multipart;
+ *    el justificante se sube antes por `POST /documentos` y aquí solo se referencia por id).
+ *  - `RegistrarDevolucionFianzaResponse`: `{ reserva, documentoJustificante?, avisoSinJustificante }`
+ *    con la RESERVA actualizada (`fianzaStatus` derivado `devuelta`|`retenida_parcial`,
+ *    `fianzaDevueltaEur`, `fianzaDevueltaFecha`, `motivoRetencion` si parcial).
+ *  - `Documento`: metadatos del DOCUMENTO `justificante_pago` subido (respuesta de `POST /documentos`).
+ */
+export type RegistrarDevolucionFianzaRequest =
+  components['schemas']['RegistrarDevolucionFianzaRequest'];
+export type RegistrarDevolucionFianzaResponse =
+  components['schemas']['RegistrarDevolucionFianzaResponse'];
+export type Documento = components['schemas']['Documento'];
+
+/** Envelope de error CRUDO de la devolución de fianza (`ErrorResponse` + `codigo` + `motivo`). */
+export type DevolucionFianzaErrorResponse = components['schemas']['DevolucionFianzaError'];
+
+/**
+ * Error NORMALIZADO de la devolución de fianza (US-036), para que la UI ramifique en español sin
+ * volver a mirar códigos HTTP. Cada `tipo` mapea 1:1 con un `codigo` del contrato OpenAPI de US-036
+ * (via `normalizarErrorDevolucionFianza`):
+ *  - `importe-supera-fianza` (400 `IMPORTE_SUPERA_FIANZA`, FA-02): importe > fianzaEur o negativo.
+ *  - `fecha-invalida` (400 `FECHA_DEVOLUCION_INVALIDA`, FA-03): fecha < fianzaCobradaFecha.
+ *  - `motivo-requerido` (400 `MOTIVO_RETENCION_REQUERIDO`): devolución parcial sin motivo.
+ *  - `justificante-no-encontrado` (404 `JUSTIFICANTE_NO_ENCONTRADO`).
+ *  - `precondicion-no-cumplida` (409 `PRECONDICION_NO_CUMPLIDA`): estado≠post_evento /
+ *    fianzaStatus≠cobrada / sin IBAN de devolución.
+ *  - `ya-registrada` (409 `DEVOLUCION_YA_REGISTRADA`): doble registro sobre estado final irreversible.
+ *  - `generico` (401/403/otros/red).
+ */
+export type DevolucionFianzaError = {
+  tipo:
+    | 'importe-supera-fianza'
+    | 'fecha-invalida'
+    | 'motivo-requerido'
+    | 'justificante-no-encontrado'
+    | 'precondicion-no-cumplida'
+    | 'ya-registrada'
+    | 'generico';
+  mensaje: string;
+};
+
+/**
  * Error NORMALIZADO del cobro de fianza (US-030), para que la UI ramifique en español sin
  * volver a mirar códigos HTTP. Cada `tipo` mapea a un caso del contrato OpenAPI de US-030
  * (via `normalizarErrorCobroFianza`):
