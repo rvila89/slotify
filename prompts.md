@@ -1,3 +1,20 @@
+> ⚙️ **Nota sobre la Entrega 2 (fase de desarrollo).**
+> En esta segunda fase el desarrollo se ha realizado **principalmente a través del arnés de
+> ingeniería de Claude Code** (agentes + skills + hooks + OpenSpec) y su flujo de trabajo, no
+> mediante prompts sueltos a asistentes generalistas. Por eso, para entender **cómo se ha
+> construido y validado el código producido por la IA** es imprescindible consultar esa
+> documentación:
+> - **[README-entrega2.md](README-entrega2.md)** — resumen de todo lo realizado en la fase 2.
+> - **[harness_engineering_plan.md](harness_engineering_plan.md)** — el plan de ingeniería del arnés.
+> - **[harness_guide.md](harness_guide.md)** — manual de uso del arnés con ejemplos end-to-end.
+>
+> Aun así, este documento se ha actualizado con lo relevante y lo que aplica a un registro de
+> prompts: los prompts de las fases de documentación (fase 1) y los **prompts operativos del
+> arnés** (fase 2) para lanzar historias de usuario, gestionar los tickets de trabajo (tasks de
+> OpenSpec) y las Pull Requests. **Recomendado leer antes el [README de la Entrega 2](README-entrega2.md).**
+
+---
+
 ## Índice
 
 1. [Descripción general del producto](#1-descripción-general-del-producto)
@@ -6,7 +23,8 @@
 4. [Especificación de la API](#4-especificación-de-la-api)
 5. [Historias de usuario](#5-historias-de-usuario)
 6. [Tickets de trabajo](#6-tickets-de-trabajo)
-7. [Pull requests](#7-pull-requests)
+7. [Desarrollo (arnés)](#7-desarrollo)
+8. [Pull requests](#8-pull-requests)
 
 ---
 
@@ -342,27 +360,26 @@ La respuesta tiene que contemplar únicamente el alcance definido para el MVP
 
 ### **2.4. Infraestructura y despliegue**
 
-**Prompt 1:**
-
-**Prompt 2:**
-
-**Prompt 3:**
+> Estas subsecciones (2.4–2.6) no se generaron con un prompt puntual a un asistente: se
+> completaron en la **Entrega 2** al alinear el README con el MVP ya construido por el arnés. El
+> "prompt operativo" fue la petición de actualización documental de la entrega (ver nota superior).
+> El despliegue a producción queda **planificado** en [docs/architecture.md](docs/architecture.md);
+> en la Entrega 2 el MVP se ejecuta en local (ver README §1.4 y §2.4).
 
 ### **2.5. Seguridad**
 
-**Prompt 1:**
-
-**Prompt 2:**
-
-**Prompt 3:**
+> Seguridad implementada en el MVP y descrita en README §2.5: JWT (access en memoria + refresh en
+> cookie httpOnly), hashing con argon2, multi-tenancy con Row-Level Security, validación de entrada,
+> bloqueo atómico de fecha y cron protegido por token. Producida **durante el desarrollo con el
+> arnés** (agente `backend-developer` + hooks `no-infra-in-domain`, `no-distributed-lock`,
+> `multi-tenancy-rls`), no con un prompt de documentación aislado.
 
 ### **2.6. Tests**
 
-**Prompt 1:**
-
-**Prompt 2:**
-
-**Prompt 3:**
+> Tests descritos en README §2.6 y [README-entrega2.md §8](README-entrega2.md#8-tests-y-cuándo-se-ejecutan):
+> ~219 tests (Jest + Vitest + Playwright) escritos en **TDD** por el arnés. El "prompt" que los
+> produce es el flujo de lanzamiento de cada historia de usuario (ver §7 · Desarrollo), que fuerza
+> los tests antes de implementar mediante el hook `require-tests-first`.
 
 ---
 
@@ -499,11 +516,24 @@ Devolver en bloquedo de código markdown
 
 ### 4. Especificación de la API
 
-**Prompt 1:**
+En la fase 2 el contrato OpenAPI (`docs/api-spec.yml`) dejó de escribirse a mano y pasó a estar
+**gobernado por el agente `contract-engineer`** del arnés, que lo audita, evoluciona, valida y del
+que se **genera** el cliente HTTP del frontend (nunca se edita a mano). Ver README §4 y
+`harness_guide.md` (Ejemplo B).
 
-**Prompt 2:**
+**Prompt 1:** (evolucionar el contrato para una US)
 
-**Prompt 3:**
+Con el contract-engineer, evoluciona docs/api-spec.yml para añadir <endpoint/acción de la US>:
+define request/response y los códigos 200/409/422, valida el contrato (spectral lint) y regenera
+el cliente HTTP del frontend con pnpm generate-client. No edites el cliente generado a mano.
+
+**Prompt 2:** (auditoría del contrato)
+
+/audit-open-api
+
+> Ejecuta la auditoría puntual del contrato (skill `openapi-governance`) y escribe el informe en
+> `docs/audits/openapi-verificacion.md`. El hook `validate-openapi` valida además `api-spec.yml`
+> automáticamente al editarlo.
 
 ---
 
@@ -945,11 +975,24 @@ Que una pantalla sea la primera que ve el usuario (p. ej. el **calendario**, hom
 
 Voy a utilizar metodologia SDD por lo que mi intención es definir tareas atomicas en cada spec de cada historia de usuario.
 
-**Prompt 1:**
+Cumplido en la fase 2: los "tickets" son las **tareas atómicas del `tasks.md`** de cada change de
+OpenSpec, creadas por el `spec-author` al abrir el change. Es el bus de estado del trabajo (cada
+tarea se marca `[x]` solo tras ejecutarla y verificarla). Ver README §6 y `harness_guide.md` §6.
 
-**Prompt 2:**
+**Prompt 1:** (abrir el change y generar sus tickets/tasks)
 
-**Prompt 3:**
+Con el spec-author, abre el change de OpenSpec para <US-XXX>: crea la rama feature, el proposal.md
+trazable a la US y al caso de uso, la spec-delta de la capability afectada y el tasks.md con los
+pasos obligatorios (Step 0 crear rama, TDD primero, unit + verificación de BD, curl, E2E con
+Playwright, actualización de docs). Valida con openspec validate --strict y detente en el gate humano.
+
+**Prompt 2:** (ordenar el backlog que alimenta los tickets)
+
+/analizar-backlog
+/ordenar-backlog
+
+> Regeneran `user-stories/_analisis.json` (grafo de dependencias) y `user-stories/_backlog.json`
+> (orden Fundacional → Spine → Soporte), del que el orquestador toma la siguiente historia.
 
 ---
 
@@ -1031,10 +1074,54 @@ Workflows operativos diarios
 
 Justifica cada decisión arquitectónica y explica por qué mejora el desarrollo de Slotify frente a la propuesta actual.
 
+> **Resultado de este prompt.** El plan de ingeniería del arnés quedó documentado en
+> **[harness_engineering_plan.md](harness_engineering_plan.md)** y se materializó en el repositorio:
+> 9 agentes en `.claude/agents/`, 27 skills en `.claude/skills/`, 6 hooks en `scripts/hooks/` y las
+> reglas de `CLAUDE.md`. La arquitectura del flujo está diagramada en `harness_workflow.png` y
+> `harness_workflow_phases.png`, y su manual de uso con ejemplos en
+> **[harness_guide.md](harness_guide.md)**.
+
+**Prompt 2:** (lanzar la siguiente historia de usuario con el arnés — flujo completo)
+
+Implementa la siguiente US del backlog con el harness-orchestrator. Lee user-stories/_backlog.json,
+elige la siguiente historia con dependencias resueltas y coordina el ciclo completo
+SDD → contrato → TDD-RED → implementación (backend ∥ frontend) → QA → code-review → docs → archive/PR.
+Detente en los dos gates humanos (tras SDD, y antes de archivar/abrir PR) y espera mi OK.
+
+> El `harness-orchestrator` **no escribe código**: delega en los subagentes especializados. No lo
+> lances en segundo plano si el flujo tiene gates humanos (se los salta). Ver `harness_guide.md`
+> (Ejemplo A — US spine completa).
+
+**Prompt 3:** (lanzar una historia concreta o retomar una a medias)
+
+Con el harness-orchestrator, implementa la US-014 (generar presupuesto y activar la pre-reserva).
+Si su change ya está abierto, retómalo desde su tasks.md (casillas [ ]/[x]) y sus reports/ sin
+perder contexto, continuando por el primer paso no completado.
+
+> El estado vive en disco (`openspec/changes/<change>/tasks.md` + `reports/`), así que un change se
+> reanuda aunque la conversación se haya compactado. Para tareas acotadas se pueden invocar agentes
+> sueltos (cheat-sheet en `harness_guide.md` Parte 3): *"con el tdd-engineer, escribe los tests
+> de…"*, *"con el backend-developer, implementa…"*, *"con el frontend-developer, implementa
+> \<pantalla\> desde \<link Figma\>"*, *"con el qa-verifier, ejecuta los pasos de QA"*.
+
 ### 8. Pull Requests
 
-**Prompt 1:**
+En la fase 2, cada historia se cierra con su PR bajo el modelo **1 US ≈ 1 change de OpenSpec ≈ 1 PR**
+(57 PRs mergeados en la Entrega 2). El cierre lo coordina el `spec-author` y está protegido por un
+hook. Ver README §7.
 
-**Prompt 2:**
+**Prompt 1:** (revisión previa obligatoria)
 
-**Prompt 3:**
+Con el code-reviewer, revisa el diff de la rama contra los guardrails (arquitectura hexagonal,
+bloqueo atómico, multi-tenancy/RLS, contrato OpenAPI y TDD) y emite el informe con Veredicto
+APTO/NO APTO en openspec/changes/<change>/reports/. Es un informe de solo lectura: no apliques fixes.
+
+**Prompt 2:** (archivar el change y abrir el PR)
+
+Con el spec-author, cierra el change de <US-XXX>: verifica que todas las tareas de tasks.md están en
+[x] y que existe el informe del code-reviewer con "Veredicto: APTO", archiva el change
+(openspec archive) y abre el Pull Request hacia master con el resumen de la historia. Detente en el
+gate humano final antes de archivar/abrir el PR.
+
+> El hook `require-code-review` **bloquea** `openspec archive` y la creación/merge del PR si no hay
+> un informe con `Veredicto: APTO` en `reports/`. Es un guardrail, no un error.
