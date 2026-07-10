@@ -527,6 +527,9 @@ Registro de auditoría de las acciones sobre reservas, facturas, bloqueos de fec
 - **Transición exitosa:** `accion = 'transicion'`, `entidad = 'RESERVA'`, `datos_anteriores = {estado: post_evento}`, `datos_nuevos = {estado: reserva_completada, causa: 'T+7d'}`. Nunca se duplica (idempotencia por filtro `estado = 'post_evento'`).
 - **Alerta FA-01 — fianza pendiente en T+7d:** `accion = 'actualizar'`, `entidad = 'RESERVA'`, `datos_nuevos = {tipo: 'fianza_pendiente_t7d', reserva_id, codigo}`. Emitida solo si no existe ya una entrada `fianza_pendiente_t7d` para la misma RESERVA posterior al último cambio de `fianza_status` (anti-duplicación por Opción 4.2 del gate). La RESERVA permanece en `post_evento`; no se genera entrada de transición. El canal de entrega de la alerta al gestor (in-app, dashboard) corresponde a US-044. Esta convención es consistente con la usada por US-012 (expiración), US-026 (cierre de fichas) y US-031 (inicio de evento).
 
+**Convención de auditoría de Gestor — archivado manual (US-038 / UC-28 flujo alternativo B):** el endpoint `POST /reservas/{id}/archivar` genera exactamente una entrada cuando la transición tiene éxito, con `usuario_id = <id del gestor del JWT>` (origen Gestor, no nulo — diferencia clave con US-037):
+- **Transición exitosa:** `accion = 'transicion'`, `entidad = 'RESERVA'`, `entidad_id = <reservaId>`, `datos_anteriores = {estado: post_evento}`, `datos_nuevos = {estado: reserva_completada}` (sin `causa: 'T+7d'`; opcionalmente `causa: 'manual'`). La entrada no se escribe si la guarda de origen falla (409 `transicion_no_permitida`) ni si la guarda de fianza falla (422 `fianza_no_resuelta`). La serialización por `SELECT … FOR UPDATE` garantiza que, en la race condition entre el cron de US-037 y el gestor de US-038, exactamente una entrada de `AUDIT_LOG` se genera para la RESERVA.
+
 ---
 
 ## 4. Relaciones (resumen)

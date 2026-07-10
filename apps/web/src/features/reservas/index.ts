@@ -46,6 +46,17 @@ export {
   puedeFinalizarEvento,
   etiquetaDocumentacionPendiente,
 } from './lib/finalizarEvento';
+export { useArchivarReserva } from './api/useArchivarReserva';
+export type {
+  ArchivarReservaError,
+  ArchivarReservaVars,
+} from './api/useArchivarReserva';
+export {
+  puedeArchivarReserva,
+  fianzaResueltaCliente,
+  motivoArchivarBloqueado,
+  MENSAJE_FIANZA_NO_RESUELTA,
+} from './lib/archivarReserva';
 export { useRegistrarIbanDevolucion } from './api/useRegistrarIbanDevolucion';
 export type {
   RegistrarIbanError,

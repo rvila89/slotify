@@ -14,6 +14,8 @@ import { motivoNoPuedeGenerar, puedeGenerarPresupuesto } from '@/features/presup
 import { puedeConfirmarSenal } from '@/features/confirmacion';
 import { bloqueoVigente, puedeExtenderBloqueo } from '../../../lib/fecha';
 import { puedeFinalizarEvento } from '../../../lib/finalizarEvento';
+import { puedeArchivarReserva } from '../../../lib/archivarReserva';
+import { AccionArchivar } from './AccionArchivar';
 import type { Reserva } from '../../../model/types';
 
 /**
@@ -49,6 +51,7 @@ type Props = {
   onGenerarPresupuesto: () => void;
   onConfirmarSenal: () => void;
   onFinalizarEvento: () => void;
+  onArchivarReserva: () => void;
 };
 
 export const AccionesConsulta = ({
@@ -61,6 +64,7 @@ export const AccionesConsulta = ({
   onGenerarPresupuesto,
   onConfirmarSenal,
   onFinalizarEvento,
+  onArchivarReserva,
 }: Props) => {
   const subEstado = reserva.subEstado;
   const esExploratoria = subEstado === '2a';
@@ -97,6 +101,10 @@ export const AccionesConsulta = ({
   // US-034 (UC-25): "Marcar evento como finalizado" SOLO cuando la RESERVA está en
   // `evento_en_curso`. La transición a `post_evento` es irreversible.
   const puedeFinalizar = puedeFinalizarEvento(reserva.estado);
+  // US-038 (UC-28, flujo manual): "Archivar reserva" SOLO cuando la RESERVA está en
+  // `post_evento`. El bloque de la acción (deshabilitado con la razón si la fianza no
+  // está resuelta) vive en `AccionArchivar` para no superar `max-lines`.
+  const puedeArchivar = puedeArchivarReserva(reserva.estado);
 
   const botonVisita = (
     <button
@@ -307,6 +315,10 @@ export const AccionesConsulta = ({
         </div>
       )}
 
+      {/* US-038: "Archivar reserva" — solo en `post_evento`. Deshabilitada con la
+          razón si la fianza no está resuelta (FA-01/FA-02); el backend revalida (422). */}
+      <AccionArchivar reserva={reserva} onArchivarReserva={onArchivarReserva} />
+
       {/* Terminales u otros estados sin acciones disponibles. */}
       {!esExploratoria &&
         !puedePendienteInvitados &&
@@ -316,7 +328,8 @@ export const AccionesConsulta = ({
         !puedeExtender &&
         !mostrarPresupuesto &&
         !puedeConfirmar &&
-        !puedeFinalizar && (
+        !puedeFinalizar &&
+        !puedeArchivar && (
           <p className={claseTextoInfo}>
             <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
             No hay acciones disponibles para esta consulta en su estado actual.

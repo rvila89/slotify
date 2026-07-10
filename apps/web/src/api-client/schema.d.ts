@@ -2135,6 +2135,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/archivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archivar manualmente la reserva a reserva_completada (UC-28 flujo manual / US-038)
+         * @description [US-038] El **Gestor** (JWT de usuario, rol gestor, RLS del tenant del JWT — NUNCA
+         *     `X-Cron-Token`: es acción manual, no el barrido de Sistema de US-037) archiva **manualmente**
+         *     una RESERVA en `estado='post_evento'`, transicionándola a `reserva_completada` (estado
+         *     **terminal e inmutable**) **desde la ficha**, sin esperar al archivado automático de T+7d
+         *     (US-037). El `{id}` del path identifica la ÚNICA RESERVA a archivar (no es un barrido); el
+         *     `tenant_id` y el `usuario_id` DERIVAN SIEMPRE del JWT, nunca del path ni del body.
+         *
+         *     En una transacción atómica bajo el contexto RLS del tenant del JWT, con `SELECT … FOR UPDATE`
+         *     de la fila RESERVA, el sistema re-evalúa **bajo el lock** dos guardas reutilizadas de US-037
+         *     (regla dura anti-duplicación, NO se crean guardas nuevas):
+         *
+         *     1. **Guarda de origen** (`resolverArchivadoAutomatico`): si `estado ≠ post_evento` (incluido
+         *        ya `reserva_completada` por un pase del cron de US-037, doble clic del gestor u otra acción)
+         *        la guarda devuelve `null` → **409** `code: 'transicion_no_permitida'`, sin transicionar ni
+         *        auditar (cubre idempotencia y la race con el cron). **NO** se aplica el filtro de antigüedad
+         *        T+7d de US-037: el gestor puede archivar en cualquier momento tras entrar en `post_evento`.
+         *     2. **Guarda de fianza** (`fianzaResuelta`, idéntica a US-037): la fianza está resuelta si
+         *        `fianzaStatus ∈ {devuelta, retenida_parcial}` **O** `fianzaEur ≤ 0` **O** `fianzaEur IS
+         *        NULL`. Si el origen es válido (`post_evento`) pero la fianza NO está resuelta
+         *        (`fianzaStatus ∈ {cobrada, recibo_enviado, pendiente}` con `fianzaEur > 0`) → **422**
+         *        `code: 'fianza_no_resuelta'` (precondición de negocio incumplida, design.md §D-3=3.B;
+         *        distinta del conflicto de estado 409), sin transicionar ni auditar; `RESERVA.estado`
+         *        permanece `post_evento`.
+         *
+         *     Si ambas guardas se satisfacen, fija `estado = reserva_completada` y escribe `AUDIT_LOG`
+         *     `accion='transicion'`, `entidad='RESERVA'`, `datos_anteriores={estado: post_evento}`,
+         *     `datos_nuevos={estado: reserva_completada}`, con el `usuarioId` del **Gestor** (origen
+         *     **Usuario**, a diferencia del barrido de Sistema de US-037 que audita `usuario_id` nulo). Al
+         *     éxito la RESERVA sale del pipeline activo y queda visible/filtrable en el módulo Histórico. NO
+         *     se envía ningún email.
+         *
+         *     **Concurrencia (design.md §D-6)**: el cron (US-037) y el gestor (US-038), o dos clicks del
+         *     gestor, se serializan por `SELECT … FOR UPDATE` sobre la fila RESERVA; exactamente una
+         *     operación gana, la segunda observa `estado ≠ post_evento` bajo el lock y termina como no-op
+         *     (cron) o **409** `transicion_no_permitida` (gestor), sin doble transición ni doble AUDIT_LOG.
+         *     Sin locks distribuidos (no toca `FECHA_BLOQUEADA` ni la cola).
+         */
+        post: operations["archivarReservaManual"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/iban-devolucion": {
         parameters: {
             query?: never;
@@ -3991,6 +4049,18 @@ export interface components {
              */
             code: "transicion_no_permitida";
         };
+        /** @description Cuerpo (opcional, vacío) de la acción de archivado manual. No hay parámetros de negocio: la única entrada es la RESERVA (path) y el Gestor autenticado (JWT). */
+        ArchivarReservaManualRequest: Record<string, never>;
+        ArchivarFianzaNoResueltaError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Discriminador del 422: la RESERVA está en `post_evento` pero la fianza sigue sin resolver (`fianzaEur > 0` y `fianzaStatus ∉ {devuelta, retenida_parcial}`). El archivado se bloquea hasta que se registre la devolución o retención de la fianza.
+             * @example fianza_no_resuelta
+             * @enum {string}
+             */
+            code: "fianza_no_resuelta";
+            /** @example No se puede archivar la reserva: la fianza está pendiente de resolución. Registra la devolución o retención de fianza antes de archivar. */
+            message?: unknown;
+        };
         RegistrarIbanDevolucionRequest: {
             /**
              * @description IBAN a registrar (se normaliza en servidor: mayúsculas, sin espacios). Se valida por checksum módulo 97 antes de persistir; un IBAN que no supere mod-97 devuelve 422 (FA-01).
@@ -5774,6 +5844,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FinalizarEventoConflictError"];
+                };
+            };
+        };
+    };
+    archivarReservaManual: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ArchivarReservaManualRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Reserva archivada: RESERVA en `reserva_completada` (terminal). Devuelve la RESERVA
+             *     actualizada.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Reserva"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado: la RESERVA `{id}` no está en `post_evento` (transición
+             *     `post_evento → reserva_completada` no aplicable desde el estado actual — incluido ya
+             *     `reserva_completada` — o carrera perdida contra el cron de US-037 / doble clic del gestor,
+             *     design.md §D-6). Sin efectos, sin doble transición ni AUDIT_LOG.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinalizarEventoConflictError"];
+                };
+            };
+            /**
+             * @description Fianza no resuelta (FA-01/FA-02, design.md §D-3=3.B): la RESERVA está en `post_evento`
+             *     (origen válido) pero la fianza NO está resuelta (`fianzaStatus ∈ {cobrada, recibo_enviado,
+             *     pendiente}` con `fianzaEur > 0`). Precondición de negocio incumplida, distinta del
+             *     conflicto de estado 409. La RESERVA permanece en `post_evento` sin auditoría.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchivarFianzaNoResueltaError"];
                 };
             };
         };

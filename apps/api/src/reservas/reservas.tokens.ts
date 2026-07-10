@@ -108,3 +108,12 @@ export const DISPARAR_E8_PORT = Symbol('DispararE8Port');
 export const CANDIDATAS_ARCHIVADO_PORT = Symbol('CandidatasArchivadoPort');
 export const ARCHIVADO_PORT = Symbol('ArchivadoPort');
 export const ALERTA_FIANZA_PENDIENTE_PORT = Symbol('AlertaFianzaPendientePort');
+
+// US-038 — archivado MANUAL de la reserva por el Gestor (post_evento → reserva_completada,
+// acción de usuario con JWT; UoW propia delgada + carga bajo RLS del tenant del JWT)
+export const CARGAR_RESERVA_ARCHIVADO_MANUAL_PORT = Symbol(
+  'CargarReservaArchivadoManualPort',
+);
+export const UNIDAD_DE_TRABAJO_ARCHIVADO_MANUAL_PORT = Symbol(
+  'UnidadDeTrabajoArchivadoManualPort',
+);
