@@ -102,3 +102,9 @@ export const UNIDAD_DE_TRABAJO_IBAN_DEVOLUCION_PORT = Symbol(
   'UnidadDeTrabajoIbanDevolucionPort',
 );
 export const DISPARAR_E8_PORT = Symbol('DispararE8Port');
+
+// US-037 — barrido de archivado automático en T+7d (cross-tenant read + UoW por RESERVA +
+// alerta interna FA-01 en AUDIT_LOG con anti-duplicación)
+export const CANDIDATAS_ARCHIVADO_PORT = Symbol('CandidatasArchivadoPort');
+export const ARCHIVADO_PORT = Symbol('ArchivadoPort');
+export const ALERTA_FIANZA_PENDIENTE_PORT = Symbol('AlertaFianzaPendientePort');

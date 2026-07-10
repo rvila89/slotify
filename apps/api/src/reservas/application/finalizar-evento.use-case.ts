@@ -125,6 +125,12 @@ export interface MutacionFinalizacionParams {
   estadoDestino: EstadoReserva;
   /** Marca de NPS programada (T+3d), marca derivada (D-6). */
   npsProgramada: boolean;
+  /**
+   * US-037 (D-2=A): instante de ENTRADA a `post_evento` (fuente de verdad del reloj T+7d del
+   * archivado automático). Se persiste en `reserva.fecha_post_evento` en la MISMA UPDATE que
+   * fija `estado = post_evento`. Timestamp único de la transición (no string formateado).
+   */
+  fechaPostEvento: Date;
 }
 
 /** Resultado de la mutación: filas afectadas por la UPDATE condicional bajo el lock. */
@@ -286,6 +292,8 @@ export class FinalizarEventoUseCase {
         estadoOrigen: reserva.estado,
         estadoDestino: destino.estado,
         npsProgramada: true,
+        // US-037 (D-2=A): sella el instante de entrada a `post_evento` (reloj del T+7d).
+        fechaPostEvento: new Date(),
       });
 
       // Carrera de doble finalización perdida (D-8): bajo el lock el estado ya cambió → 0

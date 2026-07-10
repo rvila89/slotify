@@ -203,6 +203,8 @@ Los TTLs no se implementan con timers que disparan en el instante exacto, sino c
 
 **US-031 — barrido de inicio automático de evento en T-0 / UC-23 flujo básico (implementado):** el tercer barrido periódico concreto es `POST /cron/barrido-eventos` (Opción B, endpoint dedicado — gemelo de `POST /cron/barrido-expiracion` de US-012, en el mismo módulo `reservas`). La Opción A (reutilizar `POST /cron/barrido?tarea=eventos`) se descartó porque el dispatch por `?tarea=` nunca se implementó y añadir un segundo controller sobre la misma ruta habría colisionado con el barrido de US-026 ya mergeado. Misma autenticación `X-Cron-Token` / `CronTokenGuard` que US-012 y US-026; **nunca JWT de usuario**. Se ejecuta en un cron `@nestjs/schedule` diario a las 00:00 (expresión `0 0 * * *`; configurable mediante la variable de entorno `CRON_BARRIDO_EVENTOS`). Selecciona RESERVA con `estado = 'reserva_confirmada'` AND `date(fecha_evento) = CURRENT_DATE` (día T-0; comparación estricta por fecha de calendario, no por string formateado — mismo blindaje del off-by-one de TZ que US-026). La selección es **cross-tenant** (mismo patrón que US-012/US-026); cada mutación opera bajo `SET LOCAL app.tenant_id` de la RESERVA candidata (RLS). Por cada candidata, en su **propia transacción** con `SELECT … FOR UPDATE` + re-evaluación de la guarda de origen (`reserva_confirmada → evento_en_curso`, tabla declarativa `MAPA_INICIO_EVENTO` en `maquina-estados.ts`) + re-evaluación de las **tres precondiciones** (`pre_evento_status = 'cerrado'` AND `liquidacion_status = 'cobrada'` AND `fianza_status = 'cobrada'`) dentro del lock: si las tres se cumplen → transiciona a `evento_en_curso` + `AUDIT_LOG` origen Sistema; si alguna falta → no transiciona + alerta crítica al gestor con la lista de precondiciones incumplidas (el forzado manual corresponde a US-032). Si `cond_part_firmadas = false` en el día del evento: alerta no bloqueante A29 con independencia del resultado de la transición. Fallo aislado por RESERVA (rollback individual sin interrumpir el lote). Idempotencia garantizada: reservas ya en `evento_en_curso` no son candidatas (el filtro `estado = 'reserva_confirmada'` las excluye); la re-evaluación bajo el lock protege también frente al cron↔gestor (US-032) concurrentes — exactamente uno gana, la UPDATE de la segunda operación afecta 0 filas y termina como no-op. Resumen de respuesta: `BarridoEventosResponse { candidatas, eventosIniciados, precondicionesIncumplidas, fallos }`. Sin email ni briefing al equipo en este change (briefing 📐 diseñado pero fuera del MVP; ver D-9 del design). Sin migración de esquema: `evento_en_curso` ya existía en el enum `RESERVA.estado`; `pre_evento_status`, `liquidacion_status`, `fianza_status` y `cond_part_firmadas` preexisten desde US-000/US-025/US-029/US-030. La **vista móvil "evento en curso"** y su checklist de documentación corresponden a **US-033/US-034**, que consumen el `RESERVA.estado = evento_en_curso` establecido por este barrido. La coordinación con el **forzado manual** es responsabilidad de **US-032**.
 
+**US-037 — barrido de archivado automático de reservas completadas en T+7d / UC-28 flujo básico (implementado):** el cuarto barrido periódico concreto es `POST /cron/barrido-completadas` (endpoint **dedicado**, gemelo de `POST /cron/barrido-eventos` de US-031 y `POST /cron/barrido-expiracion` de US-012, en el mismo módulo `reservas`). La ruta `POST /cron/barrido` no se reutiliza: el dispatch por `?tarea=` nunca se implementó en el repo (memoria del proyecto "Cron ?tarea= dispatch es ficticio") y añadir un segundo controller sobre esa ruta colisionaría con el barrido de US-026. Misma autenticación `X-Cron-Token` / `CronTokenGuard` que los demás barridos; **nunca JWT de usuario**. Se ejecuta en un cron `@nestjs/schedule` diario. Selecciona RESERVA con `estado = 'post_evento'` AND `date(fecha_post_evento) <= date(hoy) - 7` (comparación estricta por fecha de calendario sobre el campo `fecha_post_evento` —inmune a `@updatedAt`—, blindaje del off-by-one de TZ). La selección es **cross-tenant** (mismo patrón que US-012/US-026/US-031); cada mutación opera bajo `SET LOCAL app.tenant_id` de la RESERVA candidata (RLS). Por cada candidata, en su **propia transacción** con `SELECT … FOR UPDATE` + re-evaluación de la guarda de origen (`post_evento → reserva_completada`, tabla declarativa `MAPA_ARCHIVADO_AUTOMATICO` en `maquina-estados.ts`) + re-evaluación de la **guarda de fianza resuelta** (`fianzaResuelta({ fianzaStatus, fianzaEur })`): si se cumple → transiciona a `reserva_completada` + `AUDIT_LOG` (`accion='transicion'`, `datos_nuevos={estado:reserva_completada, causa:'T+7d'}`, `usuario_id` nulo, origen Sistema); si la fianza no está resuelta → no transiciona + registra alerta FA-01 en `AUDIT_LOG` (`accion='actualizar'`, `datos_nuevos.tipo='fianza_pendiente_t7d'`) con anti-duplicación por idempotencia en el log. Fallo aislado por RESERVA (rollback individual sin interrumpir el lote). Idempotencia: reservas ya en `reserva_completada` no son candidatas (el filtro `estado='post_evento'` las excluye); la re-evaluación bajo el lock protege frente a cron↔gestor (US-038) concurrentes — exactamente uno aplica la transición, la segunda UPDATE afecta 0 filas y termina como no-op sin error. Resumen de respuesta: `BarridoCompletadasResponse { candidatas, archivadas, fianzaPendiente, fallos }`. Sin email al cliente ni al gestor en el happy path. La RESERVA archivada queda visible en Histórico (UC-32); índice full-text fuera de alcance (decisión D-5). Requiere campo `RESERVA.fecha_post_evento` (migración `20260710130000_us037_reserva_fecha_post_evento`), poblado por US-034 en la transición `evento_en_curso → post_evento`. Ver §2.5 (Opción A, aprobada en gate). Ver §er-diagram.md §5.4 para la tabla de transición y guarda.
+
 > **Nota de hosting:** en plataformas con proceso always-on (p. ej. Railway), el cron es trivial. En tiers gratuitos que duermen el servicio tras inactividad (p. ej. Render free), el barrido necesita un disparador externo que despierte el endpoint. Ver §5.
 
 ### 2.6 Organización interna del backend (capas + hexagonal + DDD)
@@ -908,6 +910,70 @@ features/reservas/
 | Post-evento | `post_evento` |
 
 **Estados de vista:** skeleton en carga (FA-02), estado vacío con CTA "Nueva Reserva" (FA-01), estado de error con reintento que hace `refetch` (FA-03). Responsive mobile-first (390/768/1280): Kanban con scroll horizontal en `<lg`; Listado en cards apiladas en `<lg`, tabla en `≥lg`. Sin overflow horizontal; objetivos táctiles accesibles.
+
+### 2.18 Módulo de archivado automático de reservas completadas (US-037 / UC-28)
+
+El módulo `barrido-completadas` materializa el cuarto barrido periódico concreto del patrón "estado en fila + barrido periódico" descrito en §2.5. Gestiona la automatización A12: archiva las RESERVA que llevan ≥ 7 días naturales en `post_evento` y tienen la fianza resuelta, transitando al estado terminal `reserva_completada`.
+
+#### Scheduler y autenticación
+
+- **Disparador:** cron `@nestjs/schedule` diario (expresión configurable mediante variable de entorno `CRON_BARRIDO_COMPLETADAS`). Sin `CRON_TOKEN` en el entorno, el disparo automático se desactiva (el endpoint sigue disponible para disparo manual).
+- **Autenticación:** `X-Cron-Token` validada por `CronTokenGuard` contra `CRON_TOKEN` del entorno. Nunca JWT de usuario. El endpoint es `@Public()` + `@UseGuards(CronTokenGuard)`, `@HttpCode(200)`, `@ApiTags('Cron')`.
+- **Endpoint:** `POST /cron/barrido-completadas`. Endpoint **dedicado** (no reutiliza `POST /cron/barrido`). Responde `200` con `BarridoCompletadasResponse`.
+
+#### Selección de candidatas
+
+Filtro cross-tenant (único punto legítimo del proceso de Sistema):
+
+```
+RESERVA.estado = 'post_evento'
+AND date(RESERVA.fecha_post_evento) <= date(hoy) - 7
+```
+
+El campo `fecha_post_evento` es la fuente de verdad inmutable del timestamp de entrada a `post_evento` (poblado por US-034). Las RESERVA con `fecha_post_evento = NULL` (anteriores a la migración) no son candidatas.
+
+#### Procesamiento por candidata
+
+Cada candidata se procesa en su **propia transacción independiente** (`$transaction` + `fijarTenant(tx, tenantId)` como PRIMERA operación + `SELECT … FOR UPDATE` sobre la fila RESERVA):
+
+1. Re-evalúa la guarda de origen bajo el lock (`resolverArchivadoAutomatico(estado, subEstado)` — tabla declarativa).
+2. Evalúa la guarda de fianza resuelta (`fianzaResuelta({ fianzaStatus, fianzaEur })`).
+3. Si ambas guardas pasan: UPDATE `RESERVA.estado = 'reserva_completada'` + INSERT `AUDIT_LOG` (`accion='transicion'`, `datos_anteriores={estado:post_evento}`, `datos_nuevos={estado:reserva_completada, causa:'T+7d'}`, `usuario_id` nulo).
+4. Si la fianza no está resuelta (FA-01): no muta RESERVA; comprueba en `AUDIT_LOG` si ya existe alerta `fianza_pendiente_t7d` posterior al último cambio de `fianza_status` (anti-duplicación Opción 4.2); si no existe, inserta alerta (`accion='actualizar'`, `datos_nuevos.tipo='fianza_pendiente_t7d'`, `usuario_id` nulo).
+5. Si la guarda de origen falla bajo el lock (estado ya cambiado): no-op sin error (la segunda operación del cron↔US-038 termina aquí).
+
+#### Arquitectura interna (hexagonal)
+
+```
+apps/api/src/reservas/
+  domain/
+    maquina-estados.ts                    MAPA_ARCHIVADO_AUTOMATICO + resolverArchivadoAutomatico (tabla declarativa)
+                                          fianzaResuelta() (guarda pura; devuelve bool + indicador de pendiente)
+  application/
+    archivar-reservas-completadas.use-case.ts  Orquesta: lista candidatas → por candidata: Tx + guardas + transición o alerta FA-01 + resumen con fallo aislado
+  infrastructure/
+    archivar-reservas-completadas.prisma.adapter.ts  Selección candidatas cross-tenant + UoW transacción por RESERVA (SELECT…FOR UPDATE, fijarTenant, UPDATE, AUDIT_LOG)
+  interface/
+    barrido-completadas.controller.ts     POST /cron/barrido-completadas (@Public, CronTokenGuard, @HttpCode(200), BarridoCompletadasResponse)
+    barrido-completadas.scheduler.ts      @Cron diario — invoca el endpoint con X-Cron-Token; no contiene lógica de negocio
+```
+
+#### Migración de esquema
+
+`20260710130000_us037_reserva_fecha_post_evento` (aditiva, no destructiva):
+- Añade columna `fecha_post_evento TIMESTAMPTZ NULL` en `reserva`.
+- Añade índice `@@index([estado, fechaPostEvento])` en `reserva`.
+
+US-034 debe poblar `fecha_post_evento = now()` en la misma transacción de finalización del evento (`evento_en_curso → post_evento`). Las RESERVA ya en `post_evento` antes de la migración quedan con `fecha_post_evento = NULL` y no son candidatas al barrido hasta que el gestor las archive manualmente (US-038) o un backfill actualice el campo.
+
+#### Idempotencia y concurrencia
+
+| Escenario | Comportamiento |
+|-----------|----------------|
+| Re-ejecución del cron (misma RESERVA ya en `reserva_completada`) | No es candidata (filtro `estado='post_evento'` la excluye); cero mutaciones, cero auditoría |
+| Cron (US-037) y archivado manual (US-038) compiten sobre la misma RESERVA | La segunda UPDATE bajo el lock afecta 0 filas → no-op sin error; exactamente 1 transición y 1 entrada de AUDIT_LOG |
+| Alerta FA-01 en barridos sucesivos (misma RESERVA, fianza sin cambio) | Anti-duplicación por AUDIT_LOG (Opción 4.2): si ya existe alerta `fianza_pendiente_t7d` posterior al último cambio de `fianza_status`, no se inserta nueva alerta |
+| Fallo de una transición dentro del lote | Rollback individual; las demás candidatas del mismo pase continúan sin afectarse |
 
 ---
 

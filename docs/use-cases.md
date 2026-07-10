@@ -1518,26 +1518,40 @@ flowchart TD
 |-------|-------------|
 | **ID** | UC-28 |
 | **Nombre** | Archivar Reserva |
-| **Actor Principal** | Sistema / Gestor |
+| **Actor Principal** | Sistema (flujo básico automático, US-037) / Gestor (flujo alternativo manual, US-038) |
 | **Actores Secundarios** | - |
-| **Descripción** | La reserva pasa al histórico consultable, quedando en estado terminal |
-| **Precondiciones** | - Reserva en estado post_evento<br>- No hay acciones pendientes (fianza resuelta) |
-| **Postcondiciones** | - Estado cambia a reserva_completada<br>- Reserva indexada para búsqueda<br>- Reserva accesible en histórico |
+| **Descripción** | La reserva pasa al histórico consultable, quedando en estado terminal `reserva_completada` (inmutable). Hay dos mecanismos: el automático por barrido periódico en T+7d (US-037) y el manual por acción del gestor (US-038). |
+| **Precondiciones** | - Reserva en `estado = post_evento`<br>- Guarda de fianza resuelta: `fianza_status ∈ {devuelta, retenida_parcial}` O `fianza_eur <= 0` O `fianza_eur IS NULL`<br>- (Solo flujo automático) `date(fecha_post_evento) <= date(hoy) - 7` |
+| **Postcondiciones** | - `RESERVA.estado = reserva_completada` (terminal, sin arista de salida)<br>- `AUDIT_LOG` con `accion='transicion'`, `datos_nuevos={estado:reserva_completada, causa:'T+7d'}`, `usuario_id` nulo (Sistema)<br>- Reserva visible y filtrable en el módulo Histórico (UC-32); excluida del pipeline activo (`GET /reservas`)<br>- No se envía ningún email al cliente ni al gestor |
 | **Prioridad** | Media |
 | **Frecuencia** | Media |
+| **US (flujo automático)** | US-037 |
+| **US (flujo manual)** | US-038 |
+| **Endpoint (flujo automático)** | `POST /cron/barrido-completadas` (`X-Cron-Token`, `CronTokenGuard`) — respuesta `200 BarridoCompletadasResponse { candidatas, archivadas, fianzaPendiente, fallos }` |
 
-**Flujo Básico (automático T+7d):**
-1. El sistema detecta que han pasado 7 días desde post_evento
-2. El sistema verifica que no hay acciones pendientes
-3. El sistema cambia estado a reserva_completada
-4. El sistema indexa la reserva para búsqueda full-text
-5. El sistema registra en audit log
+**Flujo Básico (automático T+7d — US-037):**
+1. El cron diario (`@nestjs/schedule`) invoca `POST /cron/barrido-completadas` con `X-Cron-Token`.
+2. El sistema selecciona candidatas cross-tenant: `estado = 'post_evento'` AND `date(fecha_post_evento) <= date(hoy) - 7`.
+3. Por cada candidata, en una transacción atómica bajo RLS del tenant (`SELECT … FOR UPDATE`): re-evalúa la guarda de origen y la guarda de fianza resuelta bajo el lock.
+4. Si la guarda de fianza se satisface: transiciona `RESERVA.estado → reserva_completada` y registra en `AUDIT_LOG` (origen Sistema, `causa='T+7d'`).
+5. El sistema devuelve el resumen del barrido (`candidatas`, `archivadas`, `fianzaPendiente`, `fallos`).
 
-**Flujo Alternativo (manual):**
-1. El gestor abre la ficha de reserva en post_evento
-2. El gestor selecciona "Archivar reserva"
-3. El sistema verifica que no hay acciones pendientes
-4. Continúa desde paso 3 del flujo automático
+**Flujo Alternativo A (fianza pendiente en T+7d — FA-01):**
+1. La guarda de fianza no se satisface (`fianza_status = cobrada` con `fianza_eur > 0`, sin devolución registrada).
+2. El sistema no transiciona la RESERVA (permanece en `post_evento`).
+3. El sistema registra una alerta en `AUDIT_LOG` (`datos_nuevos.tipo='fianza_pendiente_t7d'`, `usuario_id` nulo), con anti-duplicación: no se duplica la alerta mientras el estado de fianza no cambie (Opción 4.2 del gate).
+4. La candidata se contabiliza como `fianzaPendiente` en el resumen del barrido.
+
+**Flujo Alternativo B (manual — US-038):**
+1. El gestor abre la ficha de reserva en `post_evento`.
+2. El gestor selecciona "Archivar reserva".
+3. El sistema verifica que se cumple la guarda de fianza resuelta.
+4. En una transacción atómica (`SELECT … FOR UPDATE`): transiciona `RESERVA.estado → reserva_completada` y registra en `AUDIT_LOG` (origen Usuario, `usuario_id` del gestor).
+
+**Notas de alcance (US-037):**
+- La "indexación" de la reserva en Histórico es **visibilidad y filtrabilidad** por estado terminal, no un índice full-text técnico (decisión D-5: índice full-text/TSVECTOR fuera de alcance de este change).
+- La construcción del módulo Histórico (UC-32) y su UI de consulta/filtrado son responsabilidad de otra US.
+- Sin email al cliente ni al gestor en el happy path.
 
 ---
 

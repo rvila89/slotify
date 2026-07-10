@@ -172,6 +172,7 @@ erDiagram
         timestamp fianza_devuelta_fecha
         decimal fianza_devuelta_eur
         text motivo_retencion "nullable — motivo retención parcial/total (US-036)"
+        timestamp fecha_post_evento "nullable — momento de entrada a post_evento; usado por barrido T+7d (US-037)"
         boolean cond_part_firmadas
         timestamp cond_part_enviadas_fecha
         timestamp cond_part_firmadas_fecha
@@ -505,6 +506,7 @@ Entidad central única. Recorre toda la máquina de estados, desde los sub-estad
 | fianza_devuelta_fecha | TIMESTAMP | Fecha de devolución de fianza. Persiste la fecha registrada por el gestor en US-036 |
 | fianza_devuelta_eur | DECIMAL(10,2) | Importe devuelto (parcial por desperfectos). En devolución completa coincide con `fianza_eur`; en parcial o retención total puede ser menor (incluyendo 0) |
 | motivo_retencion | TEXT | Motivo de la retención parcial o total de la fianza. Obligatorio cuando `fianza_devuelta_eur < fianza_eur` o cuando es 0. `NULL` en devolución completa. Añadido en US-036 (migración `20260710120000_us036_reserva_motivo_retencion`). |
+| fecha_post_evento | TIMESTAMPTZ | Timestamp del momento exacto de entrada al estado `post_evento`. Poblado por US-034 en la transición `evento_en_curso → post_evento`. Inmutable. Usado por el barrido US-037 para calcular T+7d de forma fiable (inmune a `@updatedAt`). Nullable en RESERVA previas a la migración `20260710130000_us037_reserva_fecha_post_evento`. |
 | cond_part_firmadas | BOOLEAN | Si las condiciones particulares están firmadas |
 | cond_part_enviadas_fecha | TIMESTAMP | Envío de condiciones particulares |
 | cond_part_firmadas_fecha | TIMESTAMP | Firma de condiciones particulares |
@@ -890,6 +892,7 @@ Registro de auditoría de todas las acciones sobre reservas, facturas y autentic
 | `UNIQUE(tenant_id, numero_factura)` en FACTURA | Numeración fiscal secuencial por tenant (US-022 §D-3, D-7): sustituye el `@unique` global sobre `numero_factura`. Permite que dos tenants distintos tengan `F-2026-0001`; garantiza unicidad dentro del mismo tenant. El año va embebido en el literal `F-YYYY-NNNN`. Ante colisión `P2002`, la aplicación recalcula el siguiente número y reintenta (nunca locks distribuidos). |
 | `UNIQUE(reserva_id, tipo)` en FACTURA | Idempotencia de factura por tipo y reserva (US-022 §D-4): red de seguridad ante disparos concurrentes del trigger post-commit de US-021. Garantiza máximo una factura de señal, una de liquidación, una de fianza y una complementaria por reserva. Ante `P2002`, el use-case devuelve la existente sin duplicar. |
 | `@@index([tenantId])` en PAGO | Filtrado RLS directo por `tenant_id` en PAGO (US-029 D-1). La policy RLS filtra por `PAGO.tenant_id` directo, sin join a FACTURA. Migración `20260704150000_us029_pago_tenant_id`. |
+| `@@index([estado, fechaPostEvento])` en RESERVA | Selección eficiente de candidatas al barrido de archivado automático (US-037): filtra por `estado = 'post_evento'` y compara `fecha_post_evento` con el umbral T+7d (`date(fecha_post_evento) <= date(hoy) - 7`). Migración aditiva `20260710130000_us037_reserva_fecha_post_evento`. |
 | `@@index([facturaId])` en PAGO | Búsqueda de pagos por factura (US-029). Soporta la relación FACTURA 1-N PAGO (sin `UNIQUE`, previendo cobros parciales futuros). Migración `20260704150000_us029_pago_tenant_id`. |
 
 ---
@@ -967,6 +970,23 @@ Sin migración de esquema: `estado`, `fianza_eur`, `fianza_status`, `COMUNICACIO
 
 **Fuera de alcance MVP (📐):** envío real de la NPS a T+3d (recordatorios automáticos extendidos); A23 (T+3d recordatorio IBAN); A24 (T+7d segundo recordatorio IBAN); factura complementaria post-evento (RESERVA_EXTRA con `factura_id IS NULL` quedan pendientes); reenvío de E5 desde la ficha (→ US futura). Fuente: `design.md §D-1..D-9`; `specs/consultas/spec.md`; `specs/comunicaciones/spec.md`; UC-25; US-034.
 
+**Transición `post_evento → reserva_completada` — archivado automático en T+7d (US-037 / UC-28, actor Sistema):**
+
+La transición `post_evento → reserva_completada` es **terminal e inmutable**: `reserva_completada` no tiene arista de salida en la máquina de estados. Se modela en `maquina-estados.ts` como tabla declarativa `MAPA_ARCHIVADO_AUTOMATICO` (arista `post_evento → reserva_completada`) y guarda pura `fianzaResuelta()`, sin `if` dispersos (mismo patrón que `MAPA_FINALIZACION_EVENTO` de US-034 y `MAPA_INICIO_EVENTO` de US-031).
+
+El mecanismo de disparo es el barrido periódico `POST /cron/barrido-completadas` (`X-Cron-Token` + `CronTokenGuard`, endpoint dedicado, actor Sistema). El cron (`@nestjs/schedule`) lo invoca una vez al día. El barrido selecciona candidatas con `RESERVA.estado = 'post_evento'` AND `date(fecha_post_evento) <= date(hoy) - 7` y, por cada una, evalúa la **guarda de fianza resuelta** en una transacción atómica bajo RLS del tenant:
+
+- **Fianza resuelta** (`fianza_status ∈ {devuelta, retenida_parcial}` OR `fianza_eur <= 0` OR `fianza_eur IS NULL`): transiciona a `reserva_completada` + registra en `AUDIT_LOG` (`accion='transicion'`, `datos_anteriores={estado:post_evento}`, `datos_nuevos={estado:reserva_completada, causa:'T+7d'}`, `usuario_id` nulo — origen Sistema).
+- **Fianza no resuelta** (FA-01): no transiciona; registra alerta en `AUDIT_LOG` (`accion='actualizar'`, `datos_nuevos.tipo='fianza_pendiente_t7d'`) con anti-duplicación por idempotencia (Opción 4.2 aprobada en gate).
+
+La guarda de origen y la guarda de fianza se **re-evalúan bajo `SELECT … FOR UPDATE`** dentro de la transacción de cada RESERVA: garantiza idempotencia (N pases = 1 sola transición) y coordinación con el archivado manual US-038 (cron vs gestor: exactamente una UPDATE gana, la segunda observa 0 filas afectadas y termina como no-op sin error). El fallo de una transición no aborta ni revierte las demás (fallo aislado por RESERVA). Respuesta del barrido: `BarridoCompletadasResponse { candidatas, archivadas, fianzaPendiente, fallos }`.
+
+La RESERVA en `reserva_completada` queda visible y filtrable en el módulo Histórico (UC-32) y excluida del pipeline activo (`GET /reservas`, US-049, que excluye `reserva_completada`). Índice full-text / TSVECTOR fuera de alcance (decisión D-5). Sin entidades nuevas; requiere campo `fecha_post_evento` en RESERVA (migración `20260710130000_us037_reserva_fecha_post_evento`) poblado por US-034. Fuente: `design.md §D-1..D-8`; `specs/consultas/spec.md`; UC-28; US-034 (`fecha_post_evento`); US-036 (guarda de fianza).
+
+| Transición | Disparador | Actor | Guarda |
+|------------|-----------|-------|--------|
+| `post_evento → reserva_completada` (terminal) | Barrido automático T+7d (`POST /cron/barrido-completadas`) | Sistema | `date(fecha_post_evento) <= date(hoy) - 7` AND guarda fianza resuelta (`fianza_status ∈ {devuelta, retenida_parcial}` OR `fianza_eur <= 0` OR `fianza_eur IS NULL`); re-evaluado bajo `SELECT … FOR UPDATE` (idempotencia + coordinación con US-038) |
+
 ### 5.5 Documentos polimórficos
 Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de responsabilidad, condiciones particulares, justificantes de pago y PDFs de presupuestos/facturas. Los justificantes de pago se enlazan desde `PAGO.justificante_doc_id`. El estado de firma de las condiciones particulares vive como campos en la reserva; el documento firmado se almacena aquí con `tipo = condiciones_particulares`.
 
@@ -974,6 +994,8 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 `EXTRA` es el catálogo del tenant (precio de referencia actual). `RESERVA_EXTRA` es la línea facturable, con `precio_unitario` congelado en el momento de añadirla. Esto desacopla el extra del presupuesto: un extra puede añadirse en el presupuesto inicial o durante la fase pre-evento (campo `origen`). El campo `factura_id` indica en qué factura se cobra cada línea; las líneas sin facturar (`factura_id IS NULL`) se recogen al generar la factura de liquidación (T-1d) o, si la petición llega más tarde, en una factura `complementaria` en post-evento. Para extras fuera de catálogo (p. ej. un catering negociado), `extra_id` es nulo y se usa `concepto_libre` con precio manual. Este diseño cubre la casuística de peticiones de última hora sin entidades adicionales y alimenta el KPI de upsell (ticket medio).
 
 ---
+
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.4 (10/07/2026): refleja US-037 — Archivado Automático a `reserva_completada` en T+7d (UC-28): añade campo `fecha_post_evento TIMESTAMPTZ nullable` al bloque RESERVA del diagrama Mermaid y al diccionario §3.5 (migración aditiva `20260710130000_us037_reserva_fecha_post_evento`); añade índice `@@index([estado, fechaPostEvento])` en §4.1; amplía §5.4 con la descripción de la transición terminal `post_evento → reserva_completada` (barrido `POST /cron/barrido-completadas`, actor Sistema, guarda de fianza resuelta, idempotencia, concurrencia con US-038, alerta FA-01 en AUDIT_LOG, tabla de transición con guarda).*
 
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.3 (09/07/2026): refleja US-035 — Registrar IBAN de Devolución (UC-26 FA-01, UC-27 pasos 1–3): amplía §3.4 CLIENTE — enriquece `iban_devolucion` con la nota de US-035 (endpoint `PATCH /reservas/{id}/iban-devolucion`, body `{ iban }`, respuesta `200 { iban, avisoEmail }` / `409` / `422`, validación mod-97 en dominio antes de toda escritura, transacción UPDATE CLIENTE + AUDIT_LOG, disparo post-commit de E8 guardar-luego-enviar, excepción auditada D-3A al índice de idempotencia creando nueva COMUNICACION E8 por reenvío intencional, precondición dual `estado=post_evento AND fianza_eur>0`, fallo de E8 sin revertir IBAN); referencia a `data-model.md §3.4` para el flujo completo. Sin entidades, columnas ni índices nuevos.*
 
