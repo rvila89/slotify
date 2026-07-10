@@ -46,3 +46,11 @@ export {
   puedeFinalizarEvento,
   etiquetaDocumentacionPendiente,
 } from './lib/finalizarEvento';
+export { useRegistrarIbanDevolucion } from './api/useRegistrarIbanDevolucion';
+export type {
+  RegistrarIbanError,
+  RegistrarIbanDevolucionVars,
+} from './api/useRegistrarIbanDevolucion';
+export { IbanDevolucionCard } from './components/IbanDevolucionCard';
+export { puedeRegistrarIban, tieneFianza } from './lib/ibanDevolucion';
+export { esIbanValido, normalizarIban } from './lib/iban';

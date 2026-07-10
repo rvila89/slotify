@@ -1450,21 +1450,32 @@ flowchart TD
 | **ID** | UC-26 |
 | **Nombre** | Solicitar IBAN para Devolución de Fianza |
 | **Actor Principal** | Sistema |
-| **Actores Secundarios** | Cliente |
-| **Descripción** | El sistema solicita automáticamente al cliente su IBAN para proceder con la devolución de la fianza |
-| **Precondiciones** | - Reserva en estado post_evento<br>- fianza_eur > 0 |
-| **Postcondiciones** | - Email E5 enviado al cliente<br>- Recordatorios programados |
+| **Actores Secundarios** | Cliente, Gestor |
+| **Descripción** | El sistema solicita automáticamente al cliente su IBAN al entrar en `post_evento` con fianza cobrada (E5, US-034). El gestor registra el IBAN recibido del cliente en Slotify y el sistema confirma la recepción al cliente con E8 (US-035). |
+| **Precondiciones** | - Reserva en estado `post_evento`<br>- `fianza_eur > 0` |
+| **Postcondiciones** | - Email E5 enviado al cliente (US-034)<br>- `CLIENTE.iban_devolucion` persistido con validación mod-97 (US-035)<br>- Email E8 enviado al cliente confirmando recepción del IBAN (US-035) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
+| **US** | US-034 (E5 al entrar en `post_evento`); US-035 (registro IBAN + E8) |
 
 **Flujo Básico:**
-1. Al entrar en post_evento, el sistema detecta fianza cobrada
-2. El sistema envía email E5: "El evento ha finalizado. Para devolverte la fianza, indícanos tu IBAN."
-3. El sistema programa recordatorio a T+3d si no hay respuesta
-4. El sistema programa segundo recordatorio a T+7d si sigue sin respuesta
+1. Al entrar en `post_evento`, el sistema detecta `fianza_eur > 0`
+2. El sistema envía email E5 (agradecimiento + solicitud de IBAN) al cliente vía el motor de `comunicaciones` (US-034)
+3. El cliente responde al gestor con su IBAN (por email u otra vía directa; en MVP no hay formulario web autónomo)
+4. El gestor introduce el IBAN recibido en la ficha de la reserva (campo IBAN, visible solo si `fianza_eur > 0`)
+5. El frontend llama a `PATCH /reservas/{id}/iban-devolucion` con body `{ iban }` (JWT de usuario; D-5A)
+6. El backend valida el IBAN por **checksum módulo 97** (función pura de dominio, antes de toda escritura); si es inválido devuelve `422` sin efectos
+7. El backend valida la precondición dual (`estado = post_evento` AND `fianza_eur > 0`); si no se cumple devuelve `409` (`estado_no_post_evento` o `sin_fianza`) sin efectos
+8. **Paso transaccional:** `UPDATE CLIENTE.iban_devolucion` + `INSERT AUDIT_LOG` (`accion='actualizar'`, `entidad='CLIENTE'`, `datos_anteriores={iban_devolucion:<previo o null>}`, `datos_nuevos={iban_devolucion:<nuevo>}`). Commit.
+9. **Paso post-commit (best-effort):** el motor de `comunicaciones` (US-045) despacha el email **E8** (confirmación de recepción del IBAN + próximos pasos para la devolución) al `CLIENTE.email`; crea `COMUNICACION` con `codigo_email='E8'`, `estado='enviado'` (o `'fallido'` si el proveedor falla); el fallo de E8 **no revierte** el IBAN ya guardado
+10. El sistema responde `200` con `{ iban, avisoEmail }` (D-5A): `avisoEmail` indica si E8 se envió o falló
 
 **Flujos Alternativos:**
-- **FA-01**: Cliente proporciona IBAN → UC-27
+- **FA-01 (IBAN inválido):** checksum mod-97 falla → `422`; `CLIENTE.iban_devolucion` no se actualiza; E8 no se envía. Mensaje: "El IBAN introducido no tiene un formato válido. Verifica los dígitos de control y la longitud."
+- **FA-02 (corrección del IBAN):** el gestor registra un IBAN corregido → `CLIENTE.iban_devolucion` se sobreescribe; se crea una **nueva** `COMUNICACION` E8 (excepción explícita y auditada a la idempotencia D-3A, coherente con el precedente del reenvío de E4 en US-028)
+- **FA-03 (fallo de E8):** IBAN guardado, `COMUNICACION.estado='fallido'`; el gestor ve alerta "IBAN guardado, pero E8 no pudo enviarse. Puedes reenviarlo desde la ficha."
+- **FA-04 (sin fianza):** `fianza_eur = 0` o `IS NULL` → `409 sin_fianza`; la UI oculta/deshabilita el campo IBAN
+- **📐 Fuera de MVP:** recordatorios automáticos A23 (T+3d) y A24 (T+7d) si el cliente no aporta IBAN; formulario web autónomo del cliente para aportar IBAN; validación bancaria en tiempo real
 
 ---
 
@@ -1476,30 +1487,28 @@ flowchart TD
 | **Nombre** | Procesar Devolución de Fianza |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor procesa la devolución de la fianza al cliente tras recibir el IBAN |
-| **Precondiciones** | - Reserva en estado post_evento<br>- `iban_devolucion` registrado |
-| **Postcondiciones** | - `fianza_devuelta_fecha` registrada<br>- `fianza_devuelta_eur` registrado<br>- Justificante de transferencia almacenado |
+| **Descripción** | El gestor registra el IBAN del cliente en Slotify (pasos 1–3, implementado en **US-035**) y posteriormente procesa la devolución efectiva de la fianza (pasos 4–8, implementado en **US-036**). |
+| **Precondiciones** | - Reserva en estado `post_evento`<br>- `fianza_eur > 0`<br>- `CLIENTE.iban_devolucion` registrado (para los pasos de devolución) |
+| **Postcondiciones** | - `CLIENTE.iban_devolucion` persistido con validación mod-97 + E8 confirmado al cliente (US-035)<br>- `fianza_devuelta_fecha` registrada (US-036)<br>- `fianza_devuelta_eur` registrado (US-036)<br>- Justificante de transferencia almacenado (US-036) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
+| **US** | US-035 (pasos 1–3: registro IBAN + E8); US-036 (pasos 4–8: devolución completa o parcial) |
 
 **Flujo Básico (devolución completa):**
-1. El cliente proporciona IBAN (email, formulario)
-2. El sistema registra `iban_devolucion`
-3. El sistema alerta al gestor
+1. El cliente proporciona IBAN al gestor (email u otra vía directa)
+2. El gestor introduce el IBAN en la ficha de la reserva en Slotify
+3. El sistema valida el IBAN (mod-97), lo persiste en `CLIENTE.iban_devolucion` y envía E8 al cliente confirmando recepción (`PATCH /reservas/{id}/iban-devolucion`, body `{ iban }`, respuesta `200 { iban, avisoEmail }`) — **implementado en US-035**
 4. El gestor realiza la transferencia externamente
 5. El gestor accede a la ficha de reserva
 6. El gestor selecciona "Registrar devolución de fianza"
 7. El gestor introduce:
    - Importe devuelto = fianza_eur
    - Justificante de transferencia
-8. El sistema registra:
-   - `fianza_devuelta_fecha`
-   - `fianza_devuelta_eur`
-9. El sistema registra en audit log
+8. El sistema registra `fianza_devuelta_fecha` y `fianza_devuelta_eur` y registra en `AUDIT_LOG` — **implementado en US-036**
 
 **Flujos Alternativos:**
-- **FA-01**: Devolución parcial por desperfectos → Gestor indica importe menor + motivo
-- **FA-02**: IBAN erróneo → Gestor marca como inválido, sistema solicita nuevo IBAN
+- **FA-01**: Devolución parcial por desperfectos → Gestor indica importe menor + motivo (US-036)
+- **FA-02**: IBAN erróneo → Gestor corrige el IBAN en la ficha; el sistema sobreescribe `CLIENTE.iban_devolucion` y reenvía E8 como nueva `COMUNICACION` (excepción auditada D-3A, US-035 FA-02)
 
 ---
 

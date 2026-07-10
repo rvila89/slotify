@@ -127,6 +127,17 @@ import { UnidadDeTrabajoFinalizacionPrismaAdapter } from './infrastructure/final
 import { DispararE5Adapter } from './infrastructure/disparar-e5.adapter';
 import { DocumentacionEventoStubAdapter } from './infrastructure/documentacion-evento.stub.adapter';
 import { FinalizarEventoController } from './interface/finalizar-evento.controller';
+import {
+  RegistrarIbanDevolucionUseCase,
+  type DispararE8Port,
+  type RegistrarIbanDevolucionComando,
+  type ReservaIbanDevolucion,
+  type UnidadDeTrabajoIbanDevolucionPort,
+} from './application/registrar-iban-devolucion.use-case';
+import { CargarReservaIbanDevolucionPrismaAdapter } from './infrastructure/cargar-reserva-iban-devolucion.prisma.adapter';
+import { RegistrarIbanDevolucionUoWPrismaAdapter } from './infrastructure/registrar-iban-devolucion-uow.prisma.adapter';
+import { DispararE8Adapter } from './infrastructure/disparar-e8.adapter';
+import { RegistrarIbanDevolucionController } from './interface/registrar-iban-devolucion.controller';
 import { CronTokenGuard } from '../shared/auth/cron-token.guard';
 import { ReservaDetalleQueryPrismaAdapter } from './infrastructure/reserva-detalle-query.prisma.adapter';
 import {
@@ -179,6 +190,9 @@ import {
   UNIDAD_DE_TRABAJO_FINALIZACION_PORT,
   DISPARAR_E5_PORT,
   DOCUMENTACION_EVENTO_PORT,
+  CARGAR_RESERVA_IBAN_DEVOLUCION_PORT,
+  UNIDAD_DE_TRABAJO_IBAN_DEVOLUCION_PORT,
+  DISPARAR_E8_PORT,
 } from './reservas.tokens';
 
 @Module({
@@ -202,6 +216,7 @@ import {
     BarridoEventosController,
     PromoverManualController,
     FinalizarEventoController,
+    RegistrarIbanDevolucionController,
   ],
   providers: [
     {
@@ -634,6 +649,49 @@ import {
           documentacion,
         }),
     },
+    // US-035 — registro del IBAN de devolución (post_evento + fianza > 0 →
+    // CLIENTE.iban_devolucion + E8). Validación mod-97 (dominio) previa a la escritura; el
+    // UPDATE CLIENTE + AUDIT_LOG (entidad CLIENTE, origen Usuario) van en una transacción
+    // bajo RLS; el disparo de E8 es POST-COMMIT best-effort reusando el motor de
+    // comunicaciones (US-045) con reenvío D-3A (nueva COMUNICACION E8 por cada corrección).
+    {
+      provide: CARGAR_RESERVA_IBAN_DEVOLUCION_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CargarReservaIbanDevolucionPrismaAdapter(prisma),
+    },
+    {
+      provide: UNIDAD_DE_TRABAJO_IBAN_DEVOLUCION_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new RegistrarIbanDevolucionUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: DISPARAR_E8_PORT,
+      inject: [DespacharEmailService, PrismaService],
+      useFactory: (motor: DespacharEmailService, prisma: PrismaService) =>
+        new DispararE8Adapter(motor, prisma),
+    },
+    {
+      provide: RegistrarIbanDevolucionUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_IBAN_DEVOLUCION_PORT,
+        CARGAR_RESERVA_IBAN_DEVOLUCION_PORT,
+        DISPARAR_E8_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoIbanDevolucionPort,
+        cargador: CargarReservaIbanDevolucionPrismaAdapter,
+        dispararE8: DispararE8Port,
+      ) =>
+        new RegistrarIbanDevolucionUseCase({
+          unidadDeTrabajo,
+          cargarReserva: (
+            comando: RegistrarIbanDevolucionComando,
+          ): Promise<ReservaIbanDevolucion | null> => cargador.cargar(comando),
+          dispararE8,
+        }),
+    },
     CronTokenGuard,
     BarridoExpiracionScheduler,
     BarridoEventosScheduler,
@@ -656,6 +714,7 @@ import {
     PromoverManualEnColaService,
     IniciarEventosDelDiaService,
     FinalizarEventoUseCase,
+    RegistrarIbanDevolucionUseCase,
   ],
 })
 export class ReservasModule {}

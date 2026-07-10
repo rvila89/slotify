@@ -93,3 +93,12 @@ export const UNIDAD_DE_TRABAJO_FINALIZACION_PORT = Symbol(
 );
 export const DISPARAR_E5_PORT = Symbol('DispararE5Port');
 export const DOCUMENTACION_EVENTO_PORT = Symbol('DocumentacionEventoPort');
+
+// US-035 — registro del IBAN de devolución (post_evento + fianza > 0 → CLIENTE.iban_devolucion + E8)
+export const CARGAR_RESERVA_IBAN_DEVOLUCION_PORT = Symbol(
+  'CargarReservaIbanDevolucionPort',
+);
+export const UNIDAD_DE_TRABAJO_IBAN_DEVOLUCION_PORT = Symbol(
+  'UnidadDeTrabajoIbanDevolucionPort',
+);
+export const DISPARAR_E8_PORT = Symbol('DispararE8Port');

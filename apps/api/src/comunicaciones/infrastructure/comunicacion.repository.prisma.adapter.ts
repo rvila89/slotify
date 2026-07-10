@@ -99,6 +99,10 @@ export class ComunicacionRepositoryPrismaAdapter
             destinatarioEmail: params.destinatarioEmail,
             estado: params.estado as EstadoComunicacionPrisma,
             fechaEnvio: params.fechaEnvio,
+            // US-028 D-4 / US-035 D-3A: los reenvíos manuales quedan FUERA del índice
+            // UNIQUE parcial (`es_reenvio = true`), permitiendo múltiples filas del
+            // mismo (reserva, código) como excepción auditada a la idempotencia.
+            esReenvio: params.esReenvio ?? false,
           },
           select: SELECCION,
         });

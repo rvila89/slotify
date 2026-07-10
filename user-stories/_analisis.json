@@ -1,7 +1,7 @@
 {
   "meta": {
     "proyecto": "Slotify MVP",
-    "generado": "2026-07-06T00:00:00+00:00",
+    "generado": "2026-07-07T16:43:55+00:00",
     "total_historias": 50
   },
   "grafo": {
@@ -11,7 +11,7 @@
     ],
     "dependencias_rotas": [],
     "contradicciones": [],
-    "profundidad_max": 22,
+    "profundidad_max": 21,
     "anomalias_extraccion": []
   },
   "historias": [
@@ -21,7 +21,7 @@
       "area": "**Infraestructura / Fundación técnica** (prerequisito transversal a las 12 áreas funcionales)",
       "prioridad": "**Crítica** — ninguna otra historia puede iniciarse sin este scaffolding",
       "depende_de": [],
-      "fan_out": 44,
+      "fan_out": 46,
       "concurrencia_critica": true,
       "integraciones": [
         "email"
@@ -39,7 +39,7 @@
       "depende_de": [
         "US-000"
       ],
-      "fan_out": 43,
+      "fan_out": 45,
       "concurrencia_critica": false,
       "integraciones": [
         "email"
@@ -57,7 +57,7 @@
       "depende_de": [
         "US-000A"
       ],
-      "fan_out": 41,
+      "fan_out": 43,
       "concurrencia_critica": false,
       "integraciones": [
         "email"
@@ -93,7 +93,7 @@
       "depende_de": [
         "US-001"
       ],
-      "fan_out": 37,
+      "fan_out": 39,
       "concurrencia_critica": false,
       "integraciones": [
         "email"
@@ -1000,7 +1000,7 @@
     },
     {
       "id": "US-049",
-      "titulo": "Implementar endpoint GET /reservas del pipeline",
+      "titulo": "Implementar Endpoint GET /reservas del Pipeline",
       "area": "Gestión del Pipeline de Reservas",
       "prioridad": "Alta",
       "depende_de": [
@@ -1010,7 +1010,7 @@
       "fan_out": 1,
       "concurrencia_critica": true,
       "integraciones": [],
-      "num_edge_cases": 6,
+      "num_edge_cases": 4,
       "dolores": [
         "D2",
         "D7"
@@ -1022,8 +1022,8 @@
       "area": "Gestión del Pipeline de Reservas",
       "prioridad": "Alta",
       "depende_de": [
-        "US-049",
-        "US-001"
+        "US-001",
+        "US-049"
       ],
       "fan_out": 0,
       "concurrencia_critica": false,

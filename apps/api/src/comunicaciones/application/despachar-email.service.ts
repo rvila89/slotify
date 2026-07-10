@@ -273,6 +273,119 @@ export class DespacharEmailService {
   }
 
   /**
+   * REENVÍO manual e intencionado del Gestor (US-035 D-3A / US-028 D-4): despacha el
+   * email SALTÁNDOSE la idempotencia `(reserva_id, codigo_email)` de US-045, creando
+   * SIEMPRE una fila COMUNICACION NUEVA marcada `es_reenvio = true` (fuera del índice
+   * UNIQUE parcial). Es la excepción AUDITADA a la idempotencia: no consulta la
+   * comunicación existente ni la reutiliza; cada llamada es una confirmación nueva al
+   * cliente (p. ej. cada corrección del IBAN dispara su propio E8).
+   *
+   * REUTILIZA el resto del motor (selección de plantilla con fallback, validación de
+   * variables/adjuntos y el ÚNICO camino de envío/finalización `enviarYFinalizar`), de
+   * modo que el resultado (`enviado`/`fallido`) y su AUDIT_LOG son idénticos al del
+   * despacho normal. Best-effort: un fallo del proveedor deja la fila en `fallido` SIN
+   * propagar la excepción al llamador (el efecto persistido —p. ej. el IBAN— ya commiteó).
+   */
+  async despacharReenvio(
+    comando: DespacharEmailComando,
+  ): Promise<DespacharEmailResultado> {
+    const { tenantId, codigoEmail, reserva, cliente } = comando;
+
+    // 1. Resolver idioma (mismo criterio que `despachar`): comando → TENANT_SETTINGS → `es`.
+    const idiomaPreferido =
+      comando.idioma ??
+      (await this.deps.tenantSettings.obtenerIdioma(tenantId)) ??
+      IDIOMA_DEFECTO;
+
+    // 2. Seleccionar plantilla con fallback a `es` (+ auditoría del fallback). SIN el
+    //    chequeo de idempotencia previo: el reenvío SIEMPRE crea fila nueva.
+    let idiomaUsado = idiomaPreferido;
+    let plantilla = this.deps.catalogo.seleccionar(codigoEmail, idiomaPreferido);
+    if (plantilla === null && idiomaPreferido !== IDIOMA_DEFECTO) {
+      plantilla = this.deps.catalogo.seleccionar(codigoEmail, IDIOMA_DEFECTO);
+      idiomaUsado = IDIOMA_DEFECTO;
+      await this.auditar(comando, {
+        motivo: 'fallback_idioma',
+        idiomaTenant: idiomaPreferido,
+        idiomaUsado: IDIOMA_DEFECTO,
+        codigoEmail,
+      });
+    }
+    if (plantilla === null) {
+      await this.auditar(comando, {
+        motivo: 'plantilla_no_encontrada',
+        idiomaTenant: idiomaPreferido,
+        codigoEmail,
+      });
+      return { comunicacion: null, motivo: 'plantilla_no_encontrada' };
+    }
+
+    const variables = this.construirVariables(comando);
+    const render = plantilla.render(variables);
+
+    // 3. Validar variables requeridas: una nula impide el envío malformado.
+    const variableFaltante = plantilla.variablesRequeridas.find((clave) => {
+      const valor = variables[clave];
+      return valor === null || valor === undefined || valor === '';
+    });
+    if (variableFaltante !== undefined) {
+      await this.auditar(comando, {
+        motivo: 'variable_nula',
+        campoFaltante: variableFaltante,
+        codigoEmail,
+      });
+      return { comunicacion: null, motivo: 'variable_nula' };
+    }
+
+    // 4. Validar adjuntos requeridos.
+    for (const clave of plantilla.adjuntosRequeridos) {
+      const adjunto = (comando.adjuntos ?? []).find((a) => a.clave === clave);
+      if (adjunto === undefined || adjunto.pdfUrl === null) {
+        await this.auditar(comando, {
+          motivo: 'adjunto_no_disponible',
+          adjuntoFaltante: clave,
+          codigoEmail,
+        });
+        return { comunicacion: null, motivo: 'adjunto_no_disponible' };
+      }
+    }
+
+    // 5. Crear SIEMPRE una fila NUEVA marcada `esReenvio` (excepción a la idempotencia,
+    //    D-3A): al estar fuera del índice UNIQUE parcial no colisiona con la fila previa.
+    const comunicacion = await this.deps.comunicaciones.crear({
+      tenantId,
+      reservaId: reserva.idReserva,
+      clienteId: cliente.idCliente,
+      codigoEmail,
+      asunto: render.asunto,
+      cuerpo: render.cuerpoHtml,
+      destinatarioEmail: cliente.email as string,
+      estado: 'borrador',
+      fechaEnvio: null,
+      esReenvio: true,
+    });
+
+    // 6. Enviar y finalizar el estado por el MISMO camino que el despacho normal.
+    const { estado, fechaEnvio } = await this.enviarYFinalizar({
+      tenantId,
+      reservaId: reserva.idReserva,
+      idComunicacion: comunicacion.idComunicacion,
+      codigoEmail,
+      comandoEnvio: this.construirComandoEnvio(comando, render, idiomaUsado, variables),
+    });
+    const finalizada = await this.deps.comunicaciones.actualizarEstado({
+      tenantId,
+      idComunicacion: comunicacion.idComunicacion,
+      estado,
+      fechaEnvio,
+    });
+    return {
+      comunicacion: finalizada,
+      motivo: estado === 'enviado' ? 'enviado' : 'fallido',
+    };
+  }
+
+  /**
    * FINALIZA (post-commit) una COMUNICACION ya creada en estado NO final por un
    * trigger externo (p. ej. el alta de consulta crea la fila E1 en `borrador` DENTRO
    * de su transacción para preservar la atomicidad US-003, y delega aquí el envío).

@@ -2133,6 +2133,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/iban-devolucion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Registrar IBAN de devolución de fianza y confirmar recepción (UC-26/UC-27 / US-035)
+         * @description [US-035] El **Gestor** (JWT de usuario, rol gestor, RLS del tenant del JWT — NUNCA
+         *     `X-Cron-Token`: es acción manual) registra el **IBAN de devolución** que el cliente le
+         *     proporcionó, sobre una RESERVA concreta. La acción solo está disponible cuando
+         *     `RESERVA.estado='post_evento'` **Y** `RESERVA.fianzaEur > 0`; en cualquier otra combinación
+         *     se rechaza con **409** (FA-04). El efecto persistido recae en **`CLIENTE.iban_devolucion`**
+         *     (atributo del cliente, disponible para futuras reservas del mismo cliente — design.md §D-1),
+         *     no en la RESERVA.
+         *
+         *     Realiza **dos operaciones separadas** (patrón "guardar-luego-enviar", design.md §D-2):
+         *
+         *     1. **Validación previa + paso transaccional**: valida el IBAN con el algoritmo de
+         *        **checksum módulo 97** (ISO 13616: longitud por país, prefijo de país, dígitos de
+         *        control) **ANTES** de cualquier escritura. Si el IBAN es inválido responde **422** sin
+         *        tocar BD ni enviar E8 (FA-01). Si es válido, actualiza `CLIENTE.iban_devolucion`
+         *        (sobreescribiendo el valor previo en correcciones, FA-02) y escribe `AUDIT_LOG`
+         *        `accion='actualizar'`, `entidad='CLIENTE'`,
+         *        `datos_anteriores={iban_devolucion: <previo o null>}`,
+         *        `datos_nuevos={iban_devolucion: <nuevo>}`. Commit.
+         *     2. **Paso post-commit (best-effort)**: invoca el motor de email de `comunicaciones`
+         *        (US-045) con el trigger **E8** hacia `CLIENTE.email` (**nunca** al gestor), creando una
+         *        **nueva** COMUNICACION (`codigoEmail='E8'`, `reserva_id`, `cliente_id`, `tenant_id`) —
+         *        cada registro/corrección crea una fila nueva como excepción auditada a la idempotencia
+         *        `(reserva_id, codigoEmail)` (D-3A, simétrico al reenvío de E4/US-028). Si el proveedor
+         *        falla, el IBAN **permanece guardado** (no se revierte), `COMUNICACION.estado='fallido'` y
+         *        la respuesta 200 incluye `avisoEmail` para que la UI muestre la alerta y ofrezca reenvío
+         *        (FA-03). El reintento se apoya en el mecanismo de reintento del motor de `comunicaciones`.
+         */
+        patch: operations["registrarIbanDevolucion"];
+        trace?: never;
+    };
     "/calendario": {
         parameters: {
             query?: never;
@@ -3853,6 +3901,48 @@ export interface components {
              */
             code: "transicion_no_permitida";
         };
+        RegistrarIbanDevolucionRequest: {
+            /**
+             * @description IBAN a registrar (se normaliza en servidor: mayúsculas, sin espacios). Se valida por checksum módulo 97 antes de persistir; un IBAN que no supere mod-97 devuelve 422 (FA-01).
+             * @example ES9121000418450200051332
+             */
+            iban: string;
+        };
+        RegistrarIbanDevolucionAvisoEmail: {
+            /**
+             * @description Discriminador del aviso: el envío de E8 falló en el proveedor (IBAN sí guardado).
+             * @example e8_fallido
+             * @enum {string}
+             */
+            codigo: "e8_fallido";
+            /**
+             * @description Mensaje para mostrar al gestor.
+             * @example IBAN guardado, pero E8 no pudo enviarse. Puedes reenviarlo desde la ficha.
+             */
+            mensaje: string;
+            /**
+             * Format: uuid
+             * @description ID de la COMUNICACION E8 en `estado='fallido'`, para el reenvío desde la ficha.
+             */
+            comunicacionId?: string | null;
+        };
+        RegistrarIbanDevolucionResponse: {
+            /**
+             * @description IBAN normalizado (mayúsculas, sin espacios) persistido en `CLIENTE.iban_devolucion`.
+             * @example ES9121000418450200051332
+             */
+            iban: string;
+            /** @description Aviso de FA-03: nulo cuando E8 se envió correctamente; presente cuando el IBAN quedó guardado pero E8 falló (COMUNICACION.estado='fallido'). */
+            avisoEmail: components["schemas"]["RegistrarIbanDevolucionAvisoEmail"] | null;
+        };
+        RegistrarIbanDevolucionConflictError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Discriminador del 409: `estado_no_post_evento` = la RESERVA no está en `post_evento`; `sin_fianza` = `fianzaEur <= 0` o `null` (no hay fianza que devolver, FA-04).
+             * @example sin_fianza
+             * @enum {string}
+             */
+            code: "estado_no_post_evento" | "sin_fianza";
+        };
         /** @description Rango efectivo agregado por el backend (eco de los query params `desde`/`hasta`). */
         CalendarioRango: {
             /** Format: date */
@@ -5493,6 +5583,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FinalizarEventoConflictError"];
+                };
+            };
+        };
+    };
+    registrarIbanDevolucion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistrarIbanDevolucionRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description IBAN válido registrado en `CLIENTE.iban_devolucion`. Devuelve el IBAN guardado
+             *     (normalizado) más `avisoEmail`: nulo cuando E8 se envió correctamente; presente cuando
+             *     el IBAN quedó guardado pero E8 no pudo enviarse (FA-03), señalando el fallo sin revertir
+             *     el IBAN. Respuesta con cuerpo (no 204) precisamente para poder transmitir ese aviso.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrarIbanDevolucionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado/precondición (FA-04): la RESERVA `{id}` no está en `post_evento`
+             *     o no tiene fianza que devolver (`fianzaEur <= 0` o `null`). Sin efectos: no se actualiza
+             *     `CLIENTE.iban_devolucion` ni se envía E8.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrarIbanDevolucionConflictError"];
+                };
+            };
+            /**
+             * @description IBAN inválido (FA-01): no supera la validación de checksum módulo 97 (longitud por país,
+             *     prefijo de país o dígitos de control incorrectos). Sin efectos: no se actualiza
+             *     `CLIENTE.iban_devolucion` ni se envía E8.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
