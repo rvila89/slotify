@@ -281,6 +281,11 @@ model Reserva {
   preEventoStatus         PreEventoStatus    @default(pendiente) @map("pre_evento_status")
   liquidacionStatus       LiquidacionStatus  @default(pendiente) @map("liquidacion_status")
   fianzaStatus            FianzaStatus       @default(pendiente) @map("fianza_status")
+  // US-037 (D-2=A): timestamp de ENTRADA a `post_evento`, fuente de verdad del reloj T+7d del
+  // archivado automático. Nullable (migración no destructiva); se puebla en la MISMA transacción
+  // que fija `estado = post_evento` (US-034). Inmune a `@updatedAt` (a diferencia de
+  // `fechaActualizacion`). El residual pre-migración se backfillea desde AUDIT_LOG.
+  fechaPostEvento         DateTime?          @map("fecha_post_evento")
   posicionCola            Int?               @map("posicion_cola")
   consultaBloqueanteId    String?            @map("consulta_bloqueante_id")
   visitaProgramadaFecha   DateTime?          @map("visita_programada_fecha") @db.Date
@@ -313,6 +318,9 @@ model Reserva {
 
   @@index([tenantId, fechaEvento, estado])
   @@index([tenantId, consultaBloqueanteId, posicionCola])
+  // US-037 (D-2=A): índice de apoyo al filtro de candidatas del barrido de archivado
+  // (`estado = 'post_evento'` AND `fecha_post_evento <= hoy - 7d`). Selección cross-tenant.
+  @@index([estado, fechaPostEvento])
   // US-004 §D-8: índice UNIQUE PARCIAL `reserva_cola_posicion_key` sobre
   // (tenant_id, consulta_bloqueante_id, posicion_cola) WHERE posicion_cola IS NOT NULL,
   // creado por migración SQL cruda (Prisma no soporta índices parciales en el schema).

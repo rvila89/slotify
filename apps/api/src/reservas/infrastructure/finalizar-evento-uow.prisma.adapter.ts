@@ -64,7 +64,12 @@ class ReservaFinalizacionPrismaRepository {
         tenantId: params.tenantId,
         estado: params.estadoOrigen as EstadoReserva,
       },
-      data: { estado: params.estadoDestino as EstadoReserva },
+      // US-037 (D-2=A): sella `fecha_post_evento` con el instante de la transición, en la MISMA
+      // UPDATE que fija `estado = post_evento` (fuente de verdad del reloj T+7d del archivado).
+      data: {
+        estado: params.estadoDestino as EstadoReserva,
+        fechaPostEvento: params.fechaPostEvento,
+      },
     });
 
     return { filasAfectadas: count };

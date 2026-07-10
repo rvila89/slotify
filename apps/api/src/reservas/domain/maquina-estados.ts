@@ -910,3 +910,113 @@ export const resolverFinalizacionEvento = (
  */
 export const debeEnviarseE5 = (fianzaEur: number | null): boolean =>
   fianzaEur !== null && fianzaEur > 0;
+
+// ---------------------------------------------------------------------------
+// Transición de ARCHIVADO AUTOMÁTICO en T+7d (US-037 / UC-28 / §D-6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Destino resuelto del archivado automático: el `(estado, subEstado)` al que transiciona
+ * una RESERVA en `post_evento` (sub_estado NULL) cuando el barrido la archiva en T+7d con
+ * la fianza resuelta. Es el resultado puro de `resolverArchivadoAutomatico`; `null` (no
+ * representado aquí) indica que el origen NO es candidato (guarda de origen).
+ */
+export interface ResultadoArchivadoAutomatico {
+  estado: EstadoReserva;
+  subEstado: SubEstadoConsulta | null;
+}
+
+/**
+ * Entrada de la tabla declarativa del archivado automático: `origen` candidato →
+ * `destino`. Modela la transición como ESTRUCTURA DE DATOS (skill `state-machine`, NO
+ * condicionales dispersos), en paralelo estricto a `MAPA_FINALIZACION_EVENTO` (US-034) y
+ * `MAPA_INICIO_EVENTO` (US-031).
+ */
+interface TransicionArchivadoAutomatico {
+  origen: { estado: EstadoReserva; subEstado: SubEstadoConsulta | null };
+  destino: ResultadoArchivadoAutomatico;
+}
+
+/**
+ * Tabla declarativa `MAPA_ARCHIVADO_AUTOMATICO` (US-037, §D-6): mapea el ÚNICO origen
+ * candidato del archivado automático a su destino. Es la única fuente de verdad de qué se
+ * archiva y a dónde (no `if` dispersos):
+ *   { post_evento, null } → { reserva_completada, null }
+ *
+ * Guarda de ORIGEN ESTRICTA: solo `post_evento` con sub_estado NULL es candidato.
+ * TERMINALIDAD: `reserva_completada` es TERMINAL e INMUTABLE — NO existe NINGUNA arista de
+ * salida en la tabla (nunca aparece como `origen`), de modo que resolver desde
+ * `reserva_completada` devuelve `null` (base de la idempotencia bajo el lock: un segundo
+ * pase la ve ya `reserva_completada` y no muta). Cualquier otro estado principal
+ * (`consulta`/`pre_reserva`/`reserva_confirmada`/`evento_en_curso`/`reserva_cancelada`),
+ * los sub-estados de consulta y hasta un `post_evento` con un sub-estado espurio (dato
+ * inconsistente) NO son candidatos: `resolverArchivadoAutomatico` devuelve `null`. La
+ * guarda de fianza se evalúa aparte (`fianzaResuelta`). Al ser pura y re-evaluable, la
+ * guarda se invoca DENTRO de la transacción de cada RESERVA (base de la idempotencia y de
+ * la concurrencia cron↔US-038, RC-1/RC-2).
+ */
+export const MAPA_ARCHIVADO_AUTOMATICO: ReadonlyArray<TransicionArchivadoAutomatico> = [
+  {
+    origen: { estado: 'post_evento', subEstado: null },
+    destino: { estado: 'reserva_completada', subEstado: null },
+  },
+];
+
+/**
+ * Guarda + resolución declarativa del archivado automático (US-037, §D-6): función PURA
+ * que consulta `MAPA_ARCHIVADO_AUTOMATICO` y devuelve el destino (`reserva_completada`) del
+ * origen `(estado, subEstado)`, o `null` si NO es un origen candidato (terminal / conflicto
+ * de estado). Es la guarda de ORIGEN; se re-evalúa bajo el `SELECT … FOR UPDATE` de la fila
+ * RESERVA para garantizar la idempotencia y que la concurrencia cron↔gestor (US-038)
+ * termine con exactamente una transición ganadora (D-7) — sin locks distribuidos.
+ */
+export const resolverArchivadoAutomatico = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): ResultadoArchivadoAutomatico | null => {
+  const transicion = MAPA_ARCHIVADO_AUTOMATICO.find(
+    (t) => t.origen.estado === estado && t.origen.subEstado === subEstado,
+  );
+  return transicion ? transicion.destino : null;
+};
+
+// ---------------------------------------------------------------------------
+// Guarda PURA de la FIANZA RESUELTA del archivado automático (US-037 / §D-6)
+// ---------------------------------------------------------------------------
+
+/** Entrada de la guarda de fianza: el `fianza_status` y el importe de la RESERVA. */
+export interface EntradaFianzaResuelta {
+  fianzaStatus: FianzaStatusDominio;
+  fianzaEur: number | null;
+}
+
+/**
+ * Resultado de la guarda de fianza (US-037, §D-6): `resuelta = true` habilita el archivado;
+ * `pendiente = !resuelta` alimenta la alerta interna de FA-01 (fianza_pendiente_t7d) sin
+ * lógica dispersa. Ambos campos son complementarios por construcción.
+ */
+export interface ResultadoFianzaResuelta {
+  resuelta: boolean;
+  pendiente: boolean;
+}
+
+/**
+ * Guarda PURA de la fianza resuelta (US-037, §D-6): la fianza está RESUELTA si
+ * `fianzaStatus ∈ {devuelta, retenida_parcial}` O `fianzaEur <= 0` O `fianzaEur == null`.
+ * La AUSENCIA de fianza (`fianzaEur <= 0` o `null`) satisface la guarda con INDEPENDENCIA
+ * del `fianzaStatus` (no se evalúa). `retenida_parcial` (incluida la retención del 100 %
+ * con `fianza_devuelta_eur = 0`) es un estado resuelto: la guarda NO mira el importe
+ * devuelto. Un `fianzaEur` negativo (dato anómalo) colapsa a "sin fianza" → resuelta.
+ * Cuando la fianza NO está resuelta (`{cobrada, pendiente, recibo_enviado}` con
+ * `fianzaEur > 0`), devuelve `pendiente = true` para disparar FA-01. Función determinista
+ * y sin efectos (dominio puro).
+ */
+export const fianzaResuelta = (
+  entrada: EntradaFianzaResuelta,
+): ResultadoFianzaResuelta => {
+  const sinFianza = entrada.fianzaEur === null || entrada.fianzaEur <= 0;
+  const statusResolutivo =
+    entrada.fianzaStatus === 'devuelta' || entrada.fianzaStatus === 'retenida_parcial';
+  const resuelta = sinFianza || statusResolutivo;
+  return { resuelta, pendiente: !resuelta };
+};

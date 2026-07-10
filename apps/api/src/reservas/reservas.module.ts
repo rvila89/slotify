@@ -4,7 +4,7 @@
  * compone los servicios de dominio (puros) vía factory, inyectando los puertos por
  * token (Symbol).
  */
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from '../shared/prisma/prisma.module';
 import { PrismaService } from '../shared/prisma/prisma.service';
@@ -105,6 +105,8 @@ import { BarridoExpiracionController } from './interface/barrido-expiracion.cont
 import { BarridoExpiracionScheduler } from './interface/barrido-expiracion.scheduler';
 import { BarridoEventosController } from './interface/barrido-eventos.controller';
 import { BarridoEventosScheduler } from './interface/barrido-eventos.scheduler';
+import { BarridoCompletadasController } from './interface/barrido-completadas.controller';
+import { BarridoCompletadasScheduler } from './interface/barrido-completadas.scheduler';
 import {
   IniciarEventosDelDiaService,
   type AlertaInicioEventoPort,
@@ -114,6 +116,15 @@ import {
 import { CandidatasInicioEventoPrismaAdapter } from './infrastructure/candidatas-inicio-evento.prisma.adapter';
 import { InicioEventoUoWPrismaAdapter } from './infrastructure/inicio-evento-uow.prisma.adapter';
 import { AlertaInicioEventoAdapter } from './infrastructure/alerta-inicio-evento.adapter';
+import {
+  ArchivarReservasCompletadasService,
+  type AlertaFianzaPendientePort,
+  type ArchivadoPort,
+  type CandidatasArchivadoPort,
+} from './application/archivar-reservas-completadas.service';
+import { CandidatasArchivadoPrismaAdapter } from './infrastructure/candidatas-archivado.prisma.adapter';
+import { ArchivadoUoWPrismaAdapter } from './infrastructure/archivado-uow.prisma.adapter';
+import { AlertaFianzaPendientePrismaAdapter } from './infrastructure/alerta-fianza-pendiente.prisma.adapter';
 import {
   FinalizarEventoUseCase,
   type DispararE5Port,
@@ -193,6 +204,9 @@ import {
   CARGAR_RESERVA_IBAN_DEVOLUCION_PORT,
   UNIDAD_DE_TRABAJO_IBAN_DEVOLUCION_PORT,
   DISPARAR_E8_PORT,
+  CANDIDATAS_ARCHIVADO_PORT,
+  ARCHIVADO_PORT,
+  ALERTA_FIANZA_PENDIENTE_PORT,
 } from './reservas.tokens';
 
 @Module({
@@ -214,6 +228,7 @@ import {
     ListarReservasController,
     BarridoExpiracionController,
     BarridoEventosController,
+    BarridoCompletadasController,
     PromoverManualController,
     FinalizarEventoController,
     RegistrarIbanDevolucionController,
@@ -594,6 +609,50 @@ import {
         alerta: AlertaInicioEventoPort,
       ) => new IniciarEventosDelDiaService({ candidatas, inicio, alerta }),
     },
+    // US-037 — barrido de archivado automático en T+7d (cross-tenant read + UoW por
+    // RESERVA con SELECT … FOR UPDATE bajo RLS del tenant de la fila; alerta interna FA-01
+    // como entrada de AUDIT_LOG con anti-duplicación, desacoplada de la superficie de
+    // notificaciones US-044).
+    {
+      provide: CANDIDATAS_ARCHIVADO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CandidatasArchivadoPrismaAdapter(prisma),
+    },
+    {
+      provide: ARCHIVADO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) => new ArchivadoUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: ALERTA_FIANZA_PENDIENTE_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new AlertaFianzaPendientePrismaAdapter(prisma),
+    },
+    {
+      provide: ArchivarReservasCompletadasService,
+      inject: [
+        CANDIDATAS_ARCHIVADO_PORT,
+        ARCHIVADO_PORT,
+        ALERTA_FIANZA_PENDIENTE_PORT,
+      ],
+      useFactory: (
+        candidatas: CandidatasArchivadoPort,
+        archivado: ArchivadoPort,
+        alerta: AlertaFianzaPendientePort,
+      ) => {
+        // El fallo aislado por RESERVA se registra vía el Logger de Nest (observabilidad,
+        // en paralelo a los demás barridos); la aplicación solo conoce el puerto mínimo.
+        const logger = new Logger('BarridoArchivadoCompletadas');
+        return new ArchivarReservasCompletadasService({
+          candidatas,
+          archivado,
+          alerta,
+          logger: { error: (mensaje: string) => logger.error(mensaje) },
+        });
+      },
+    },
     // US-034 — finalización manual del evento (evento_en_curso → post_evento). La
     // transición + AUDIT_LOG (origen Usuario) + marca NPS van en la transacción bajo
     // SELECT … FOR UPDATE de la fila RESERVA; el disparo de E5 es POST-COMMIT best-effort
@@ -695,6 +754,7 @@ import {
     CronTokenGuard,
     BarridoExpiracionScheduler,
     BarridoEventosScheduler,
+    BarridoCompletadasScheduler,
   ],
   exports: [
     BloquearFechaService,
@@ -715,6 +775,7 @@ import {
     IniciarEventosDelDiaService,
     FinalizarEventoUseCase,
     RegistrarIbanDevolucionUseCase,
+    ArchivarReservasCompletadasService,
   ],
 })
 export class ReservasModule {}
