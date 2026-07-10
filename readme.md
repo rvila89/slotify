@@ -1,3 +1,12 @@
+> 📄 **Entrega 2 — Código funcional (primer MVP ejecutable).**
+> El detalle de todo lo realizado en la segunda fase del desarrollo (diseño del arnés de
+> ingeniería SDD+TDD, arquitectura y uso del arnés, estado de las historias de usuario,
+> flujo E2E del dominio de reservas, PRs, specs vivas, tests y los dos gates humanos) está
+> documentado en **[README-entrega2.md](README-entrega2.md)**. Este README recoge el estado
+> actual del producto; la bitácora del proceso está en **[bitacora.md](bitacora.md)**.
+
+---
+
 ## Índice
 
 0. [Ficha del proyecto](#0-ficha-del-proyecto)
@@ -124,7 +133,41 @@ Arquitectura multi-tenant desde el origen: cada tenant corresponde a un espacio.
 ### **1.4. Instrucciones de instalación:**
 > Documenta de manera precisa las instrucciones para instalar y poner en marcha el proyecto en local (librerías, backend, frontend, servidor, base de datos, migraciones y semillas de datos, etc.)
 
--- No aplica en esta 1a entrega --
+El proyecto es un **monorepo pnpm + Turborepo** con dos aplicaciones (`apps/api` NestJS y `apps/web` Vite + React) y una única base de datos PostgreSQL. La guía completa y reproducible está en **[docs/getting-started.md](docs/getting-started.md)** (setup paso a paso, tabla de scripts y gate de calidad) y **[docs/development_guide.md](docs/development_guide.md)** (flujo de trabajo diario).
+
+**Prerrequisitos:** Node.js 20 LTS, pnpm 9+, Docker + Docker Compose (PostgreSQL 15) y Git.
+
+**Arranque en local (desde la raíz):**
+
+```bash
+# 1) Instalar dependencias de todos los workspaces
+pnpm install
+
+# 2) Variables de entorno (valores de desarrollo)
+cp .env.example .env
+
+# 3) Base de datos PostgreSQL en Docker
+docker compose up -d postgres
+
+# 4) Migraciones Prisma + seed (tenant piloto Masia l'Encís, temporadas, tarifas, gestor)
+pnpm db:migrate
+pnpm db:seed
+
+# 5) Arrancar API + Web en paralelo
+pnpm dev
+```
+
+- **API**: `http://localhost:3000/api` — Swagger/OpenAPI en `http://localhost:3000/api/docs`
+- **Web (SPA)**: `http://localhost:5173` — ruta inicial `/login`
+
+**Verificación (tests):**
+
+```bash
+pnpm lint && pnpm typecheck && pnpm test   # gate de calidad (lint + tipos + unit + arquitectura)
+pnpm test:e2e                              # Supertest con BD (API) + Playwright (Web)
+```
+
+> El cliente HTTP del frontend se **genera** desde el contrato OpenAPI con `pnpm generate-client` (nunca se edita a mano).
 
 ---
 
@@ -476,19 +519,31 @@ Esta estructura obedece al patrón **Arquitectura Hexagonal (Ports & Adapters)**
 
 > Detalla la infraestructura del proyecto, incluyendo un diagrama en el formato que creas conveniente, y explica el proceso de despliegue que se sigue
 
--- No aplica en esta 1a entrega --
+En esta Entrega 2 el MVP se ejecuta **en local** (monorepo con PostgreSQL en Docker; ver §1.4). El plan de despliegue a producción (frontend estático en CDN + backend como proceso vivo contra PostgreSQL gestionado) está documentado como decisión de arquitectura en [docs/architecture.md](docs/architecture.md); su puesta en marcha queda para la entrega final del TFM.
 
 ### **2.5. Seguridad**
 
 > Enumera y describe las prácticas de seguridad principales que se han implementado en el proyecto, añadiendo ejemplos si procede
 
--- No aplica en esta 1a entrega --
+Prácticas de seguridad ya implementadas en el MVP:
+
+- **Autenticación JWT** con access token en memoria (TTL corto) + refresh token en cookie `httpOnly`; contraseñas hasheadas con **argon2**.
+- **Multi-tenancy con aislamiento por `tenant_id`** en toda tabla de negocio y **Row-Level Security (RLS)** activo en PostgreSQL; el `tenant_id` y el `rol` viajan en el payload firmado del JWT.
+- **Validación de entrada** en el borde con `class-validator`/Zod y DTOs tipados.
+- **Bloqueo atómico de fecha** mediante restricción `UNIQUE(tenant_id, fecha)` + transacciones `SELECT … FOR UPDATE` (sin locks distribuidos), que previene la doble reserva incluso bajo concurrencia.
+- **Endpoint de cron protegido** por token de servicio para los barridos idempotentes.
 
 ### **2.6. Tests**
 
 > Describe brevemente algunos de los tests realizados
 
--- No aplica en esta 1a entrega --
+El núcleo crítico se construye con **TDD estricto**: los tests se escriben antes que la implementación (un hook bloquea implementar lógica crítica sin test hermano). El repositorio contiene **~219 tests** repartidos en:
+
+- **Backend (Jest, `apps/api`): 184 ficheros `.spec.ts`** — tests de concurrencia del bloqueo atómico de fecha (23), tests de la máquina de estados de la reserva (20), tests de integración contra PostgreSQL real (23), tests de casos de uso (37) y de controladores/HTTP (18), además de dominio y servicios.
+- **Frontend (Vitest + Testing Library, `apps/web`): 17 `.test.tsx`** — componentes, guards de autenticación, hooks y páginas.
+- **E2E (Playwright): 18 specs** — flujos completos usuario → SPA → API → BD (login, alta de consulta, cola de espera, presupuesto, ficha operativa, dashboard, pipeline, etc.).
+
+El detalle de qué tipo de test se ejecuta en cada fase del workflow del arnés (TDD-RED, QA, gates) está en [README-entrega2.md](README-entrega2.md#8-tests-y-cuándo-se-ejecutan).
 
 ---
 
@@ -1202,13 +1257,19 @@ Registro de auditoría de todas las acciones relevantes del sistema. Inmutable: 
 
 > Si tu backend se comunica a través de API, describe los endpoints principales (máximo 3) en formato OpenAPI. Opcionalmente puedes añadir un ejemplo de petición y de respuesta para mayor claridad
 
--- No aplica en esta 1a entrega --
+El contrato completo es la fuente de verdad y vive en **[docs/api-spec.yml](docs/api-spec.yml)** (OpenAPI 3); en local se explora en Swagger UI (`http://localhost:3000/api/docs`) y de él se **genera** el cliente HTTP tipado del frontend. Tres endpoints representativos del dominio de reservas:
+
+- `POST /reservas` — alta de consulta (exploratoria o con fecha). Con fecha, dispara el **bloqueo atómico**: `201` si se bloquea, `409` si la fecha ya está ocupada (entra en cola).
+- `POST /reservas/{id}/transiciones` — transición de estado de la reserva (p. ej. a `pre_reserva` / `reserva_confirmada`) con guardas explícitas: `200` / `409` (fecha bloqueada) / `422` (transición no permitida).
+- `GET /reservas` — pipeline de reservas activas para el Kanban/listado del gestor (lectura filtrada por `tenant_id`).
 
 ---
 
 ## 5. Historias de Usuario
 
 > Documenta 3 de las historias de usuario principales utilizadas durante el desarrollo, teniendo en cuenta las buenas prácticas de producto al respecto.
+
+> **Estado (Entrega 2):** el backlog del MVP consta de **50 historias de usuario**; a fecha de esta entrega hay **39 changes de OpenSpec archivados** (historias implementadas, testeadas y mergeadas). Las tres historias que se detallan a continuación (US-003, US-010, US-044) están ya implementadas. La tabla completa US → change → PR está en [README-entrega2.md](README-entrega2.md#5-estado-de-las-historias-de-usuario-del-mvp).
 
 **Historia de Usuario 1**
 
@@ -1536,11 +1597,32 @@ No aplica. El dashboard es una vista de lectura pura sobre `RESERVA` y entidades
 
 ## 6. Tickets de Trabajo
 
--- Voy a utilizar metodologia SDD por lo que mi intención es definir tareas atomicas en cada spec de cada historia de usuario --
+El proyecto se desarrolla con metodología **SDD (Spec-Driven Development)**, por lo que no se usan tickets tipo Jira: **cada historia de usuario se materializa como un _change_ de OpenSpec**, cuyas tareas atómicas viven en su `tasks.md`. Cada change (`openspec/changes/<change>/`) contiene:
+
+- `proposal.md` — qué cambia y por qué, trazable a la US y a los casos de uso.
+- `tasks.md` — los "tickets" atómicos en orden, incluidos los pasos obligatorios (Step 0 crear rama, TDD primero, unit + verificación de BD, curl, E2E, docs). Es el bus de estado: cada tarea se marca `[x]` solo tras ejecutarla y verificarla.
+- `design.md` — decisiones técnicas no triviales (cuando aplica).
+- `reports/` — evidencia de QA (uno por paso).
+
+Cada change se cierra con su Pull Request y se archiva en `openspec/changes/archive/`. **Ejemplo:** el change `2026-07-10-us-038-archivado-manual-reserva-completada` agrupó las tareas de la US-038 y se cerró con el PR #59. La tabla completa US → change → PR está en [README-entrega2.md](README-entrega2.md#5-estado-de-las-historias-de-usuario-del-mvp).
 
 ---
 
 ## 7. Pull Requests
 
--- No aplica en esta 1a entrega --
+A fecha de esta Entrega 2 el repositorio acumula **57 Pull Requests mergeados** (numeración #1–#59; #3 y #5 no se mergearon) sobre `master`, con **235 commits**. El modelo de trabajo es **1 historia de usuario ≈ 1 change de OpenSpec ≈ 1 PR**, cada uno cerrado tras pasar el code-review obligatorio (`Veredicto: APTO`) y el OK humano.
+
+PRs representativos:
+
+| PR | Rama / trabajo |
+|----|----------------|
+| #7 / #6 | `us-040` bloquear fecha atómicamente · `us-041` liberar fecha (núcleo crítico) |
+| #11 / #14 | `us-001` iniciar sesión · `us-002` cerrar sesión (auth JWT) |
+| #15 / #17 | `us-003` alta consulta exploratoria · `us-004` alta consulta con fecha |
+| #30 / #31 | `us-017` visualizar cola de espera · `us-019` promoción manual de cola |
+| #32 / #41 | `us-014` generar presupuesto · `us-021` confirmar pago de señal |
+| #49 / #52 | `us-044` dashboard operativo · `us-049/050` pipeline de reservas (Kanban) |
+| #58 / #59 | `us-037` archivado automático · `us-038` archivado manual (último PR mergeado) |
+
+La lista completa y su correspondencia con las historias de usuario está en [README-entrega2.md](README-entrega2.md#6-pull-requests).
 

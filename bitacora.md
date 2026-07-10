@@ -2,7 +2,7 @@
 > Proyecto de Trabajo Final de Máster  
 > Plataforma SaaS de gestión integral para espacios de eventos privados  
 > Autor: Roger Vila
-> Última actualización: 11 de junio de 2026
+> Última actualización: 10 de julio de 2026
 
 ---
 
@@ -35,7 +35,7 @@
 | Hito | Fecha límite | Estado |
 |------|--------------|--------|
 | Documentación técnica completa | 12/06/2026 | ✅ Entregado |
-| Código funcional MVP | 10/07/2026 | ⏳ Pendiente |
+| Código funcional MVP | 10/07/2026 | ✅ Entregado |
 | Entrega final TFM | 29/07/2026 | ⏳ Pendiente |
 
 ### Herramientas y asistentes IA utilizados
@@ -819,7 +819,7 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 
 ## FASE 4: DISEÑO UX/UI
 
-**Estado**: ✅ **COMPLETADO** (pendiente migración a Figma)
+**Estado**: ✅ **COMPLETADO** — diseños migrados a Figma y consumidos en desarrollo vía MCP.
 
 ### 4.1 Diseño de pantallas principales y sistema de diseño
 
@@ -854,25 +854,29 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 
 ---
 
-### 4.2 Plan de migración a Figma
+### 4.2 Migración a Figma
 
-**Estado**: 📋 **PLANIFICADO**  
+**Estado**: ✅ **REALIZADO**  
 **Objetivo**: Migrar los diseños de Google Stitch a Figma para facilitar la integración con el desarrollo
 
-**Plan de migración**:
-1. Recrear sistema de diseño en Figma (design tokens, componentes)
-2. Migrar las 15+ pantallas principales
-3. Configurar variantes de componentes para estados
-4. Documentar convenciones de nomenclatura
-5. Exportar especificaciones técnicas
+Los diseños se recrearon en Figma como fuente de verdad del diseño, lo que permitió consumirlos directamente desde el desarrollo mediante el MCP de Figma (ver 4.3). El plan seguido:
+1. Sistema de diseño en Figma (design tokens, componentes).
+2. Migración de las pantallas principales del MVP.
+3. Variantes de componentes para los estados de la reserva.
+4. Convenciones de nomenclatura.
+5. Especificaciones técnicas (tokens y layout) consumibles por el frontend.
+
+> El login, por ejemplo, tiene frame Figma de escritorio (`0:3`) y móvil (`0:304`), usados como referencia responsive por el `frontend-developer`.
 
 ---
 
-### 4.3 Integración con desarrollo frontend (planificado)
+### 4.3 Integración con desarrollo frontend
 
-**Estado**: 📋 **PLANIFICADO PARA FASE DE DESARROLLO**
+**Estado**: ✅ **REALIZADO EN LA FASE DE DESARROLLO**
 
-**Estrategia adoptada**: Conexión de subagente desarrollador frontend a Figma vía MCP
+**Estrategia adoptada**: Conexión del subagente desarrollador frontend a Figma vía MCP
+
+> **Realización.** El agente `frontend-developer` del arnés consume los diseños directamente desde Figma con el MCP (`get_metadata`, `get_design_context`, `get_variable_defs` para tokens, `get_screenshot`, `get_code_connect_map`) e implementa con shadcn/ui + Tailwind sobre el cliente OpenAPI generado, sin hardcodear valores. `docs/DESIGN.md` se creó y se mantiene como fuente de verdad técnica (un design doc por US). Las pantallas se validan además en 3 viewports (390 / 768 / 1280) por la regla dura de web responsive.
 
 **Componentes de la estrategia**:
 
@@ -938,16 +942,16 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 
 ### 4.6 Próximos pasos en UX/UI
 
-**Inmediatos** (antes de iniciar desarrollo):
-1. Migración completa de diseños a Figma 
-2. Generación de `docs/DESIGN.md` 
-3. Configuración de MCP plugin en Figma
-4. Exportación de specs técnicas para desarrollo
+**Inmediatos** (antes de iniciar desarrollo) — ✅ completados:
+1. ✅ Migración de diseños a Figma
+2. ✅ Generación de `docs/DESIGN.md`
+3. ✅ Configuración del MCP plugin de Figma
+4. ✅ Especificaciones técnicas (tokens/layout) para desarrollo
 
-**Durante desarrollo**:
-1. Iteración de diseños según feedback de implementación
-2. Testing de usabilidad con usuarios reales (caso piloto)
-3. Refinamiento de microinteracciones y animaciones
+**Durante desarrollo** — en curso:
+1. ✅ Iteración de diseños según feedback de implementación (p. ej. rediseño del login, PR #37)
+2. ⏳ Testing de usabilidad con usuarios reales (caso piloto Masia l'Encís)
+3. ⏳ Refinamiento de microinteracciones y animaciones
 
 **Post-MVP**:
 1. Testing formal de usabilidad con metodología definida
@@ -956,34 +960,37 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 
 ---
 
-## FASE 5: PLANIFICACIÓN DE SPRINTS
+## FASE 5: PLANIFICACIÓN Y ORDEN DE CONSTRUCCIÓN
 
-**Estado**: 🔄 **EN PROGRESO**
+**Estado**: ✅ **DEFINIDO** — orden por dependencias en lugar de sprints por calendario.
 
-### 5.1 Definición de sprints
+### 5.1 Del sprint clásico al orden por dependencias
 
-**Pendiente de documentar**:
-- Distribución de user stories por sprints
-- Objetivos de cada sprint
-- Capacidad estimada y velocidad
+Al ser un desarrollo asistido por IA con un único desarrollador y el `harness-orchestrator` como coordinador, **no se adoptó una planificación por sprints con fechas**. En su lugar, el orden de construcción lo determina de forma **determinista** el grafo de dependencias del backlog:
 
-*(Esta sección se completará cuando se defina la planificación de sprints)*
+1. **`/analizar-backlog`** ejecuta `scripts/extract_backlog.py` (sin LLM) sobre las fichas `user-stories/US-*.md` y produce `user-stories/_analisis.json`: grafo de dependencias, *fan-out*, ciclos (**0 detectados**), historias huérfanas y profundidad máxima (**22 niveles**).
+2. **`/ordenar-backlog`** produce `user-stories/_backlog.json` con las **50 US** ordenadas por criticidad y dependencias, clasificadas en **Fundacional → Spine → Soporte**.
+3. El `harness-orchestrator` toma en cada iteración la **siguiente US no completada con dependencias resueltas**, garantizando que nunca se construye sobre cimientos ausentes (p. ej. el bloqueo atómico y la auth antes que el alta de consultas).
+
+Esta estrategia sustituye la "capacidad y velocidad" del sprint por una **cadencia guiada por el grafo**: cada US es un change de OpenSpec con su PR, y el progreso se mide en changes archivados (39 a fecha de la Entrega 2), no en puntos por sprint.
 
 ---
 
 ## FASE 6: MODELO DE DATOS
- 
-**Estado**: ⏳ **PENDIENTE**
+
+**Estado**: ✅ **IMPLEMENTADO** — `schema.prisma` + migraciones + seed, dentro del scaffolding (US-000) y evolucionado por cada US.
 
 ### 6.1 Implementación del schema de Prisma
 
-**Pendiente de realizar**:
-- Traducción del ER diagram a schema de Prisma
-- Definición de índices críticos
-- Configuración de Row-Level Security
-- Primera migración
+El modelo del ER se tradujo a `apps/api/prisma/schema.prisma` y se materializó con migraciones Prisma:
 
-*(Esta sección se completará cuando se implemente el modelo de datos)*
+- **Traducción del ER diagram** a entidades Prisma (reserva como agregado raíz, `FechaBloqueada`, tarifas, presupuestos, facturas, pagos, ficha operativa, documentos, comunicaciones, audit log, etc.), con `tenant_id` en toda tabla de negocio.
+- **Índices y restricciones críticas**: la restricción **`UNIQUE(tenant_id, fecha)`** de `FechaBloqueada` (base del bloqueo atómico) e **índice full-text GIN** sobre `reserva` para búsqueda.
+- **Row-Level Security**: la migración inicial activa RLS (`ENABLE ROW LEVEL SECURITY` + `CREATE POLICY`) para el aislamiento por tenant.
+- **Migraciones incrementales**: el schema no se congeló en la primera migración; cada US que necesita un campo nuevo añade una migración **aditiva** (p. ej. `20260710120000_us036_reserva_motivo_retencion`, `20260710130000_us037_reserva_fecha_post_evento`).
+- **Seed**: `prisma/seed.ts` crea el tenant piloto **Masia l'Encís** con su `TenantSettings` (señal 40%, fianza, TTLs), el gestor, 12 filas de `TemporadaCalendario`, 45 tarifas (3 temporadas × 3 duraciones × 5 tramos de invitados) y 2 extras de catálogo.
+
+> El detalle campo a campo se mantiene vivo en [docs/data-model.md](docs/data-model.md) (v1.2, 10/07/2026) y [docs/er-diagram.md](docs/er-diagram.md).
 
 ---
 
@@ -1019,46 +1026,73 @@ El harness debía cubrir cinco dimensiones críticas:
 
 El prompt fue ejecutado en **Claude Projects** (Claude Opus 4.5), pasándole como contexto toda la documentación técnica del proyecto disponible en `docs/`.
 
-*(Esta sección se completará con los resultados del harness una vez ejecutado el prompt)*
+#### Resultado: el arnés diseñado
 
-### 7.1 Scaffolding del proyecto
+El diseño quedó plasmado en **[harness_engineering_plan.md](harness_engineering_plan.md)** (plan de ingeniería) y se materializó en el repositorio como:
 
-**Pendiente de realizar**:
-- Setup del monorepo con Turborepo
-- Configuración de apps/web y apps/api
-- Setup de Prisma, ESLint, Prettier
-- Configuración de CI/CD con GitHub Actions
+- **9 agentes especializados** (`.claude/agents/`): `harness-orchestrator` (punto de entrada, orquesta y no escribe código), `spec-author` (SDD/OpenSpec), `contract-engineer` (dueño del contrato OpenAPI), `tdd-engineer` (tests primero), `backend-developer`, `frontend-developer` (con MCP de Figma), `qa-verifier`, `code-reviewer` y `docs-keeper`. Se fusionaron los antiguos `Openapi-advisor` → `contract-engineer` y `product-strategy-analyst` → `spec-author`.
+- **27 skills** (`.claude/skills/`) cargadas *on-demand* (contexto, SDD, arquitectura hexagonal, testing/QA, frontend, transversal), con `slotify-context` como router de documentación para minimizar el consumo de tokens.
+- **6 hooks de enforcement** (`scripts/hooks/`) que **bloquean** desviaciones en vez de solo sugerir: `require-tests-first` (TDD), `no-infra-in-domain` (hexagonal), `no-distributed-lock` (bloqueo atómico sin Redis), `protect-generated-client` (cliente OpenAPI generado), `validate-openapi` (contrato) y `require-code-review` (no se archiva ni se abre/mergea PR sin `Veredicto: APTO`).
+- **Flujo canónico** `SDD → Contrato → TDD-RED → Implementación (back ∥ front) → QA → Code-review → Docs → Archive/PR`, con **dos gates de revisión humana** (tras SDD y antes de archive/PR) que se cumplen aunque se diga "continúa".
+
+La arquitectura del arnés está diagramada en **harness_workflow.png** (flujo con agentes, skills, hooks y gates) y **harness_workflow_phases.png** (fases), y su manual de uso con ejemplos end-to-end en **[harness_guide.md](harness_guide.md)**. El resumen completo para la Entrega 2 está en **[README-entrega2.md](README-entrega2.md)**.
+
+### 7.2 Scaffolding y ejecución del backlog con el arnés
+
+Con el arnés operativo, el desarrollo se ejecutó historia a historia. El scaffolding (monorepo pnpm + Turborepo, `apps/api` NestJS, `apps/web` Vite, Prisma, jest/vitest, generación del cliente OpenAPI) se abordó como la primera historia (**US-000 / US-000A**), elegida por su alto *fan-out* en el grafo de dependencias.
+
+A partir de ahí, el `harness-orchestrator` fue tomando del `user-stories/_backlog.json` la siguiente historia con dependencias resueltas y coordinando el ciclo completo. **Números de la Entrega 2:**
+
+- **39 changes de OpenSpec archivados** (de 50 US del backlog del MVP).
+- **57 Pull Requests mergeados** (#1–#59) sobre `master`, con **235 commits**.
+- **15 specs vivas** (capabilities) en `openspec/specs/`.
+- **~219 tests** (184 backend Jest, 17 frontend Vitest, 18 E2E Playwright).
+
+> **Nota metodológica.** Se comprobó en la práctica que **no** debe lanzarse el `harness-orchestrator` en segundo plano cuando el flujo incluye gates humanos: un arranque asíncrono llegó a saltarse las paradas obligatorias. Los gates se respetan ejecutando el orquestador en primer plano.
+
+### 7.3 Flujo E2E del dominio de reservas
+
+El resultado tangible del MVP es el **pipeline completo del dominio de reservas** funcionando de punta a punta:
+
+```
+consulta (2a/2b/2c/2v/2d) → pre_reserva → reserva_confirmada → evento_en_curso → post_evento → reserva_completada
+```
+
+Sobre ese eje se construyeron: el **bloqueo atómico de fecha** (UNIQUE + `SELECT … FOR UPDATE`, sin locks distribuidos) con su batería de tests de concurrencia; la **cola de espera** con promoción automática y manual; el **motor de tarifas** y la generación de **presupuesto → factura de señal → liquidación → fianza**; la **ficha operativa** del evento; y el **archivado** (automático a T+7d y manual), además de la autenticación JWT, el calendario, el dashboard operativo y el pipeline Kanban en el frontend. Los **barridos asíncronos idempotentes** (expiración de TTLs, promoción de cola, cierre de ficha, archivado) siguen el patrón *estado en fila + barrido periódico* mediante endpoints de cron protegidos.
 
 ---
 
 ## FASE 8: TESTING
 
-**Estado**: ⏳ **PENDIENTE**
+**Estado**: ✅ **En marcha (TDD estricto)** — ~219 tests a fecha de la Entrega 2.
 
-### 8.1 Tests de bloqueo atómico de fecha
+El testing no es una fase posterior sino el **motor del desarrollo**: el hook `require-tests-first` bloquea implementar lógica crítica (`domain/`, `application/`, `*.use-case.ts`, `*.entity.ts`, `maquina-estados.ts`) sin un test hermano, forzando el ciclo RED → GREEN → REFACTOR. Reparto actual:
 
-**Prioridad crítica (R1)**: Tests de concurrencia y race conditions
+| Runner / capa | Ubicación | Ficheros | Tipos |
+|---|---|---|---|
+| **Jest** (backend) | `apps/api/src/**` | **184** `.spec.ts` | concurrencia (23), máquina de estados (20), integración con PostgreSQL real (23), casos de uso (37), controladores/HTTP (18), dominio y servicios |
+| **Vitest** (frontend) | `apps/web/src/**` | **17** `.test.tsx` | componentes, guards de auth, hooks, páginas |
+| **Playwright** (E2E) | `e2e/` | **18** specs | flujos completos usuario → SPA → API → BD |
 
-**Pendiente de realizar**:
-- Tests unitarios de `bloquearFecha()` y `liberarFecha()`
-- Tests de concurrencia con múltiples transacciones simultáneas
-- Tests de integridad del constraint UNIQUE
+### 8.1 Tests de bloqueo atómico de fecha ✅
 
-### 8.2 Tests de máquina de estados
+Cubierto por los tests de concurrencia (p. ej. `fecha-bloqueada-concurrencia.spec.ts`, `alta-consulta-con-fecha-concurrencia.spec.ts`): dos transacciones simultáneas sobre la misma `(tenant_id, fecha)` deben resultar en **exactamente 1 éxito y 1 error `P2002`** (violación de `UNIQUE(tenant_id, fecha)`), sin ventana de carrera. Complementados por tests de integración contra BD real de `bloquearFecha()`/`liberarFecha()`.
 
-**Pendiente de realizar**:
-- Tests de las 16+ transiciones válidas
-- Tests de transiciones inválidas (deben fallar)
-- Tests de guardas de transición
+### 8.2 Tests de máquina de estados ✅
 
-### 8.3 Tests de cola de espera
+**20 ficheros `maquina-estados*.spec.ts`** validan las transiciones válidas, el rechazo de las inválidas y las guardas de cada transición, modeladas como estructura de datos declarativa (no como código disperso).
 
-**Pendiente de realizar**:
-- Tests de promoción automática
-- Tests de vaciado de cola
-- Tests de reordenación FIFO
+### 8.3 Tests de cola de espera ✅
 
-*(Esta sección se completará progresivamente durante el desarrollo con TDD)*
+Promoción automática y manual, vaciado de cola atómico y orden FIFO cubiertos por `promocion-cola-concurrencia.spec.ts`, `promover-primero-en-cola.use-case.spec.ts`, `promover-manual-en-cola.use-case.spec.ts` y su E2E `us-017-cola-espera.spec.ts`.
+
+### 8.4 Momento de ejecución dentro del workflow
+
+- **TDD-RED**: los tests se escriben primero y deben fallar antes de implementar (gate `require-tests-first`).
+- **QA** (`qa-verifier`): tras la implementación, ejecuta unit + verificación del estado de la BD + pruebas manuales con curl + E2E con Playwright, dejando *reports* en `openspec/changes/<change>/reports/`.
+- **Gate de calidad pre-commit**: `pnpm lint && pnpm typecheck && pnpm test` (incluye el test de arquitectura hexagonal con dependency-cruiser).
+
+> **Aprendizaje de la fase.** Dos incidencias reales reforzaron la disciplina de testing: (1) los tests de BD llegaron a vaciar `FECHA_BLOQUEADA` del entorno de desarrollo → se aislaron en una base de datos dedicada `slotify_test` (`.env.test`); (2) una historia se dio por buena con el adaptador de persistencia *mockeado* y ocultaba bugs contra la BD real → desde entonces se exige **test de integración con SQL real** y QA con datos activos para el núcleo crítico.
 
 ---
 
@@ -1110,41 +1144,38 @@ El prompt fue ejecutado en **Claude Projects** (Claude Opus 4.5), pasándole com
 - Automatizar el análisis de dependencias con scripts es más confiable que hacerlo manualmente
 - La trazabilidad explícita (user story → use case → requisito funcional) es valiosa para el TFM
 
+### Fase de Desarrollo (arnés + ejecución del backlog)
+
+**✅ Lo que funcionó bien**:
+- Invertir en diseñar el **arnés** antes de codificar: el "camino correcto" pasó a ser el camino por defecto y, donde importa (arquitectura, TDD, contrato), el único posible gracias a los hooks.
+- **Contrato OpenAPI congelado** como frontera: permitió a backend y frontend avanzar en paralelo sin pisarse.
+- **Estado en disco** (`tasks.md` + `reports/`): el trabajo sobrevive a la compactación de contexto y cualquier change a medias se reanuda sin perder el hilo.
+- **1 US ≈ 1 change ≈ 1 PR**: cada entrega es pequeña, trazable y revisable.
+
+**⚠️ Desafíos encontrados**:
+- Los subagentes de QA corren **sin BD real**; los tests de integración/concurrencia hay que lanzarlos desde la sesión principal (que sí tiene PostgreSQL).
+- Lanzar el orquestador en **segundo plano** hizo que se saltara los gates humanos → se ejecuta siempre en primer plano.
+- Un adaptador de persistencia *mockeado* ocultó bugs que solo aparecían contra la BD real.
+- Aislamiento de la BD de tests: los tests compartían la BD de desarrollo hasta separarlas en `slotify_test`.
+
+**💡 Aprendizajes clave**:
+- Los **guardrails automáticos** (hooks) valen más que la buena voluntad: bloquear un `import` de framework en el dominio o un Redlock evita deuda desde la primera línea.
+- Para el núcleo crítico, **no basta con tests unitarios mockeados**: exige integración con SQL real y verificación del estado de la BD.
+- Los **gates de revisión humana** son deliberados y deben respetarse aunque se pida "continúa"; son el punto de control del desarrollo asistido por IA.
+
 ---
 
 ## PRÓXIMOS PASOS
 
-### Inmediatos
+> **Ya completado en la Entrega 2** (10/07/2026): modelo de datos y scaffolding (US-000/US-000A), capa fundacional (auth JWT, bloqueo atómico con tests de concurrencia, máquina de estados, calendario), el spine completo del dominio de reservas end-to-end, la cola de espera (promoción automática y manual), presupuesto/factura/liquidación/fianza, ficha operativa, archivado automático y manual, dashboard operativo y pipeline Kanban. **39 changes archivados de 50 US.**
 
-1. **Implementar modelo de datos** (Fase 6)
-   - Traducir ER diagram a schema de Prisma
-   - Configurar índices críticos
-   - Primera migración
+### Hacia la entrega final del TFM (29/07/2026)
 
-2. **Scaffolding del proyecto** (US-000, US-000A)
-   - Setup del monorepo
-   - Configuración de apps/web y apps/api
-   - CI/CD con GitHub Actions
-
-### Medio plazo
-
-1. **Implementar capa fundacional** (US-001, US-002, US-039, US-040, US-041)
-   - Autenticación JWT
-   - Bloqueo atómico de fecha (con tests de concurrencia)
-   - Máquina de estados base
-
-3. **Primera funcionalidad end-to-end** (US-003, US-004)
-   - Alta de consulta exploratoria y con fecha
-   - Validar flujo completo frontend → backend → DB
-
-### Largo plazo
-
-1. **Implementar spine completo** (todas las US de gestión de reservas)
-2. **Implementar sub-procesos paralelos** (pre-evento + liquidación)
-3. **Implementar cola de espera** (promoción automática, vaciado)
-4. **Generación de PDFs y emails** (presupuestos, facturas, condiciones)
-5. **Dashboard de negocio** (KPIs, exports CSV)
-6. **Testing exhaustivo** (especialmente concurrencia y race conditions)
-7. **Documentación final del TFM**
+1. **Completar el backlog restante** (~11 US aún no implementadas: p. ej. US-011, US-013, US-015, US-020, US-023, US-024, US-032, US-033, US-042, US-043, US-046).
+2. **Pulir sub-procesos y comunicaciones** (plantillas de email E1–E8, generación de PDFs de presupuestos/facturas/condiciones).
+3. **Dashboard financiero e histórico** y exports.
+4. **Despliegue** a un entorno accesible (frontend estático en CDN + backend contra PostgreSQL gestionado), según el plan de [architecture.md](docs/architecture.md).
+5. **Resolver deuda técnica registrada** (p. ej. el desfase de zona horaria en la visualización del TTL) y ampliar cobertura de tests de concurrencia.
+6. **Documentación final del TFM** y memoria de proyecto.
 
 ---
