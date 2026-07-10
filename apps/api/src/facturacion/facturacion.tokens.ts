@@ -75,3 +75,10 @@ export const UNIDAD_DE_TRABAJO_COBRO_PORT = Symbol('UnidadDeTrabajoCobroPort');
  * RESERVA para serializar el doble cobro; política "Negociable" para `fianza_status = pendiente`).
  */
 export const UNIDAD_DE_TRABAJO_COBRO_FIANZA_PORT = Symbol('UnidadDeTrabajoCobroFianzaPort');
+
+// --- US-036: registro de la devolución de la fianza (UC-27 pasos 4-8, D-1/D-4) ---
+/**
+ * Unidad de trabajo transaccional de la DEVOLUCIÓN de la FIANZA (tx + RLS + SELECT ... FOR UPDATE
+ * sobre RESERVA para serializar el doble registro; simétrico inverso del cobro de US-030).
+ */
+export const UNIDAD_DE_TRABAJO_DEVOLUCION_FIANZA_PORT = Symbol('UnidadDeTrabajoDevolucionFianzaPort');

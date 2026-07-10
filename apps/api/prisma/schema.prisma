@@ -290,6 +290,7 @@ model Reserva {
   fianzaCobradaFecha      DateTime?          @map("fianza_cobrada_fecha")
   fianzaDevueltaFecha     DateTime?          @map("fianza_devuelta_fecha")
   fianzaDevueltaEur       Decimal?           @map("fianza_devuelta_eur") @db.Decimal(10, 2)
+  motivoRetencion         String?            @map("motivo_retencion") @db.Text
   condPartFirmadas        Boolean            @default(false) @map("cond_part_firmadas")
   condPartEnviadasFecha   DateTime?          @map("cond_part_enviadas_fecha")
   condPartFirmadasFecha   DateTime?          @map("cond_part_firmadas_fecha")

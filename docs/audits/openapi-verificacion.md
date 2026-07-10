@@ -128,7 +128,7 @@ Búsqueda en `docs/api-spec.yml` de los términos `interview`, `hiring`, `candid
 | `POST /reservas/{id}/condiciones-particulares` | US-023, US-024 |
 | `PATCH /reservas/{id}/subprocesos` | US-025, US-027, US-029, US-030 |
 | `POST /reservas/{id}/fianza/solicitar-iban` | **Débil** (UC-26/US-035; solicitud es automática — F1-06) |
-| `POST /reservas/{id}/fianza/devolver` | US-036 |
+| `POST /reservas/{id}/fianza/devolucion` | US-036 |
 | `GET /reservas/{id}/ficha-operativa` | US-025, US-033 |
 | `PUT /reservas/{id}/ficha-operativa` | US-025 |
 | `GET /calendario` | US-039 |
@@ -185,7 +185,7 @@ Búsqueda en `docs/api-spec.yml` de los términos `interview`, `hiring`, `candid
 | US-033 (capturar documentación) | `POST /documentos` | ✅ |
 | US-034 (finalizar evento) | `POST .../transiciones` | ✅ |
 | US-035 (registrar IBAN) | `PATCH /clientes/{id}` | ✅ (E8 implícito; ver F1-06) |
-| US-036 (devolución fianza) | `POST /reservas/{id}/fianza/devolver` | ✅ |
+| US-036 (devolución fianza) | `POST /reservas/{id}/fianza/devolucion` | ✅ |
 | US-037 (archivado auto) | `POST /cron/barrido` | ✅ |
 | US-038 (archivado manual) | `POST .../transiciones` | ✅ |
 | US-039 (calendario) | `GET /calendario` | ✅ |

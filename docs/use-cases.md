@@ -1489,7 +1489,7 @@ flowchart TD
 | **Actores Secundarios** | Sistema |
 | **Descripción** | El gestor registra el IBAN del cliente en Slotify (pasos 1–3, implementado en **US-035**) y posteriormente procesa la devolución efectiva de la fianza (pasos 4–8, implementado en **US-036**). |
 | **Precondiciones** | - Reserva en estado `post_evento`<br>- `fianza_eur > 0`<br>- `CLIENTE.iban_devolucion` registrado (para los pasos de devolución) |
-| **Postcondiciones** | - `CLIENTE.iban_devolucion` persistido con validación mod-97 + E8 confirmado al cliente (US-035)<br>- `fianza_devuelta_fecha` registrada (US-036)<br>- `fianza_devuelta_eur` registrado (US-036)<br>- Justificante de transferencia almacenado (US-036) |
+| **Postcondiciones** | - `CLIENTE.iban_devolucion` persistido con validación mod-97 + E8 confirmado al cliente (US-035)<br>- `RESERVA.fianza_status = 'devuelta'` (devolución completa) o `'retenida_parcial'` (parcial o retención total) (US-036)<br>- `RESERVA.fianza_devuelta_fecha` registrada (US-036)<br>- `RESERVA.fianza_devuelta_eur` registrado (US-036)<br>- `RESERVA.motivo_retencion` registrado cuando `fianza_devuelta_eur < fianza_eur` o = 0 (US-036)<br>- AUDIT_LOG registrado (US-036)<br>- Justificante de transferencia almacenado como DOCUMENTO (opcional, US-036) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
 | **US** | US-035 (pasos 1–3: registro IBAN + E8); US-036 (pasos 4–8: devolución completa o parcial) |
@@ -1504,10 +1504,10 @@ flowchart TD
 7. El gestor introduce:
    - Importe devuelto = fianza_eur
    - Justificante de transferencia
-8. El sistema registra `fianza_devuelta_fecha` y `fianza_devuelta_eur` y registra en `AUDIT_LOG` — **implementado en US-036**
+8. El sistema registra `fianza_devuelta_fecha`, `fianza_devuelta_eur`, fija `fianza_status = 'devuelta'` y registra en `AUDIT_LOG` — **implementado en US-036** (`POST /reservas/{id}/fianza/devolucion`)
 
 **Flujos Alternativos:**
-- **FA-01**: Devolución parcial por desperfectos → Gestor indica importe menor + motivo (US-036)
+- **FA-01**: Devolución parcial por desperfectos → Gestor indica `fianza_devuelta_eur` menor que `fianza_eur` y `motivo_retencion` (obligatorio); `fianza_status → 'retenida_parcial'`. Retención total (`fianza_devuelta_eur = 0`) también usa `retenida_parcial` con `motivo_retencion` obligatorio. (US-036)
 - **FA-02**: IBAN erróneo → Gestor corrige el IBAN en la ficha; el sistema sobreescribe `CLIENTE.iban_devolucion` y reenvía E8 como nueva `COMUNICACION` (excepción auditada D-3A, US-035 FA-02)
 
 ---

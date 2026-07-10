@@ -2112,25 +2112,97 @@ paths:
   # no es una acción manual del gestor. El gestor solo REGISTRA el IBAN vía PATCH /clientes/{id} (US-035),
   # y E8 confirma la recepción. Restaura este endpoint solo si confirmas que existe una solicitud manual.
 
-  /reservas/{id}/fianza/devolver:
+  # [US-036 / Gate 1 G1-2] Materializa la devolución de fianza como sub-recurso simétrico al cobro
+  # de US-030 (`POST /reservas/{id}/facturas/fianza/cobro`). Reemplaza el placeholder previo
+  # `POST /reservas/{id}/fianza/devolver` (skeleton pre-US-036). El justificante NO es multipart
+  # (G1-3): se sube antes por `POST /documentos` y aquí se referencia por `justificanteDocId`,
+  # patrón idéntico a US-030/US-029.
+  /reservas/{id}/fianza/devolucion:
     parameters:
       - { $ref: '#/components/parameters/IdReserva' }
     post:
-      tags: [Subprocesos]
-      summary: Procesar devolución de fianza (UC-27)
-      description: Registra la devolución total o parcial (retención por desperfectos) de la fianza.
+      tags: [Facturacion]
+      summary: Registrar la devolución de la fianza (UC-27 pasos 4-8 / US-036)
+      operationId: registrarDevolucionFianza
+      description: |
+        [US-036 / UC-27 pasos 4-8] El **Gestor registra la devolución** de la fianza (depósito
+        reembolsable) de la RESERVA `{id}` tras ejecutarla externamente en su banca (Slotify
+        **registra**, no procesa el pago; sin pasarela en MVP). Es el **paso simétrico inverso** del
+        cobro de US-030. Precondición del happy path (triple): `RESERVA.estado='post_evento'` **Y**
+        `RESERVA.fianzaStatus='cobrada'` **Y** `CLIENTE.iban_devolucion IS NOT NULL`.
+
+        En una **única unidad de trabajo atómica** (tx + RLS del tenant del JWT), releyendo el estado
+        de la RESERVA con `SELECT ... FOR UPDATE` para serializar el doble registro concurrente (lock
+        de fila PostgreSQL, **nunca** locks distribuidos; design.md §D-1/§D-4):
+        1. Valida importe (`importeDevuelto`, `0.00 ≤ x ≤ RESERVA.fianzaEur`) y fecha
+           (`fechaCobro ≥ RESERVA.fianzaCobradaFecha`).
+        2. Deriva el estado final: `importeDevuelto == fianzaEur` ⇒ `fianzaStatus='devuelta'`;
+           `importeDevuelto < fianzaEur` (incl. `"0.00"`) ⇒ `fianzaStatus='retenida_parcial'`.
+        3. Si `fianzaStatus` resulta `retenida_parcial`, `motivoRetencion` es **obligatorio**
+           (validación de dominio) y se persiste en `RESERVA.motivoRetencion` (campo dedicado, G1-1);
+           en `devuelta`, `motivoRetencion` se ignora / queda `null`.
+        4. Si se referenció `justificanteDocId` (opcional), lo **vincula** validando que el DOCUMENTO
+           (`tipo='justificante_pago'`) exista en el tenant; NO es multipart (G1-3).
+        5. Establece `RESERVA.fianzaDevueltaEur=importeDevuelto`,
+           `RESERVA.fianzaDevueltaFecha=fechaCobro`, `RESERVA.fianzaStatus` al estado final y
+           `RESERVA.motivoRetencion` (si parcial). NO transiciona `RESERVA.estado`.
+        6. Registra `AUDIT_LOG` (`actualizar` de RESERVA; vínculo del DOCUMENTO si aplica).
+
+        **Estado final irreversible** (MVP): una vez en `devuelta`/`retenida_parcial`, un nuevo
+        intento se rechaza con 409 `DEVOLUCION_YA_REGISTRADA` (doble registro, incl. concurrentes:
+        solo la primera aplica). **Justificante opcional (FA-04)**: si se omite `justificanteDocId`,
+        la devolución se registra igualmente con `avisoSinJustificante=true`.
+
+        Aislada por `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/DevolucionFianzaRequest'
+            schema: { $ref: '#/components/schemas/RegistrarDevolucionFianzaRequest' }
       responses:
         '200':
-          description: Devolución procesada
+          description: |
+            Devolución registrada. Devuelve la RESERVA actualizada (`fianzaStatus` derivado a
+            `devuelta`|`retenida_parcial`, `fianzaDevueltaEur`, `fianzaDevueltaFecha`,
+            `motivoRetencion` si parcial); el DOCUMENTO justificante si se referenció; y
+            `avisoSinJustificante=true` si se registró sin justificante (FA-04).
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Reserva' }
+              schema: { $ref: '#/components/schemas/RegistrarDevolucionFianzaResponse' }
+        '400':
+          description: |
+            Validación de entrada / dominio, sin efectos: `IMPORTE_SUPERA_FIANZA` (FA-02:
+            `importeDevuelto > RESERVA.fianzaEur`; también importe negativo o no Decimal(10,2)) o
+            `FECHA_DEVOLUCION_INVALIDA` (FA-03: `fechaCobro < RESERVA.fianzaCobradaFecha` o mal
+            formada), o `MOTIVO_RETENCION_REQUERIDO` (resultado parcial sin `motivoRetencion`).
+            Cuerpo = envelope estándar + `codigo` y `motivo`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DevolucionFianzaError' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: |
+            La RESERVA no existe en el tenant (RLS) o el `justificanteDocId` indicado no existe en el
+            tenant (`JUSTIFICANTE_NO_ENCONTRADO`, misma semántica que US-030). No se muta nada.
+            Cuerpo + `codigo`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DevolucionFianzaError' }
+        '409':
+          description: |
+            Conflicto de precondición / estado, sin efectos, releído bajo `SELECT ... FOR UPDATE`:
+            - `PRECONDICION_NO_CUMPLIDA` — la precondición triple no se cumple
+              (`RESERVA.estado ≠ post_evento`, `RESERVA.fianzaStatus ≠ cobrada`, o
+              `CLIENTE.iban_devolucion` ausente).
+            - `DEVOLUCION_YA_REGISTRADA` — la fianza ya está `devuelta`/`retenida_parcial` (**doble
+              registro**, incl. dos peticiones concurrentes: solo la primera aplica; estado
+              irreversible). Cuerpo = envelope estándar + `codigo` y `motivo`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DevolucionFianzaError' }
 
   # ============================ FICHA OPERATIVA ============================
   # [US-025 / UC-20] Cumplimentación progresiva y cierre de la FICHA_OPERATIVA de una RESERVA
@@ -3051,6 +3123,11 @@ components:
         fianzaCobradaFecha: { type: string, format: date, nullable: true }
         fianzaDevueltaFecha: { type: string, format: date, nullable: true }
         fianzaDevueltaEur: { allOf: [{ $ref: '#/components/schemas/Importe' }], nullable: true }
+        # [US-036 / Gate 1 G1-1] Motivo de retención de la fianza. Campo dedicado nuevo
+        # `RESERVA.motivo_retencion` (String? @db.Text; migración aditiva la aplica el backend).
+        # Se puebla solo en devolución parcial (`fianza_status='retenida_parcial'`); `null` en
+        # devolución completa (`devuelta`) y antes de registrar la devolución.
+        motivoRetencion: { type: string, nullable: true, description: 'Motivo de retención de la fianza (solo en retenida_parcial; null en devuelta / sin devolver).' }
         condPartFirmadas: { type: boolean, nullable: true }
         condPartFechaEnvio: { type: string, format: date-time, nullable: true }
         condPartFechaFirma: { type: string, format: date-time, nullable: true }
@@ -4217,6 +4294,102 @@ components:
               description: >-
                 Mensaje legible para la UI ("La fianza ya está marcada como cobrada").
 
+    # -------- Devolución de fianza (US-036) --------
+    RegistrarDevolucionFianzaRequest:
+      # [US-036 / Gate 1] Cuerpo application/json (NO multipart, G1-3) de la acción de devolución de
+      # fianza. Naming camelCase y estilo alineados con RegistrarCobroFianzaRequest (US-030).
+      # `justificanteDocId` OPCIONAL: referencia a un DOCUMENTO (`tipo='justificante_pago'`) YA subido
+      # por `POST /documentos`; si se omite, la devolución es válida igualmente (FA-04) con aviso.
+      # `motivoRetencion` obligatorio SOLO si el resultado es parcial (importeDevuelto < fianzaEur).
+      type: object
+      required: [importeDevuelto, fechaCobro]
+      additionalProperties: false
+      properties:
+        importeDevuelto:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          description: >-
+            Importe devuelto (Importe string Decimal(10,2), p. ej. `"1000.00"`). DEBE ser
+            `0.00 ≤ x ≤ RESERVA.fianzaEur`. `"0.00"` es válido (retención total). `x > fianzaEur`
+            → 400 `IMPORTE_SUPERA_FIANZA` (FA-02). `== fianzaEur` ⇒ `devuelta`; `< fianzaEur` ⇒
+            `retenida_parcial`.
+        fechaCobro:
+          type: string
+          format: date
+          example: '2026-07-10'
+          description: >-
+            Fecha real del abono de la devolución (DATE). DEBE ser `>= RESERVA.fianzaCobradaFecha`
+            (anterior o mal formada → 400 `FECHA_DEVOLUCION_INVALIDA`, FA-03). Naming `fechaCobro`
+            por coherencia con US-030.
+        motivoRetencion:
+          type: string
+          nullable: true
+          description: >-
+            Motivo de la retención. OBLIGATORIO solo en devolución parcial (`importeDevuelto <
+            fianzaEur` ⇒ `retenida_parcial`); si falta en ese caso → 400 `MOTIVO_RETENCION_REQUERIDO`.
+            En devolución completa (`devuelta`) se ignora / `null`. Se persiste en
+            `RESERVA.motivoRetencion` (campo dedicado, G1-1).
+        justificanteDocId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            OPCIONAL. Referencia a un DOCUMENTO (`tipo='justificante_pago'`) YA subido en el tenant
+            (vía `POST /documentos`, NO multipart aquí — G1-3). Omitido o `null` → la devolución se
+            registra sin justificante (FA-04) con `avisoSinJustificante=true`. Un id inexistente en el
+            tenant → 404 `JUSTIFICANTE_NO_ENCONTRADO` (misma semántica que US-030).
+    RegistrarDevolucionFianzaResponse:
+      # Respuesta 200: RESERVA actualizada (patrón allOf de US-021/US-030 reutilizando el schema
+      # Reserva) + el DOCUMENTO justificante si se referenció + aviso FA-04 si se registró sin él.
+      type: object
+      required: [reserva, avisoSinJustificante]
+      properties:
+        reserva:
+          allOf: [{ $ref: '#/components/schemas/Reserva' }]
+          description: >-
+            La RESERVA actualizada: `fianzaStatus` derivado (`devuelta`|`retenida_parcial`),
+            `fianzaDevueltaEur`, `fianzaDevueltaFecha` y `motivoRetencion` (si parcial).
+        documentoJustificante:
+          allOf: [{ $ref: '#/components/schemas/Documento' }]
+          nullable: true
+          description: >-
+            El DOCUMENTO justificante vinculado (`tipo='justificante_pago'`), o `null`/ausente si no
+            se referenció (FA-04).
+        avisoSinJustificante:
+          type: boolean
+          description: >-
+            `true` si la devolución se registró sin justificante (FA-04); el frontend muestra el
+            aviso "Devolución registrada sin justificante. Puedes adjuntarlo más tarde.".
+    DevolucionFianzaError:
+      # Envelope estándar NestJS (ErrorResponse: statusCode/message/error) + `codigo` de dominio y
+      # `motivo` legible. Cubre 400/404/409 de la acción de devolución de fianza (US-036). Mismo
+      # patrón y códigos reutilizados que CobroFianzaError (US-030): JUSTIFICANTE_NO_ENCONTRADO (404).
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo]
+          properties:
+            codigo:
+              type: string
+              enum:
+                - IMPORTE_SUPERA_FIANZA
+                - FECHA_DEVOLUCION_INVALIDA
+                - MOTIVO_RETENCION_REQUERIDO
+                - JUSTIFICANTE_NO_ENCONTRADO
+                - PRECONDICION_NO_CUMPLIDA
+                - DEVOLUCION_YA_REGISTRADA
+              description: >-
+                Código de error de dominio: `IMPORTE_SUPERA_FIANZA` (400, FA-02: importe > fianzaEur o
+                negativo), `FECHA_DEVOLUCION_INVALIDA` (400, FA-03: fecha < fianzaCobradaFecha),
+                `MOTIVO_RETENCION_REQUERIDO` (400, parcial sin motivo), `JUSTIFICANTE_NO_ENCONTRADO`
+                (404, reutilizado de US-030), `PRECONDICION_NO_CUMPLIDA` (409, estado≠post_evento /
+                fianzaStatus≠cobrada / iban_devolucion null), `DEVOLUCION_YA_REGISTRADA` (409, doble
+                registro sobre estado final irreversible).
+            motivo:
+              type: string
+              description: >-
+                Mensaje legible para la UI ("El importe a devolver no puede superar la fianza
+                cobrada").
+
     # -------- Cliente --------
     Cliente:
       type: object
@@ -4621,12 +4794,10 @@ components:
         preEventoStatus: { $ref: '#/components/schemas/PreEventoStatus' }
         liquidacionStatus: { $ref: '#/components/schemas/LiquidacionStatus' }
         fianzaStatus: { $ref: '#/components/schemas/FianzaStatus' }
-    DevolucionFianzaRequest:
-      type: object
-      required: [importeDevuelto]
-      properties:
-        importeDevuelto: { allOf: [{ $ref: '#/components/schemas/Importe' }], description: 'Menor que fianza_eur si hay retención parcial' }
-        motivoRetencion: { type: string }
+    # [US-036 / Gate 1] El schema placeholder `DevolucionFianzaRequest` (pre-US-036) queda REEMPLAZADO
+    # por `RegistrarDevolucionFianzaRequest` (sección "Devolución de fianza (US-036)"), que añade
+    # `fechaCobro`, `justificanteDocId` (patrón US-030, no multipart) y la semántica del motivo. Se
+    # elimina para evitar drift: ya no lo referencia ningún path.
 
     # -------- Ficha operativa [US-025 / UC-20] --------
     # [US-025] Representación de la FICHA_OPERATIVA (1:1 con RESERVA, `reserva_id @unique`) devuelta
