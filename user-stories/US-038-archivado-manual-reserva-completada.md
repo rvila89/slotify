@@ -2,7 +2,7 @@
 id: US-038
 estado: en-revision
 branch: feature/us-038-archivado-manual-reserva-completada
-pr: null
+pr: 59
 ---
 
 # 🧾 Historia de Usuario: Gestor archiva manualmente la reserva a `reserva_completada` antes del T+7d automático
