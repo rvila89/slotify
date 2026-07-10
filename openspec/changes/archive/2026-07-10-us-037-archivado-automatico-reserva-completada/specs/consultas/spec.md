@@ -192,7 +192,7 @@ distribuidos (Redis/Redlock prohibidos). (Fuente: `US-037 §Concurrencia / Race 
   no-op sin error
 - **AND** `AUDIT_LOG` contiene exactamente una entrada de transición para esa RESERVA
 
-### Requirement: Procesa todas las elegibles con aislamiento de fallos por RESERVA
+### Requirement: El barrido de archivado procesa todas las elegibles con aislamiento de fallos por RESERVA
 
 El sistema SHALL (DEBE) procesar **todas** las RESERVA elegibles del mismo pase, cada una en su
 **propia transacción independiente**: el fallo de una transición (excepción, conflicto, guarda) NO

@@ -1,7 +1,7 @@
 ---
 id: US-037
-estado: backlog
-branch: null
+estado: en-revision
+branch: feature/us-037-archivado-automatico-reserva-completada
 pr: null
 ---
 
