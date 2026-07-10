@@ -84,6 +84,6 @@
 - [x] 11.1 Tras code-review APTO + validación manual (unit/curl/E2E), ESPERAR el OK humano ANTES de archive/PR
 
 ## 12. Archivar change + abrir PR (OBLIGATORIO — archive — dueño: spec-author)
-- [ ] 12.1 `openspec archive us-035-registrar-iban-devolucion` (solo tras gate final y code-review APTO; lo verifica el hook `require-code-review`)
-- [ ] 12.2 Actualizar `openspec/specs/comunicaciones/` con los requisitos añadidos
+- [x] 12.1 `openspec archive us-035-registrar-iban-devolucion` (solo tras gate final y code-review APTO; lo verifica el hook `require-code-review`)
+- [x] 12.2 Actualizar `openspec/specs/comunicaciones/` con los requisitos añadidos
 - [ ] 12.3 Abrir PR (gh / GitHub MCP); registrar el PR en el front-matter de `user-stories/US-035-*.md`
