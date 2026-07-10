@@ -2,7 +2,7 @@
 id: US-037
 estado: en-revision
 branch: feature/us-037-archivado-automatico-reserva-completada
-pr: null
+pr: 58
 ---
 
 # 🧾 Historia de Usuario: Sistema archiva automáticamente la reserva a `reserva_completada` a T+7d de post_evento
