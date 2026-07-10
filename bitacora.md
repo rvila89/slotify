@@ -819,7 +819,7 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 
 ## FASE 4: DISEÑO UX/UI
 
-**Estado**: ✅ **COMPLETADO** (pendiente migración a Figma)
+**Estado**: ✅ **COMPLETADO** — diseños migrados a Figma y consumidos en desarrollo vía MCP.
 
 ### 4.1 Diseño de pantallas principales y sistema de diseño
 
@@ -854,25 +854,29 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 
 ---
 
-### 4.2 Plan de migración a Figma
+### 4.2 Migración a Figma
 
-**Estado**: 📋 **PLANIFICADO**  
+**Estado**: ✅ **REALIZADO**  
 **Objetivo**: Migrar los diseños de Google Stitch a Figma para facilitar la integración con el desarrollo
 
-**Plan de migración**:
-1. Recrear sistema de diseño en Figma (design tokens, componentes)
-2. Migrar las 15+ pantallas principales
-3. Configurar variantes de componentes para estados
-4. Documentar convenciones de nomenclatura
-5. Exportar especificaciones técnicas
+Los diseños se recrearon en Figma como fuente de verdad del diseño, lo que permitió consumirlos directamente desde el desarrollo mediante el MCP de Figma (ver 4.3). El plan seguido:
+1. Sistema de diseño en Figma (design tokens, componentes).
+2. Migración de las pantallas principales del MVP.
+3. Variantes de componentes para los estados de la reserva.
+4. Convenciones de nomenclatura.
+5. Especificaciones técnicas (tokens y layout) consumibles por el frontend.
+
+> El login, por ejemplo, tiene frame Figma de escritorio (`0:3`) y móvil (`0:304`), usados como referencia responsive por el `frontend-developer`.
 
 ---
 
-### 4.3 Integración con desarrollo frontend (planificado)
+### 4.3 Integración con desarrollo frontend
 
-**Estado**: 📋 **PLANIFICADO PARA FASE DE DESARROLLO**
+**Estado**: ✅ **REALIZADO EN LA FASE DE DESARROLLO**
 
-**Estrategia adoptada**: Conexión de subagente desarrollador frontend a Figma vía MCP
+**Estrategia adoptada**: Conexión del subagente desarrollador frontend a Figma vía MCP
+
+> **Realización.** El agente `frontend-developer` del arnés consume los diseños directamente desde Figma con el MCP (`get_metadata`, `get_design_context`, `get_variable_defs` para tokens, `get_screenshot`, `get_code_connect_map`) e implementa con shadcn/ui + Tailwind sobre el cliente OpenAPI generado, sin hardcodear valores. `docs/DESIGN.md` se creó y se mantiene como fuente de verdad técnica (un design doc por US). Las pantallas se validan además en 3 viewports (390 / 768 / 1280) por la regla dura de web responsive.
 
 **Componentes de la estrategia**:
 
@@ -938,16 +942,16 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 
 ### 4.6 Próximos pasos en UX/UI
 
-**Inmediatos** (antes de iniciar desarrollo):
-1. Migración completa de diseños a Figma 
-2. Generación de `docs/DESIGN.md` 
-3. Configuración de MCP plugin en Figma
-4. Exportación de specs técnicas para desarrollo
+**Inmediatos** (antes de iniciar desarrollo) — ✅ completados:
+1. ✅ Migración de diseños a Figma
+2. ✅ Generación de `docs/DESIGN.md`
+3. ✅ Configuración del MCP plugin de Figma
+4. ✅ Especificaciones técnicas (tokens/layout) para desarrollo
 
-**Durante desarrollo**:
-1. Iteración de diseños según feedback de implementación
-2. Testing de usabilidad con usuarios reales (caso piloto)
-3. Refinamiento de microinteracciones y animaciones
+**Durante desarrollo** — en curso:
+1. ✅ Iteración de diseños según feedback de implementación (p. ej. rediseño del login, PR #37)
+2. ⏳ Testing de usabilidad con usuarios reales (caso piloto Masia l'Encís)
+3. ⏳ Refinamiento de microinteracciones y animaciones
 
 **Post-MVP**:
 1. Testing formal de usabilidad con metodología definida
@@ -956,34 +960,37 @@ Consolidación de todos los artefactos anteriores (use-cases, ER diagram, archit
 
 ---
 
-## FASE 5: PLANIFICACIÓN DE SPRINTS
+## FASE 5: PLANIFICACIÓN Y ORDEN DE CONSTRUCCIÓN
 
-**Estado**: 🔄 **EN PROGRESO**
+**Estado**: ✅ **DEFINIDO** — orden por dependencias en lugar de sprints por calendario.
 
-### 5.1 Definición de sprints
+### 5.1 Del sprint clásico al orden por dependencias
 
-**Pendiente de documentar**:
-- Distribución de user stories por sprints
-- Objetivos de cada sprint
-- Capacidad estimada y velocidad
+Al ser un desarrollo asistido por IA con un único desarrollador y el `harness-orchestrator` como coordinador, **no se adoptó una planificación por sprints con fechas**. En su lugar, el orden de construcción lo determina de forma **determinista** el grafo de dependencias del backlog:
 
-*(Esta sección se completará cuando se defina la planificación de sprints)*
+1. **`/analizar-backlog`** ejecuta `scripts/extract_backlog.py` (sin LLM) sobre las fichas `user-stories/US-*.md` y produce `user-stories/_analisis.json`: grafo de dependencias, *fan-out*, ciclos (**0 detectados**), historias huérfanas y profundidad máxima (**22 niveles**).
+2. **`/ordenar-backlog`** produce `user-stories/_backlog.json` con las **50 US** ordenadas por criticidad y dependencias, clasificadas en **Fundacional → Spine → Soporte**.
+3. El `harness-orchestrator` toma en cada iteración la **siguiente US no completada con dependencias resueltas**, garantizando que nunca se construye sobre cimientos ausentes (p. ej. el bloqueo atómico y la auth antes que el alta de consultas).
+
+Esta estrategia sustituye la "capacidad y velocidad" del sprint por una **cadencia guiada por el grafo**: cada US es un change de OpenSpec con su PR, y el progreso se mide en changes archivados (39 a fecha de la Entrega 2), no en puntos por sprint.
 
 ---
 
 ## FASE 6: MODELO DE DATOS
- 
-**Estado**: ⏳ **PENDIENTE**
+
+**Estado**: ✅ **IMPLEMENTADO** — `schema.prisma` + migraciones + seed, dentro del scaffolding (US-000) y evolucionado por cada US.
 
 ### 6.1 Implementación del schema de Prisma
 
-**Pendiente de realizar**:
-- Traducción del ER diagram a schema de Prisma
-- Definición de índices críticos
-- Configuración de Row-Level Security
-- Primera migración
+El modelo del ER se tradujo a `apps/api/prisma/schema.prisma` y se materializó con migraciones Prisma:
 
-*(Esta sección se completará cuando se implemente el modelo de datos)*
+- **Traducción del ER diagram** a entidades Prisma (reserva como agregado raíz, `FechaBloqueada`, tarifas, presupuestos, facturas, pagos, ficha operativa, documentos, comunicaciones, audit log, etc.), con `tenant_id` en toda tabla de negocio.
+- **Índices y restricciones críticas**: la restricción **`UNIQUE(tenant_id, fecha)`** de `FechaBloqueada` (base del bloqueo atómico) e **índice full-text GIN** sobre `reserva` para búsqueda.
+- **Row-Level Security**: la migración inicial activa RLS (`ENABLE ROW LEVEL SECURITY` + `CREATE POLICY`) para el aislamiento por tenant.
+- **Migraciones incrementales**: el schema no se congeló en la primera migración; cada US que necesita un campo nuevo añade una migración **aditiva** (p. ej. `20260710120000_us036_reserva_motivo_retencion`, `20260710130000_us037_reserva_fecha_post_evento`).
+- **Seed**: `prisma/seed.ts` crea el tenant piloto **Masia l'Encís** con su `TenantSettings` (señal 40%, fianza, TTLs), el gestor, 12 filas de `TemporadaCalendario`, 45 tarifas (3 temporadas × 3 duraciones × 5 tramos de invitados) y 2 extras de catálogo.
+
+> El detalle campo a campo se mantiene vivo en [docs/data-model.md](docs/data-model.md) (v1.2, 10/07/2026) y [docs/er-diagram.md](docs/er-diagram.md).
 
 ---
 
