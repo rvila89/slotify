@@ -108,6 +108,5 @@
 
 ## 10. Archivar change + abrir PR (OBLIGATORIO — archive)
 
-- [ ] 10.1 `openspec archive documentos-config-tenant-storage` (solo tras gate final
-      y code-review APTO) y actualizar `openspec/specs/documentos/`
-- [ ] 10.2 Abrir PR de `feature/documentos-config-tenant-storage` a `master`
+- [x] 10.1 `openspec archive documentos-config-tenant-storage` — archivado 2026-07-13; spec viva `openspec/specs/documentos/` creada (+5 requirements)
+- [x] 10.2 PR de `feature/documentos-config-tenant-storage` a `master` abierto
