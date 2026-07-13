@@ -17,6 +17,11 @@ export type PresupuestoExtraInput = components['schemas']['PresupuestoExtraInput
 export type Presupuesto = components['schemas']['Presupuesto'];
 export type Extra = components['schemas']['Extra'];
 
+export type ActualizarDatosFiscalesClienteRequest =
+  components['schemas']['ActualizarDatosFiscalesClienteRequest'];
+export type ActualizarDatosFiscalesClienteResponse =
+  components['schemas']['ActualizarDatosFiscalesClienteResponse'];
+
 export type PresupuestoDatosFiscalesError =
   components['schemas']['PresupuestoDatosFiscalesError'];
 export type PresupuestoPrecioManualRequeridoError =

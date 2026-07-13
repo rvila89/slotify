@@ -103,6 +103,15 @@ export const UNIDAD_DE_TRABAJO_IBAN_DEVOLUCION_PORT = Symbol(
 );
 export const DISPARAR_E8_PORT = Symbol('DispararE8Port');
 
+// US-014 #5 (Parte B) — actualización de datos fiscales del CLIENTE de una RESERVA (UPDATE parcial
+// de columnas escalares del CLIENTE + AUDIT_LOG, bajo RLS del tenant del JWT)
+export const CARGAR_RESERVA_DATOS_FISCALES_PORT = Symbol(
+  'CargarReservaDatosFiscalesPort',
+);
+export const UNIDAD_DE_TRABAJO_DATOS_FISCALES_PORT = Symbol(
+  'UnidadDeTrabajoDatosFiscalesPort',
+);
+
 // US-037 — barrido de archivado automático en T+7d (cross-tenant read + UoW por RESERVA +
 // alerta interna FA-01 en AUDIT_LOG con anti-duplicación)
 export const CANDIDATAS_ARCHIVADO_PORT = Symbol('CandidatasArchivadoPort');

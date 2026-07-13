@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -12,35 +12,38 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { useReserva } from '@/features/reservas';
 import { useConfirmarPresupuesto } from '../api/useConfirmarPresupuesto';
 import { useExtras } from '../api/useExtras';
 import { useBorradorPresupuesto } from '../lib/useBorradorPresupuesto';
 import { AvisoErrorPresupuesto } from './AvisoErrorPresupuesto';
 import { DesglosePresupuesto } from './DesglosePresupuesto';
 import { SelectorExtras } from './SelectorExtras';
+import {
+  DatosFiscalesClienteSection,
+  type DatosFiscalesHandle,
+} from './DatosFiscalesClienteSection';
+import { camposFiscalesFaltantes, type CampoFiscalCliente } from './datosFiscalesCampos';
+import {
+  claseBotonPrimario,
+  claseBotonSecundario,
+  claseInput,
+  claseLabel,
+} from './estilos';
 import type { ConfirmarPresupuestoResponse, PresupuestoExtraInput } from '../model/types';
 
 /**
- * Diálogo "Generar presupuesto" (US-014 · UC-14 §5.1–5.4). Flujo:
- * abrir → **preview** (no persiste) → editar extras / precio manual →
- * **Confirmar** (persiste: PRESUPUESTO + `pre_reserva` + bloqueo 7d + E2) o
- * **Cancelar** (descarta el borrador, sin efecto — FA-03).
+ * Diálogo "Generar presupuesto" (US-014 · UC-14 §5.1–5.4). Flujo: abrir → **preview**
+ * (no persiste) → completar datos fiscales del CLIENTE (incidencia #5) + editar extras
+ * / precio manual → **Confirmar** (persiste: PRESUPUESTO + `pre_reserva` + bloqueo 7d +
+ * E2) o **Cancelar** (descarta el borrador, FA-03).
  *
- * El campo de precio manual solo se muestra (y es obligatorio) cuando el motor
- * devuelve `tarifaAConsultar=true` (>50 invitados, FA-02). Los errores del
- * contrato se muestran inline (`AvisoErrorPresupuesto`).
- *
- * Formulario con **React Hook Form + Zod** (regla dura del proyecto, coherente con
- * `ExtenderBloqueoDialog`/`AnadirFechaDialog`): el precio manual se valida en cliente
- * (no negativo; > 0 obligatorio si `tarifaAConsultar`).
- * Los extras son un mapa dinámico y se gestionan aparte en `useBorradorPresupuesto`.
- * El servidor revalida de forma defensiva (409/422).
- *
- * Diseño: no hay frame propio de este diálogo en el archivo Figma "Slotify"; se
- * ADAPTA con los tokens del proyecto (`index.css` + `DESIGN.md`), reutilizando el
- * tratamiento de los diálogos de reservas. El `Dialog` (shadcn/Radix) es
- * mobile-first (`w-[calc(100%-2rem)]`, `max-w-lg`, scroll interno) sin overflow
- * horizontal; objetivos táctiles ≥ 44px.
+ * El precio manual solo se muestra (y es obligatorio) con `tarifaAConsultar=true` (>50
+ * invitados, FA-02). Formulario **RHF + Zod** (regla dura). Al confirmar se guardan
+ * primero los datos fiscales (PATCH) y luego se confirma; ante `DATOS_FISCALES_INCOMPLETOS`
+ * (422) el bucle de resolución (D-5) resalta/enfoca los campos faltantes. El servidor
+ * revalida defensivamente (409/422). Sin frame propio en Figma "Slotify": se ADAPTA con
+ * los tokens del proyecto; `Dialog` mobile-first, sin overflow horizontal, táctiles ≥ 44px.
  */
 type Props = {
   reservaId: string;
@@ -62,17 +65,6 @@ const esquema = z.object({
 });
 
 type FormularioPresupuesto = z.infer<typeof esquema>;
-
-const claseBotonPrimario =
-  'inline-flex h-12 items-center justify-center gap-2 rounded-full bg-accent-success px-8 font-display text-base text-accent-success-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60';
-
-const claseBotonSecundario =
-  'inline-flex h-12 items-center justify-center gap-2 rounded-full border border-border-default bg-canvas px-8 font-body text-base font-medium text-text-secondary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60';
-
-const claseLabel = 'px-1 font-body text-xs font-medium tracking-[0.48px] text-text-secondary';
-
-const claseInput =
-  'h-12 w-full rounded-[12px] border border-border-default/30 bg-canvas px-4 font-body text-base text-text-primary outline-none ring-1 ring-transparent transition focus-visible:ring-2 focus-visible:ring-brand-primary aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-red-500';
 
 export const GenerarPresupuestoDialog = ({
   reservaId,
@@ -100,15 +92,22 @@ export const GenerarPresupuestoDialog = ({
     { precioManual },
   );
   const { data: extras = [], isLoading: cargandoExtras } = useExtras(abierto);
+  const { data: reserva } = useReserva(abierto ? reservaId : undefined);
   const confirmar = useConfirmarPresupuesto();
 
   const { reset: resetConfirmar } = confirmar;
 
-  // Al cerrar, limpia el formulario y el estado de la mutación de confirmación.
+  // Handle imperativo de la sección de datos fiscales (guardar + enfocar faltantes)
+  // y los campos que el backend reporta como faltantes (bucle de resolución D-5).
+  const datosFiscalesRef = useRef<DatosFiscalesHandle>(null);
+  const [camposResaltados, setCamposResaltados] = useState<CampoFiscalCliente[]>([]);
+
+  // Al cerrar, limpia el formulario, el estado de la mutación y el resaltado fiscal.
   useEffect(() => {
     if (!abierto) {
       resetConfirmar();
       reset({ precioManual: '' });
+      setCamposResaltados([]);
     }
   }, [abierto, resetConfirmar, reset]);
 
@@ -125,7 +124,17 @@ export const GenerarPresupuestoDialog = ({
     return body;
   };
 
-  const onSubmit = handleSubmit(() => {
+  // Bucle de resolución de datos fiscales (D-5): resalta/enfoca los campos que el
+  // backend reporta como faltantes (`DATOS_FISCALES_INCOMPLETOS`, 422) en preview o
+  // confirmación. Solo los 5 campos fiscales del CLIENTE que gestiona la sección.
+  useEffect(() => {
+    if (errorActivo?.tipo !== 'datos-fiscales') return;
+    const faltantes = camposFiscalesFaltantes(errorActivo.camposFaltantes);
+    setCamposResaltados(faltantes);
+    if (faltantes.length > 0) datosFiscalesRef.current?.enfocarPrimerFaltante(faltantes);
+  }, [errorActivo]);
+
+  const onSubmit = handleSubmit(async () => {
     // FA-02: con tarifa a consultar, el precio manual (> 0) es obligatorio en cliente.
     if (tarifaAConsultar && (precioManual.trim() === '' || Number(precioManual) <= 0)) {
       setError('precioManual', {
@@ -133,6 +142,13 @@ export const GenerarPresupuestoDialog = ({
       });
       return;
     }
+
+    // Paso previo: persiste los datos fiscales del CLIENTE (PATCH). Si falla la
+    // validación/guardado, no se intenta confirmar (D-5: guardar → reintentar).
+    const guardado = await datosFiscalesRef.current?.guardar();
+    if (guardado === false) return;
+    setCamposResaltados([]);
+
     confirmar.mutate(
       { id: reservaId, body: construirBodyConfirmar() },
       {
@@ -166,6 +182,14 @@ export const GenerarPresupuestoDialog = ({
 
         <form onSubmit={onSubmit} noValidate className="flex flex-col gap-5">
           {errorActivo && <AvisoErrorPresupuesto error={errorActivo} />}
+
+          <DatosFiscalesClienteSection
+            ref={datosFiscalesRef}
+            reservaId={reservaId}
+            cliente={reserva?.cliente}
+            camposResaltados={camposResaltados}
+            deshabilitado={confirmar.isPending}
+          />
 
           <section className="flex flex-col gap-3">
             <h3 className={claseLabel}>Extras</h3>

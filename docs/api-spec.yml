@@ -2570,6 +2570,67 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
 
+  # [US-014 #5 / Parte B] Completar los datos fiscales del CLIENTE de una RESERVA para desbloquear
+  # `DATOS_FISCALES_INCOMPLETOS` (422) al generar presupuesto. Patrón calcado de
+  # `PATCH /reservas/{id}/iban-devolucion` (US-035): acción manual del Gestor (JWT + RLS del tenant),
+  # el `{id}` es la RESERVA y el CLIENTE se resuelve a través de ella. Solo toca los 5 campos fiscales
+  # escalares del CLIENTE (design.md §D-1/§D-3): NO modifica la RESERVA (fecha/duración/invitados/tipo),
+  # ni su estado/sub_estado/ttl, ni `FECHA_BLOQUEADA` — la fecha tiene su flujo de bloqueo atómico
+  # dedicado. Semántica PATCH parcial (§D-2): solo se actualizan los campos presentes en el body; los
+  # ausentes NO se sobrescriben a null. `tenant_id` SIEMPRE del JWT, nunca del body.
+  /reservas/{id}/datos-fiscales:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    patch:
+      tags: [Reservas]
+      summary: Completar datos fiscales del cliente de una reserva (UC-14 / US-014, #5)
+      operationId: actualizarDatosFiscalesCliente
+      description: |
+        [US-014 #5] El **Gestor** (JWT de usuario, rol gestor, RLS del tenant del JWT — NUNCA
+        `X-Cron-Token`: es acción manual) actualiza los **datos fiscales del CLIENTE** asociado a la
+        RESERVA `{id}`, para poder resolver la validación `DATOS_FISCALES_INCOMPLETOS` (US-014 §FA-01)
+        sin abandonar el flujo de presupuesto. El efecto persistido recae **únicamente** en los cinco
+        campos fiscales del CLIENTE (`dniNif`, `direccion`, `codigoPostal`, `poblacion`, `provincia`);
+        el CLIENTE se resuelve **a través de** la RESERVA bajo el contexto RLS del tenant del JWT.
+
+        **Semántica PATCH parcial** (design.md §D-2): todos los campos son opcionales. Solo se
+        actualizan los campos **presentes** en el body; los ausentes **no** se tocan (no se
+        sobrescriben a `null`), de modo que el diálogo puede enviar solo lo que el gestor completa
+        sin perder datos previos.
+
+        **Alcance estricto** (design.md §D-3): NO modifica ningún campo de la RESERVA
+        (`fechaEvento`, `duracionHoras`, `numAdultosNinosMayores4`, `tipoEvento`), ni su
+        `estado`/`subEstado`/`ttlExpiracion`, ni `FECHA_BLOQUEADA`. La fecha del evento tiene su flujo
+        de bloqueo atómico dedicado (`POST /reservas/{id}/fecha`); tocarla aquí violaría la regla de
+        bloqueo atómico de fecha. Es un UPDATE de columnas escalares del CLIENTE: sin máquina de
+        estados ni zona crítica de concurrencia propia.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActualizarDatosFiscalesClienteRequest' }
+      responses:
+        '200':
+          description: |
+            Datos fiscales del CLIENTE actualizados. Devuelve el estado resultante de los cinco campos
+            fiscales del CLIENTE (los presentes en el body actualizados; los ausentes con su valor
+            previo intacto). Cualquiera puede ser `null` si sigue sin informar.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActualizarDatosFiscalesClienteResponse' }
+        '400':
+          # Body mal formado (tipos inválidos / propiedades no permitidas). class-validator →
+          # exception filter de NestJS. Sin efectos: no se actualiza el CLIENTE.
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          # Autenticado pero sin rol Gestor del tenant para la acción manual.
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          # RESERVA `{id}` inexistente o de otro tenant (RLS): no visible bajo el tenant del JWT.
+          $ref: '#/components/responses/NotFound'
+
   # ============================ CALENDARIO ============================
   /calendario:
     get:
@@ -5233,6 +5294,39 @@ components:
                 Discriminador del 409: `estado_no_post_evento` = la RESERVA no está en `post_evento`;
                 `sin_fianza` = `fianzaEur <= 0` o `null` (no hay fianza que devolver, FA-04).
               example: sin_fianza
+
+    # -------- US-014 #5: completar datos fiscales del CLIENTE --------
+    # [US-014 #5 / design.md §D-2] Cuerpo del PATCH /reservas/{id}/datos-fiscales. Los cinco campos
+    # fiscales del CLIENTE, TODOS opcionales (PATCH parcial): solo los presentes se actualizan; los
+    # ausentes no se tocan. `tenant_id` NUNCA viaja aquí (va en el JWT). Nombres de campo consistentes
+    # con el schema `Cliente`/`UpdateClienteRequest` del contrato (camelCase). `additionalProperties:
+    # false` para rechazar campos ajenos (p. ej. de la RESERVA) → 400.
+    ActualizarDatosFiscalesClienteRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: >-
+        Al menos un campo fiscal a actualizar. Los cinco son opcionales; solo los presentes se
+        persisten (los ausentes conservan su valor previo, no se ponen a null).
+      properties:
+        dniNif: { type: string, minLength: 1, description: 'DNI/NIF fiscal del cliente.' }
+        direccion: { type: string, minLength: 1, description: 'Dirección fiscal del cliente.' }
+        codigoPostal: { type: string, minLength: 1, description: 'Código postal fiscal del cliente.' }
+        poblacion: { type: string, minLength: 1, description: 'Población fiscal del cliente.' }
+        provincia: { type: string, minLength: 1, description: 'Provincia fiscal del cliente.' }
+
+    # [US-014 #5 / design.md §D-2] Respuesta 200: estado resultante de los cinco campos fiscales del
+    # CLIENTE tras el PATCH parcial. Cada campo puede seguir siendo `null` si aún no se ha informado.
+    # Refleja exactamente los campos fiscales del schema `Cliente`.
+    ActualizarDatosFiscalesClienteResponse:
+      type: object
+      required: [dniNif, direccion, codigoPostal, poblacion, provincia]
+      properties:
+        dniNif: { type: string, nullable: true, description: 'DNI/NIF fiscal persistido del cliente.' }
+        direccion: { type: string, nullable: true, description: 'Dirección fiscal persistida del cliente.' }
+        codigoPostal: { type: string, nullable: true, description: 'Código postal fiscal persistido del cliente.' }
+        poblacion: { type: string, nullable: true, description: 'Población fiscal persistida del cliente.' }
+        provincia: { type: string, nullable: true, description: 'Provincia fiscal persistida del cliente.' }
 
     # -------- Calendario [US-039] --------
     CalendarioRango:

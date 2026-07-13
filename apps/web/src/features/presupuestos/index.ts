@@ -10,6 +10,8 @@ export { usePreviewPresupuesto } from './api/usePreviewPresupuesto';
 export type { PreviewPresupuestoVars } from './api/usePreviewPresupuesto';
 export { useConfirmarPresupuesto } from './api/useConfirmarPresupuesto';
 export type { ConfirmarPresupuestoVars } from './api/useConfirmarPresupuesto';
+export { useActualizarDatosFiscales } from './api/useActualizarDatosFiscales';
+export type { ActualizarDatosFiscalesVars } from './api/useActualizarDatosFiscales';
 export type {
   ConfirmarPresupuestoResponse,
   PresupuestoPreviewResponse,

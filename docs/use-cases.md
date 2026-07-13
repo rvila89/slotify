@@ -831,7 +831,7 @@ sequenceDiagram
 | **Prioridad** | Crítica |
 | **Frecuencia** | Alta |
 | **US** | US-014 |
-| **Endpoints** | `POST /reservas/{id}/presupuesto/preview` (borrador sin persistencia) · `POST /reservas/{id}/presupuesto` (confirmación) |
+| **Endpoints** | `POST /reservas/{id}/presupuesto/preview` (borrador sin persistencia) · `POST /reservas/{id}/presupuesto` (confirmación) · `PATCH /reservas/{id}/datos-fiscales` (completar datos fiscales del CLIENTE sin abandonar el flujo — incidencia #5, US-014 Parte B; ver FA-08) |
 | **Entidades afectadas** | PRESUPUESTO (INSERT), RESERVA (UPDATE estado + TTL), FECHA_BLOQUEADA (INSERT o UPDATE ttl_expiracion), COMUNICACION (INSERT E2), AUDIT_LOG — sin migración nueva (PRESUPUESTO ya existía en el modelo desde US-000; columnas `fecha_envio` y `fecha_actualizacion` ya presentes) |
 
 **Flujo Básico — fase preview:**
@@ -857,13 +857,14 @@ sequenceDiagram
 13. El sistema responde `201` con: PRESUPUESTO (`id`, `version`, `total`, `pdf_url`, `estado`) + nuevo `estado`/`ttlExpiracion` de la RESERVA + `consultasDescartadas` (recuento)
 
 **Flujos Alternativos:**
-- **FA-01** (datos fiscales incompletos): el sistema responde `422` con `camposFaltantes: ['dni_nif', ...]` enumerando los campos fiscales que faltan; sin efectos sobre PRESUPUESTO, RESERVA ni FECHA_BLOQUEADA. El `HttpExceptionFilter` propaga `camposFaltantes` en el body del error.
+- **FA-01** (datos fiscales incompletos): el sistema responde `422` con `camposFaltantes: ['dni_nif', ...]` enumerando los campos fiscales que faltan; sin efectos sobre PRESUPUESTO, RESERVA ni FECHA_BLOQUEADA. El `HttpExceptionFilter` propaga `camposFaltantes` en el body del error. La UI resalta/enfoca los campos faltantes y permite completarlos inline mediante `PATCH /reservas/{id}/datos-fiscales` (FA-08) antes de reintentar la generación del presupuesto.
 - **FA-02** (`tarifa_a_consultar = true` — más de 50 invitados): el motor devuelve `tarifa_a_consultar = true` con importes a `null`; el sistema muestra "A consultar" y habilita precio manual. Al confirmar, `PRESUPUESTO.total` es el `precio_manual_eur` introducido por el Gestor; `tarifa_id` no se almacena (es `null`). Sin precio manual: `422` bloqueante.
 - **FA-03** (gestor cancela en fase borrador): no hay efectos; la RESERVA permanece en su sub-estado anterior; `FECHA_BLOQUEADA` no se modifica; ningún email se envía.
 - **FA-04** (guarda de origen — RESERVA en `2.d` o terminal): `422` sin efectos; la cola ni la bloqueante se modifican.
 - **FA-05** (PRESUPUESTO ya enviado/aceptado): `409` indicando que debe usarse la edición (UC-15); sin crear nuevo PRESUPUESTO.
 - **FA-06** (error de configuración del motor de tarifa — `TARIFA_NO_CONFIGURADA` / `TEMPORADA_NO_CONFIGURADA` / `EXTRA_NO_ENCONTRADO`): `422` con mensaje legible; sin crear PRESUPUESTO, sin mutar RESERVA.
 - **FA-07** (carrera de concurrencia — dos confirmaciones sobre la misma RESERVA, o la fecha fue bloqueada por otro tenant): el `SELECT … FOR UPDATE` + `UNIQUE(tenant_id, fecha)` lo serializa; el perdedor recibe `409` `FECHA_YA_BLOQUEADA` sin estado intermedio.
+- **FA-08** (completar datos fiscales del CLIENTE inline — US-014 incidencia #5): el Gestor rellena los campos faltantes directamente en el diálogo de presupuesto sin abandonarlo. El frontend llama a `PATCH /reservas/{id}/datos-fiscales` con uno o más de los cinco campos (`dniNif`, `direccion`, `codigoPostal`, `poblacion`, `provincia`); el sistema actualiza **solo** los campos presentes en el body sobre el CLIENTE asociado a la RESERVA (PATCH parcial: los ausentes no se sobrescriben a null), responde `200` con el estado resultante de los cinco campos fiscales del CLIENTE, y el frontend reintenta la generación del presupuesto. Multi-tenant: `tenant_id` del JWT, nunca del body. La RESERVA, su estado, su TTL y `FECHA_BLOQUEADA` no se tocan. Implementado en el módulo `reservas` siguiendo el patrón del endpoint `PATCH /reservas/{id}/iban-devolucion`. Errores posibles: `400` body inválido (campo vacío/tipo incorrecto/propiedad ajena a los 5 fiscales), `401` sin token, `403` sin rol gestor, `404` RESERVA inexistente o de otro tenant.
 
 ```mermaid
 flowchart TD
