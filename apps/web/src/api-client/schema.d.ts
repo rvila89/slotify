@@ -2241,6 +2241,46 @@ export interface paths {
         patch: operations["registrarIbanDevolucion"];
         trace?: never;
     };
+    "/reservas/{id}/datos-fiscales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Completar datos fiscales del cliente de una reserva (UC-14 / US-014,
+         * @description [US-014 #5] El **Gestor** (JWT de usuario, rol gestor, RLS del tenant del JWT — NUNCA
+         *     `X-Cron-Token`: es acción manual) actualiza los **datos fiscales del CLIENTE** asociado a la
+         *     RESERVA `{id}`, para poder resolver la validación `DATOS_FISCALES_INCOMPLETOS` (US-014 §FA-01)
+         *     sin abandonar el flujo de presupuesto. El efecto persistido recae **únicamente** en los cinco
+         *     campos fiscales del CLIENTE (`dniNif`, `direccion`, `codigoPostal`, `poblacion`, `provincia`);
+         *     el CLIENTE se resuelve **a través de** la RESERVA bajo el contexto RLS del tenant del JWT.
+         *
+         *     **Semántica PATCH parcial** (design.md §D-2): todos los campos son opcionales. Solo se
+         *     actualizan los campos **presentes** en el body; los ausentes **no** se tocan (no se
+         *     sobrescriben a `null`), de modo que el diálogo puede enviar solo lo que el gestor completa
+         *     sin perder datos previos.
+         *
+         *     **Alcance estricto** (design.md §D-3): NO modifica ningún campo de la RESERVA
+         *     (`fechaEvento`, `duracionHoras`, `numAdultosNinosMayores4`, `tipoEvento`), ni su
+         *     `estado`/`subEstado`/`ttlExpiracion`, ni `FECHA_BLOQUEADA`. La fecha del evento tiene su flujo
+         *     de bloqueo atómico dedicado (`POST /reservas/{id}/fecha`); tocarla aquí violaría la regla de
+         *     bloqueo atómico de fecha. Es un UPDATE de columnas escalares del CLIENTE: sin máquina de
+         *     estados ni zona crítica de concurrencia propia.
+         */
+        patch: operations["actualizarDatosFiscalesCliente"];
+        trace?: never;
+    };
     "/calendario": {
         parameters: {
             query?: never;
@@ -4102,6 +4142,31 @@ export interface components {
              * @enum {string}
              */
             code: "estado_no_post_evento" | "sin_fianza";
+        };
+        /** @description Al menos un campo fiscal a actualizar. Los cinco son opcionales; solo los presentes se persisten (los ausentes conservan su valor previo, no se ponen a null). */
+        ActualizarDatosFiscalesClienteRequest: {
+            /** @description DNI/NIF fiscal del cliente. */
+            dniNif?: string;
+            /** @description Dirección fiscal del cliente. */
+            direccion?: string;
+            /** @description Código postal fiscal del cliente. */
+            codigoPostal?: string;
+            /** @description Población fiscal del cliente. */
+            poblacion?: string;
+            /** @description Provincia fiscal del cliente. */
+            provincia?: string;
+        };
+        ActualizarDatosFiscalesClienteResponse: {
+            /** @description DNI/NIF fiscal persistido del cliente. */
+            dniNif: string | null;
+            /** @description Dirección fiscal persistida del cliente. */
+            direccion: string | null;
+            /** @description Código postal fiscal persistido del cliente. */
+            codigoPostal: string | null;
+            /** @description Población fiscal persistida del cliente. */
+            poblacion: string | null;
+            /** @description Provincia fiscal persistida del cliente. */
+            provincia: string | null;
         };
         /** @description Rango efectivo agregado por el backend (eco de los query params `desde`/`hasta`). */
         CalendarioRango: {
@@ -5968,6 +6033,41 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+        };
+    };
+    actualizarDatosFiscalesCliente: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActualizarDatosFiscalesClienteRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Datos fiscales del CLIENTE actualizados. Devuelve el estado resultante de los cinco campos
+             *     fiscales del CLIENTE (los presentes en el body actualizados; los ausentes con su valor
+             *     previo intacto). Cualquiera puede ser `null` si sigue sin informar.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActualizarDatosFiscalesClienteResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     consultarCalendario: {

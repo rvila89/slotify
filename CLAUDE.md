@@ -68,8 +68,13 @@ Toda mutación de bloqueo pasa por `bloquearFecha()` y `liberarFecha()`. **No im
   `api/ components/ lib/ model/ pages/` y un **barrel `index.ts`** que es su única
   API pública. Las páginas complejas son su propia carpeta y co-localizan sus
   partes (`schema.ts`, `constants.ts`, `components/` privados). Lo compartido vive
-  en `components/ui`, `components/layout`, `hooks/`, `lib/`. Lo imponen ESLint
-  (`eslint-plugin-boundaries` + `no-restricted-imports` + `max-lines` ≤300):
+  en `components/ui`, `components/layout`, `hooks/`, `lib/`. **`components/` aloja
+  SOLO componentes React (`.tsx`)**: helpers, constantes, tipos, schemas y clases de
+  estilo van en `lib/` (o los tipos en `model/`), nunca en `components/` — ni siquiera
+  cuando `react-refresh/only-export-components` obligue a extraerlos de un `.tsx`. Lo
+  imponen ESLint (`eslint-plugin-boundaries` + `no-restricted-imports` + `max-lines`
+  ≤300 + regla de pureza de segmento: un `.ts` no-componente bajo
+  `features/*/components/` dispara `no-restricted-syntax`):
   una feature solo se importa por su barrel `@/features/<dominio>`, la capa
   compartida no importa de `features/`, y `pnpm lint` falla si se viola. Ejemplo
   canónico vivo: `apps/web/src/features/reservas/`. Detalle en

@@ -159,6 +159,15 @@ import { CargarReservaIbanDevolucionPrismaAdapter } from './infrastructure/carga
 import { RegistrarIbanDevolucionUoWPrismaAdapter } from './infrastructure/registrar-iban-devolucion-uow.prisma.adapter';
 import { DispararE8Adapter } from './infrastructure/disparar-e8.adapter';
 import { RegistrarIbanDevolucionController } from './interface/registrar-iban-devolucion.controller';
+import {
+  ActualizarDatosFiscalesClienteUseCase,
+  type ActualizarDatosFiscalesClienteComando,
+  type ReservaDatosFiscales,
+  type UnidadDeTrabajoDatosFiscalesPort,
+} from './application/actualizar-datos-fiscales-cliente.use-case';
+import { CargarReservaDatosFiscalesPrismaAdapter } from './infrastructure/cargar-reserva-datos-fiscales.prisma.adapter';
+import { ActualizarDatosFiscalesUoWPrismaAdapter } from './infrastructure/actualizar-datos-fiscales-uow.prisma.adapter';
+import { ActualizarDatosFiscalesClienteController } from './interface/actualizar-datos-fiscales-cliente.controller';
 import { CronTokenGuard } from '../shared/auth/cron-token.guard';
 import { ReservaDetalleQueryPrismaAdapter } from './infrastructure/reserva-detalle-query.prisma.adapter';
 import {
@@ -214,6 +223,8 @@ import {
   CARGAR_RESERVA_IBAN_DEVOLUCION_PORT,
   UNIDAD_DE_TRABAJO_IBAN_DEVOLUCION_PORT,
   DISPARAR_E8_PORT,
+  CARGAR_RESERVA_DATOS_FISCALES_PORT,
+  UNIDAD_DE_TRABAJO_DATOS_FISCALES_PORT,
   CANDIDATAS_ARCHIVADO_PORT,
   ARCHIVADO_PORT,
   ALERTA_FIANZA_PENDIENTE_PORT,
@@ -244,6 +255,7 @@ import {
     PromoverManualController,
     FinalizarEventoController,
     RegistrarIbanDevolucionController,
+    ActualizarDatosFiscalesClienteController,
     ArchivarReservaManualController,
   ],
   providers: [
@@ -764,6 +776,39 @@ import {
           dispararE8,
         }),
     },
+    // US-014 #5 (Parte B) — actualización de datos fiscales del CLIENTE de una RESERVA. El CLIENTE
+    // se resuelve a través de la RESERVA bajo RLS del tenant del JWT; el UPDATE PARCIAL de columnas
+    // fiscales del CLIENTE + AUDIT_LOG (entidad CLIENTE, origen Usuario) van en una transacción bajo
+    // RLS. Alcance estricto (D-3): NO toca RESERVA ni FECHA_BLOQUEADA.
+    {
+      provide: CARGAR_RESERVA_DATOS_FISCALES_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CargarReservaDatosFiscalesPrismaAdapter(prisma),
+    },
+    {
+      provide: UNIDAD_DE_TRABAJO_DATOS_FISCALES_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new ActualizarDatosFiscalesUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: ActualizarDatosFiscalesClienteUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_DATOS_FISCALES_PORT,
+        CARGAR_RESERVA_DATOS_FISCALES_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoDatosFiscalesPort,
+        cargador: CargarReservaDatosFiscalesPrismaAdapter,
+      ) =>
+        new ActualizarDatosFiscalesClienteUseCase({
+          unidadDeTrabajo,
+          cargarReserva: (
+            comando: ActualizarDatosFiscalesClienteComando,
+          ): Promise<ReservaDatosFiscales | null> => cargador.cargar(comando),
+        }),
+    },
     // US-038 — archivado MANUAL de la reserva por el Gestor (post_evento →
     // reserva_completada). Reutiliza las guardas puras de US-037 (resolverArchivadoAutomatico
     // + fianzaResuelta); UoW propia delgada scoped a UNA RESERVA del tenant del JWT con
@@ -832,6 +877,7 @@ import {
     IniciarEventosDelDiaService,
     FinalizarEventoUseCase,
     RegistrarIbanDevolucionUseCase,
+    ActualizarDatosFiscalesClienteUseCase,
     ArchivarReservasCompletadasService,
     ArchivarReservaManualUseCase,
   ],
