@@ -77,5 +77,5 @@
 - [x] 11.1 Tras code-review APTO + validación manual, ESPERAR el OK humano antes de archive/PR — APROBADO 2026-07-13
 
 ## 12. Archivar change + abrir PR (OBLIGATORIO — archive)
-- [ ] 12.1 `openspec archive presupuesto-datos-fiscales-cliente-inline` (solo tras gate final y code-review APTO; hook `require-code-review`)
-- [ ] 12.2 Actualizar `openspec/specs/presupuestos/` y abrir PR hacia `master`
+- [x] 12.1 `openspec archive presupuesto-datos-fiscales-cliente-inline` (solo tras gate final y code-review APTO; hook `require-code-review`) — archivado 2026-07-13
+- [x] 12.2 Actualizar `openspec/specs/presupuestos/` (+1 requirement) y abrir PR hacia `master`
