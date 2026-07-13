@@ -89,7 +89,7 @@ graph TB
 | **Jobs** | Cron simple → endpoint de barrido | TTLs como campo `ttl_expiracion` + barrido periódico; robusto e idempotente |
 | **Email** | Resend SDK (`ResendEmailAdapter`) + `FakeEmailAdapter` en test/CI/dev; motor `DespacharEmailService` (`comunicaciones/application/`) + puerto `EnviarEmailPort` (`comunicaciones/domain/`); catálogo de plantillas en `comunicaciones/infrastructure/plantillas/` | Motor hexagonal reutilizable (US-045): selecciona plantilla → sustituye variables → resuelve adjuntos → envía por el puerto → registra en `COMUNICACION` + `AUDIT_LOG`. `FakeEmailAdapter` forzado en test/CI/dev (cero envíos reales); `ResendEmailAdapter` en producción. Configuración validada con zod: `EMAIL_TRANSPORT` (`resend`\|`fake`), `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_SANDBOX`; en producción se exige `EMAIL_TRANSPORT=resend`. E1 activa; E2–E8 diseñadas/inactivas (cableado diferido a cada US). |
 | **PDF** | Plantillas HTML + Puppeteer (o react-pdf) | Generación server-side; plantillas editables (presupuestos/facturas borrador) |
-| **Storage** | El del hosting (p. ej. Supabase Storage) | Menos integración que un proveedor de objetos aparte |
+| **Storage** | Puerto `AlmacenDocumentosPort` seleccionable por env (`ALMACEN_PROVIDER`). Adaptador `local` (dev/tests, bytes en memoria) en 6.1a; adaptador S3/Supabase cuando haya credenciales (decisión B1). Ver §2.19 | Abstracción hexagonal que desacopla los módulos de documentos/PDF del proveedor de object storage concreto |
 | **Hosting** | Railway (recomendado) o Render free + Postgres gestionada | Ver análisis de coste en §5 |
 | **Observabilidad** | Sentry (errores) | Útil y barato; PostHog y analytics quedan post-TFM |
 
@@ -974,6 +974,75 @@ US-034 debe poblar `fecha_post_evento = now()` en la misma transacción de final
 | Cron (US-037) y archivado manual (US-038) compiten sobre la misma RESERVA | La segunda UPDATE bajo el lock afecta 0 filas → no-op sin error; exactamente 1 transición y 1 entrada de AUDIT_LOG |
 | Alerta FA-01 en barridos sucesivos (misma RESERVA, fianza sin cambio) | Anti-duplicación por AUDIT_LOG (Opción 4.2): si ya existe alerta `fianza_pendiente_t7d` posterior al último cambio de `fianza_status`, no se inserta nueva alerta |
 | Fallo de una transición dentro del lote | Rollback individual; las demás candidatas del mismo pase continúan sin afectarse |
+
+### 2.19 Módulo `documentos` — cimientos del épico #6 (rebanada 6.1a, `documentos-config-tenant-storage`)
+
+La rebanada 6.1a establece los **dos pilares de infraestructura** que las rebanadas siguientes del épico #6 necesitan para generar PDFs por tenant: la configuración de documento por tenant (`PlantillaDocumentoTenant`) y el puerto de object storage (`AlmacenDocumentosPort`). En esta rebanada no hay endpoint HTTP, no hay generación de PDF y no hay interfaz de usuario.
+
+#### Puerto de dominio `AlmacenDocumentosPort`
+
+Define la abstracción de almacenamiento de objetos binarios (bytes → URL) que usarán las rebanadas 6.1b y siguientes para persistir logos y PDFs generados. Vive en `documentos/domain/` sin importar framework ni SDK cloud (hook `no-infra-in-domain`):
+
+```
+AlmacenDocumentosPort
+  subir(bytes: Uint8Array, clave: string): Promise<string>   // persiste y devuelve la URL
+  urlPublica(clave: string): string                          // URL pública de una clave ya subida
+```
+
+#### Selección de adaptador por variable de entorno (decisión B1)
+
+El adaptador concreto se selecciona en `DocumentosModule` mediante la variable de entorno `ALMACEN_PROVIDER` (factory `crearAlmacenDocumentos`):
+
+| `ALMACEN_PROVIDER` | Adaptador | Estado | Variables adicionales |
+|--------------------|-----------|--------|----------------------|
+| `local` (valor por defecto) | `AlmacenDocumentosLocalAdapter` | Implementado en 6.1a | `ALMACEN_LOCAL_BASE_URL` (default: `http://localhost:3000/almacen`) |
+| `s3` | Pendiente | Se añade en una rebanada futura cuando haya bucket/credenciales | `AWS_S3_BUCKET`, `AWS_REGION`, etc. |
+
+El adaptador `local` guarda los bytes en memoria del proceso (dev/tests) y construye la URL de forma determinista (`baseUrl/clave`). Si se configura `ALMACEN_PROVIDER=s3` antes de implementar el adaptador S3, el módulo falla explícito al arrancar con un mensaje claro (fallo rápido deliberado). Cuando se implemente el adaptador S3/Supabase, se añadirá como clase hermana de `AlmacenDocumentosLocalAdapter` en `infrastructure/`; el dominio y los casos de uso no se tocarán.
+
+#### Configuración de documento por tenant
+
+El servicio de aplicación `ObtenerConfiguracionDocumentoService` (puro, sin NestJS) lee la `PlantillaDocumentoTenant` del tenant activo a través del puerto `ConfiguracionDocumentoRepositoryPort`. El adaptador Prisma correspondiente (`ConfiguracionDocumentoPrismaAdapter`) aplica RLS vía `SET LOCAL app.tenant_id`. Tanto el puerto de almacén como el servicio de configuración se exportan desde `DocumentosModule` para que las rebanadas siguientes los consuman importando el módulo.
+
+**Seed del piloto:** `pnpm db:seed` siembra la `PlantillaDocumentoTenant` de Masia l'Encís (Canoliart, SL / NIF B10874287 / IBAN ES30…) de forma idempotente (`deleteMany + create`). La regla dura "espai, nunca lloguer" se verifica en el test `configuracion-documento-piloto.spec.ts`.
+
+#### Arquitectura interna (hexagonal)
+
+```
+apps/api/src/documentos/
+  domain/
+    almacen-documentos.port.ts                   Puerto de object storage (interfaz pura)
+    configuracion-documento.ts                   VO ConfiguracionDocumentoTenant (4 bloques)
+    configuracion-documento.repository.port.ts   Puerto de lectura de config (interfaz pura)
+    __tests__/
+      almacen-documentos.port.spec.ts            Test unitario del contrato del puerto
+  application/
+    obtener-configuracion-documento.service.ts   Servicio de lectura de config (puro, sin NestJS)
+    __tests__/
+      obtener-configuracion-documento.service.spec.ts
+  infrastructure/
+    almacen-documentos-local.adapter.ts          Adaptador local (bytes en memoria, URL determinista)
+    configuracion-documento.prisma.adapter.ts    Adaptador Prisma + RLS
+    seed/
+      configuracion-documento-piloto.ts          Seed idempotente del piloto Masia l'Encís
+    __tests__/
+      almacen-documentos-local.adapter.spec.ts
+      configuracion-documento-piloto.spec.ts     Verifica "espai nunca lloguer"
+      configuracion-documento-integracion.spec.ts  Integración SQL real (tabla+UNIQUE+RLS+seed)
+  documentos.module.ts                           Wiring de puertos + factory ALMACEN_PROVIDER
+  documentos.tokens.ts                           Símbolos de inyección
+```
+
+#### Relación con el contrato OpenAPI y casos de uso
+
+Esta rebanada **no introduce ningún endpoint HTTP** en el contrato OpenAPI y **no añade casos de uso** en `use-cases.md`. El contrato permanece inalterado. Las rebanadas 6.1b (generación de PDF) y 6.5 (UI de ajustes) sí añadirán endpoints; en ese momento intervendrá el `contract-engineer`.
+
+#### Migración de esquema
+
+`20260713140000_documento_config_tenant`:
+- Crea tabla `plantilla_documento_tenant` (PK `id_plantilla`, FK + `UNIQUE(tenant_id)`, 17 campos de contenido + `fecha_creacion` + `fecha_actualizacion`).
+- Habilita RLS y crea policy `tenant_isolation`.
+- Ver `er-diagram.md §3.3` y `er-diagram.md §5.7` para el detalle del modelo y las decisiones de diseño.
 
 ---
 

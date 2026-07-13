@@ -178,7 +178,8 @@ model Tenant {
   fechaCreacion    DateTime @default(now()) @map("fecha_creacion")
   fechaActualizacion DateTime @updatedAt @map("fecha_actualizacion")
 
-  settings        TenantSettings?
+  settings           TenantSettings?
+  plantillaDocumento PlantillaDocumentoTenant?
   usuarios        Usuario[]
   clientes        Cliente[]
   reservas        Reserva[]
@@ -209,6 +210,43 @@ model TenantSettings {
   tenant Tenant @relation(fields: [tenantId], references: [idTenant])
 
   @@map("tenant_settings")
+}
+
+// ============================================================
+// PLANTILLA DE DOCUMENTO POR TENANT (épico #6, rebanada 6.1a)
+// Contenido configurable de los documentos del tenant. 1-1 con Tenant.
+// Fuente de verdad del contenido (decisión A1): duplica sus propios datos
+// fiscales; NO toca Tenant.nombre/nif/direccion. RLS por migración.
+// ============================================================
+
+model PlantillaDocumentoTenant {
+  idPlantilla               String   @id @default(uuid()) @map("id_plantilla")
+  tenantId                  String   @unique @map("tenant_id")
+  // Branding
+  logoUrl                   String?  @map("logo_url")
+  colorPrimario             String   @map("color_primario")
+  colorTexto                String   @map("color_texto")
+  // Identidad fiscal (razón social ≠ nombre comercial)
+  razonSocialFiscal         String   @map("razon_social_fiscal")
+  nombreComercial           String   @map("nombre_comercial")
+  nif                       String
+  direccionFiscal           String   @map("direccion_fiscal") @db.Text
+  web                       String
+  email                     String
+  // Banca
+  iban                      String
+  beneficiarioTransferencia String   @map("beneficiario_transferencia")
+  conceptoTransferencia     String   @map("concepto_transferencia")
+  // Textos
+  plantillaConceptoFiscal   String   @map("plantilla_concepto_fiscal") @db.Text
+  validesaTexto             String   @map("validesa_texto")
+  pieLegal                  String   @map("pie_legal") @db.Text
+  fechaCreacion             DateTime @default(now()) @map("fecha_creacion")
+  fechaActualizacion        DateTime @updatedAt @map("fecha_actualizacion")
+
+  tenant Tenant @relation(fields: [tenantId], references: [idTenant])
+
+  @@map("plantilla_documento_tenant")
 }
 
 model Usuario {
