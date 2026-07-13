@@ -2963,11 +2963,11 @@ export interface components {
         /** @enum {string} */
         ColorCalendario: "gris" | "ambar" | "verde" | "azul" | "rojo";
         /** @enum {string} */
-        CanalEntrada: "web" | "email" | "whatsapp" | "instagram" | "telefono";
+        CanalEntrada: "web" | "email" | "whatsapp" | "instagram" | "telefono" | "cocopool" | "holaplace";
         /** @enum {integer} */
         DuracionHoras: 4 | 8 | 12;
         /** @enum {string} */
-        TipoEvento: "boda" | "corporativo" | "privado" | "otro";
+        TipoEvento: "boda" | "corporativo" | "privado" | "otro" | "cumpleanos";
         /** @enum {string} */
         Temporada: "alta" | "media" | "baja";
         /** @enum {string} */

@@ -54,6 +54,8 @@ enum CanalEntrada {
   whatsapp
   instagram
   telefono
+  cocopool
+  holaplace
 }
 
 enum DuracionHoras {
@@ -67,6 +69,7 @@ enum TipoEvento {
   corporativo
   privado
   otro
+  cumpleanos
 }
 
 enum PreEventoStatus {

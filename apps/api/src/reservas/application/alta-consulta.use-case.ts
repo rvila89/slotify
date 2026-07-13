@@ -51,10 +51,17 @@ const TTL_CONSULTA_DIAS_DEFECTO = 3;
 // ---------------------------------------------------------------------------
 
 /** Canales de entrada del lead (alineado con el enum del contrato). */
-export type CanalEntrada = 'web' | 'email' | 'whatsapp' | 'instagram' | 'telefono';
+export type CanalEntrada =
+  | 'web'
+  | 'email'
+  | 'whatsapp'
+  | 'instagram'
+  | 'telefono'
+  | 'cocopool'
+  | 'holaplace';
 
 /** Tipos de evento (alineado con el enum del contrato). */
-export type TipoEvento = 'boda' | 'corporativo' | 'privado' | 'otro';
+export type TipoEvento = 'boda' | 'corporativo' | 'privado' | 'otro' | 'cumpleanos';
 
 /** Datos de contacto mínimos del CLIENTE embebidos en el alta. */
 export interface AltaConsultaCliente {
@@ -422,6 +429,8 @@ const CANALES_VALIDOS: ReadonlyArray<CanalEntrada> = [
   'whatsapp',
   'instagram',
   'telefono',
+  'cocopool',
+  'holaplace',
 ];
 
 /** Asunto/cuerpo de la respuesta inicial automática E1 (plantilla mínima). */

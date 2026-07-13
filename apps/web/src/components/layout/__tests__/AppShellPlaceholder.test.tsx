@@ -13,6 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from '@/App';
 import { SessionProvider } from '@/features/auth';
@@ -32,8 +33,9 @@ const renderApp = (initial: string) =>
   );
 
 describe('App Shell — placeholder de seccion no implementada', () => {
-  it('debe_mostrar_placeholder_de_la_seccion_sin_romper_la_nav', () => {
+  it('debe_mostrar_placeholder_de_la_seccion_sin_romper_la_nav', async () => {
     // Arrange / Act: seccion conocida (Métricas) cuyo contenido aun no existe.
+    const user = userEvent.setup();
     renderApp('/metricas');
 
     // Assert: placeholder coherente con el layout, identificando la seccion...
@@ -43,8 +45,9 @@ describe('App Shell — placeholder de seccion no implementada', () => {
     // ...y no es el estado "no encontrado" (eso es para rutas desconocidas).
     expect(screen.queryByText(/no encontrado/i)).not.toBeInTheDocument();
 
-    // ...la nav lateral sigue operativa.
-    expect(screen.getByRole('navigation')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /calendario/i })).toBeInTheDocument();
+    // ...la nav sigue operativa al abrir el sidebar (que alterna el logo del header).
+    await user.click(screen.getByRole('button', { name: /navegación/i }));
+    const nav = await screen.findByRole('navigation');
+    expect(within(nav).getByRole('link', { name: /calendario/i })).toBeInTheDocument();
   });
 });

@@ -18,8 +18,8 @@ export type PreviewPresupuestoVars = {
  * generado (`apiClient.POST('/reservas/{id}/presupuesto/preview')`): calcula el
  * desglose delegando al motor de tarifa (US-016) y **NO persiste** nada (no crea
  * PRESUPUESTO, no muta la RESERVA ni la FechaBloqueada, no envía email). Se usa al
- * abrir el diálogo y cada vez que el gestor ajusta extras / descuento / precio
- * manual para recalcular el borrador antes de confirmar.
+ * abrir el diálogo y cada vez que el gestor ajusta extras / precio manual para
+ * recalcular el borrador antes de confirmar.
  *
  * Desenlaces (normalizados a `PresupuestoError` en español):
  *  - 200: `PresupuestoPreviewResponse` con `tarifaAConsultar`, `tarifa`,

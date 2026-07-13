@@ -33,6 +33,10 @@
   --color-surface-muted: var(--cream-100);
   --color-surface-subtle: var(--cream-150);
   --color-accent-active: var(--sand-200);
+  /* Verde de acción principal (CTA "avanzar de estado"). Alias semántico del
+   * verde del sistema (cal-verde) para no acoplar un CTA al token del calendario. */
+  --color-accent-success: var(--color-cal-verde);
+  --color-accent-success-foreground: var(--color-cal-verde-foreground);
   --color-border-default: var(--border-300);
   --color-text-primary: var(--ink-900);
   --color-text-secondary: var(--ink-700);

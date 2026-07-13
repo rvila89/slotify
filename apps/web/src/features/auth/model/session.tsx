@@ -107,7 +107,7 @@ const useVolverTrasLogin = () => {
   return useCallback(() => {
     if (!navigator) return;
     const from = (location?.state as { from?: { pathname?: string } } | null)?.from?.pathname;
-    navigator.replace(from ?? '/calendario');
+    navigator.replace(from ?? '/dashboard');
   }, [navigator, location]);
 };
 

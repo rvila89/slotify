@@ -22,6 +22,8 @@ export default {
         },
         accent: {
           active: 'var(--color-accent-active)',
+          success: 'var(--color-accent-success)',
+          'success-foreground': 'var(--color-accent-success-foreground)',
         },
         border: {
           default: 'var(--color-border-default)',

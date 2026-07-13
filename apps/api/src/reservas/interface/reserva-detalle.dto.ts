@@ -70,7 +70,9 @@ export class ReservaDetalleResponseDto {
   })
   subEstado!: string | null;
 
-  @ApiProperty({ enum: ['web', 'email', 'whatsapp', 'instagram', 'telefono'] })
+  @ApiProperty({
+    enum: ['web', 'email', 'whatsapp', 'instagram', 'telefono', 'cocopool', 'holaplace'],
+  })
   canalEntrada!: string;
 
   @ApiPropertyOptional({ type: String, format: 'date', nullable: true })
@@ -81,7 +83,7 @@ export class ReservaDetalleResponseDto {
 
   @ApiPropertyOptional({
     type: String,
-    enum: ['boda', 'corporativo', 'privado', 'otro'],
+    enum: ['boda', 'corporativo', 'privado', 'otro', 'cumpleanos'],
     nullable: true,
   })
   tipoEvento!: string | null;

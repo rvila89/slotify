@@ -83,6 +83,7 @@ const renderLogin = (opts?: { from?: string }) => {
         <MemoryRouter initialEntries={[entry]}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/dashboard" element={<div>Pantalla Dashboard</div>} />
             <Route path="/calendario" element={<div>Pantalla Calendario</div>} />
             <Route path="/reservas" element={<div>Pantalla Reservas</div>} />
           </Routes>
@@ -168,7 +169,7 @@ describe('LoginPage — login correcto: mutación + redirect (REQ 10)', () => {
     );
   });
 
-  it('debe_redirigir_al_calendario_tras_un_login_correcto', async () => {
+  it('debe_redirigir_al_dashboard_tras_un_login_correcto', async () => {
     postMock.mockResolvedValue(exito());
     const user = userEvent.setup();
     renderLogin();
@@ -177,7 +178,7 @@ describe('LoginPage — login correcto: mutación + redirect (REQ 10)', () => {
     await user.type(screen.getByLabelText(/contraseña/i), PASSWORD);
     await user.click(screen.getByRole('button', { name: /entrar/i }));
 
-    expect(await screen.findByText(/pantalla calendario/i)).toBeInTheDocument();
+    expect(await screen.findByText(/pantalla dashboard/i)).toBeInTheDocument();
   });
 
   it('debe_respetar_state_from_y_volver_a_la_ruta_solicitada_tras_autenticar', async () => {
@@ -200,7 +201,7 @@ describe('LoginPage — login correcto: mutación + redirect (REQ 10)', () => {
     await user.type(screen.getByLabelText(/correo/i), EMAIL);
     await user.type(screen.getByLabelText(/contraseña/i), PASSWORD);
     await user.click(screen.getByRole('button', { name: /entrar/i }));
-    await screen.findByText(/pantalla calendario/i);
+    await screen.findByText(/pantalla dashboard/i);
 
     // Regla dura US-001: el access token vive SOLO en memoria.
     expect(dumpStorages()).not.toContain('access.jwt.firmado');

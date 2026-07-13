@@ -1,16 +1,14 @@
 /**
- * App Shell responsive (corte en `lg`). En móvil/tablet el sidebar se sirve en
- * un drawer off-canvas (shadcn `Sheet` sobre Radix Dialog) que abre el botón
- * hamburguesa del header.
+ * App Shell — sidebar integrado colapsable. El `<aside>` vive en el flujo del
+ * layout (no es un overlay/modal): anima su ancho al abrir/cerrar con el logo
+ * del header y persiste al navegar.
  *
- * Nota de landmark: con el drawer ABIERTO coexisten 2 `<nav>` en el DOM (el del
- * aside + el del drawer). Por eso este archivo NUNCA usa `getByRole('navigation')`
- * pelado en ese estado: acota siempre con `within(getByRole('dialog'))`. En
- * estado por defecto (cerrado) el Radix Dialog no monta su contenido, así que
- * los tests existentes que esperan UN único `nav` siguen verdes.
+ * Nota de landmark: colapsado el `<aside>` queda `aria-hidden`, así que su
+ * `<nav>` NO está en el árbol de accesibilidad (los role-queries por defecto no
+ * lo ven). Al abrir, el `<nav>` pasa a ser accesible.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from '@/App';
@@ -49,58 +47,52 @@ const renderApp = (initial: string) =>
     </SessionProvider>,
   );
 
-describe('App Shell — drawer responsive (< lg)', () => {
-  it('el_boton_hamburguesa_abre_el_drawer_y_refleja_el_estado_en_aria_expanded', async () => {
+describe('App Shell — sidebar integrado colapsable', () => {
+  it('el_logo_alterna_el_sidebar_y_refleja_el_estado_en_aria_expanded', async () => {
     const user = userEvent.setup();
     renderApp('/calendario');
 
-    const hamburguesa = screen.getByRole('button', { name: /abrir navegación/i });
-    expect(hamburguesa).toHaveAttribute('aria-expanded', 'false');
-    // Estado por defecto: drawer cerrado → sin role="dialog".
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const toggle = screen.getByRole('button', { name: /navegación/i });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    // Estado por defecto: colapsado → el <nav> no está en el árbol de a11y.
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
 
-    await user.click(hamburguesa);
+    // Abrir: aparece la navegación principal.
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const nav = await screen.findByRole('navigation');
+    expect(within(nav).getByRole('link', { name: /reservas/i })).toBeInTheDocument();
 
-    const dialog = await screen.findByRole('dialog');
-    expect(dialog).toBeInTheDocument();
-    expect(hamburguesa).toHaveAttribute('aria-expanded', 'true');
-    // El drawer expone la navegación principal (acotada al dialog).
-    expect(within(dialog).getByRole('link', { name: /reservas/i })).toBeInTheDocument();
-  });
-
-  it('el_drawer_se_cierra_con_la_tecla_escape', async () => {
-    const user = userEvent.setup();
-    renderApp('/calendario');
-
-    await user.click(screen.getByRole('button', { name: /abrir navegación/i }));
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
-
-    await user.keyboard('{Escape}');
-
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /abrir navegación/i })).toHaveAttribute(
+    // Cerrar con el mismo logo: vuelve a colapsar (sin nav accesible).
+    await user.click(screen.getByRole('button', { name: /navegación/i }));
+    expect(screen.getByRole('button', { name: /navegación/i })).toHaveAttribute(
       'aria-expanded',
       'false',
     );
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
   });
 
-  it('al_pulsar_un_navlink_del_drawer_navega_y_cierra_el_drawer', async () => {
+  it('al_pulsar_un_navlink_navega_pero_el_sidebar_permanece_abierto', async () => {
     const user = userEvent.setup();
     renderApp('/calendario');
 
-    await user.click(screen.getByRole('button', { name: /abrir navegación/i }));
-    const dialog = await screen.findByRole('dialog');
+    await user.click(screen.getByRole('button', { name: /navegación/i }));
+    const nav = await screen.findByRole('navigation');
 
-    await user.click(within(dialog).getByRole('link', { name: /reservas/i }));
+    await user.click(within(nav).getByRole('link', { name: /reservas/i }));
 
     // El outlet cambia a Reservas (SPA). US-050: /reservas ya renderiza la
-    // ReservasPage real (no el SectionPlaceholder); verificamos su cabecera <h1>,
-    // que se pinta con independencia del estado del query.
+    // ReservasPage real (no el SectionPlaceholder); verificamos su cabecera <h1>.
     expect(
       await screen.findByRole('heading', { level: 1, name: /reservas/i }),
     ).toBeInTheDocument();
 
-    // ...y el drawer se cierra.
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    // ...y el sidebar permanece abierto (integrado, no modal): la nav sigue
+    // accesible y el toggle sigue expandido.
+    expect(screen.getByRole('navigation')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /navegación/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 });

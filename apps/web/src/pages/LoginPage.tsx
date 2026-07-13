@@ -63,7 +63,7 @@ export const LoginPage = () => {
   const [mostrarPassword, setMostrarPassword] = useState(false);
 
   const destino =
-    (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/calendario';
+    (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/dashboard';
 
   const avisoLogout =
     (location.state as { avisoLogout?: string } | null)?.avisoLogout ?? null;
