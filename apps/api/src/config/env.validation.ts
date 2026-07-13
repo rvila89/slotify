@@ -37,6 +37,12 @@ const esquemaEntorno = z
       .enum(['true', 'false'])
       .optional()
       .transform((valor) => valor !== 'false'),
+    // Épico #6 (6.1a) — selección del adaptador de `AlmacenDocumentosPort`.
+    // Decisión B1: en 6.1a solo se implementa `local` (dev/local, sin
+    // credenciales cloud); `s3` queda reservado para cuando haya bucket.
+    ALMACEN_PROVIDER: z.enum(['local', 's3']).default('local'),
+    // Base URL pública del adaptador local (dev). Las claves cuelgan de aquí.
+    ALMACEN_LOCAL_BASE_URL: z.string().default('http://localhost:3000/almacen'),
   })
   .superRefine((entorno, ctx) => {
     // En PRODUCCIÓN el transporte DEBE ser `resend`: un deploy no puede arrancar con

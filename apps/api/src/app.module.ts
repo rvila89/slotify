@@ -26,6 +26,7 @@ import { FichaEventoModule } from './ficha-evento/ficha-evento.module';
 import { TareasModule } from './tareas/tareas.module';
 import { DashboardsModule } from './dashboards/dashboards.module';
 import { ConfiguracionModule } from './configuracion/configuracion.module';
+import { DocumentosModule } from './documentos/documentos.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { ConfiguracionModule } from './configuracion/configuracion.module';
     TareasModule,
     DashboardsModule,
     ConfiguracionModule,
+    DocumentosModule,
   ],
   providers: [
     {

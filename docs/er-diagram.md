@@ -36,6 +36,7 @@
 | FichaOperativa | Datos operativos del evento | UC-20, UC-24 |
 | Documento | Archivos adjuntos polimórficos | UC-19, UC-24 |
 | Comunicacion | Log de emails enviados (E1–E8 + manuales) | UC-35, UC-36 |
+| PlantillaDocumentoTenant | Configuración de documento por tenant: branding, identidad fiscal, banca y textos. Base del épico #6 (PDFs) | Épico #6 |
 | AuditLog | Registro de auditoría | Transversal |
 
 ### Decisiones de Diseño
@@ -62,6 +63,8 @@ Estas decisiones cierran las divergencias detectadas entre la especificación fu
 
 10. **Datos fiscales del cliente completos.** El cliente almacena DNI/NIF, dirección, código postal, población y provincia, necesarios para la facturación. *Fundamento*: use-cases UC-14 (precondición de generación de presupuesto).
 
+11. **Configuración de documento por tenant independiente de `Tenant` (decisión A1, épico #6 rebanada 6.1a).** La entidad `PlantillaDocumentoTenant` (tabla `plantilla_documento_tenant`) duplica los datos que los PDFs del tenant necesitan (razón social fiscal, NIF, IBAN, colores, textos legales) en lugar de leer `Tenant.nombre`/`Tenant.nif`/`Tenant.direccion`. Esto permite que los documentos usen datos distintos de los operativos del tenant (p. ej. razón social fiscal "Canoliart, SL" frente al nombre comercial "Masia l'Encís") y evita acoplar el módulo de documentos al modelo operativo. `Tenant` no se modifica. *Fundamento*: decisión A1 aprobada en Gate SDD del change `documentos-config-tenant-storage` (13/07/2026). Matiz central: `razon_social_fiscal` y `nombre_comercial` son campos DISTINTOS en esta tabla.
+
 ---
 
 ## 2. Diagrama Entidad-Relación
@@ -82,6 +85,28 @@ erDiagram
         string nif
         int capacidad_maxima
         boolean activo
+        timestamp fecha_creacion
+        timestamp fecha_actualizacion
+    }
+
+    PLANTILLA_DOCUMENTO_TENANT {
+        uuid id_plantilla PK
+        uuid tenant_id FK "UNIQUE — relación 1-1 con Tenant"
+        string logo_url "nullable; clave/URL del logo en object storage"
+        string color_primario "hexadecimal, p. ej. #RRGGBB"
+        string color_texto "hexadecimal"
+        string razon_social_fiscal "p. ej. Canoliart SL — DISTINTA del nombre_comercial"
+        string nombre_comercial "p. ej. Masia l'Encís"
+        string nif
+        string direccion_fiscal
+        string web
+        string email
+        string iban
+        string beneficiario_transferencia
+        string concepto_transferencia
+        string plantilla_concepto_fiscal "con placeholder {nombreComercial}; nunca contiene lloguer"
+        string validesa_texto "p. ej. 10 DIES"
+        string pie_legal
         timestamp fecha_creacion
         timestamp fecha_actualizacion
     }
@@ -379,6 +404,7 @@ erDiagram
     %% RELACIONES
     %% ============================================
 
+    TENANT ||--|| PLANTILLA_DOCUMENTO_TENANT : "configura documentos"
     TENANT ||--|| TENANT_SETTINGS : "configura"
     TENANT ||--o{ USUARIO : "tiene"
     TENANT ||--o{ CLIENTE : "posee"
@@ -443,7 +469,53 @@ Configuración por tenant. Aísla los valores ajustables ("opinado por fuera, co
 | ttl_prereserva_dias | INT | TTL de bloqueo de pre-reserva (7) |
 | max_dias_programar_visita | INT | Máximo días desde solicitud para visita (7) |
 
-### 3.3 USUARIO
+### 3.3 PLANTILLA_DOCUMENTO_TENANT
+Configuración de documento por tenant. Relación 1-1 con `Tenant` (`tenant_id UNIQUE` + FK). Fuente de verdad de los datos que los PDFs del tenant necesitan (épico #6, rebanada 6.1a). RLS habilitada con la misma policy `tenant_isolation` del resto de tablas de negocio.
+
+**Matiz central:** `razon_social_fiscal` (p. ej. "Canoliart, SL") y `nombre_comercial` (p. ej. "Masia l'Encís") son campos DISTINTOS. El nombre comercial es la marca visible; la razón social fiscal es la que aparece en los documentos legales/facturas.
+
+**Decisión A1 (duplicación):** esta tabla es la fuente de verdad para los documentos del tenant. No referencia `Tenant.nombre`, `Tenant.nif` ni `Tenant.direccion`; los datos fiscales se duplican aquí para desacoplar el módulo de documentos del modelo operativo y permitir que difieran cuando sea necesario. `Tenant` no se modifica.
+
+Los campos se agrupan en cuatro bloques:
+
+**Bloque branding:**
+
+| Atributo | Tipo | Descripción |
+|----------|------|-------------|
+| id_plantilla | UUID PK | Identificador único |
+| tenant_id | UUID FK UNIQUE | Tenant propietario (garantía 1-1 en BD) |
+| logo_url | TEXT nullable | Clave o URL del logo en el object storage. `null` hasta que el gestor lo suba (fase 6.5) |
+| color_primario | TEXT | Color primario del tenant en hexadecimal (`#RRGGBB`) |
+| color_texto | TEXT | Color de texto en hexadecimal |
+
+**Bloque identidad fiscal:**
+
+| Atributo | Tipo | Descripción |
+|----------|------|-------------|
+| razon_social_fiscal | TEXT | Razón social fiscal del emisor (p. ej. "Canoliart, SL"). DISTINTA del nombre comercial |
+| nombre_comercial | TEXT | Nombre de marca del espacio (p. ej. "Masia l'Encís") |
+| nif | TEXT | NIF/CIF del emisor (p. ej. "B10874287") |
+| direccion_fiscal | TEXT | Dirección fiscal completa (admite `\n` para múltiples líneas) |
+| web | TEXT | URL del sitio web |
+| email | TEXT | Email de contacto del espacio |
+
+**Bloque banca:**
+
+| Atributo | Tipo | Descripción |
+|----------|------|-------------|
+| iban | TEXT | IBAN de la cuenta para transferencias (p. ej. "ES30 0182…") |
+| beneficiario_transferencia | TEXT | Nombre del beneficiario en la transferencia |
+| concepto_transferencia | TEXT | Concepto fijo de la transferencia. Regla dura del épico: expresa "espai" y NUNCA contiene "lloguer" |
+
+**Bloque textos:**
+
+| Atributo | Tipo | Descripción |
+|----------|------|-------------|
+| plantilla_concepto_fiscal | TEXT | Plantilla del concepto fiscal con placeholder `{nombreComercial}`. Misma regla dura: "espai", nunca "lloguer" |
+| validesa_texto | TEXT | Texto de validez del documento (p. ej. "10 DIES") |
+| pie_legal | TEXT | Texto del pie legal del documento |
+
+### 3.4 USUARIO
 Gestores, administradores y operarios del sistema.
 
 | Atributo | Tipo | Descripción |
@@ -454,7 +526,7 @@ Gestores, administradores y operarios del sistema.
 | password_hash | VARCHAR(255) | Hash de contraseña |
 | rol | ENUM | gestor, admin, operario |
 
-### 3.4 CLIENTE
+### 3.5 CLIENTE
 Datos de contacto y fiscales del cliente. Es un atributo de la reserva, no un punto de entrada de navegación.
 
 | Atributo | Tipo | Descripción |
@@ -472,7 +544,7 @@ Datos de contacto y fiscales del cliente. Es un atributo de la reserva, no un pu
 
 **Lectura en el pipeline (US-049 / UC-37-38 — sin migración):** el endpoint `GET /reservas` (`operationId: listarReservas`) hace join a `CLIENTE` para derivar `nombreEvento = {nombre} {apellidos}`. Si el `cliente_id` de la RESERVA no resuelve a un CLIENTE (nulo o inexistente), `nombreEvento` usa el `codigo` de la RESERVA como fallback. La lectura es de solo dos campos (`nombre`, `apellidos`); no se leen datos fiscales ni de contacto en esta operación.
 
-### 3.5 RESERVA
+### 3.6 RESERVA
 Entidad central única. Recorre toda la máquina de estados, desde los sub-estados de consulta hasta el archivo. Incluye los campos de cola, visita, sub-procesos paralelos y fianza.
 
 | Atributo | Tipo | Descripción |
@@ -544,7 +616,7 @@ La derivación se implementa como función pura de dominio (mapa declarativo, no
 
 **Prórroga manual del TTL (US-006 / UC-05 — sin migración):** el Gestor extiende el TTL del bloqueo blando activo de una RESERVA en `sub_estado ∈ {2b, 2c, 2v}` O `estado = 'pre_reserva'`, con `ttl_expiracion > ahora`. La operación **no es una transición de máquina de estados**: no cambia `estado`, `sub_estado`, `tipo_bloqueo` ni `fecha`. Únicamente actualiza `ttl_expiracion` en dos tablas: `RESERVA.ttl_expiracion = ttl_expiracion_actual + N días` y `FECHA_BLOQUEADA.ttl_expiracion` al mismo nuevo valor, en una única transacción con `SELECT … FOR UPDATE` sobre la fila bloqueante. El AUDIT_LOG registra `accion = 'actualizar'` con `datos_anteriores.ttl_expiracion` y `datos_nuevos.ttl_expiracion`. La guarda de precondición declarativa (`esEstadoConBloqueoBlandoExtensible` en `maquina-estados.ts`) rechaza `2a`, terminales y `reserva_confirmada` con 422; el estado del bloqueo en BD (`ttl_expiracion < ahora`, sin fila activa, o `tipo_bloqueo = 'firme'`) produce 409. Sin migración: `ttl_expiracion`, `tipo_bloqueo` y `accion = 'actualizar'` existen desde US-040/US-000. Ver §3.6 para la semántica de la extensión del TTL blando. Fuente: `design.md §D-1..D-9`; UC-05.
 
-### 3.6 FECHA_BLOQUEADA
+### 3.7 FECHA_BLOQUEADA
 Registro de bloqueo atómico de fecha. La restricción `UNIQUE(tenant_id, fecha)` garantiza la no-doble-reserva a nivel de motor de base de datos. Dos operaciones transaccionales del dominio mutuan esta entidad: `bloquearFecha()` (UC-30 / US-040), que introduce o actualiza la fila, y `liberarFecha()` (UC-31 / US-041), que la elimina de forma atómica e idempotente.
 
 | Atributo | Tipo | Descripción |
@@ -599,7 +671,7 @@ Ejecuta `DELETE FROM fecha_bloqueada WHERE tenant_id = T AND fecha = D` vía `$e
 
 **Causas de liberación auditadas en `AUDIT_LOG`:** `TTL` (bloqueo blando expirado por el cron), `descarte` (cliente o gestor), `cancelacion` (reserva confirmada cancelada).
 
-### 3.7 TARIFA
+### 3.8 TARIFA
 Configuración de precios precalculados por temporada, duración e invitados (45 entradas: 3×3×5). El motor de cálculo (UC-16 / US-016) busca la fila vigente en `fecha_evento` por `(temporada, duracion_horas, invitados_min ≤ num_adultos_ninos_mayores4 ≤ invitados_max)`. Los grupos de más de 50 invitados no tienen fila; el motor responde con `tarifa_a_consultar: true`. Los tramos del tenant piloto (Masia l'Encís) son: **1-20, 21-25, 26-30, 31-40, 41-50**.
 
 | Atributo | Tipo | Descripción |
@@ -613,7 +685,7 @@ Configuración de precios precalculados por temporada, duración e invitados (45
 | precio_total_eur | DECIMAL(10,2) | Precio con IVA 21% incluido. El motor expone este valor como `precio_tarifa_eur` en el output (distinción de nombres: columna BD vs salida del motor, ver `design.md §D-1`) |
 | vigente_desde, vigente_hasta | DATE | Período de vigencia (versionado) |
 
-### 3.8 TEMPORADA_CALENDARIO
+### 3.9 TEMPORADA_CALENDARIO
 Mapeo de cada mes a su temporada para el cálculo de tarifas. El mapeo canónico de Masia l'Encís: Alta = {5,6,7,8,9}, Media = {3,4,10,11}, Baja = {12,1,2}. Si un mes no tiene fila, el motor lanza `TEMPORADA_NO_CONFIGURADA`.
 
 | Atributo | Tipo | Descripción |
@@ -623,7 +695,7 @@ Mapeo de cada mes a su temporada para el cálculo de tarifas. El mapeo canónico
 | temporada | ENUM | alta, media, baja |
 | mes | INT | 1–12 |
 
-### 3.9 EXTRA
+### 3.10 EXTRA
 Catálogo de extras del tenant (barbacoa, paellero). Define el precio actual de referencia; no se usa para facturar (el precio se congela en `RESERVA_EXTRA`).
 
 | Atributo | Tipo | Descripción |
@@ -634,7 +706,7 @@ Catálogo de extras del tenant (barbacoa, paellero). Define el precio actual de 
 | precio_eur | DECIMAL(10,2) | Precio unitario actual de catálogo |
 | activo | BOOLEAN | Si está disponible |
 
-### 3.10 RESERVA_EXTRA
+### 3.11 RESERVA_EXTRA
 Línea de extra de una reserva. Es la unidad que se factura. El precio se congela al añadir la línea, no al aceptar el presupuesto: así un extra pedido durante la fase pre-evento conserva el precio del momento de la petición. Soporta extras fuera de catálogo (catering negociado) y traza en qué factura se cobra.
 
 | Atributo | Tipo | Descripción |
@@ -655,7 +727,7 @@ Línea de extra de una reserva. Es la unidad que se factura. El precio se congel
 - Extra pedido después de emitida la liquidación o durante el evento: se recoge en una factura de tipo `complementaria` en post-evento.
 - En todos los casos, al generar la factura correspondiente se marcan los `RESERVA_EXTRA` con `factura_id` pendientes (`factura_id IS NULL`) de esa reserva.
 
-### 3.11 PRESUPUESTO
+### 3.12 PRESUPUESTO
 Versiones del presupuesto generado para una reserva (UC-14 / US-014). Cada versión congela el desglose fiscal derivado del motor de tarifa en el momento de la confirmación. La primera versión (`version = 1`) se crea en la misma transacción que la transición de la RESERVA a `pre_reserva`. Versiones posteriores corresponden a ediciones (UC-15).
 
 La restricción `UNIQUE(reserva_id, version)` garantiza que no existan dos presupuestos con la misma versión para la misma reserva.
@@ -693,7 +765,7 @@ La restricción `UNIQUE(reserva_id, version)` garantiza que no existan dos presu
 - `aceptado` → cuando el cliente acepta (UC-15/US-015, fuera de US-014)
 - `rechazado` → cuando el cliente rechaza (UC-15/US-015, fuera de US-014)
 
-### 3.12 FACTURA
+### 3.13 FACTURA
 Facturas de señal (40%), liquidación (60% + extras), fianza y complementarias. El agregado raíz de la capability `facturacion` (US-022).
 
 | Atributo | Tipo | Descripción |
@@ -745,7 +817,7 @@ Tras el commit de la transición `pre_reserva → reserva_confirmada` (US-021), 
 - **Auditoría**: `AUDIT_LOG` con `accion = 'crear'`, `entidad = 'FACTURA'` por cada documento creado.
 - **Endpoint de consulta**: `GET /reservas/{id}/facturas` — devuelve la colección de facturas de la reserva filtrable por tipo; implementado en US-027.
 
-### 3.13 PAGO
+### 3.14 PAGO
 Cobro conciliado contra una factura. El justificante es un `DOCUMENTO(tipo=justificante_pago)`. Materializado en US-029 (migración aditiva `20260704150000_us029_pago_tenant_id`). La entidad se reutiliza sin cambios de modelo para el cobro de la fianza (US-030).
 
 | Atributo | Tipo | Descripción |
@@ -774,7 +846,7 @@ Cobro conciliado contra una factura. El justificante es un `DOCUMENTO(tipo=justi
 
 **`fianza_status = cobrada` como tercera precondición de `evento_en_curso` (US-030 / US-031):** al registrar el cobro de la fianza, `RESERVA.fianza_status = 'cobrada'` habilita la **tercera** de las tres precondiciones de la transición `reserva_confirmada → evento_en_curso` (junto con `pre_evento_status = cerrado` y `liquidacion_status = cobrada`). `RESERVA.estado` permanece `reserva_confirmada` tras el cobro; la transición a `evento_en_curso` no se evalúa en US-030 y es responsabilidad de US-031. Alerta FA-01 no bloqueante: si en el día del evento `fianza_status ≠ 'cobrada'`, la política hardcoded "Negociable" genera una alerta crítica no bloqueante; el inicio del evento no se bloquea por fianza impagada.
 
-### 3.14 FICHA_OPERATIVA
+### 3.15 FICHA_OPERATIVA
 Datos operativos del evento, cumplimentados progresivamente. Relación 1:1 con la reserva. La entidad se crea vacía (todos los campos de contenido a `NULL`, `ficha_cerrada = false`) en la misma transacción de confirmación de señal (US-021). US-025 añade la lectura, el guardado parcial y el cierre.
 
 | Atributo | Tipo | Descripción |
@@ -800,7 +872,7 @@ Datos operativos del evento, cumplimentados progresivamente. Relación 1:1 con l
 - **Guarda de acceso**: la ficha solo es accesible cuando `RESERVA.estado ∈ {reserva_confirmada, evento_en_curso, post_evento}`. Estados anteriores reciben `409` con `code=ficha_no_disponible` (D-3).
 - **AUDIT_LOG**: cada guardado, cierre y edición post-cierre registra la acción correspondiente.
 
-### 3.15 DOCUMENTO
+### 3.16 DOCUMENTO
 Archivos adjuntos polimórficos. Discriminador `tipo`. Referenciable desde reserva y desde pago (justificantes).
 
 | Atributo | Tipo | Descripción |
@@ -812,7 +884,7 @@ Archivos adjuntos polimórficos. Discriminador `tipo`. Referenciable desde reser
 | url | VARCHAR(500) | URL del archivo |
 | mime_type | VARCHAR(50) | Tipo MIME |
 
-### 3.16 COMUNICACION
+### 3.17 COMUNICACION
 Log de emails del ciclo de vida de la reserva (E1–E8) y emails manuales. El motor hexagonal `DespacharEmailService` (US-045) es el único responsable de registrar y actualizar estas entradas para los emails automáticos.
 
 | Atributo | Tipo | Descripción |
@@ -841,7 +913,7 @@ Log de emails del ciclo de vida de la reserva (E1–E8) y emails manuales. El mo
 
 **Cobertura de emails E1–E8:** E1 activa (trigger cableado en US-003/004+US-045; extensión en US-005). E2 activa (trigger cableado en US-014 — post-commit de la confirmación `{2a|2b|2c|2v} → pre_reserva`; PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; registro en `COMUNICACION` con `codigo_email='E2'`, `estado='enviado'`; idempotencia garantizada por índice UNIQUE parcial de US-045). E6 activa (trigger cableado en US-008 — post-commit de la transición `{2a|2b|2c}→2v`; registro en `COMUNICACION` con `codigo_email='E6'`, `estado='enviado'`, `reserva_id`, `cliente_id`). E7 activa (trigger cableado en US-009 — post-commit de la transición `2v→2b` "cliente interesado"; registro en `COMUNICACION` con `codigo_email='E7'`, `estado='enviado'`, `reserva_id`, `cliente_id`). E3 avanza en US-022 (la factura de señal, prerequisito de E3, está implementada) pero su trigger se cablea en US-023 (condiciones particulares, trigger natural de E3). **E4 activa — trigger cableado en US-028** (aprobación/emisión de la factura de liquidación y del recibo de fianza): la acción `aprobar-enviar` emite ambas facturas, registra `COMUNICACION E4` con `estado='enviado'` y actualiza `liquidacion_status = 'facturada'` y `fianza_status = 'recibo_enviado'` de forma **atómica** (D-1: excepción síncrona al patrón post-commit); si E4 falla, se hace rollback completo de estados y numeración. El reenvío de la factura ya emitida (`POST /reservas/{id}/facturas/liquidacion/reenviar`) crea un nuevo registro `COMUNICACION E4` con `es_reenvio = true`, sin mutar el contenido fiscal. El envío separado del recibo de fianza (`POST /reservas/{id}/facturas/fianza/enviar`) registra `COMUNICACION` con `codigo_email = 'manual'` (D-3). US-027 generó los borradores con `numero_factura = NULL`; US-028 asignó `numero_factura = F-YYYY-NNNN` al emitir. E5, E8 diseñadas/inactivas; su trigger: E5→US-034, E8→US-035. Ver [architecture.md §2.9 DT-EMAIL-02 y §2.15](./architecture.md).
 
-### 3.17 AUDIT_LOG
+### 3.18 AUDIT_LOG
 Registro de auditoría de todas las acciones sobre reservas, facturas y autenticación.
 
 | Atributo | Tipo | Descripción |
@@ -993,7 +1065,23 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 ### 5.6 Extras: catálogo, congelación y extras tardíos
 `EXTRA` es el catálogo del tenant (precio de referencia actual). `RESERVA_EXTRA` es la línea facturable, con `precio_unitario` congelado en el momento de añadirla. Esto desacopla el extra del presupuesto: un extra puede añadirse en el presupuesto inicial o durante la fase pre-evento (campo `origen`). El campo `factura_id` indica en qué factura se cobra cada línea; las líneas sin facturar (`factura_id IS NULL`) se recogen al generar la factura de liquidación (T-1d) o, si la petición llega más tarde, en una factura `complementaria` en post-evento. Para extras fuera de catálogo (p. ej. un catering negociado), `extra_id` es nulo y se usa `concepto_libre` con precio manual. Este diseño cubre la casuística de peticiones de última hora sin entidades adicionales y alimenta el KPI de upsell (ticket medio).
 
+### 5.7 Configuración de documento por tenant (épico #6, rebanada 6.1a)
+
+`PLANTILLA_DOCUMENTO_TENANT` es la fuente de verdad del contenido de los PDFs generados por Slotify para cada tenant (presupuestos, facturas y otros documentos del épico #6). Se relaciona 1-1 con `Tenant` mediante `UNIQUE(tenant_id)` en la BD y una FK que preserva la integridad referencial.
+
+**Por qué duplicar en lugar de leer de `Tenant` (decisión A1):** los documentos necesitan datos que pueden diferir de los operativos del tenant (p. ej. una razón social fiscal formal frente al nombre comercial del espacio). La duplicación desacopla el módulo de documentos del modelo operativo y evita que un cambio en `Tenant.nombre` rompa documentos históricos. `Tenant` no se modifica.
+
+**Matiz central — razón social fiscal ≠ nombre comercial:** son dos campos distintos en esta tabla. `razon_social_fiscal` (p. ej. "Canoliart, SL") es la razón social que aparece en las facturas; `nombre_comercial` (p. ej. "Masia l'Encís") es la marca visible al cliente y se usa como variable `{nombreComercial}` en `plantilla_concepto_fiscal`. Confundirlos rompería la validez fiscal del documento.
+
+**Regla dura del épico:** `concepto_transferencia` y `plantilla_concepto_fiscal` deben describir el uso del espacio con el término "espai" (o equivalente). La palabra "lloguer" está prohibida en estos campos; los tests de integración la verifican en cada seed y en cada actualización de la configuración.
+
+**RLS:** la tabla tiene `ENABLE ROW LEVEL SECURITY` y la policy `tenant_isolation` (`tenant_id = current_setting('app.tenant_id', true)`), alineada con el patrón del resto de tablas de negocio. Nota: como en el resto del schema, la RLS es efectiva para roles sin `BYPASSRLS`; el owner de la BD la evita por diseño de PostgreSQL (comportamiento preexistente, no regresión de este change).
+
+**Evolución del épico:** en 6.1a solo existe la entidad y el servicio de lectura (`ObtenerConfiguracionDocumentoService`). No hay endpoint HTTP propio. Las rebanadas siguientes consumirán esta config para generar los PDFs (6.1b) y la UI de ajustes de la configuración (6.5). El campo `logo_url` permanece `null` hasta que la rebanada 6.5 implemente la subida del logo.
+
 ---
+
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.5 (13/07/2026): refleja épico #6 rebanada 6.1a (`documentos-config-tenant-storage`) — añade entidad `PLANTILLA_DOCUMENTO_TENANT` al diagrama Mermaid y a las relaciones (`TENANT ||--|| PLANTILLA_DOCUMENTO_TENANT`); añade decisión de diseño n.º 11 (decisión A1: duplicación de datos fiscales, independencia de `Tenant`, matiz razón social fiscal ≠ nombre comercial); añade §3.3 PLANTILLA_DOCUMENTO_TENANT al diccionario (4 bloques: branding, identidad fiscal, banca, textos; UNIQUE(tenant_id); RLS; regla dura "espai nunca lloguer"); renumera §3.3–§3.17 → §3.4–§3.18; añade §5.7 con la rationale de la decisión A1, la distinción razón social / nombre comercial, la regla dura del concepto, la nota de RLS y la evolución del épico. Sin cambios en el contrato OpenAPI (sin endpoint HTTP en 6.1a). Migración: `20260713140000_documento_config_tenant`. Sin casos de uso nuevos en `use-cases.md`.*
 
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.4 (10/07/2026): refleja US-037 — Archivado Automático a `reserva_completada` en T+7d (UC-28): añade campo `fecha_post_evento TIMESTAMPTZ nullable` al bloque RESERVA del diagrama Mermaid y al diccionario §3.5 (migración aditiva `20260710130000_us037_reserva_fecha_post_evento`); añade índice `@@index([estado, fechaPostEvento])` en §4.1; amplía §5.4 con la descripción de la transición terminal `post_evento → reserva_completada` (barrido `POST /cron/barrido-completadas`, actor Sistema, guarda de fianza resuelta, idempotencia, concurrencia con US-038, alerta FA-01 en AUDIT_LOG, tabla de transición con guarda).*
 

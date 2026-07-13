@@ -7,6 +7,7 @@
  */
 import { PrismaClient, Temporada, Rol } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { construirConfiguracionDocumentoPiloto } from '../src/documentos/infrastructure/seed/configuracion-documento-piloto';
 
 const prisma = new PrismaClient();
 
@@ -239,6 +240,32 @@ async function main(): Promise<void> {
         activo: true,
       },
     ],
+  });
+
+  // --- PlantillaDocumentoTenant del piloto (épico #6, 6.1a) ---
+  // Idempotente: deleteMany + create. El factory PURO construye los datos reales
+  // (razón social ≠ nombre comercial; concepto "espai", nunca "lloguer").
+  const configDocumento = construirConfiguracionDocumentoPiloto(TENANT_ID);
+  await prisma.plantillaDocumentoTenant.deleteMany({ where: { tenantId: TENANT_ID } });
+  await prisma.plantillaDocumentoTenant.create({
+    data: {
+      tenantId: configDocumento.tenantId,
+      logoUrl: configDocumento.branding.logoUrl,
+      colorPrimario: configDocumento.branding.colorPrimario,
+      colorTexto: configDocumento.branding.colorTexto,
+      razonSocialFiscal: configDocumento.identidadFiscal.razonSocialFiscal,
+      nombreComercial: configDocumento.identidadFiscal.nombreComercial,
+      nif: configDocumento.identidadFiscal.nif,
+      direccionFiscal: configDocumento.identidadFiscal.direccionFiscal,
+      web: configDocumento.identidadFiscal.web,
+      email: configDocumento.identidadFiscal.email,
+      iban: configDocumento.banca.iban,
+      beneficiarioTransferencia: configDocumento.banca.beneficiarioTransferencia,
+      conceptoTransferencia: configDocumento.banca.conceptoTransferencia,
+      plantillaConceptoFiscal: configDocumento.textos.plantillaConceptoFiscal,
+      validesaTexto: configDocumento.textos.validesaTexto,
+      pieLegal: configDocumento.textos.pieLegal,
+    },
   });
 
   const [nTemporadas, nTarifas, nExtras] = await Promise.all([
