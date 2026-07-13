@@ -19,8 +19,16 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-const CANALES = ['web', 'email', 'whatsapp', 'instagram', 'telefono'] as const;
-const TIPOS_EVENTO = ['boda', 'corporativo', 'privado', 'otro'] as const;
+const CANALES = [
+  'web',
+  'email',
+  'whatsapp',
+  'instagram',
+  'telefono',
+  'cocopool',
+  'holaplace',
+] as const;
+const TIPOS_EVENTO = ['boda', 'corporativo', 'privado', 'otro', 'cumpleanos'] as const;
 const DURACIONES = [4, 8, 12] as const;
 /** RFC 5322 básico: local@dominio.tld, sin espacios (igual que el contrato). */
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;

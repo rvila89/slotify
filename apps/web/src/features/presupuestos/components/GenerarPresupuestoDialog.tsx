@@ -22,7 +22,7 @@ import type { ConfirmarPresupuestoResponse, PresupuestoExtraInput } from '../mod
 
 /**
  * Diálogo "Generar presupuesto" (US-014 · UC-14 §5.1–5.4). Flujo:
- * abrir → **preview** (no persiste) → editar extras / descuento / precio manual →
+ * abrir → **preview** (no persiste) → editar extras / precio manual →
  * **Confirmar** (persiste: PRESUPUESTO + `pre_reserva` + bloqueo 7d + E2) o
  * **Cancelar** (descarta el borrador, sin efecto — FA-03).
  *
@@ -31,8 +31,8 @@ import type { ConfirmarPresupuestoResponse, PresupuestoExtraInput } from '../mod
  * contrato se muestran inline (`AvisoErrorPresupuesto`).
  *
  * Formulario con **React Hook Form + Zod** (regla dura del proyecto, coherente con
- * `ExtenderBloqueoDialog`/`AnadirFechaDialog`): descuento y precio manual se validan
- * en cliente (no negativos; precio manual > 0 obligatorio si `tarifaAConsultar`).
+ * `ExtenderBloqueoDialog`/`AnadirFechaDialog`): el precio manual se valida en cliente
+ * (no negativo; > 0 obligatorio si `tarifaAConsultar`).
  * Los extras son un mapa dinámico y se gestionan aparte en `useBorradorPresupuesto`.
  * El servidor revalida de forma defensiva (409/422).
  *
@@ -53,12 +53,6 @@ type Props = {
 const MENSAJE_NO_NEGATIVO = 'Introduce un importe válido (0 o superior)';
 
 const esquema = z.object({
-  descuento: z
-    .string()
-    .refine(
-      (v) => v.trim() === '' || (Number.isFinite(Number(v)) && Number(v) >= 0),
-      MENSAJE_NO_NEGATIVO,
-    ),
   precioManual: z
     .string()
     .refine(
@@ -70,7 +64,7 @@ const esquema = z.object({
 type FormularioPresupuesto = z.infer<typeof esquema>;
 
 const claseBotonPrimario =
-  'inline-flex h-12 items-center justify-center gap-2 rounded-full bg-brand-primary px-8 font-display text-base text-brand-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex h-12 items-center justify-center gap-2 rounded-full bg-accent-success px-8 font-display text-base text-accent-success-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60';
 
 const claseBotonSecundario =
   'inline-flex h-12 items-center justify-center gap-2 rounded-full border border-border-default bg-canvas px-8 font-body text-base font-medium text-text-secondary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60';
@@ -95,16 +89,15 @@ export const GenerarPresupuestoDialog = ({
     formState: { errors },
   } = useForm<FormularioPresupuesto>({
     resolver: zodResolver(esquema),
-    defaultValues: { descuento: '', precioManual: '' },
+    defaultValues: { precioManual: '' },
   });
 
-  const descuento = watch('descuento');
   const precioManual = watch('precioManual');
 
   const { cantidades, cambiarCantidad, extrasInput, preview } = useBorradorPresupuesto(
     reservaId,
     abierto,
-    { descuento, precioManual },
+    { precioManual },
   );
   const { data: extras = [], isLoading: cargandoExtras } = useExtras(abierto);
   const confirmar = useConfirmarPresupuesto();
@@ -115,7 +108,7 @@ export const GenerarPresupuestoDialog = ({
   useEffect(() => {
     if (!abierto) {
       resetConfirmar();
-      reset({ descuento: '', precioManual: '' });
+      reset({ precioManual: '' });
     }
   }, [abierto, resetConfirmar, reset]);
 
@@ -126,10 +119,8 @@ export const GenerarPresupuestoDialog = ({
   const construirBodyConfirmar = () => {
     const body: {
       extras: PresupuestoExtraInput[];
-      descuentoEur?: string;
       precioManualEur?: string;
     } = { extras: extrasInput };
-    if (descuento.trim() !== '' && Number(descuento) > 0) body.descuentoEur = descuento;
     if (tarifaAConsultar && precioManual.trim() !== '') body.precioManualEur = precioManual;
     return body;
   };
@@ -163,12 +154,12 @@ export const GenerarPresupuestoDialog = ({
     <Dialog open={abierto} onOpenChange={onAbiertoChange}>
       <DialogContent
         data-testid="dialog-generar-presupuesto"
-        className="max-h-[90vh] overflow-y-auto"
+        className="max-h-[90vh] max-w-2xl overflow-y-auto"
       >
         <DialogHeader>
           <DialogTitle>Generar presupuesto</DialogTitle>
           <DialogDescription>
-            Revisa el borrador calculado con la tarifa vigente. Ajusta extras y descuento; al
+            Revisa el borrador calculado con la tarifa vigente. Ajusta los extras; al
             confirmar se creará el presupuesto y la reserva pasará a pre-reserva (bloqueo de 7 días).
           </DialogDescription>
         </DialogHeader>
@@ -189,34 +180,6 @@ export const GenerarPresupuestoDialog = ({
               />
             )}
           </section>
-
-          <div className="flex flex-col gap-2">
-            <label htmlFor="presupuesto-descuento" className={claseLabel}>
-              Descuento (€, opcional)
-            </label>
-            <input
-              id="presupuesto-descuento"
-              type="number"
-              inputMode="decimal"
-              min={0}
-              step="0.01"
-              disabled={confirmar.isPending}
-              aria-invalid={errors.descuento ? 'true' : undefined}
-              aria-describedby={errors.descuento ? 'presupuesto-descuento-error' : undefined}
-              {...register('descuento')}
-              placeholder="0.00"
-              className={claseInput}
-            />
-            {errors.descuento && (
-              <p
-                id="presupuesto-descuento-error"
-                role="alert"
-                className="px-1 font-body text-[13px] text-red-600"
-              >
-                {errors.descuento.message}
-              </p>
-            )}
-          </div>
 
           {tarifaAConsultar && (
             <div className="flex flex-col gap-2">
@@ -271,7 +234,6 @@ export const GenerarPresupuestoDialog = ({
               desglose={borrador.desglose}
               reparto={borrador.reparto}
               extrasTotalEur={borrador.extrasTotalEur}
-              descuentoEur={borrador.descuentoEur}
             />
           ) : (
             !preview.isPending &&

@@ -19,7 +19,7 @@
  * está en ROJO (no por configuración del runner).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -72,17 +72,27 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+// La opción "Cerrar sesión" vive en el `SidebarContent` (sidebar integrado),
+// colapsado en reposo (aria-hidden). Cada prueba abre primero el sidebar pulsando
+// el logo del header para que la opción sea accesible.
+const abrirSidebarYObtenerCerrarSesion = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(screen.getByRole('button', { name: /navegación/i }));
+  await screen.findByRole('navigation'); // el sidebar ya es accesible (aria-hidden=false)
+  return screen.getByRole('button', { name: /cerrar sesión/i });
+};
+
 describe('AppShell — opción "Cerrar sesión" (REQ 6)', () => {
-  it('debe_ofrecer_una_opcion_de_cerrar_sesion_en_el_app_shell', () => {
+  it('debe_ofrecer_una_opcion_de_cerrar_sesion_en_el_app_shell', async () => {
+    const user = userEvent.setup();
     renderApp();
-    expect(screen.getByRole('button', { name: /cerrar sesión/i })).toBeInTheDocument();
+    expect(await abrirSidebarYObtenerCerrarSesion(user)).toBeInTheDocument();
   });
 
   it('debe_llamar_al_endpoint_de_logout_al_pulsar_cerrar_sesion', async () => {
     const user = userEvent.setup();
     renderApp();
 
-    await user.click(screen.getByRole('button', { name: /cerrar sesión/i }));
+    await user.click(await abrirSidebarYObtenerCerrarSesion(user));
 
     await waitFor(() => expect(postMock).toHaveBeenCalledWith('/auth/logout', expect.anything()));
   });
@@ -93,23 +103,21 @@ describe('AppShell — opción "Cerrar sesión" (REQ 6)', () => {
 
     expect(screen.getByText(/contenido protegido: calendario/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /cerrar sesión/i }));
+    await user.click(await abrirSidebarYObtenerCerrarSesion(user));
 
     expect(await screen.findByText(/pantalla de login/i)).toBeInTheDocument();
     expect(screen.queryByText(/contenido protegido/i)).not.toBeInTheDocument();
   });
 });
 
-describe('AppShell — "Cerrar sesión" accesible en el drawer móvil (REQ 6 / responsive `<lg`)', () => {
-  it('debe_exponer_la_opcion_de_cerrar_sesion_dentro_del_drawer', async () => {
+describe('AppShell — "Cerrar sesión" accesible en el sidebar (REQ 6)', () => {
+  it('debe_exponer_la_opcion_de_cerrar_sesion_dentro_del_sidebar', async () => {
     const user = userEvent.setup();
     renderApp();
 
-    await user.click(screen.getByRole('button', { name: /abrir navegación/i }));
-    const dialog = await screen.findByRole('dialog');
-
-    // La opción debe ser visible y accionable también en el drawer (`<lg`).
-    expect(within(dialog).getByRole('button', { name: /cerrar sesión/i })).toBeInTheDocument();
+    // Colapsado no es accesible; al abrir el sidebar la opción aparece.
+    expect(screen.queryByRole('button', { name: /cerrar sesión/i })).not.toBeInTheDocument();
+    expect(await abrirSidebarYObtenerCerrarSesion(user)).toBeInTheDocument();
   });
 });
 
@@ -118,7 +126,7 @@ describe('AppShell — ruta protegida tras el logout (REQ 8 / 3.7)', () => {
     const user = userEvent.setup();
     renderApp('/calendario');
 
-    await user.click(screen.getByRole('button', { name: /cerrar sesión/i }));
+    await user.click(await abrirSidebarYObtenerCerrarSesion(user));
 
     // Sesión vacía → `RequireAuth` redirige al login sin exponer la ruta protegida.
     expect(await screen.findByText(/pantalla de login/i)).toBeInTheDocument();

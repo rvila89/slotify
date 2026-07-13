@@ -12,26 +12,36 @@ import {
   ExtraRepositoryPort,
   ClockPort,
 } from './domain/calculadora-tarifa.service';
+import { CatalogoExtrasPort } from './domain/catalogo-extras.port';
 import { TemporadaCalendarioPrismaAdapter } from './infrastructure/temporada-calendario.prisma.adapter';
 import { TarifaPrismaAdapter } from './infrastructure/tarifa.prisma.adapter';
 import { ExtraPrismaAdapter } from './infrastructure/extra.prisma.adapter';
 import { SistemaClockAdapter } from './infrastructure/sistema-clock.adapter';
 import { TarifasController } from './interface/tarifas.controller';
+import { ListarExtrasController } from './interface/listar-extras.controller';
+import { ListarExtrasUseCase } from './application/listar-extras.use-case';
 import {
   TEMPORADA_CALENDARIO_PORT,
   TARIFA_REPOSITORY_PORT,
   EXTRA_REPOSITORY_PORT,
+  CATALOGO_EXTRAS_PORT,
   CLOCK_PORT,
 } from './tarifas.tokens';
 
 @Module({
   imports: [PrismaModule],
-  controllers: [TarifasController],
+  controllers: [TarifasController, ListarExtrasController],
   providers: [
     { provide: TEMPORADA_CALENDARIO_PORT, useClass: TemporadaCalendarioPrismaAdapter },
     { provide: TARIFA_REPOSITORY_PORT, useClass: TarifaPrismaAdapter },
     { provide: EXTRA_REPOSITORY_PORT, useClass: ExtraPrismaAdapter },
+    { provide: CATALOGO_EXTRAS_PORT, useClass: ExtraPrismaAdapter },
     { provide: CLOCK_PORT, useClass: SistemaClockAdapter },
+    {
+      provide: ListarExtrasUseCase,
+      inject: [CATALOGO_EXTRAS_PORT],
+      useFactory: (catalogo: CatalogoExtrasPort) => new ListarExtrasUseCase({ catalogo }),
+    },
     {
       provide: CalculadoraTarifaService,
       inject: [

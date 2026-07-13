@@ -6,12 +6,15 @@ export const CANALES: { value: CanalEntrada; label: string }[] = [
   { value: 'whatsapp', label: 'WhatsApp' },
   { value: 'instagram', label: 'Instagram' },
   { value: 'telefono', label: 'Teléfono' },
+  { value: 'cocopool', label: 'Cocopool' },
+  { value: 'holaplace', label: 'HolaPlace' },
 ];
 
 export const TIPOS: { value: TipoEvento; label: string }[] = [
   { value: 'boda', label: 'Boda' },
   { value: 'corporativo', label: 'Corporativo' },
   { value: 'privado', label: 'Privado' },
+  { value: 'cumpleanos', label: 'Cumpleaños' },
   { value: 'otro', label: 'Otro' },
 ];
 

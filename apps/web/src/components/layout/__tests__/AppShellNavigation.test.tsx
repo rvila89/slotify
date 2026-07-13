@@ -1,14 +1,12 @@
 /**
- * Fase RED — US-000A · App Shell
- * Task 2.3: navegacion SPA. Seleccionar una seccion de la nav lateral cambia el
- * outlet SIN recargar la pagina y resalta el item activo.
+ * Navegacion SPA del App Shell. El menu lateral es un `<aside>` integrado que se
+ * abre/cierra con el logo del header; seleccionar una seccion cambia el outlet
+ * SIN recargar la pagina, resalta el item activo y NO cierra el sidebar.
  *
- * Contrato de produccion (fase GREEN):
- *  - `@/App` (ya existe) debe cablear el arbol de rutas: layout `AppShell`
- *    protegido con nav lateral (Calendario · Reservas · Métricas) y <Outlet/>.
+ * Contrato de produccion:
+ *  - `@/App` cablea el arbol de rutas: layout `AppShell` protegido con nav
+ *    (Dashboard · Calendario · Reservas · Métricas) en el sidebar y <Outlet/>.
  *  - El item activo se marca con `aria-current="page"` (NavLink de React Router).
- *  - Cada seccion no construida renderiza un placeholder con `data-testid=
- *    "section-placeholder"` que incluye el nombre de la seccion (ver task 2.5).
  *  - `@/features/auth` -> `SessionProvider` para INYECTAR la sesion valida.
  */
 import { describe, expect, it, vi } from 'vitest';
@@ -51,35 +49,50 @@ const renderApp = (initial: string) =>
     </SessionProvider>,
   );
 
-describe('App Shell — navegacion SPA con item activo', () => {
-  it('debe_cambiar_el_outlet_sin_recargar_y_resaltar_el_item_activo_al_seleccionar_seccion', async () => {
-    // Arrange
+const abrirSidebar = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(screen.getByRole('button', { name: /navegación/i }));
+  return screen.findByRole('navigation');
+};
+
+describe('App Shell — navegacion SPA con item activo (sidebar integrado)', () => {
+  it('debe_cambiar_el_outlet_sin_recargar_resaltar_el_item_activo_y_mantener_el_sidebar_abierto', async () => {
+    // Arrange: en /calendario, abrimos el sidebar para acceder a la nav.
     const user = userEvent.setup();
     renderApp('/calendario');
 
-    const nav = screen.getByRole('navigation');
+    const nav = await abrirSidebar(user);
     const linkCalendario = within(nav).getByRole('link', { name: /calendario/i });
     const linkReservas = within(nav).getByRole('link', { name: /reservas/i });
 
-    // Estado inicial: Calendario activo.
+    // Estado inicial: Calendario activo y el header muestra su subtítulo dinámico.
     expect(linkCalendario).toHaveAttribute('aria-current', 'page');
     expect(linkReservas).not.toHaveAttribute('aria-current', 'page');
+    expect(screen.getByText(/disponibilidad y bloqueos/i)).toBeInTheDocument();
 
     // Act: navegar a Reservas (SPA, click en el NavLink).
     await user.click(linkReservas);
 
     // Assert: el outlet cambia a la seccion Reservas (US-050: la ruta /reservas
-    // ya renderiza la ReservasPage real, no el SectionPlaceholder). Verificamos la
-    // cabecera <h1> de la página, que se pinta con independencia del estado del query.
+    // ya renderiza la ReservasPage real). Verificamos la cabecera <h1>, que se
+    // pinta con independencia del estado del query.
     expect(
       await screen.findByRole('heading', { level: 1, name: /reservas/i }),
     ).toBeInTheDocument();
 
-    // ...el item activo pasa a Reservas y Calendario deja de estarlo...
-    expect(linkReservas).toHaveAttribute('aria-current', 'page');
-    expect(linkCalendario).not.toHaveAttribute('aria-current', 'page');
+    // ...el header refleja la nueva sección (subtítulo dinámico de Reservas)...
+    expect(await screen.findByText(/gestión de solicitudes/i)).toBeInTheDocument();
+    expect(screen.queryByText(/disponibilidad y bloqueos/i)).not.toBeInTheDocument();
 
-    // ...y la nav lateral sigue siendo la misma (sin recarga de documento).
+    // ...el sidebar PERMANECE abierto (integrado, no modal): sin recarga, el item
+    // activo pasa a Reservas y Calendario deja de estarlo.
     expect(screen.getByRole('navigation')).toBe(nav);
+    expect(within(nav).getByRole('link', { name: /reservas/i })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(within(nav).getByRole('link', { name: /calendario/i })).not.toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   });
 });

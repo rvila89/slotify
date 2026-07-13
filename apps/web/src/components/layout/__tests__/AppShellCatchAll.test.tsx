@@ -1,14 +1,16 @@
 /**
- * Fase RED — US-000A · App Shell
- * Task 2.4: catch-all DENTRO del shell. Una ruta inexistente muestra
- * "no encontrado" en el area de contenido, conservando la nav y la cabecera.
+ * Catch-all DENTRO del shell. Una ruta inexistente muestra "no encontrado" en el
+ * area de contenido, conservando el chrome del header (disparador del menu +
+ * "Nueva Reserva"). La nav vive en el drawer, accesible desde el logo.
  *
- * Contrato de produccion (fase GREEN):
+ * Contrato de produccion:
  *  - Ruta catch-all (`path="*"`) hija del layout `AppShell` que renderiza un
- *    estado "no encontrado" en el <Outlet/>, sin desmontar la nav ni el header.
+ *    estado "no encontrado" en el <Outlet/>, sin desmontar el header ni el
+ *    disparador del drawer.
  */
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from '@/App';
 import { SessionProvider } from '@/features/auth';
@@ -28,18 +30,23 @@ const renderApp = (initial: string) =>
   );
 
 describe('App Shell — catch-all de ruta inexistente', () => {
-  it('debe_mostrar_no_encontrado_en_el_contenido_conservando_la_nav', () => {
+  it('debe_mostrar_no_encontrado_en_el_contenido_conservando_el_chrome_y_la_nav', async () => {
     // Arrange / Act: ruta autenticada inexistente dentro del shell.
+    const user = userEvent.setup();
     renderApp('/seccion-que-no-existe');
 
     // Assert: estado "no encontrado" en el area de contenido...
     expect(screen.getByText(/no encontrado/i)).toBeInTheDocument();
 
-    // ...y la nav lateral (Calendario · Reservas · Métricas) sigue visible.
-    const nav = screen.getByRole('navigation');
-    expect(nav).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /calendario/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /reservas/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /m[eé]tricas/i })).toBeInTheDocument();
+    // ...el chrome del header sigue presente (disparador del menu + "Nueva Reserva").
+    expect(screen.getByRole('button', { name: /navegación/i })).toBeInTheDocument();
+    expect(screen.getByText(/nueva reserva/i)).toBeInTheDocument();
+
+    // ...y la nav (Calendario · Reservas · Métricas) sigue accesible al abrir el sidebar.
+    await user.click(screen.getByRole('button', { name: /navegación/i }));
+    const nav = await screen.findByRole('navigation');
+    expect(within(nav).getByRole('link', { name: /calendario/i })).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: /reservas/i })).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: /m[eé]tricas/i })).toBeInTheDocument();
   });
 });

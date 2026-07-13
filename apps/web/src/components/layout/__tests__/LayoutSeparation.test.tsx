@@ -50,8 +50,10 @@ describe('App Shell — separacion de layouts auth vs app', () => {
     // Arrange / Act: ruta autenticada (layout app).
     renderApp(sesionValida, '/calendario');
 
-    // Assert: el shell aparece (nav lateral + "+ Nueva Reserva").
-    expect(screen.getByRole('navigation')).toBeInTheDocument();
+    // Assert: el shell aparece (disparador del menú en el header + "+ Nueva Reserva").
+    // La nav vive en el sidebar integrado (colapsado en reposo → aria-hidden), así
+    // que el marcador de chrome siempre visible es el disparador del menú, no un `<nav>`.
+    expect(screen.getByRole('button', { name: /navegación/i })).toBeInTheDocument();
     expect(screen.getByText(/nueva reserva/i)).toBeInTheDocument();
   });
 });

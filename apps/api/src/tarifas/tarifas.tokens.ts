@@ -8,4 +8,5 @@
 export const TEMPORADA_CALENDARIO_PORT = Symbol('TemporadaCalendarioPort');
 export const TARIFA_REPOSITORY_PORT = Symbol('TarifaRepositoryPort');
 export const EXTRA_REPOSITORY_PORT = Symbol('ExtraRepositoryPort');
+export const CATALOGO_EXTRAS_PORT = Symbol('CatalogoExtrasPort');
 export const CLOCK_PORT = Symbol('ClockPort');

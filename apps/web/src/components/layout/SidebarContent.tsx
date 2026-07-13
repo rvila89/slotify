@@ -1,44 +1,36 @@
 import { NavLink } from 'react-router-dom';
-import { BarChart3, CalendarDays, ClipboardList, LayoutDashboard, LogOut } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import { useLogout, useSession } from '@/features/auth';
 import { cn } from '@/lib/utils';
+import { navItems } from './navigation';
 
 /**
- * Contenido del sidebar del App Shell (US-000A): marca "Slotify",
- * navegación principal (Dashboard · Calendario · Reservas · Métricas) y card de
- * usuario. Dashboard (US-044) es la entrada en primera posición; la landing
- * post-login sigue siendo /calendario.
+ * Contenido del sidebar del App Shell: marca "Slotify", navegación principal
+ * (Dashboard · Calendario · Reservas · Métricas) y card de usuario. Dashboard
+ * (US-044) es la entrada en primera posición y, además, la landing post-login.
  *
- * Se reutiliza en dos contenedores:
- *  - el `<aside>` fijo de escritorio (`≥ lg`), y
- *  - el drawer off-canvas (`Sheet`) en móvil/tablet (`< lg`).
- *
- * `onNavigate` permite al contenedor reaccionar al click de un NavLink (en el
- * drawer cierra el panel). Mantiene los tokens del diseño (bg-canvas,
- * border-border-default, bg-accent-active, bg-state-confirmada, …).
+ * Se sirve dentro del `<aside>` integrado del `AppShell`, que anima su ancho al
+ * abrir/cerrar con el logo del header. Seleccionar un NavLink NO cierra el menú
+ * (persiste al navegar). Mantiene los tokens del diseño (bg-accent-active,
+ * border-border-default, bg-brand-primary, bg-state-confirmada, …).
  */
-const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/calendario', label: 'Calendario', icon: CalendarDays },
-  { to: '/reservas', label: 'Reservas', icon: ClipboardList },
-  { to: '/metricas', label: 'Métricas', icon: BarChart3 },
-] as const;
-
 const navLinkClasses = ({ isActive }: { isActive: boolean }) =>
   cn(
     'flex items-center gap-3 rounded-full px-4 py-3 font-sans text-sm font-semibold tracking-wide transition-colors',
-    isActive ? 'bg-accent-active text-text-muted' : 'text-text-secondary hover:bg-surface-muted',
+    isActive
+      ? 'bg-brand-primary text-brand-foreground'
+      : 'text-text-secondary hover:bg-surface-muted',
   );
 
 const inicialDe = (nombre?: string) => (nombre?.trim()?.[0] ?? '·').toUpperCase();
 
-export const SidebarContent = ({ onNavigate }: { onNavigate?: () => void }) => {
+export const SidebarContent = () => {
   const session = useSession();
   const user = session.status === 'authenticated' ? session.user : undefined;
   const { cerrarSesion, aviso, pendiente } = useLogout();
 
   return (
-    <div className="flex h-full flex-col bg-canvas">
+    <div className="flex h-full flex-col bg-accent-active">
       <div className="flex items-center gap-2 p-8">
         <img src="/slotify-icon.svg" alt="" aria-hidden="true" className="size-7" />
         <span className="font-display text-3xl font-bold tracking-tight text-brand-primary">
@@ -48,7 +40,7 @@ export const SidebarContent = ({ onNavigate }: { onNavigate?: () => void }) => {
 
       <nav aria-label="Navegación principal" className="flex flex-1 flex-col gap-2 px-4">
         {navItems.map(({ to, label, icon: Icon }) => (
-          <NavLink key={to} to={to} className={navLinkClasses} onClick={onNavigate}>
+          <NavLink key={to} to={to} className={navLinkClasses}>
             <Icon aria-hidden className="h-5 w-5" />
             <span>{label}</span>
           </NavLink>

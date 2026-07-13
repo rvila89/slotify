@@ -92,7 +92,7 @@ export const NuevaConsultaPage = () => {
   const reserva = resultado?.reserva;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
       <header className="flex flex-col gap-1">
         <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
           Nueva consulta

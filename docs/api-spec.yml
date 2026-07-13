@@ -955,8 +955,9 @@ paths:
                   - $ref: '#/components/schemas/CalculoTarifaTarifaNoConfiguradaError'
                   - $ref: '#/components/schemas/CalculoTarifaTemporadaNoConfiguradaError'
 
-  # [DECISIÓN F2-04] Catálogo de extras: necesario para resolver extraId/extraIds desde el frontend.
-  # Confirma si en MVP el catálogo se expone por API o se siembra/hardcodea.
+  # [DECISIÓN F2-04 · RESUELTA] Catálogo de extras expuesto por API en el MVP: el frontend
+  # (selector del borrador de presupuesto, US-014) lo consume vía GET /extras. Implementado en
+  # el módulo `tarifas` (ListarExtrasController + CatalogoExtrasPort), filtrado por tenant (RLS).
   /extras:
     get:
       tags: [Presupuestos]
@@ -3186,13 +3187,13 @@ components:
       enum: [gris, ambar, verde, azul, rojo]
     CanalEntrada:
       type: string
-      enum: [web, email, whatsapp, instagram, telefono]
+      enum: [web, email, whatsapp, instagram, telefono, cocopool, holaplace]
     DuracionHoras:
       type: integer
       enum: [4, 8, 12]
     TipoEvento:
       type: string
-      enum: [boda, corporativo, privado, otro]
+      enum: [boda, corporativo, privado, otro, cumpleanos]
     Temporada:
       type: string
       enum: [alta, media, baja]

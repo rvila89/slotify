@@ -31,7 +31,10 @@ export const esquema = z.object({
   }),
   invitados: z.string().trim().regex(/^\d*$/, 'Introduce un número de invitados válido'),
   duracionHoras: z.union([z.enum(DURACIONES), z.literal('')]),
-  tipoEvento: z.union([z.enum(['boda', 'corporativo', 'privado', 'otro']), z.literal('')]),
+  tipoEvento: z.union([
+    z.enum(['boda', 'corporativo', 'privado', 'otro', 'cumpleanos']),
+    z.literal(''),
+  ]),
   comentarios: z.string().max(2000, 'Máximo 2000 caracteres'),
 });
 

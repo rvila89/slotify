@@ -36,9 +36,9 @@ const App = () => (
     {/* Layout app (protegido) */}
     <Route element={<RequireAuth />}>
       <Route element={<AppShell />}>
-        <Route path="/" element={<Navigate to="/calendario" replace />} />
-        {/* US-044 — Dashboard operativo (lectura pura). Nueva entrada del shell;
-            la landing post-login sigue siendo /calendario (decisión de gate). */}
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        {/* US-044 — Dashboard operativo (lectura pura). Es la landing post-login
+            y la entrada por defecto del shell. */}
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/calendario" element={<CalendarioPage />} />
         <Route path="/reservas" element={<ReservasPage />} />

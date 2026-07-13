@@ -3,14 +3,13 @@ import { usePreviewPresupuesto } from '../api/usePreviewPresupuesto';
 import type { PresupuestoExtraInput, PreviewPresupuestoRequest } from '../model/types';
 
 /**
- * Entradas del borrador que provienen del formulario (React Hook Form): el
- * descuento y el precio manual se validan con Zod en el diálogo y aquí solo se
- * observan (`watch`) para recalcular el preview. Los extras, en cambio, son un mapa
- * dinámico (extraId → cantidad) que no encaja en un campo de formulario clásico, así
- * que se gestionan como estado local de este hook.
+ * Entradas del borrador que provienen del formulario (React Hook Form): el precio
+ * manual se valida con Zod en el diálogo y aquí solo se observa (`watch`) para
+ * recalcular el preview. Los extras, en cambio, son un mapa dinámico (extraId →
+ * cantidad) que no encaja en un campo de formulario clásico, así que se gestionan
+ * como estado local de este hook.
  */
 type CamposFormulario = {
-  descuento: string;
   precioManual: string;
 };
 
@@ -19,19 +18,19 @@ type CamposFormulario = {
  * `preview` (no persiste). Centraliza la lógica del diálogo para mantener el
  * componente de UI por debajo del límite de 300 líneas:
  *  - mantiene el mapa de cantidades de extras (fuera de RHF por ser dinámico);
- *  - recibe descuento/precio manual ya validados desde el formulario (RHF + Zod);
+ *  - recibe el precio manual ya validado desde el formulario (RHF + Zod);
  *  - construye el `PreviewPresupuestoRequest` (extras con cantidad > 0);
  *  - re-lanza el preview con un pequeño debounce cuando cambia cualquier entrada;
  *  - expone el resultado del preview y su error normalizado.
  *
  * El precio manual solo es relevante cuando `tarifaAConsultar=true`; en el caso
  * normal el backend lo ignora, pero se sigue recalculando el preview para reflejar
- * extras/descuento.
+ * los extras.
  */
 export const useBorradorPresupuesto = (
   reservaId: string,
   abierto: boolean,
-  { descuento, precioManual }: CamposFormulario,
+  { precioManual }: CamposFormulario,
 ) => {
   const preview = usePreviewPresupuesto();
   const { mutate: lanzarPreview, reset: resetPreview } = preview;
@@ -57,10 +56,9 @@ export const useBorradorPresupuesto = (
 
   const construirBody = useCallback((): PreviewPresupuestoRequest => {
     const body: PreviewPresupuestoRequest = { extras: extrasInput };
-    if (descuento.trim() !== '' && Number(descuento) > 0) body.descuentoEur = descuento;
     if (precioManual.trim() !== '' && Number(precioManual) > 0) body.precioManualEur = precioManual;
     return body;
-  }, [extrasInput, descuento, precioManual]);
+  }, [extrasInput, precioManual]);
 
   // Recalcula el borrador (preview) al abrir y ante cualquier cambio de entrada,
   // con un pequeño debounce para no saturar el motor de tarifa mientras se teclea.

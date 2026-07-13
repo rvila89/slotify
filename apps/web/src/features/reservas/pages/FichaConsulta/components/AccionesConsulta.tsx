@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { motivoNoPuedeGenerar, puedeGenerarPresupuesto } from '@/features/presupuestos';
 import { puedeConfirmarSenal } from '@/features/confirmacion';
+import { aforoDeReserva } from '../../../lib/aforo';
 import { bloqueoVigente, puedeExtenderBloqueo } from '../../../lib/fecha';
 import { puedeFinalizarEvento } from '../../../lib/finalizarEvento';
 import { puedeArchivarReserva } from '../../../lib/archivarReserva';
@@ -38,6 +39,11 @@ import type { Reserva } from '../../../model/types';
  */
 const claseBotonAccion =
   'inline-flex h-14 w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-10 font-display text-base text-brand-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-16';
+
+// "Generar presupuesto" es el CTA principal para avanzar de estado → verde del
+// sistema de diseño (token semántico `accent-success`), a diferencia del resto.
+const claseBotonPresupuesto =
+  'inline-flex h-14 w-full items-center justify-center gap-2 rounded-full bg-accent-success px-10 font-display text-base text-accent-success-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-16';
 
 const claseTextoInfo = 'flex items-start gap-3 font-body text-sm text-text-secondary';
 
@@ -69,8 +75,12 @@ export const AccionesConsulta = ({
   const subEstado = reserva.subEstado;
   const esExploratoria = subEstado === '2a';
   const tieneFechaEvento = Boolean(reserva.fechaEvento);
-  // US-007 (D-1): "pendiente de invitados" solo aplica a `2b` con bloqueo vigente.
-  const puedePendienteInvitados = subEstado === '2b' && bloqueoVigente(reserva.ttlExpiracion);
+  // US-007 (D-1): "pendiente de invitados" solo aplica a `2b` con bloqueo vigente y,
+  // además, mientras NO se hayan introducido invitados para la reserva (si ya se
+  // conoce el aforo, la transición "pendiente de nº de invitados" no tiene sentido).
+  const sinInvitados = aforoDeReserva(reserva) == null;
+  const puedePendienteInvitados =
+    subEstado === '2b' && bloqueoVigente(reserva.ttlExpiracion) && sinInvitados;
   // US-008 (D-1): "programar visita" aplica a `2a/2b/2c`; en `2a` requiere `fechaEvento`.
   const origenVisitaValido =
     subEstado === '2a' || subEstado === '2b' || subEstado === '2c';
@@ -120,6 +130,48 @@ export const AccionesConsulta = ({
 
   return (
     <div className="flex flex-col gap-5">
+      {/* US-014: "Generar presupuesto" — acción PRINCIPAL para avanzar de estado, por
+          eso se muestra la primera y en verde. Habilitada en 2a/2b/2c/2v; bloqueada
+          (con motivo) en 2d/terminales. Solo visible en fase de consulta. */}
+      {mostrarPresupuesto && (
+        <div className="flex flex-col gap-3">
+          {puedePresupuesto ? (
+            <>
+              <p className="font-body text-sm text-text-secondary">
+                Genera el presupuesto con la tarifa vigente y activa la pre-reserva: se creará el
+                presupuesto, la fecha quedará bloqueada 7 días y se enviará al cliente por email.
+              </p>
+              <button
+                type="button"
+                data-testid="boton-generar-presupuesto"
+                onClick={onGenerarPresupuesto}
+                className={claseBotonPresupuesto}
+              >
+                <FileText aria-hidden className="size-5" />
+                Generar presupuesto
+              </button>
+            </>
+          ) : (
+            <>
+              <p data-testid="aviso-presupuesto-bloqueado" className={claseTextoInfo}>
+                <Info aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
+                {motivoNoPuedeGenerar({ estado: reserva.estado, subEstado: reserva.subEstado })}
+              </p>
+              <button
+                type="button"
+                data-testid="boton-generar-presupuesto"
+                disabled
+                aria-disabled="true"
+                className={claseBotonPresupuesto}
+              >
+                <FileText aria-hidden className="size-5" />
+                Generar presupuesto
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {esExploratoria && (
         <div className="flex flex-col gap-3">
           <p className="font-body text-sm text-text-secondary">
@@ -232,46 +284,6 @@ export const AccionesConsulta = ({
             <Timer aria-hidden className="size-5" />
             Extender bloqueo
           </button>
-        </div>
-      )}
-
-      {/* US-014: "Generar presupuesto" — habilitada en 2a/2b/2c/2v, bloqueada en 2d/terminales. */}
-      {mostrarPresupuesto && (
-        <div className="flex flex-col gap-3">
-          {puedePresupuesto ? (
-            <>
-              <p className="font-body text-sm text-text-secondary">
-                Genera el presupuesto con la tarifa vigente y activa la pre-reserva: se creará el
-                presupuesto, la fecha quedará bloqueada 7 días y se enviará al cliente por email.
-              </p>
-              <button
-                type="button"
-                data-testid="boton-generar-presupuesto"
-                onClick={onGenerarPresupuesto}
-                className={claseBotonAccion}
-              >
-                <FileText aria-hidden className="size-5" />
-                Generar presupuesto
-              </button>
-            </>
-          ) : (
-            <>
-              <p data-testid="aviso-presupuesto-bloqueado" className={claseTextoInfo}>
-                <Info aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
-                {motivoNoPuedeGenerar({ estado: reserva.estado, subEstado: reserva.subEstado })}
-              </p>
-              <button
-                type="button"
-                data-testid="boton-generar-presupuesto"
-                disabled
-                aria-disabled="true"
-                className={claseBotonAccion}
-              >
-                <FileText aria-hidden className="size-5" />
-                Generar presupuesto
-              </button>
-            </>
-          )}
         </div>
       )}
 
