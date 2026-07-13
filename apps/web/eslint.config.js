@@ -50,6 +50,33 @@ export default tseslint.config(
     },
   },
 
+  // ── Pureza de segmento: `components/` solo contiene componentes ───────────
+  // Regla dura (Bulletproof React): dentro de una feature, `components/` aloja
+  // SOLO componentes React, que son `.tsx`. Los módulos no-componente —helpers,
+  // constantes, tipos, schemas, clases de estilo— viven en `lib/` (o los tipos
+  // en `model/`). Ejemplo canónico: `features/reservas/lib/*` (iban.ts,
+  // ibanSchema.ts, errores.ts…). Esto impide que un `.ts` auxiliar extraído por
+  // `react-refresh/only-export-components` (que obliga a que un archivo de
+  // componente exporte solo componentes) acabe colgando de `components/` en vez
+  // de moverse a `lib/`/`model/`. Ver docs/frontend-standards.md §Estructura.
+  //
+  // Alcance deliberado: SOLO `features/*/components/`. Los folders de página
+  // (`features/*/pages/**`) sí co-localizan `schema.ts`/`constants.ts` (CLAUDE.md).
+  {
+    files: ['src/features/*/components/**/*.ts'],
+    ignores: ['**/__tests__/**', '**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Program',
+          message:
+            'Módulo no-componente en components/. Los componentes son `.tsx`; mueve helpers/constantes/estilos a `features/<dominio>/lib/` y los tipos a `model/`. Ver docs/frontend-standards.md §Estructura.',
+        },
+      ],
+    },
+  },
+
   // ── Arquitectura de carpetas (regla dura) ────────────────────────────────
   // Estructura por dominio (Bulletproof React): cada feature es autónoma y solo
   // se consume por su barrel (`index.ts`). Ver docs/frontend-folder-structure.md.

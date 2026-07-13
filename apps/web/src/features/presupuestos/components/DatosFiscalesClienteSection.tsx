@@ -3,8 +3,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useActualizarDatosFiscales } from '../api/useActualizarDatosFiscales';
-import { claseInputBase, claseLabel } from './estilos';
-import type { CampoFiscalCliente } from './datosFiscalesCampos';
+import { claseInputBase, claseLabel } from '../lib/estilos';
+import type { CampoFiscalCliente } from '../lib/datosFiscalesCampos';
 import type { ActualizarDatosFiscalesClienteRequest } from '../model/types';
 
 /**
@@ -19,7 +19,8 @@ import type { ActualizarDatosFiscalesClienteRequest } from '../model/types';
  *
  * Presentacional/co-locado (privado de la feature). Reutiliza los tokens y clases de
  * inputs del diálogo; mobile-first (una columna en móvil, dos en `sm:`), sin overflow.
- * Las utilidades de campos viven en `./datosFiscalesCampos` para no romper el fast-refresh.
+ * Las utilidades de campos viven en `../lib/datosFiscalesCampos` (segmento `lib/`: los
+ * módulos no-componente no van en `components/`, regla dura del ESLint de la web).
  */
 
 /** Handle imperativo para que el diálogo dispare el guardado dentro del bucle de resolución. */

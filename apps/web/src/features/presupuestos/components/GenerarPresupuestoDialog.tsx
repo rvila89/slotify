@@ -23,13 +23,13 @@ import {
   DatosFiscalesClienteSection,
   type DatosFiscalesHandle,
 } from './DatosFiscalesClienteSection';
-import { camposFiscalesFaltantes, type CampoFiscalCliente } from './datosFiscalesCampos';
+import { camposFiscalesFaltantes, type CampoFiscalCliente } from '../lib/datosFiscalesCampos';
 import {
   claseBotonPrimario,
   claseBotonSecundario,
   claseInput,
   claseLabel,
-} from './estilos';
+} from '../lib/estilos';
 import type { ConfirmarPresupuestoResponse, PresupuestoExtraInput } from '../model/types';
 
 /**

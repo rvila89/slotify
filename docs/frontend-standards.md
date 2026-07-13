@@ -107,8 +107,17 @@ apps/web/
   El chrome `components/layout/` y la capa de rutas (`App.tsx`, `pages/`) sí componen features.
 - Tamaño de archivo **≤ 300 líneas** de código: si crece, pártelo (extrae schema,
   sub-componentes, helpers).
-- Lo imponen `eslint-plugin-boundaries`, `no-restricted-imports` y `max-lines` en
-  `apps/web/eslint.config.js`; **`pnpm lint` falla** si se viola.
+- **Pureza de `components/`**: dentro de una feature, `features/<d>/components/`
+  aloja **solo componentes React** (`.tsx`). Los módulos **no-componente** —helpers,
+  constantes, tipos, schemas, clases de estilo Tailwind— van en `features/<d>/lib/`
+  (o los tipos en `model/`). Cuando `react-refresh/only-export-components` obligue a
+  extraer una constante/helper de un `.tsx`, el archivo extraído va a `lib/`/`model/`,
+  **no** a `components/`. (No aplica a los folders de página `pages/<Pagina>/`, que sí
+  co-localizan `schema.ts`/`constants.ts`.)
+- Lo imponen `eslint-plugin-boundaries`, `no-restricted-imports`, `max-lines` y la
+  regla de pureza de segmento (un `.ts` no-componente bajo `features/*/components/`
+  dispara `no-restricted-syntax`) en `apps/web/eslint.config.js`; **`pnpm lint` falla**
+  si se viola.
 
 ## Cliente de API (OpenAPI)
 
