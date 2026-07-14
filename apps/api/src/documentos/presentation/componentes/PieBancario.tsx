@@ -1,7 +1,8 @@
 /**
  * Pie bancario del documento: dades de la transferència (IBAN + beneficiari + concepte)
- * y pie legal (épico #6, 6.1b). Primitivas react-pdf inyectadas en `kit`. Reutilizable
- * por factura (6.3).
+ * (épico #6, 6.1b). Solo se compone en la variante CON IVA. El pie legal es un elemento
+ * PROPIO del layout (se pinta SIEMPRE, desacoplado de este bloque). Primitivas react-pdf
+ * inyectadas en `kit`. Reutilizable por factura (6.3).
  */
 import type { PieBancarioModelo } from '../modelo-documento-presupuesto';
 import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
@@ -10,10 +11,9 @@ export interface PieBancarioProps {
   kit: KitReactPdf;
   estilos: EstilosReactPdf;
   pieBancario: PieBancarioModelo;
-  pieLegal: string;
 }
 
-export const PieBancario = ({ kit, estilos, pieBancario, pieLegal }: PieBancarioProps) => {
+export const PieBancario = ({ kit, estilos, pieBancario }: PieBancarioProps) => {
   const { View, Text } = kit;
   return (
     <View style={estilos.pie}>
@@ -23,7 +23,6 @@ export const PieBancario = ({ kit, estilos, pieBancario, pieLegal }: PieBancario
       </Text>
       <Text style={estilos.linea}>Beneficiari: {pieBancario.beneficiario}</Text>
       <Text style={estilos.linea}>Concepte: {pieBancario.concepto}</Text>
-      <Text style={[estilos.linea, { marginTop: 8 }]}>{pieLegal}</Text>
     </View>
   );
 };
