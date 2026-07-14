@@ -48,6 +48,7 @@ export const construirEstilos = (StyleSheet: KitReactPdf['StyleSheet']): Estilos
     totalesValor: { width: 90, textAlign: 'right' },
     totalDestacado: { fontFamily: 'Helvetica-Bold', fontSize: 12 },
     pie: { marginTop: 24, borderTopWidth: 1, borderTopColor: '#DDDDDD', paddingTop: 10 },
+    pieLegal: { marginTop: 8 },
     negrita: { fontFamily: 'Helvetica-Bold' },
     validesa: { marginTop: 12, fontSize: 9, fontStyle: 'italic' },
   });

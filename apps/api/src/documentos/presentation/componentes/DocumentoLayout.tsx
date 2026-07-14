@@ -64,12 +64,13 @@ export const DocumentoLayout = ({ kit, modelo }: DocumentoLayoutProps) => {
           validesaTexto={modelo.validesaTexto}
         />
 
-        <PieBancario
-          kit={kit}
-          estilos={estilos}
-          pieBancario={modelo.pieBancario}
-          pieLegal={modelo.pieLegal}
-        />
+        {modelo.pieBancario.mostrar && (
+          <PieBancario kit={kit} estilos={estilos} pieBancario={modelo.pieBancario} />
+        )}
+
+        <View style={estilos.pieLegal}>
+          <Text style={estilos.linea}>{modelo.pieLegal}</Text>
+        </View>
       </Page>
     </Document>
   );

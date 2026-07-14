@@ -202,8 +202,10 @@ describe('construirModeloDocumentoPresupuesto — CON IVA conserva el render de 
 });
 
 // ===========================================================================
-// 3.3 — El CUERPO (concepto/horas/personas/extras/reparto/validesa/pie) es
-//        IDÉNTICO en ambas variantes: solo cambian cabecera y totales.
+// 3.3 — El CUERPO (concepto/horas/personas/extras/reparto/validesa) es IDÉNTICO
+//        en ambas variantes: solo cambian cabecera, totales y —desde el fix
+//        `documentos-sin-iva-omite-pie-bancario`— la visibilidad del pie bancario
+//        (`pieBancario.mostrar`).
 // ===========================================================================
 
 describe('construirModeloDocumentoPresupuesto — cuerpo idéntico en ambas variantes (3.3)', () => {
@@ -216,13 +218,20 @@ describe('construirModeloDocumentoPresupuesto — cuerpo idéntico en ambas vari
     expect(sinIva.conceptoPrincipal).toBe(
       "Gestió de l'ús espai de Masia l'Encís per esdeveniment",
     );
-    // Duración "(N hores)", nº personas, extras, validesa y pie: idénticos.
+    // Duración "(N hores)", nº personas, extras, validesa y pie legal: idénticos.
     expect(sinIva.duracionTexto).toBe(conIva.duracionTexto);
     expect(sinIva.numPersonas).toBe(conIva.numPersonas);
     expect(sinIva.extras).toEqual(conIva.extras);
     expect(sinIva.validesaTexto).toBe(conIva.validesaTexto);
     expect(sinIva.pieLegal).toBe(conIva.pieLegal);
-    expect(sinIva.pieBancario).toEqual(conIva.pieBancario);
+    // Los DATOS bancarios (iban/beneficiario/concepto) siguen poblados igual desde la
+    // config en ambas variantes; solo cambia su visibilidad: SIN IVA lo OMITE (fix
+    // `documentos-sin-iva-omite-pie-bancario`), CON IVA lo conserva.
+    expect(sinIva.pieBancario.iban).toBe(conIva.pieBancario.iban);
+    expect(sinIva.pieBancario.beneficiario).toBe(conIva.pieBancario.beneficiario);
+    expect(sinIva.pieBancario.concepto).toBe(conIva.pieBancario.concepto);
+    expect(sinIva.pieBancario.mostrar).toBe(false);
+    expect(conIva.pieBancario.mostrar).toBe(true);
   });
 
   it('debe_mostrar_el_reparto_40_60_fianza_del_regimen_en_sin_iva', () => {

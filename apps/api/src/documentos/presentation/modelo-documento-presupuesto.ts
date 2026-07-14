@@ -106,6 +106,14 @@ export interface TotalesModelo {
 
 /** Pie bancario del documento (datos de la transferencia del tenant). */
 export interface PieBancarioModelo {
+  /**
+   * Fix "SIN IVA omite pie bancario": `true` CON IVA, `false` SIN IVA. Cuando es `false`,
+   * `DocumentoLayout` NO compone `<PieBancario>` (solo el bloque de datos bancarios —
+   * IBAN/beneficiario/concepto— se omite; el `pieLegal` es un elemento PROPIO del layout y
+   * se pinta SIEMPRE, desacoplado de este bloque). Los demás campos (iban/beneficiario/
+   * concepto) se siguen poblando igual desde la config.
+   */
+  mostrar: boolean;
   iban: string;
   beneficiario: string;
   concepto: string;
@@ -148,6 +156,7 @@ export const construirModeloDocumentoPresupuesto = (
   // 6.2: la variante (flags de cabecera y totales) se resuelve desde el régimen del dato.
   const mostrarIdentidadFiscal = datos.regimen === 'con_iva';
   const mostrarDesgloseIva = datos.regimen === 'con_iva';
+  const mostrarPieBancario = datos.regimen === 'con_iva';
   return {
     numeroPresupuesto: datos.numeroPresupuesto,
     fecha: datos.fecha,
@@ -187,6 +196,7 @@ export const construirModeloDocumentoPresupuesto = (
     validesaTexto: config.textos.validesaTexto,
     pieLegal: config.textos.pieLegal,
     pieBancario: {
+      mostrar: mostrarPieBancario,
       iban: config.banca.iban,
       beneficiario: config.banca.beneficiarioTransferencia,
       concepto: config.banca.conceptoTransferencia,
