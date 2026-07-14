@@ -256,26 +256,33 @@ del Excel del tenant:
 
 - **Variante CON IVA** (transferencia, hoja "PRESSUPOST IVA"): comportamiento de
   6.1b (cabecera con razón social fiscal + NIF; totales con base imponible + IVA
-  + total).
+  + total; **pie de datos bancarios presente**).
 - **Variante SIN IVA** (efectivo, hoja "PRESSUPOST SENSE IVA"):
   - (a) el bloque de totales **no lleva base imponible ni desglose de IVA**: solo
-    el **importe total**; y
+    el **importe total**;
   - (b) la cabecera **omite la razón social fiscal y el NIF** (queda el nombre
-    comercial y el branding del tenant).
+    comercial y el branding del tenant); y
+  - (c) el documento **omite el pie de datos bancarios** (IBAN + beneficiario +
+    concepto/texto de transferència): el pago es en efectivo, no hay
+    transferencia, y la hoja "PRESSUPOST SENSE IVA" del Excel **termina en la
+    Fiança** sin bloque bancario.
 
 El resto del documento es **idéntico** en ambas variantes: concepto "Gestió de
 l'ús espai de {nombreComercial} per esdeveniment" (nunca "lloguer"), fecha del
 evento, duración "(N hores)", nº de personas, extras como sub-conceptos,
-**reparto 40/60/fiança**, validesa y **pie bancario** (IBAN). La decisión se
-resuelve en el **modelo de vista puro** (`construirModeloDocumentoPresupuesto`)
-como flags (`cabecera.mostrarIdentidadFiscal`, `totales.mostrarDesgloseIva`) y
-los componentes (`Cabecera`, `BloqueTotales`) los consumen; **layout fijo en
+**reparto 40/60/fiança** y validesa. La decisión de cada variante se resuelve en
+el **modelo de vista puro** (`construirModeloDocumentoPresupuesto`) como flags
+(`cabecera.mostrarIdentidadFiscal`, `totales.mostrarDesgloseIva` y un flag de
+visibilidad del pie bancario, p. ej. `pieBancario.mostrar`/`mostrarPieBancario`,
+`false` en SIN IVA y `true` en CON IVA) y los componentes (`Cabecera`,
+`BloqueTotales`, `PieBancario`/`DocumentoLayout`) los consumen; **layout fijo en
 código, contenido 100% del tenant/documento**, sin datos de negocio
 hardcodeados. La capa NO importa de `presupuestos` (el `regimen` es un dato del
 documento; el enum se declara en `documentos`, como los tipos de desglose/reparto
 duplicados intencionadamente en 6.1b). Todas las funciones nombradas son **arrow
-functions**. (Fuente: Excel hoja "PRESSUPOST SENSE IVA"; `design.md` D3;
-`documentos` 6.1b `construirModeloDocumentoPresupuesto`/`Cabecera`/`BloqueTotales`;
+functions**. (Fuente: Excel hojas "PRESSUPOST IVA" y "PRESSUPOST SENSE IVA";
+`design.md` D3; `documentos` 6.1b/6.2
+`construirModeloDocumentoPresupuesto`/`Cabecera`/`BloqueTotales`/`PieBancario`;
 `CLAUDE.md §Arquitectura` `documentos`↛`presupuestos`, regla arrow-functions.)
 
 #### Scenario: SIN IVA no muestra base imponible ni desglose de IVA
@@ -285,8 +292,8 @@ functions**. (Fuente: Excel hoja "PRESSUPOST SENSE IVA"; `design.md` D3;
 - **WHEN** se renderiza el bloque de totales
 - **THEN** el PDF muestra **solo el Total** (= base, sin el 21%), sin filas
   "Base imposable" ni "IVA (%)"
-- **AND** el reparto 40/60/fiança (calculado sobre el total SIN IVA), la validesa
-  y el pie bancario se muestran igual que en CON IVA
+- **AND** el reparto 40/60/fiança (calculado sobre el total SIN IVA) y la
+  validesa se muestran igual que en CON IVA
 
 #### Scenario: SIN IVA omite razón social fiscal y NIF pero mantiene dirección/contacto
 
@@ -298,12 +305,26 @@ functions**. (Fuente: Excel hoja "PRESSUPOST SENSE IVA"; `design.md` D3;
 - **AND** sí contiene el nombre comercial "Masia l'Encís", el branding y la
   dirección fiscal / web / email del tenant
 
-#### Scenario: CON IVA conserva el render de 6.1b
+#### Scenario: SIN IVA omite el pie de datos bancarios
+
+- **GIVEN** un documento con `regimen = sin_iva` y una config con
+  `iban = "ES30 0182 1683 4002 0172 9599"`,
+  `beneficiarioTransferencia = "Canoliart, SL"` y `conceptoTransferencia` presentes
+- **WHEN** se construye el modelo de vista y se renderiza el documento
+- **THEN** el flag de visibilidad del pie bancario del modelo de vista es `false`
+- **AND** el PDF **no** contiene el IBAN, ni el beneficiario de transferencia, ni
+  el concepto/texto de transferència ("El pagament mitjançant transferència…")
+- **AND** el documento termina en la Fiança, coherente con la hoja "PRESSUPOST
+  SENSE IVA" del Excel
+
+#### Scenario: CON IVA conserva cabecera, totales y pie bancario
 
 - **GIVEN** un documento con `regimen = con_iva`
 - **WHEN** se renderiza el documento
 - **THEN** la cabecera muestra razón social fiscal + NIF y los totales muestran
-  base imponible + IVA + total (sin regresión respecto a 6.1b)
+  base imponible + IVA + total (sin regresión respecto a 6.1b/6.2)
+- **AND** el flag de visibilidad del pie bancario es `true` y el PDF **sí**
+  contiene el IBAN, el beneficiario y el concepto de transferencia
 
 #### Scenario: El concepto y el resto del cuerpo son idénticos en ambas variantes
 
@@ -311,7 +332,9 @@ functions**. (Fuente: Excel hoja "PRESSUPOST SENSE IVA"; `design.md` D3;
 - **WHEN** se renderizan
 - **THEN** ambos muestran el mismo concepto ("Gestió de l'ús espai de Masia
   l'Encís per esdeveniment", sin "lloguer"), la misma duración "(N hores)", los
-  mismos extras, el mismo reparto 40/60/fiança, validesa y pie bancario
+  mismos extras, el mismo reparto 40/60/fiança y validesa
+- **AND** difieren únicamente en cabecera (identidad fiscal), totales (desglose
+  de IVA) y presencia del pie bancario
 
 #### Scenario: La variante no acopla documentos a presupuestos
 

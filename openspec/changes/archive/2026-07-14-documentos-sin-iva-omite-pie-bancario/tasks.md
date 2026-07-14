@@ -86,7 +86,5 @@
 
 ## 10. Archivar change + abrir PR (OBLIGATORIO — archive)
 
-- [ ] 10.1 `openspec archive documentos-sin-iva-omite-pie-bancario` (solo tras
-      gate final y code-review APTO; el hook `require-code-review` lo bloquea sin APTO)
-- [ ] 10.2 Abrir PR **apilado** sobre `feature/documentos-presupuesto-sin-iva-doble-numeracion`
-      (cuando la 6.2 mergee a master, rebasar este PR sobre master)
+- [x] 10.1 `openspec archive` ejecutado (documentos: ~1 modified — requirement SIN IVA)
+- [x] 10.2 6.2 ya en master; rama rebaseada sobre `origin/master`; PR abierto directo a `master`
