@@ -26,7 +26,10 @@
  * ni `@nestjs/*`.
  */
 import { calcularTotalLiquidacion } from '../domain/calculo-total-liquidacion';
-import { calcularDesgloseFacturaSenal } from '../domain/calculo-factura';
+import {
+  calcularDesgloseFactura,
+  type RegimenIvaFactura,
+} from '../domain/calculo-factura';
 
 // ---------------------------------------------------------------------------
 // Tipos de comando / proyecciones / puertos
@@ -56,6 +59,11 @@ export interface ReservaLiquidable {
   fianzaStatus: string;
   /** Importe de liquidación congelado en US-021 (60 % MVP), Decimal string. */
   importeLiquidacion: string;
+  /**
+   * 6.3: régimen IVA del presupuesto aceptado de la reserva (design.md §D-1). Gobierna el
+   * desglose fiscal de los borradores de liquidación y fianza. `con_iva` por defecto.
+   */
+  regimenIva: RegimenIvaFactura;
 }
 
 /** Línea de RESERVA_EXTRA pendiente (`factura_id IS NULL`); subtotal congelado. */
@@ -242,14 +250,14 @@ export class GenerarBorradoresLiquidacionFianzaUseCase {
       importeLiquidacion: reserva.importeLiquidacion,
       subtotalesExtrasPendientes: extras.map((e) => e.subtotal),
     });
-    const desgloseLiquidacion = calcularDesgloseFacturaSenal({ total: totalLiquidacion });
+    const desgloseLiquidacion = calcularDesgloseFactura(totalLiquidacion, reserva.regimenIva);
 
     // Fianza: total = fianza_default_eur; se OMITE si es 0 (§D-3).
     const fianzaDefault = await this.deps.cargarFianzaDefault({ tenantId: comando.tenantId });
     const fianzaOmitida = Number(fianzaDefault) <= 0;
     const desgloseFianza = fianzaOmitida
       ? null
-      : calcularDesgloseFacturaSenal({ total: fianzaDefault });
+      : calcularDesgloseFactura(fianzaDefault, reserva.regimenIva);
 
     // (2) UNA unidad de trabajo (tx + RLS) con reintento ante colisión de idempotencia
     //     (`P2002` del UNIQUE(reserva_id, tipo)); nunca locks distribuidos (§D-4/§D-8).

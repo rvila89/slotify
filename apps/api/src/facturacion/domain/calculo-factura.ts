@@ -64,3 +64,35 @@ export const calcularDesgloseFacturaSenal = (
     total: aEuros(totalCentimos),
   };
 };
+
+/** Régimen fiscal de la factura (6.3, design.md §D-1). Derivado del presupuesto aceptado. */
+export type RegimenIvaFactura = 'con_iva' | 'sin_iva';
+
+/** Porcentaje de IVA de la variante SIN IVA (Decimal(4,2) como string). */
+export const IVA_PORCENTAJE_SIN_IVA = '0.00' as const;
+
+/**
+ * Desglose fiscal de la factura SEGÚN el RÉGIMEN IVA del presupuesto aceptado (6.3,
+ * design.md §D-1). El `total` ENTRA congelado y no se altera:
+ *   - `con_iva`  → comportamiento de US-022: IVA 21 %, base derivada por división, IVA por
+ *                  resta del total (`calcularDesgloseFacturaSenal`).
+ *   - `sin_iva`  → factura por efectivo: `iva_porcentaje = 0`, `iva_importe = 0` y
+ *                  `base_imponible = total` (el total ya es la base neta, sin impuesto).
+ *
+ * Función de flecha inmutable, sin dependencias de framework/infra (hook `no-infra-in-domain`).
+ */
+export const calcularDesgloseFactura = (
+  total: string,
+  regimenIva: RegimenIvaFactura,
+): DesgloseFacturaSenal => {
+  if (regimenIva === 'sin_iva') {
+    const totalNormalizado = Number(total).toFixed(2);
+    return {
+      baseImponible: totalNormalizado,
+      ivaPorcentaje: IVA_PORCENTAJE_SIN_IVA,
+      ivaImporte: '0.00',
+      total: totalNormalizado,
+    };
+  }
+  return calcularDesgloseFacturaSenal({ total });
+};

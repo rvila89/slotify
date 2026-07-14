@@ -36,6 +36,12 @@ export class CargarReservaLiquidablePrismaAdapter {
           liquidacionStatus: true,
           fianzaStatus: true,
           importeLiquidacion: true,
+          // 6.3: régimen IVA del presupuesto aceptado de la reserva (design.md §D-1).
+          presupuestos: {
+            where: { estado: 'aceptado' },
+            select: { regimenIva: true },
+            take: 1,
+          },
         },
       });
     });
@@ -51,6 +57,8 @@ export class CargarReservaLiquidablePrismaAdapter {
       fianzaStatus: fila.fianzaStatus,
       importeLiquidacion:
         fila.importeLiquidacion === null ? '0.00' : fila.importeLiquidacion.toFixed(2),
+      // Sin presupuesto aceptado (o régimen NULL) → CON IVA por defecto (transferencia).
+      regimenIva: fila.presupuestos[0]?.regimenIva === 'sin_iva' ? 'sin_iva' : 'con_iva',
     };
     return reserva;
   };

@@ -13,6 +13,10 @@ import { PrismaService } from '../shared/prisma/prisma.service';
 import { ComunicacionesModule } from '../comunicaciones/comunicaciones.module';
 import { ENVIAR_EMAIL_PORT } from '../comunicaciones/comunicaciones.tokens';
 import type { EnviarEmailPort } from '../comunicaciones/domain/enviar-email.port';
+import { DocumentosModule } from '../documentos/documentos.module';
+import { ALMACEN_DOCUMENTOS_PORT } from '../documentos/documentos.tokens';
+import type { AlmacenDocumentosPort } from '../documentos/domain/almacen-documentos.port';
+import { renderizarDocumentoFacturaABytes } from '../documentos/presentation/documento-factura.render';
 import {
   GenerarFacturaSenalUseCase,
   type CargarClienteFiscalPort,
@@ -121,7 +125,9 @@ import {
   CargarReservaFacturablePrismaAdapter,
   CargarTenantFiscalPrismaAdapter,
 } from './infrastructure/lecturas-facturacion.prisma.adapter';
-import { PdfFacturaFakeAdapter } from './infrastructure/pdf-factura.fake.adapter';
+import { CargarDatosDocumentoFacturaPrismaAdapter } from './infrastructure/cargar-datos-documento-factura.prisma.adapter';
+import { PdfFacturaRealAdapter } from './infrastructure/pdf-factura.real.adapter';
+import type { CargarDatosDocumentoFacturaPort } from './domain/cargar-datos-documento-factura.port';
 import {
   AprobarFacturaPrismaAdapter,
   AuditoriaAprobacionPrismaAdapter,
@@ -143,6 +149,7 @@ import {
   FACTURACION_CLOCK_PORT,
   GENERAR_PDF_FACTURA_PORT,
   LISTAR_FACTURAS_RESERVA_PORT,
+  CARGAR_DATOS_DOCUMENTO_FACTURA_PORT,
   UNIDAD_DE_TRABAJO_BORRADORES_PORT,
   UNIDAD_DE_TRABAJO_FACTURACION_PORT,
   UNIDAD_DE_TRABAJO_EMISION_PORT,
@@ -179,7 +186,7 @@ type CargarFacturaFn = (params: {
 }) => Promise<FacturaSenal | null>;
 
 @Module({
-  imports: [PrismaModule, ComunicacionesModule],
+  imports: [PrismaModule, ComunicacionesModule, DocumentosModule],
   controllers: [FacturaController, RegistrarDevolucionFianzaController],
   providers: [
     // --- Adaptadores por token (Symbol) ---
@@ -224,9 +231,26 @@ type CargarFacturaFn = (params: {
       useFactory: (prisma: PrismaService): CamposFaltantesFn =>
         new CamposFiscalesFaltantesFacturaPrismaAdapter(prisma).obtener,
     },
+    // 6.3: carga de los datos del documento de factura (config + presupuesto aceptado + cliente).
+    {
+      provide: CARGAR_DATOS_DOCUMENTO_FACTURA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarDatosDocumentoFacturaPort =>
+        new CargarDatosDocumentoFacturaPrismaAdapter(prisma),
+    },
+    // 6.3: adaptador REAL de PDF de factura (render react-pdf + almacén). Sustituye al fake.
     {
       provide: GENERAR_PDF_FACTURA_PORT,
-      useFactory: (): GenerarPdfFacturaPort => new PdfFacturaFakeAdapter().generar,
+      inject: [CARGAR_DATOS_DOCUMENTO_FACTURA_PORT, ALMACEN_DOCUMENTOS_PORT],
+      useFactory: (
+        cargarDatos: CargarDatosDocumentoFacturaPort,
+        almacen: AlmacenDocumentosPort,
+      ): GenerarPdfFacturaPort =>
+        new PdfFacturaRealAdapter(
+          cargarDatos,
+          almacen,
+          renderizarDocumentoFacturaABytes,
+        ).generar,
     },
     {
       provide: APROBAR_FACTURA_PORT,

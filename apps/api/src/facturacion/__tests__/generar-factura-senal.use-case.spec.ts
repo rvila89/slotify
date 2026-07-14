@@ -62,6 +62,10 @@ const reservaConfirmada = (over: Partial<ReservaFacturable> = {}): ReservaFactur
   codigo: 'SLO-2026-0001',
   estado: 'reserva_confirmada',
   importeSenal: '1200.00',
+  // 6.3: régimen IVA del presupuesto aceptado de la reserva. CON IVA por defecto (21 %);
+  // los tests SIN IVA lo sobrescriben. Populado por el adapter (spec-delta `facturacion`
+  // Requirement "ReservaFacturable incluye regimenIva del presupuesto aceptado").
+  regimenIva: 'con_iva',
   ...over,
 });
 
@@ -223,6 +227,23 @@ describe('GenerarFacturaSenalUseCase — creación de la factura en borrador (3.
     expect(args.ivaImporte).toBe('208.26');
     // Invariante contable: base + iva = total EXACTO.
     expect(Number(args.baseImponible) + Number(args.ivaImporte)).toBe(1200);
+  });
+
+  it('debe_congelar_el_desglose_SIN_IVA_base_igual_al_total_e_iva_cero_cuando_regimen_es_sin_iva', async () => {
+    // 6.3: presupuesto aceptado SIN IVA (efectivo) → la factura de señal se emite con
+    // ivaPorcentaje=0, ivaImporte=0, baseImponible=total. El use-case usa `regimenIva`
+    // del ReservaFacturable al llamar a `calcularDesgloseFactura` (design.md §D-1).
+    const { useCase, repos } = montar({
+      reserva: reservaConfirmada({ importeSenal: '1200.00', regimenIva: 'sin_iva' }),
+    });
+
+    await useCase.ejecutar(comando());
+
+    const args = repos.facturas.crear.mock.calls[0][0];
+    expect(args.ivaPorcentaje).toBe('0.00');
+    expect(args.ivaImporte).toBe('0.00');
+    expect(args.baseImponible).toBe('1200.00');
+    expect(args.total).toBe('1200.00');
   });
 
   it('debe_asignar_el_numero_F_2026_0001_como_primera_del_tenant_en_el_ano', async () => {

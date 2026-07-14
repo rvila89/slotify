@@ -41,6 +41,13 @@ export const CARGAR_FIANZA_DEFAULT_PORT = Symbol('CargarFianzaDefaultPort');
 /** Lectura de la colección de FACTURA de una reserva (GET /reservas/{id}/facturas). */
 export const LISTAR_FACTURAS_RESERVA_PORT = Symbol('ListarFacturasReservaPort');
 
+// --- 6.3: datos del documento de factura para el render real del PDF (design.md §D3) ---
+/**
+ * Carga de los datos del documento de factura (config del tenant + numeroPresupuesto +
+ * regimenIva del presupuesto aceptado + cliente) para el adaptador REAL de PDF.
+ */
+export const CARGAR_DATOS_DOCUMENTO_FACTURA_PORT = Symbol('CargarDatosDocumentoFacturaPort');
+
 // --- US-028: emisión y envío de la liquidación / fianza (UC-21, UC-22, D-4) ---
 /** Unidad de trabajo transaccional de la emisión de la liquidación (tx + RLS). */
 export const UNIDAD_DE_TRABAJO_EMISION_PORT = Symbol('UnidadDeTrabajoEmisionPort');
