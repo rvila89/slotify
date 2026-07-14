@@ -36,6 +36,12 @@ export class CargarReservaFacturablePrismaAdapter {
           codigo: true,
           estado: true,
           importeSenal: true,
+          // 6.3: régimen IVA del presupuesto aceptado de la reserva (design.md §D-1).
+          presupuestos: {
+            where: { estado: 'aceptado' },
+            select: { regimenIva: true },
+            take: 1,
+          },
         },
       });
     });
@@ -49,6 +55,8 @@ export class CargarReservaFacturablePrismaAdapter {
       codigo: fila.codigo,
       estado: fila.estado,
       importeSenal: fila.importeSenal === null ? '0.00' : fila.importeSenal.toFixed(2),
+      // Sin presupuesto aceptado (o régimen NULL) → CON IVA por defecto (transferencia).
+      regimenIva: fila.presupuestos[0]?.regimenIva === 'sin_iva' ? 'sin_iva' : 'con_iva',
     };
     return reserva;
   };

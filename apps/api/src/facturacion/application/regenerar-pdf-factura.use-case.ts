@@ -90,6 +90,7 @@ export class RegenerarPdfFacturaUseCase {
     let pdfUrl: string;
     try {
       pdfUrl = await this.deps.generarPdf({
+        tenantId: comando.tenantId,
         idFactura: factura.idFactura,
         numeroFactura: factura.numeroFactura ?? '',
         concepto,

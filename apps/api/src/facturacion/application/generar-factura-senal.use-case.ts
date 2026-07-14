@@ -22,7 +22,10 @@
  * Hexagonal (hook `no-infra-in-domain`): depende SOLO de puertos inyectados; no importa
  * Prisma ni `@nestjs/*`.
  */
-import { calcularDesgloseFacturaSenal } from '../domain/calculo-factura';
+import {
+  calcularDesgloseFactura,
+  type RegimenIvaFactura,
+} from '../domain/calculo-factura';
 import { siguienteNumeroFactura } from '../domain/numeracion-factura';
 import type { EstadoFactura, TipoFactura } from '../domain/factura';
 
@@ -55,6 +58,12 @@ export interface ReservaFacturable {
   estado: EstadoReservaFacturable;
   /** Total de la señal congelado en US-021 (Decimal string de 2 decimales). */
   importeSenal: string;
+  /**
+   * 6.3: régimen IVA del presupuesto aceptado de la reserva (design.md §D-1). Gobierna el
+   * desglose fiscal de la factura de señal. `con_iva` por defecto (transferencia); `sin_iva`
+   * cuando el presupuesto aceptado es por efectivo.
+   */
+  regimenIva: RegimenIvaFactura;
 }
 
 /** Datos fiscales del CLIENTE (receptor de la factura). Campos nulos → borrador inválido. */
@@ -196,6 +205,8 @@ export interface ReceptorPdf {
 
 /** Datos de entrada del generador de PDF (emisor + receptor + desglose). */
 export interface GenerarPdfFacturaParams {
+  /** Tenant del disparo: lo usa el adaptador REAL para cargar los datos bajo RLS (6.3). */
+  tenantId: string;
   idFactura: string;
   numeroFactura: string;
   concepto: string;
@@ -331,7 +342,7 @@ export class GenerarFacturaSenalUseCase {
 
     // (1) Desglose fiscal del total congelado + datos fiscales del emisor/receptor
     //     (fuera de la tx; determinan si se genera el PDF).
-    const desglose = calcularDesgloseFacturaSenal({ total: reserva.importeSenal });
+    const desglose = calcularDesgloseFactura(reserva.importeSenal, reserva.regimenIva);
     const concepto = `Señal reserva ${reserva.codigo}`;
     const cliente = await this.deps.cargarCliente({
       tenantId: comando.tenantId,
@@ -495,6 +506,7 @@ export class GenerarFacturaSenalUseCase {
     const emisor = await this.deps.cargarTenant({ tenantId: comando.tenantId });
     try {
       const pdfUrl = await this.deps.generarPdf({
+        tenantId: comando.tenantId,
         idFactura: factura.idFactura,
         numeroFactura: factura.numeroFactura ?? '',
         concepto: ctx.concepto,

@@ -21,6 +21,7 @@
  */
 import {
   calcularDesgloseFacturaSenal,
+  calcularDesgloseFactura,
   type DesgloseFacturaSenal,
 } from '../domain/calculo-factura';
 
@@ -112,5 +113,59 @@ describe('calcularDesgloseFacturaSenal — no recalcula el porcentaje de señal'
     expect(out.total).toBe('1000.00');
     expect(out.baseImponible).toBe('826.45');
     expect(out.ivaImporte).toBe('173.55');
+  });
+});
+
+// ===========================================================================
+// 6.3 — Desglose según RÉGIMEN IVA: `calcularDesgloseFactura(total, regimenIva)`
+//        distingue CON IVA (21 %, comportamiento actual) de SIN IVA (IVA 0, base =
+//        total). El régimen llega del presupuesto aceptado de la reserva (design.md
+//        §D-1; spec-delta `facturacion` Requirement "Desglose fiscal … según régimen IVA").
+//
+// RED: `calcularDesgloseFactura` aún NO existe (solo existe `calcularDesgloseFacturaSenal`,
+// que asume siempre 21 %). El import y la firma `(total, regimenIva)` fallan (TS/ausencia
+// de implementación). GREEN es de `backend-developer`.
+// ===========================================================================
+
+describe('calcularDesgloseFactura — régimen SIN IVA: base = total, IVA cero (6.3)', () => {
+  it('debe_dar_iva_0_base_igual_al_total_para_1200_sin_iva', () => {
+    // SIN IVA (presupuesto por efectivo): iva_porcentaje = 0, iva_importe = 0,
+    // base_imponible = total (el total ya es la base neta, sin impuesto).
+    const out = calcularDesgloseFactura('1200.00', 'sin_iva');
+
+    expect(out.ivaPorcentaje).toBe('0.00');
+    expect(out.ivaImporte).toBe('0.00');
+    expect(out.baseImponible).toBe('1200.00');
+    expect(out.total).toBe('1200.00');
+  });
+
+  it('debe_cumplir_base_mas_iva_igual_al_total_trivialmente_en_sin_iva', () => {
+    const out = calcularDesgloseFactura('333.33', 'sin_iva');
+
+    const base = Number(out.baseImponible);
+    const iva = Number(out.ivaImporte);
+    expect(Number((base + iva).toFixed(2))).toBe(Number(out.total));
+    expect(out.ivaImporte).toBe('0.00');
+    expect(out.baseImponible).toBe('333.33');
+  });
+});
+
+describe('calcularDesgloseFactura — régimen CON IVA conserva el 21 % actual (6.3)', () => {
+  it('debe_desglosar_1200_con_iva_en_991_74_base_y_208_26_iva_sin_regresion', () => {
+    // CON IVA (presupuesto por transferencia): mismo comportamiento que hoy.
+    const out = calcularDesgloseFactura('1200.00', 'con_iva');
+
+    expect(out.ivaPorcentaje).toBe('21.00');
+    expect(out.baseImponible).toBe('991.74');
+    expect(out.ivaImporte).toBe('208.26');
+    expect(out.total).toBe('1200.00');
+  });
+
+  it('debe_derivar_el_iva_por_resta_tambien_con_iva_para_250_55', () => {
+    const out = calcularDesgloseFactura('250.55', 'con_iva');
+
+    const base = Number(out.baseImponible);
+    const iva = Number(out.ivaImporte);
+    expect(Number((base + iva).toFixed(2))).toBe(250.55);
   });
 });

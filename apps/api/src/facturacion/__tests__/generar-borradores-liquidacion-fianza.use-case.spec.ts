@@ -57,6 +57,9 @@ const reservaLiquidable = (over: Partial<ReservaLiquidable> = {}): ReservaLiquid
   liquidacionStatus: 'pendiente',
   fianzaStatus: 'pendiente',
   importeLiquidacion: '3600.00',
+  // 6.3: régimen IVA del presupuesto aceptado. CON IVA por defecto (21 %); el test SIN IVA
+  // lo sobrescribe. El use-case lo propaga a `calcularDesgloseFactura` (design.md §D-1).
+  regimenIva: 'con_iva',
   ...over,
 });
 
@@ -218,6 +221,25 @@ describe('GenerarBorradores — factura de liquidación en borrador (3.3)', () =
       .find((a) => a.accion === 'crear' && a.entidadId === FAC_LIQ_ID);
     expect(crearLiq).toBeDefined();
     expect(crearLiq.entidad).toBe('FACTURA');
+  });
+
+  it('debe_emitir_la_liquidacion_SIN_IVA_base_igual_al_total_e_iva_cero_cuando_regimen_es_sin_iva', async () => {
+    // 6.3: presupuesto aceptado SIN IVA (efectivo) → la factura de liquidación se emite con
+    // ivaPorcentaje=0, ivaImporte=0, baseImponible=total. El use-case usa `regimenIva` del
+    // ReservaLiquidable al llamar a `calcularDesgloseFactura` (design.md §D-1).
+    const { useCase, repos } = montar({
+      reserva: reservaLiquidable({ importeLiquidacion: '3600.00', regimenIva: 'sin_iva' }),
+      extrasPendientes: [extra('300.00'), extra('200.00')],
+    });
+
+    await useCase.ejecutar(comando());
+
+    const liq = crearArgsDe(repos, 'liquidacion');
+    expect(liq).toBeDefined();
+    expect(liq!.total).toBe('4100.00');
+    expect(liq!.ivaPorcentaje).toBe('0.00');
+    expect(liq!.ivaImporte).toBe('0.00');
+    expect(liq!.baseImponible).toBe('4100.00');
   });
 });
 
