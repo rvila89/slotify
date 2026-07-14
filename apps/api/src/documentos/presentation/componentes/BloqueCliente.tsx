@@ -3,7 +3,7 @@
  * inyectadas en `kit`. Reutilizable por presupuesto y factura (6.3).
  */
 import type { ClienteDocumento } from '../modelo-documento-presupuesto';
-import type { EstilosReactPdf, KitReactPdf } from './kit-react-pdf';
+import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
 
 export interface BloqueClienteProps {
   kit: KitReactPdf;

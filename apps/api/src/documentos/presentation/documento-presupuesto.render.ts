@@ -20,7 +20,7 @@ import {
   type DatosDocumentoPresupuesto,
 } from './modelo-documento-presupuesto';
 import { DocumentoLayout } from './componentes/DocumentoLayout';
-import type { KitReactPdf } from './componentes/kit-react-pdf';
+import type { KitReactPdf } from './kit-react-pdf';
 import type { ConfiguracionDocumentoTenant } from '../domain/configuracion-documento';
 
 /** Módulo react-pdf cargado dinámicamente (subconjunto que usamos). */

@@ -7,8 +7,8 @@
  * `StyleSheet` del kit. Pensado para reutilizarse en la factura (6.3).
  */
 import type { ModeloDocumentoPresupuesto } from '../modelo-documento-presupuesto';
-import type { KitReactPdf } from './kit-react-pdf';
-import { construirEstilos } from './estilos';
+import type { KitReactPdf } from '../kit-react-pdf';
+import { construirEstilos } from '../estilos';
 import { Cabecera } from './Cabecera';
 import { BloqueCliente } from './BloqueCliente';
 import { TablaConcepto } from './TablaConcepto';

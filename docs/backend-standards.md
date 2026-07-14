@@ -122,6 +122,17 @@ apps/api/
 └── test/                          # tests e2e (Supertest)
 ```
 
+**Pureza de `componentes/`/`components/` (regla dura, ESLint).** Cuando un módulo
+tiene una carpeta de componentes (p. ej. la capa de plantillas react-pdf en
+`documentos/presentation/componentes/`), esa carpeta aloja **solo componentes
+React** (`.tsx`). Los módulos **no-componente** —helpers, constantes, tipos,
+estilos, "kits" de primitivas— viven **fuera** de la carpeta de componentes (p. ej.
+en la raíz de la capa: `presentation/estilos.ts`, `presentation/kit-react-pdf.ts`).
+Lo impone `apps/api/eslint.config.mjs` (un `.ts` no-test bajo `**/componentes/**` o
+`**/components/**` dispara `no-restricted-syntax`); `pnpm lint` falla si se viola.
+Es el equivalente backend de la misma regla en `apps/web`
+([frontend-standards.md](./frontend-standards.md) §Estructura).
+
 ## El núcleo crítico: bloqueo atómico de fecha
 
 Es la decisión técnica más importante (ver [architecture.md §2.4](./architecture.md)). **No usa locks distribuidos (Redis/Redlock)**: usa la garantía nativa de PostgreSQL.

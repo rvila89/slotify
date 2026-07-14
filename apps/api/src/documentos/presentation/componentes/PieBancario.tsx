@@ -4,7 +4,7 @@
  * por factura (6.3).
  */
 import type { PieBancarioModelo } from '../modelo-documento-presupuesto';
-import type { EstilosReactPdf, KitReactPdf } from './kit-react-pdf';
+import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
 
 export interface PieBancarioProps {
   kit: KitReactPdf;

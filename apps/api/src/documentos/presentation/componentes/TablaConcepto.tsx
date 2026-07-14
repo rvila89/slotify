@@ -4,7 +4,7 @@
  * react-pdf inyectadas en `kit`. Reutilizable por factura (6.3) con otro concepto.
  */
 import type { ExtraDocumento } from '../modelo-documento-presupuesto';
-import type { EstilosReactPdf, KitReactPdf } from './kit-react-pdf';
+import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
 
 export interface TablaConceptoProps {
   kit: KitReactPdf;

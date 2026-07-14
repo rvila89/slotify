@@ -7,7 +7,7 @@ import type {
   DesgloseDocumento,
   RepartoDocumento,
 } from '../modelo-documento-presupuesto';
-import type { EstilosReactPdf, KitReactPdf } from './kit-react-pdf';
+import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
 
 export interface BloqueTotalesProps {
   kit: KitReactPdf;
