@@ -162,5 +162,5 @@
       tras code-review APTO + PDF SIN IVA verificado + validación manual
 
 ## 12. Archivar change + abrir PR (OBLIGATORIO — archive)
-- [ ] 12.1 `openspec archive documentos-presupuesto-sin-iva-doble-numeracion` y
-      abrir PR hacia `master` (solo tras gate final y code-review APTO)
+- [x] 12.1 `openspec archive` ejecutado (specs vivas: presupuestos +4/-1,
+      documentos +1) y PR hacia `master` abierto tras gate final + code-review APTO

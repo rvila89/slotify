@@ -155,8 +155,6 @@ ambos campos al crear un presupuesto (nunca `null` en filas nuevas). (Fuente:
   `tenant_isolation` por join a la reserva), y `presupuesto` sigue con RLS
   habilitada
 
-## MODIFIED Requirements
-
 ### Requirement: Numeración del presupuesto por tenant, año y régimen (doble secuencia)
 
 El sistema SHALL (DEBE) asignar a cada presupuesto un **`numero_presupuesto`**
@@ -222,3 +220,15 @@ migra en 6.2; su migración a este mecanismo es 6.3). (Fuente:
   discriminando el `P2002` por `meta.target`
 - **AND** un `P2002` de la fecha D4 (`UNIQUE(tenant_id, fecha)`) NO se reintenta
   y propaga como "fecha no disponible" (409)
+
+## REMOVED Requirements
+
+### Requirement: Numeración del presupuesto CON IVA por tenant y año
+
+**Reason**: Renombrada y generalizada por la 6.2. La numeración pasa de una ÚNICA
+secuencia CON IVA (`AAAANNN` con `@@unique([tenantId, numeroPresupuesto])`) a **dos
+secuencias por tenant/año/régimen** (CON IVA / SIN IVA), sustituida por el requirement
+«Numeración del presupuesto por tenant, año y régimen (doble secuencia)» de esta misma
+capability. Los presupuestos CON IVA de 6.1b (backfill `regimen_iva = 'con_iva'`) se
+reconcilian como la secuencia CON, que continúa sin discontinuidad. La unicidad de BD
+pasa de `[tenantId, numeroPresupuesto]` a `[tenantId, regimenIva, numeroPresupuesto]`.
