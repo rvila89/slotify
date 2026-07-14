@@ -18,6 +18,10 @@ export const CARGAR_CLIENTE_PRESUPUESTO_PORT = Symbol('CargarClientePresupuestoP
 export const TENANT_SETTINGS_PRESUPUESTO_PORT = Symbol('TenantSettingsPresupuestoPort');
 /** Generación del PDF del presupuesto (post-commit). */
 export const GENERAR_PDF_PRESUPUESTO_PORT = Symbol('GenerarPdfPresupuestoPort');
+/** Lectura de los datos del documento de presupuesto (para el PDF real, épico #6 6.1b). */
+export const CARGAR_DATOS_DOCUMENTO_PRESUPUESTO_PORT = Symbol(
+  'CargarDatosDocumentoPresupuestoPort',
+);
 /** Disparo del E2 post-commit (motor de email US-045). */
 export const DISPARAR_E2_PORT = Symbol('DispararE2Port');
 /** Reloj del sistema (TTL de la pre_reserva). */

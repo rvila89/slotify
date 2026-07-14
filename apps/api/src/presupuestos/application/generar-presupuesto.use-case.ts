@@ -36,6 +36,7 @@ import {
   type DesgloseFiscal,
   type RepartoPago,
 } from '../domain/desglose-fiscal';
+import { siguienteNumeroPresupuesto } from '../domain/numeracion-presupuesto';
 import {
   esOrigenValidoParaActivarPrereserva,
   type EstadoReserva,
@@ -128,7 +129,11 @@ export interface TenantSettingsPresupuestoPort {
 
 /** Datos que se persisten al crear el PRESUPUESTO congelado. */
 export interface CrearPresupuestoParams {
+  /** Tenant del presupuesto (= el de la reserva); aísla la numeración por tenant. */
+  tenantId: string;
   reservaId: string;
+  /** Número `AAAANNN` asignado en la tx de confirmación (N1). */
+  numeroPresupuesto: string;
   version: number;
   estado: 'enviado';
   tarifaCongelada: true;
@@ -168,7 +173,12 @@ export interface PresupuestoRepositoryPort {
     tenantId: string;
     reservaId: string;
   }): Promise<PresupuestoPrevio | null>;
-  /** Crea el PRESUPUESTO congelado (version 1, enviado). */
+  /**
+   * Último `numero_presupuesto` del tenant en el año dado (para calcular el siguiente),
+   * o `null` si no hay ninguno (N1). El año va embebido en el literal `AAAANNN`.
+   */
+  ultimoNumeroDelAnio(tenantId: string, anio: number): Promise<string | null>;
+  /** Crea el PRESUPUESTO congelado (version 1, enviado) con su número asignado. */
   crear(params: CrearPresupuestoParams): Promise<PresupuestoCreado>;
 }
 
@@ -385,6 +395,20 @@ export class PresupuestoYaExisteError extends Error {
   }
 }
 
+/**
+ * Se agotaron los reintentos de numeración (`UNIQUE(tenant_id, numero_presupuesto)`)
+ * — escenario extremadamente improbable de contención sostenida. Es un fallo interno,
+ * NO una colisión de fecha: se mapea a 500, nunca a 409 "fecha no disponible".
+ */
+export class NumeracionPresupuestoAgotadaError extends Error {
+  readonly codigo = 'NUMERACION_PRESUPUESTO_AGOTADA' as const;
+
+  constructor() {
+    super('No se pudo asignar un número de presupuesto único tras varios reintentos');
+    this.name = 'NumeracionPresupuestoAgotadaError';
+  }
+}
+
 /** La RESERVA no existe para el tenant (RLS): cross-tenant es invisible → 404. */
 export class ReservaNoEncontradaError extends Error {
   readonly codigo = 'RESERVA_NO_ENCONTRADA' as const;
@@ -403,9 +427,50 @@ export class ReservaNoEncontradaError extends Error {
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
+/** Máximo de reintentos ante colisión de numeración (`P2002`) en la confirmación (N1). */
+const MAX_REINTENTOS_NUMERACION = 10;
+
+/**
+ * Índice/constraint y columna del `UNIQUE(tenant_id, numero_presupuesto)` que serializa
+ * la numeración por tenant y año. Solo un `P2002` sobre ESTE objetivo es reintentable.
+ */
+const INDICE_NUMERO_PRESUPUESTO = 'presupuesto_tenant_id_numero_presupuesto_key';
+const COLUMNA_NUMERO_PRESUPUESTO = 'numero_presupuesto';
+
 /** ¿El valor de texto está presente (no nulo/undefined/vacío)? */
 const presente = (valor: string | null | undefined): boolean =>
   valor !== null && valor !== undefined && valor.trim() !== '';
+
+/** ¿El error es una violación de unicidad `P2002` de Prisma (con `meta.target`)? */
+const esP2002 = (
+  error: unknown,
+): error is { code: 'P2002'; meta?: { target?: unknown } } =>
+  typeof error === 'object' &&
+  error !== null &&
+  'code' in error &&
+  (error as { code?: string }).code === 'P2002';
+
+/**
+ * ¿El `P2002` es de la NUMERACIÓN (`UNIQUE(tenant_id, numero_presupuesto)`) y por tanto
+ * REINTENTABLE? Discrimina por `meta.target`, que Prisma expone como el nombre del
+ * índice (string) o como el array de columnas del constraint según versión/driver. Solo
+ * la colisión de numeración se reintenta; cualquier otro `P2002` (en particular el de la
+ * fecha D4, `UNIQUE(tenant_id, fecha)` de FECHA_BLOQUEADA) NO se reintenta y propaga.
+ */
+const esColisionNumeracion = (error: unknown): boolean => {
+  if (!esP2002(error)) {
+    return false;
+  }
+  const target = error.meta?.target;
+  const objetivos = Array.isArray(target)
+    ? target.map(String)
+    : typeof target === 'string'
+      ? [target]
+      : [];
+  return objetivos.some(
+    (o) => o === INDICE_NUMERO_PRESUPUESTO || o === COLUMNA_NUMERO_PRESUPUESTO,
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Caso de uso
@@ -461,84 +526,128 @@ export class GenerarPresupuestoUseCase {
 
     // Transacción única (all-or-nothing). Las precondiciones bajo lock (presupuesto
     // previo, re-guarda de origen implícita por el bloqueo) resuelven el doble clic /
-    // la carrera D4; cualquier rechazo se propaga para que la UoW revierta.
-    const salida = (await this.deps.unidadDeTrabajo.ejecutar(
-      comando.tenantId,
-      async (repos): Promise<{ presupuesto: PresupuestoCreado; consultasDescartadas: number }> => {
-        // Precondición PRESUPUESTO_YA_EXISTE (UC-15) bajo el contexto de la tx.
-        const previo = await repos.presupuestos.buscarEnviadoOAceptado({
+    // la carrera D4; cualquier rechazo se propaga para que la UoW revierta. La numeración
+    // `AAAANNN` se asigna DENTRO de la tx (N1); ante colisión de unicidad concurrente
+    // (`P2002` del `UNIQUE(tenant_id, numero_presupuesto)`) se re-abre la tx recalculando
+    // el número (bucle acotado), nunca locks distribuidos.
+    const anioEmision = ahora.getUTCFullYear();
+    const trabajoConfirmacion = async (
+      repos: RepositoriosActivarPrereserva,
+    ): Promise<{ presupuesto: PresupuestoCreado; consultasDescartadas: number }> => {
+      // Precondición PRESUPUESTO_YA_EXISTE (UC-15) bajo el contexto de la tx.
+      const previo = await repos.presupuestos.buscarEnviadoOAceptado({
+        tenantId: comando.tenantId,
+        reservaId: comando.reservaId,
+      });
+      if (previo !== null) {
+        throw new PresupuestoYaExisteError();
+      }
+
+      // Numeración `AAAANNN` por tenant y año (N1): último del año → siguiente.
+      const ultimoNumero = await repos.presupuestos.ultimoNumeroDelAnio(
+        comando.tenantId,
+        anioEmision,
+      );
+      const numeroPresupuesto = siguienteNumeroPresupuesto({
+        anio: anioEmision,
+        ultimoNumero,
+      });
+
+      // (a) PRESUPUESTO congelado con su número asignado.
+      const presupuesto = await repos.presupuestos.crear({
+        tenantId: comando.tenantId,
+        reservaId: comando.reservaId,
+        numeroPresupuesto,
+        version: 1,
+        estado: 'enviado',
+        tarifaCongelada: true,
+        baseImponible: desglose.baseImponible,
+        ivaPorcentaje: desglose.ivaPorcentaje,
+        ivaImporte: desglose.ivaImporte,
+        total: desglose.total,
+        descuentoEur: presente(comando.descuentoEur) ? comando.descuentoEur! : null,
+        descuentoMotivo: presente(comando.descuentoMotivo)
+          ? comando.descuentoMotivo!
+          : null,
+        tarifaId,
+      });
+
+      // (b) Transición de la RESERVA a pre_reserva (ttl = now()+ttl_prereserva_dias).
+      await repos.reservas.transicionarAPrereserva({
+        idReserva: comando.reservaId,
+        ttlExpiracion,
+      });
+
+      // (c) Bloqueo insert-o-update a 7 d (mismo TTL que la RESERVA). El UNIQUE /
+      //     FOR UPDATE serializa la carrera D4; una colisión propaga (rollback).
+      if (reserva.fechaEvento !== null) {
+        await repos.fechaBloqueada.bloquearInsertOUpdate({
           tenantId: comando.tenantId,
+          fecha: reserva.fechaEvento,
           reservaId: comando.reservaId,
-        });
-        if (previo !== null) {
-          throw new PresupuestoYaExisteError();
-        }
-
-        // (a) PRESUPUESTO congelado.
-        const presupuesto = await repos.presupuestos.crear({
-          reservaId: comando.reservaId,
-          version: 1,
-          estado: 'enviado',
-          tarifaCongelada: true,
-          baseImponible: desglose.baseImponible,
-          ivaPorcentaje: desglose.ivaPorcentaje,
-          ivaImporte: desglose.ivaImporte,
-          total: desglose.total,
-          descuentoEur: presente(comando.descuentoEur) ? comando.descuentoEur! : null,
-          descuentoMotivo: presente(comando.descuentoMotivo)
-            ? comando.descuentoMotivo!
-            : null,
-          tarifaId,
-        });
-
-        // (b) Transición de la RESERVA a pre_reserva (ttl = now()+ttl_prereserva_dias).
-        await repos.reservas.transicionarAPrereserva({
-          idReserva: comando.reservaId,
           ttlExpiracion,
         });
+      }
 
-        // (c) Bloqueo insert-o-update a 7 d (mismo TTL que la RESERVA). El UNIQUE /
-        //     FOR UPDATE serializa la carrera D4; una colisión propaga (rollback).
-        if (reserva.fechaEvento !== null) {
-          await repos.fechaBloqueada.bloquearInsertOUpdate({
-            tenantId: comando.tenantId,
-            fecha: reserva.fechaEvento,
-            reservaId: comando.reservaId,
-            ttlExpiracion,
-          });
-        }
+      // (d) Vaciado de cola A16 (2.d → 2.y). Cola vacía → 0 filas. Sin emails a cola.
+      const { descartadas } = await repos.cola.vaciar({
+        tenantId: comando.tenantId,
+        consultaBloqueanteId: comando.reservaId,
+      });
 
-        // (d) Vaciado de cola A16 (2.d → 2.y). Cola vacía → 0 filas. Sin emails a cola.
-        const { descartadas } = await repos.cola.vaciar({
-          tenantId: comando.tenantId,
-          consultaBloqueanteId: comando.reservaId,
-        });
-
-        // (e) AUDIT_LOG: principal (→ pre_reserva) + una por cada descartada (2d→2y).
+      // (e) AUDIT_LOG: principal (→ pre_reserva) + una por cada descartada (2d→2y).
+      await repos.auditoria.registrar({
+        tenantId: comando.tenantId,
+        usuarioId: comando.usuarioId,
+        entidad: 'RESERVA',
+        entidadId: comando.reservaId,
+        accion: 'transicion',
+        datosAnteriores: { estado: 'consulta', subEstado: reserva.subEstado },
+        datosNuevos: { estado: 'pre_reserva', ttlExpiracion: ttlExpiracion.toISOString() },
+      });
+      for (const idDescartada of descartadas) {
         await repos.auditoria.registrar({
           tenantId: comando.tenantId,
           usuarioId: comando.usuarioId,
           entidad: 'RESERVA',
-          entidadId: comando.reservaId,
+          entidadId: idDescartada,
           accion: 'transicion',
-          datosAnteriores: { estado: 'consulta', subEstado: reserva.subEstado },
-          datosNuevos: { estado: 'pre_reserva', ttlExpiracion: ttlExpiracion.toISOString() },
+          datosAnteriores: { subEstado: '2d' },
+          datosNuevos: { subEstado: '2y' },
         });
-        for (const idDescartada of descartadas) {
-          await repos.auditoria.registrar({
-            tenantId: comando.tenantId,
-            usuarioId: comando.usuarioId,
-            entidad: 'RESERVA',
-            entidadId: idDescartada,
-            accion: 'transicion',
-            datosAnteriores: { subEstado: '2d' },
-            datosNuevos: { subEstado: '2y' },
-          });
-        }
+      }
 
-        return { presupuesto, consultasDescartadas: descartadas.length };
-      },
-    )) as { presupuesto: PresupuestoCreado; consultasDescartadas: number };
+      return { presupuesto, consultasDescartadas: descartadas.length };
+    };
+
+    // Bucle de reintento acotado ante colisión de NUMERACIÓN (P2002 del
+    // `UNIQUE(tenant_id, numero_presupuesto)`). Cada intento re-abre la tx recalculando el
+    // número desde el último del año. Cualquier OTRO error propaga de inmediato — en
+    // particular el P2002 de la fecha D4 (`UNIQUE(tenant_id, fecha)`), que NO debe
+    // reintentarse (es "fecha no disponible" → 409) para no interferir con el bloqueo
+    // atómico ni acabar mapeado engañosamente como colisión de fecha.
+    let salida: { presupuesto: PresupuestoCreado; consultasDescartadas: number } | null =
+      null;
+    for (let intento = 0; intento < MAX_REINTENTOS_NUMERACION; intento += 1) {
+      try {
+        salida = (await this.deps.unidadDeTrabajo.ejecutar(
+          comando.tenantId,
+          trabajoConfirmacion,
+        )) as { presupuesto: PresupuestoCreado; consultasDescartadas: number };
+        break;
+      } catch (error) {
+        if (esColisionNumeracion(error)) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    if (salida === null) {
+      // Se agotaron los reintentos de numeración (extremadamente improbable). NO se
+      // propaga el P2002 de numeración crudo: acabaría mapeado a 409 "fecha no disponible".
+      // Se emite un error propio (→ 500) que NO coincide con ese mapeo.
+      throw new NumeracionPresupuestoAgotadaError();
+    }
 
     // Post-commit (D-6/D-7, FUERA de la tx crítica): genera el PDF y dispara el E2.
     // Un fallo aquí NO revierte la pre_reserva ya comprometida.

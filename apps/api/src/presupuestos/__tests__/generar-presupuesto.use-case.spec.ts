@@ -143,6 +143,7 @@ const crearMotorFake = (
 interface ReposFake extends RepositoriosActivarPrereserva {
   presupuestos: {
     buscarEnviadoOAceptado: jest.Mock;
+    ultimoNumeroDelAnio: jest.Mock;
     crear: jest.Mock;
   };
   reservas: {
@@ -174,6 +175,7 @@ const crearReposFake = (opciones: {
     buscarEnviadoOAceptado: jest.fn(async () =>
       opciones.presupuestoPrevio ? { idPresupuesto: 'p-prev', estado: 'enviado' } : null,
     ),
+    ultimoNumeroDelAnio: jest.fn(async () => null),
     crear: jest.fn(async (p: Record<string, unknown>) => {
       if (opciones.fallarEn === 'crearPresupuesto') throw new Error('FALLO_CREARPRESUPUESTO');
       return { idPresupuesto: 'p-1', version: 1, estado: 'enviado', ...p };
@@ -562,6 +564,120 @@ describe('GenerarPresupuestoUseCase — RESERVA inexistente / cross-tenant → 4
       useCase.confirmar(comandoConfirmar({ tenantId: OTRO_TENANT })),
     ).rejects.toBeInstanceOf(ReservaNoEncontradaError);
     expect(repos.presupuestos.crear).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// N1 — Reintento de numeración vs. colisión de fecha D4 (fix code-review 6.1b):
+//   el bucle de reintento ante `P2002` debe DISCRIMINAR por `meta.target`:
+//     · P2002 de numeración (UNIQUE(tenant_id, numero_presupuesto)) → REINTENTA.
+//     · P2002 de fecha (UNIQUE(tenant_id, fecha) de FECHA_BLOQUEADA, carrera D4) →
+//       PROPAGA de inmediato (sin reintentar) para su mapeo 409 "fecha no disponible".
+// ===========================================================================
+
+/** Fabrica un P2002 de Prisma con el `meta.target` indicado (string o array). */
+const crearP2002 = (target: string | string[]): Error => {
+  const error = new Error('Unique constraint failed') as Error & {
+    code: string;
+    meta: { target: string | string[] };
+  };
+  error.code = 'P2002';
+  error.meta = { target };
+  return error;
+};
+
+/**
+ * UoW fake que, en cada invocación de `ejecutar`, decide si el `trabajo` colisiona
+ * lanzando el error de la cola `erroresPorIntento` (uno por intento) o lo ejecuta a
+ * fondo. Cuenta las invocaciones para verificar cuántos reintentos hubo.
+ */
+const crearUowConColisiones = (
+  repos: ReposFake,
+  erroresPorIntento: ReadonlyArray<Error | null>,
+): UnidadDeTrabajoActivarPrereservaPort & { ejecutar: jest.Mock } => {
+  let intento = 0;
+  return {
+    ejecutar: jest.fn(
+      async <T,>(
+        _tenantId: string,
+        trabajo: (r: RepositoriosActivarPrereserva) => Promise<T>,
+      ) => {
+        const errorDeEsteIntento = erroresPorIntento[intento] ?? null;
+        intento += 1;
+        if (errorDeEsteIntento !== null) {
+          // Simula la tx que colisiona: se ejecuta el trabajo (recalcula el número
+          // desde el último del año) pero la BD rechaza el commit con el P2002.
+          await trabajo(repos);
+          throw errorDeEsteIntento;
+        }
+        return trabajo(repos);
+      },
+    ),
+  };
+};
+
+const montarConUow = (
+  uow: UnidadDeTrabajoActivarPrereservaPort & { ejecutar: jest.Mock },
+  repos: ReposFake,
+) => {
+  const deps: GenerarPresupuestoDeps = {
+    motorTarifa: crearMotorFake() as unknown as CalculadoraTarifaService,
+    unidadDeTrabajo: uow,
+    tenantSettings: { obtener: jest.fn(async () => settings) },
+    cargarReserva: jest.fn(async () => reservaActiva()),
+    cargarCliente: jest.fn(async () => clienteFiscalCompleto()),
+    generarPdf: jest.fn(async () => 'https://docs/p-1.pdf'),
+    clock: relojFijo,
+  };
+  return { useCase: new GenerarPresupuestoUseCase(deps), uow, repos };
+};
+
+describe('GenerarPresupuestoUseCase.confirmar — reintento de numeración vs. D4 (N1)', () => {
+  it('debe_reintentar_ante_P2002_de_numeracion_y_persistir_el_numero_incrementado', async () => {
+    // El repo devuelve un último número distinto por intento: 1er intento calcula
+    // 2026001, colisiona; 2º intento calcula 2026002 y tiene éxito.
+    const repos = crearReposFake();
+    const numerosDelAnio = ['2026000', '2026001'];
+    let llamada = 0;
+    repos.presupuestos.ultimoNumeroDelAnio = jest.fn(async () => {
+      const valor = numerosDelAnio[llamada] ?? numerosDelAnio[numerosDelAnio.length - 1];
+      llamada += 1;
+      return valor;
+    });
+    const uow = crearUowConColisiones(repos, [
+      crearP2002(['tenant_id', 'numero_presupuesto']),
+      null,
+    ]);
+    const { useCase } = montarConUow(uow, repos);
+
+    const resultado = await useCase.confirmar(comandoConfirmar());
+
+    // Reintentó: dos aperturas de la tx.
+    expect(uow.ejecutar).toHaveBeenCalledTimes(2);
+    // Persistió el número recalculado del SEGUNDO intento (2026002), no el que colisionó.
+    const numerosCreados = repos.presupuestos.crear.mock.calls.map(
+      (c) => (c[0] as { numeroPresupuesto: string }).numeroPresupuesto,
+    );
+    expect(numerosCreados[numerosCreados.length - 1]).toBe('2026002');
+    // NO propaga: la confirmación tiene éxito.
+    expect(resultado.presupuesto).toBeDefined();
+  });
+
+  it('debe_propagar_de_inmediato_el_P2002_de_fecha_D4_sin_reintentar', async () => {
+    const repos = crearReposFake();
+    // Este es el P2002 que lanza el adaptador del bloqueo (activar-prereserva-uow:184).
+    const uow = crearUowConColisiones(repos, [crearP2002(['tenant_id', 'fecha'])]);
+    const { useCase } = montarConUow(uow, repos);
+
+    const promesa = useCase.confirmar(comandoConfirmar());
+
+    // Propaga el P2002 tal cual (el controller lo mapea a 409 "fecha no disponible").
+    await expect(promesa).rejects.toMatchObject({
+      code: 'P2002',
+      meta: { target: ['tenant_id', 'fecha'] },
+    });
+    // NO reintentó: una única apertura de la tx (no interfiere con el bloqueo atómico).
+    expect(uow.ejecutar).toHaveBeenCalledTimes(1);
   });
 });
 

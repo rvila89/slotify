@@ -3,6 +3,7 @@
     "module": "commonjs",
     "target": "ES2021",
     "lib": ["ES2021"],
+    "jsx": "react-jsx",
     "declaration": true,
     "removeComments": true,
     "emitDecoratorMetadata": true,
