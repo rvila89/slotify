@@ -280,7 +280,9 @@ erDiagram
         uuid id_presupuesto PK
         uuid reserva_id FK
         uuid tenant_id FK "añadido en 6.1b; backfill desde RESERVA; RLS-por-join sigue siendo el aislamiento"
-        string numero_presupuesto "nullable — formato AAAANNN (p. ej. 2026001); asignado en tx de confirmación con reintento ante P2002"
+        string numero_presupuesto "nullable — formato AAAANNN (p. ej. 2026001); unicidad por tenant+régimen+número (6.2)"
+        enum metodo_pago "transferencia | efectivo — nullable; backfill transferencia en 6.2"
+        enum regimen_iva "con_iva | sin_iva — nullable; backfill con_iva en 6.2; derivado de metodo_pago"
         int version "UNIQUE(reserva_id, version)"
         decimal base_imponible
         decimal iva_porcentaje
@@ -734,9 +736,20 @@ Versiones del presupuesto generado para una reserva (UC-14 / US-014). Cada versi
 
 La restricción `UNIQUE(reserva_id, version)` garantiza que no existan dos presupuestos con la misma versión para la misma reserva.
 
-**RLS — política por subconsulta a RESERVA (preexistente; sin cambio en 6.1b):** `PRESUPUESTO` tiene RLS habilitada con la policy `tenant_isolation` implementada mediante una subconsulta a `RESERVA` — `presupuesto.reserva_id IN (SELECT id_reserva FROM reserva WHERE tenant_id = current_setting('app.tenant_id', true))` — porque en su origen la tabla no tenía `tenant_id` propio. En la migración de 6.1b se añade `tenant_id` como nueva columna (con backfill desde la `RESERVA` asociada), pero la policy RLS existente por subconsulta **no se recrea ni se altera**: el aislamiento efectivo sigue siendo la policy preexistente por join. El campo `tenant_id` en la tabla sirve únicamente para soporte de la restricción de unicidad de numeración `@@unique([tenantId, numeroPresupuesto])` y como referencia directa de multi-tenancy en las queries que lo necesiten.
+**RLS — política por subconsulta a RESERVA (preexistente; sin cambio en 6.1b/6.2):** `PRESUPUESTO` tiene RLS habilitada con la policy `tenant_isolation` implementada mediante una subconsulta a `RESERVA` — `presupuesto.reserva_id IN (SELECT id_reserva FROM reserva WHERE tenant_id = current_setting('app.tenant_id', true))` — porque en su origen la tabla no tenía `tenant_id` propio. En la migración de 6.1b se añade `tenant_id` como nueva columna (con backfill desde la `RESERVA` asociada), pero la policy RLS existente por subconsulta **no se recrea ni se altera**: el aislamiento efectivo sigue siendo la policy preexistente por join. En 6.2 se añaden `metodo_pago` y `regimen_iva` (nullable + backfill), también protegidas por la policy preexistente: **no se crea una nueva policy RLS**.
 
-**Numeración de presupuesto (6.1b):** el campo `numero_presupuesto` adopta el formato `AAAANNN` (año de 4 dígitos + correlativo de 3 dígitos con reset anual por tenant), por ejemplo `2026001`. Se asigna en la **transacción de confirmación del presupuesto** con reintento ante colisión de unicidad (`P2002` en `@@unique([tenantId, numeroPresupuesto])`). La función de dominio pura `siguienteNumeroPresupuesto` lee el último número del año del tenant y devuelve el siguiente. El correlativo reinicia a `001` cada año natural.
+**Doble numeración de presupuesto por régimen (6.2 — sustituye a la unicidad única de 6.1b):** a partir de 6.2 existen **dos secuencias independientes por tenant, año y régimen fiscal** (`con_iva` / `sin_iva`). El literal del número (`AAAANNN`, p. ej. `2026001`) es **compartido** entre ambas secuencias (CON IVA y SIN IVA pueden tener ambas `2026001`); la unicidad se garantiza por la restricción compuesta `@@unique([tenantId, regimenIva, numeroPresupuesto])` (sustituye al `@@unique([tenantId, numeroPresupuesto])` de 6.1b). La consulta `MAX` discrimina por régimen (`ultimoNumeroDelAnio(tenantId, anio, regimen)`); el reintento ante colisión `P2002` se ancla al índice `presupuesto_tenant_id_regimen_iva_numero_presupuesto_key`. Los presupuestos CON IVA existentes de 6.1b (con backfill `regimen_iva = 'con_iva'`) **son** la secuencia CON y continúan sin discontinuidad. Cada secuencia reinicia a `001` cada año natural. La función de dominio pura `siguienteNumeroPresupuesto` permanece sin cambios (recibe `ultimoNumero`; el filtro por régimen es responsabilidad de la capa infra).
+
+**Enums nuevos en 6.2:**
+- `MetodoPago { transferencia, efectivo }` — método elegido por el gestor al generar el presupuesto. Persiste el origen para auditoría.
+- `RegimenIva { con_iva, sin_iva }` — régimen fiscal derivado del método de pago mediante la función de dominio pura `regimenDesdeMetodoPago`. Es el campo que determina la variante del PDF y la secuencia de numeración.
+
+**Regla de dominio — método de pago → régimen:** `transferencia ⇒ con_iva`, `efectivo ⇒ sin_iva`. Implementada como mapa declarativo puro en `presupuestos/domain/regimen-desde-metodo-pago.ts` (sin condicionales dispersos).
+
+**Cálculo fiscal por régimen (6.2):** la base imponible es la MISMA en ambos regímenes (derivada del motor de tarifa/precio manual menos descuento, dividida entre 1.21). Lo que cambia es si se le suma el IVA:
+- **CON IVA** (`transferencia`): `total = base + IVA21`, `ivaPorcentaje = 21`, `ivaImporte = total − base`.
+- **SIN IVA** (`efectivo`): `total = base` (importe MENOR, sin el 21%), `ivaPorcentaje = 0`, `ivaImporte = 0`. Ejemplo: base 1000 → CON IVA total 1210; SIN IVA total 1000.
+El **reparto 40/60** se calcula sobre el `total` del régimen. La **fiança** (`fianzaEur`) es el importe fijo del setting del tenant, aparte del total, igual en ambos regímenes. Los importes congelados (base, iva, total, reparto) reflejan el régimen del presupuesto.
 
 **Nota de implementación — `tarifa_id` ausente del schema (US-014):** el design D-5 preveía almacenar `tarifa_id` como referencia trazable a la `TARIFA` vigente usada. En la implementación se confirmó que el motor de tarifa (US-016) devuelve `tarifa_id` en su esquema canónico, pero la columna no se añadió al modelo de `PRESUPUESTO` en esta iteración; la referencia a la tarifa queda en el `AUDIT_LOG`. Deuda de trazabilidad pendiente de UC-15/US-015.
 
@@ -745,12 +758,14 @@ La restricción `UNIQUE(reserva_id, version)` garantiza que no existan dos presu
 | id_presupuesto | UUID PK | Identificador único |
 | reserva_id | UUID FK | Reserva asociada. FK → RESERVA |
 | tenant_id | UUID FK | Tenant emisor. Añadido en 6.1b con backfill desde RESERVA. Usado para la restricción de unicidad de numeración; el aislamiento RLS lo sigue aplicando la policy preexistente por subconsulta a RESERVA |
-| numero_presupuesto | VARCHAR(7) nullable | Número secuencial `AAAANNN` (p. ej. `2026001`). Nullable en borradores; se asigna en la transacción de confirmación con reintento ante `P2002`. Restricción `@@unique([tenantId, numeroPresupuesto])` |
+| numero_presupuesto | VARCHAR(7) nullable | Número secuencial `AAAANNN` (p. ej. `2026001`). Nullable en borradores; se asigna en la transacción de confirmación con reintento ante `P2002`. Restricción `@@unique([tenantId, regimenIva, numeroPresupuesto])` (6.2; sustituye al `@@unique([tenantId, numeroPresupuesto])` de 6.1b). CON y SIN pueden tener el mismo literal sin colisionar. |
+| metodo_pago | ENUM nullable | `transferencia` \| `efectivo`. Método de pago elegido por el gestor al generar el presupuesto. Nullable en BD (migración aditiva 6.2); backfill de filas 6.1b a `transferencia`. Nunca null en filas nuevas. |
+| regimen_iva | ENUM nullable | `con_iva` \| `sin_iva`. Régimen fiscal derivado del `metodo_pago` mediante `regimenDesdeMetodoPago`. Determina la variante del PDF y la secuencia de numeración. Nullable en BD (migración aditiva 6.2); backfill de filas 6.1b a `con_iva`. Nunca null en filas nuevas. |
 | version | INT | Número de versión (1, 2, 3…). Restricción `UNIQUE(reserva_id, version)` |
-| base_imponible | DECIMAL(10,2) | Base imponible antes de IVA. Derivada: `total / 1.21` |
-| iva_porcentaje | DECIMAL(4,2) | Porcentaje IVA (21 en MVP) |
-| iva_importe | DECIMAL(10,2) | Importe de IVA. Derivado: `total - base_imponible` |
-| total | DECIMAL(10,2) | Total con IVA incluido. Igual al `total_eur` del motor de tarifa (o precio manual si `tarifa_a_consultar = true`) menos `descuento_eur` |
+| base_imponible | DECIMAL(10,2) | Base imponible antes de IVA. Igual en ambos regímenes. Derivada: `(totalConIva − descuento) / 1.21` |
+| iva_porcentaje | DECIMAL(4,2) | Porcentaje IVA. `21` en régimen CON IVA; `0` en régimen SIN IVA. |
+| iva_importe | DECIMAL(10,2) | Importe de IVA. `total − base` en CON IVA; `0` en SIN IVA. |
+| total | DECIMAL(10,2) | Total según régimen. CON IVA: `base + IVA21`. SIN IVA: `base` (importe menor). |
 | descuento_eur | DECIMAL(10,2) | Descuento aplicado por el Gestor. Nullable |
 | descuento_motivo | VARCHAR | Motivo del descuento. Nullable |
 | tarifa_congelada | BOOLEAN | `DEFAULT true`. Una vez confirmado, un cambio del tarifario no recalcula este presupuesto |
@@ -760,10 +775,10 @@ La restricción `UNIQUE(reserva_id, version)` garantiza que no existan dos presu
 | fecha_creacion | TIMESTAMP | `DEFAULT now()` |
 | fecha_actualizacion | TIMESTAMP | Actualizada automáticamente en cada mutación (`@updatedAt`) |
 
-**Flujo de creación en UC-14 (US-014):**
-1. El Gestor revisa el borrador (calculado por `POST /reservas/{id}/presupuesto/preview` — sin persistencia).
-2. Al confirmar (`POST /reservas/{id}/presupuesto`), en **una única transacción**: se inserta la fila PRESUPUESTO con `version = 1`, `tarifa_congelada = true`, `estado = 'enviado'`; se transiciona la RESERVA a `pre_reserva`; se hace insert-o-update del bloqueo en `FECHA_BLOQUEADA` a `now() + ttl_prereserva_dias`; se vacía la cola A16 (`2d → 2y`); se escribe `AUDIT_LOG`.
-3. Post-commit: se genera el PDF y se actualiza `pdf_url` (segundo UPDATE idempotente); se dispara E2 vía motor US-045.
+**Flujo de creación en UC-14 (US-014) — actualizado en 6.2:**
+1. El Gestor elige el `metodoPago` (`transferencia` / `efectivo`) y revisa el borrador (calculado por `POST /reservas/{id}/presupuesto/preview` con `metodoPago` obligatorio — sin persistencia). El importe del borrador refleja el régimen (CON IVA o SIN IVA).
+2. Al confirmar (`POST /reservas/{id}/presupuesto`) con `metodoPago` obligatorio, en **una única transacción**: se deriva el `regimenIva` (dominio puro), se calcula el desglose fiscal según el régimen, se inserta PRESUPUESTO con `version = 1`, `tarifa_congelada = true`, `estado = 'enviado'`, `metodoPago` y `regimenIva`; se transiciona la RESERVA a `pre_reserva`; se hace insert-o-update del bloqueo en `FECHA_BLOQUEADA` a `now() + ttl_prereserva_dias`; se vacía la cola A16 (`2d → 2y`); se escribe `AUDIT_LOG`.
+3. Post-commit: se genera el PDF en la variante correspondiente al régimen y se actualiza `pdf_url` (segundo UPDATE idempotente); se dispara E2 vía motor US-045.
 
 **Mapa de estados del PRESUPUESTO:**
 - `borrador` → estado transitorio de preview (nunca persiste en US-014 MVP; se usa en UC-15 para ediciones)
@@ -972,6 +987,7 @@ Registro de auditoría de todas las acciones sobre reservas, facturas y autentic
 | `@@index([tenantId])` en PAGO | Filtrado RLS directo por `tenant_id` en PAGO (US-029 D-1). La policy RLS filtra por `PAGO.tenant_id` directo, sin join a FACTURA. Migración `20260704150000_us029_pago_tenant_id`. |
 | `@@index([estado, fechaPostEvento])` en RESERVA | Selección eficiente de candidatas al barrido de archivado automático (US-037): filtra por `estado = 'post_evento'` y compara `fecha_post_evento` con el umbral T+7d (`date(fecha_post_evento) <= date(hoy) - 7`). Migración aditiva `20260710130000_us037_reserva_fecha_post_evento`. |
 | `@@index([facturaId])` en PAGO | Búsqueda de pagos por factura (US-029). Soporta la relación FACTURA 1-N PAGO (sin `UNIQUE`, previendo cobros parciales futuros). Migración `20260704150000_us029_pago_tenant_id`. |
+| `@@unique([tenantId, regimenIva, numeroPresupuesto])` en PRESUPUESTO | Doble numeración por régimen (6.2): sustituye al `@@unique([tenantId, numeroPresupuesto])` de 6.1b. Permite que CON IVA y SIN IVA tengan el mismo literal `AAAANNN` sin colisionar. Ante colisión `P2002` sobre `presupuesto_tenant_id_regimen_iva_numero_presupuesto_key`, el use-case recalcula el número para ese régimen y reintenta (discriminado por `meta.target` para no confundir con el `P2002` de `FECHA_BLOQUEADA`). |
 
 ---
 
@@ -1085,35 +1101,52 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 
 **Evolución del épico:** en 6.1a solo existe la entidad y el servicio de lectura (`ObtenerConfiguracionDocumentoService`). No hay endpoint HTTP propio. Las rebanadas siguientes consumirán esta config para generar los PDFs (6.1b) y la UI de ajustes de la configuración (6.5). El campo `logo_url` permanece `null` hasta que la rebanada 6.5 implemente la subida del logo.
 
-### 5.8 Generación de PDF real del presupuesto (épico #6, rebanada 6.1b)
+### 5.8 Generación de PDF real del presupuesto (épico #6, rebanadas 6.1b y 6.2)
 
 La rebanada 6.1b cierra el flujo de generación del PDF del presupuesto sustituyendo el `PdfPresupuestoFakeAdapter` por el `PdfPresupuestoRealAdapter`, cableado en el token `GENERAR_PDF_PRESUPUESTO_PORT` de `PresupuestosModule` (el módulo importa `DocumentosModule` para consumir el `AlmacenDocumentosPort` y el `ObtenerConfiguracionDocumentoService`).
 
+La rebanada 6.2 añade la **variante SIN IVA** del PDF (hoja "PRESSUPOST SENSE IVA"), el campo `metodoPago` obligatorio en el request, la derivación del régimen fiscal y la doble numeración por régimen. Ver detalles en §3.12 y §5.9.
+
 **Capa de plantilla react-pdf (`documentos/presentation/`):** librería de renderización basada en `@react-pdf/renderer` (ESM puro; se carga con `import()` nativo). La capa está formada por:
-- `construirModeloDocumentoPresupuesto` — función pura que transforma datos de la config y de la reserva en un modelo de vista limpio (sin lógica de layout).
+- `construirModeloDocumentoPresupuesto` — función pura que transforma datos de la config, de la reserva y del régimen en un modelo de vista limpio (sin lógica de layout). Desde 6.2 incluye los flags `cabecera.mostrarIdentidadFiscal` y `totales.mostrarDesgloseIva` según `regimen`.
 - `renderizarDocumentoPresupuestoABytes` — función que invoca `@react-pdf/renderer` y devuelve los bytes del PDF.
-- Componentes `.tsx` reutilizables: `DocumentoLayout`, `Cabecera` (solo-texto cuando `logoUrl = null`), `BloqueCliente`, `TablaConcepto`, `BloqueTotales` (base / IVA / total; reparto 40%/60%/fianza), `PieBancario`. Esta capa está pensada para reutilizarse en facturas (rebanada 6.3).
+- Componentes `.tsx` reutilizables: `DocumentoLayout`, `Cabecera` (solo-texto cuando `logoUrl = null`; omite razón social fiscal y NIF cuando `mostrarIdentidadFiscal = false`), `BloqueCliente`, `TablaConcepto`, `BloqueTotales` (base / IVA / total en variante CON IVA; solo total en variante SIN IVA), `PieBancario`. Esta capa está pensada para reutilizarse en facturas (rebanada 6.3). No importa de la capability `presupuestos` (el `regimen` llega como dato del modelo de vista).
 
-**Numeración de presupuesto — función de dominio `siguienteNumeroPresupuesto`:** derivada de forma pura (sin estado), formato `AAAANNN` (p. ej. `2026001`, `2026002`…), reinicio anual por tenant. Se asigna en la **transacción de confirmación** con reintento ante colisión de unicidad (`P2002` en `@@unique([tenantId, numeroPresupuesto])`). La unicidad de la numeración es la única razón de la existencia del campo `tenant_id` en `PRESUPUESTO`; el aislamiento RLS continúa siendo la policy preexistente por subconsulta a `RESERVA` (no se añade policy nueva en la migración `20260713150000_presupuesto_numero_tenant`).
+**Numeración de presupuesto — función de dominio `siguienteNumeroPresupuesto`:** derivada de forma pura (sin estado), formato `AAAANNN` (p. ej. `2026001`, `2026002`…), reinicio anual por tenant. Se asigna en la **transacción de confirmación** con reintento ante colisión de unicidad. En 6.1b la unicidad era `@@unique([tenantId, numeroPresupuesto])`; en 6.2 pasa a `@@unique([tenantId, regimenIva, numeroPresupuesto])` para permitir que CON y SIN tengan el mismo literal sin colisionar. La función de dominio `siguienteNumeroPresupuesto` no cambia; el filtro por régimen en la consulta `MAX` es responsabilidad de la capa infra (`ultimoNumeroDelAnio(tenantId, anio, regimen)`). La unicidad de la numeración es la única razón de la existencia del campo `tenant_id` en `PRESUPUESTO`; el aislamiento RLS continúa siendo la policy preexistente por subconsulta a `RESERVA`.
 
-**Contenido del PDF generado:** cabecera (logo o solo-texto), datos del tenant (razón social fiscal, NIF, dirección, web, email), datos del cliente, número y fecha del presupuesto, concepto derivado de `plantilla_concepto_fiscal` con `{nombreComercial}` resuelto (sin "lloguer"), tabla de conceptos con duración en horas (formato `(N hores)`, sin hora de inicio), extras, base imponible, porcentaje IVA, importe IVA, total, reparto 40%/60%/fianza, instrucciones de transferencia (IBAN, beneficiario, concepto), validesa y pie legal.
+**Contenido del PDF variante CON IVA (hoja "PRESSUPOST IVA", 6.1b):** cabecera (logo o solo-texto), razón social fiscal + NIF del tenant, dirección/web/email, datos del cliente, número y fecha del presupuesto, concepto derivado de `plantilla_concepto_fiscal` con `{nombreComercial}` resuelto (sin "lloguer"), tabla de conceptos con duración en horas (formato `(N hores)`, sin hora de inicio), extras, base imponible, porcentaje IVA (21%), importe IVA, total, reparto 40%/60%/fianza, instrucciones de transferencia (IBAN, beneficiario, concepto), validesa y pie legal.
+
+**Contenido del PDF variante SIN IVA (hoja "PRESSUPOST SENSE IVA", 6.2):** idéntico al anterior salvo: (a) la cabecera **omite** la razón social fiscal y el NIF (mantiene nombre comercial, dirección, web, email y branding); (b) el bloque de totales muestra **solo el Total** (= base sin IVA, importe menor) sin las líneas "Base imposable" ni "IVA (%)". El reparto 40%/60%/fiança, la validesa y el pie bancario son idénticos a la variante CON IVA.
 
 **Toolchain en tests:** `@react-pdf/renderer` es ESM puro y requiere `NODE_OPTIONS=--experimental-vm-modules` bajo Jest. El script `test` de `apps/api` lo inyecta vía `cross-env`. En producción (`node dist/main.js`) el `import()` nativo funciona sin flags adicionales.
 
 **Limitaciones del almacenamiento local (adaptador `local`, `ALMACEN_PROVIDER=local`):** los bytes del PDF se guardan en memoria del proceso (no durable: se pierden al reiniciar el servidor) y la URL generada no está accesible externamente sin el servidor en marcha. Esta es una limitación de diseño conocida y documentada. El PDF durable, adjuntable en emails reales y accesible con URL pública permanente llega con el **adaptador cloud S3/Supabase** (decisión B1, diferida — deuda B1).
 
-**Deuda y roadmap del épico #6:**
+### 5.9 Presupuesto SIN IVA, método de pago y doble numeración por régimen (épico #6, rebanada 6.2)
+
+**Método de pago → régimen:** el campo `metodoPago` (`transferencia` / `efectivo`) es obligatorio en el request de confirmar presupuesto (`POST /reservas/{id}/presupuesto`) y en el de preview. La función de dominio pura `regimenDesdeMetodoPago` (mapa declarativo en `presupuestos/domain/`) convierte el método al régimen fiscal: `transferencia ⇒ con_iva`, `efectivo ⇒ sin_iva`. Ambos campos se persisten en `PRESUPUESTO`.
+
+**Cálculo fiscal por régimen:** `calcularDesgloseFiscal` y `calcularReparto` son funciones de dominio puras parametrizadas por `RegimenIva`. La base imponible (derivada del motor de tarifa menos descuento, dividida entre 1.21) es la MISMA en ambos regímenes. En CON IVA el total suma el 21%; en SIN IVA el total es la base (importe menor). El reparto 40/60 se calcula sobre el total del régimen; la fiança es fija del setting en ambos casos. No existe lógica de ramificación fiscal en el use-case (está en el dominio puro).
+
+**Doble secuencia por régimen:** dos contadores independientes por `(tenantId, año, regimenIva)`. El literal `AAAANNN` es compartido (CON y SIN pueden tener `2026001`); la unicidad la garantiza `@@unique([tenantId, regimenIva, numeroPresupuesto])`. Los presupuestos de 6.1b (backfill `regimen_iva = 'con_iva'`) son la secuencia CON y continúan desde donde quedaron. El reintento `P2002` discrimina por `meta.target` (`presupuesto_tenant_id_regimen_iva_numero_presupuesto_key`) para no confundirlo con el `P2002` de `FECHA_BLOQUEADA`. Las facturas conservan su numeración `F-YYYY-NNNN`; su migración a doble secuencia es 6.3.
+
+**Hexagonal — desacoplamiento `documentos` ↛ `presupuestos`:** el `RegimenIva` usado por la capa de plantilla (`documentos/presentation/`) se declara en la capability `documentos` (no se importa de `presupuestos`). El régimen llega como dato del modelo de vista, igual que el desglose fiscal y el reparto ya lo hacían en 6.1b.
+
+**Roadmap del épico #6:**
 
 | Rebanada | Alcance | Estado |
 |----------|---------|--------|
 | 6.1a | `PlantillaDocumentoTenant` + `AlmacenDocumentosPort` (pilares) | Implementada |
 | 6.1b | PDF real del presupuesto CON IVA, numeración `AAAANNN` | Implementada |
-| 6.2 | Presupuesto SIN IVA + método de pago + doble numeración (con/sin IVA) | Pendiente |
-| 6.3 | Reutilización de la capa de plantilla `documentos/presentation/` para facturas | Pendiente |
+| 6.2 | Presupuesto SIN IVA + método de pago + doble numeración por régimen | Implementada |
+| 6.3 | Reutilización de la capa `documentos/presentation/` para facturas; migración numeración factura a doble secuencia por régimen | Pendiente |
+| 6.4 | Condicions particulars (plantilla por tenant) | Pendiente |
 | 6.5 | UI de ajustes de configuración del documento + subida de logo | Pendiente |
 | B1 | Adaptador cloud S3/Supabase para `AlmacenDocumentosPort` (PDF durable + URL pública permanente) | Diferido |
 
 ---
+
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.7 (14/07/2026): refleja épico #6 rebanada 6.2 (`documentos-presupuesto-sin-iva-doble-numeracion`) — añade campos `metodo_pago` (enum `MetodoPago {transferencia, efectivo}`) y `regimen_iva` (enum `RegimenIva {con_iva, sin_iva}`) al diagrama Mermaid de PRESUPUESTO; actualiza la restricción de unicidad de numeración de `@@unique([tenantId, numeroPresupuesto])` a `@@unique([tenantId, regimenIva, numeroPresupuesto])` (doble secuencia por régimen); amplía §3.12 PRESUPUESTO en el diccionario (dos columnas nuevas con backfill, enums nuevos, regla de dominio método→régimen, cálculo fiscal por régimen, mecánica de doble numeración con reconciliación de la secuencia CON de 6.1b, actualización del flujo UC-14 para incluir `metodoPago` obligatorio); amplía §5.8 con la variante SIN IVA del PDF y las diferencias de contenido respecto a la variante CON IVA; añade §5.9 con el detalle de la rebanada 6.2 (método→régimen, cálculo fiscal, doble secuencia, desacoplamiento hexagonal `documentos`↛`presupuestos`) y actualiza el roadmap con 6.2 Implementada, 6.3 Pendiente (doble secuencia facturas), 6.4 Condicions particulars. Migraciones aditivas: `metodo_pago` y `regimen_iva` nullable + backfill; nueva unicidad sustituye a la de 6.1b.*
 
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.6 (13/07/2026): refleja épico #6 rebanada 6.1b (`documentos-presupuesto-pdf-con-iva`) — añade campos `tenant_id` y `numero_presupuesto` (formato `AAAANNN`, p. ej. `2026001`) al diagrama Mermaid de PRESUPUESTO con la anotación `@@unique([tenantId, numeroPresupuesto])`; actualiza §3.12 PRESUPUESTO en el diccionario (dos columnas nuevas, descripción RLS-por-subconsulta-a-RESERVA, semántica de numeración, actualización de `pdf_url` para indicar `@react-pdf/renderer`); añade §5.8 con la arquitectura de la capa de plantilla react-pdf, la función de dominio de numeración, el contenido del PDF generado, las limitaciones del adaptador `local` y el roadmap completo del épico #6. Migración: `20260713150000_presupuesto_numero_tenant`. Sin cambios en el contrato OpenAPI (`numero_presupuesto` no se expone por API en 6.1b). Sin casos de uso nuevos en `use-cases.md`.*
 

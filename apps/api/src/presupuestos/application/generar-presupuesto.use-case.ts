@@ -38,6 +38,12 @@ import {
 } from '../domain/desglose-fiscal';
 import { siguienteNumeroPresupuesto } from '../domain/numeracion-presupuesto';
 import {
+  regimenDesdeMetodoPago,
+  esMetodoPagoValido,
+  type MetodoPago,
+  type RegimenIva,
+} from '../domain/regimen-desde-metodo-pago';
+import {
   esOrigenValidoParaActivarPrereserva,
   type EstadoReserva,
   type SubEstadoConsulta,
@@ -73,6 +79,11 @@ interface ComandoBasePresupuesto {
   descuentoMotivo?: string;
   /** Precio total manual (IVA incluido) del caso `tarifa_a_consultar` (>50 invitados). */
   precioManualEur?: string;
+  /**
+   * Método de pago elegido por el gestor (OBLIGATORIO en preview y confirmar, 6.2). El
+   * régimen fiscal se DERIVA de él (`regimenDesdeMetodoPago`); NUNCA viaja en el comando.
+   */
+  metodoPago: MetodoPago;
 }
 
 /** Comando del preview (no persiste). */
@@ -145,6 +156,10 @@ export interface CrearPresupuestoParams {
   descuentoMotivo: string | null;
   /** Trazabilidad de la TARIFA congelada usada; `null` en el caso a-consultar. */
   tarifaId: string | null;
+  /** Método de pago elegido (auditoría / origen del régimen); se persiste (6.2). */
+  metodoPago: MetodoPago;
+  /** Régimen fiscal derivado del método; discrimina la numeración y el render (6.2). */
+  regimenIva: RegimenIva;
 }
 
 /** PRESUPUESTO enviado/aceptado previo (para la precondición PRESUPUESTO_YA_EXISTE). */
@@ -164,6 +179,10 @@ export interface PresupuestoCreado {
   ivaImporte: string;
   tarifaCongelada: boolean;
   pdfUrl: string | null;
+  /** Número `AAAANNN` asignado (6.2 D4: se expone en la respuesta). */
+  numeroPresupuesto: string | null;
+  /** Régimen fiscal derivado (6.2 D4: se expone en la respuesta). */
+  regimenIva: RegimenIva;
 }
 
 /** Repositorio tx-bound de PRESUPUESTO. */
@@ -174,10 +193,16 @@ export interface PresupuestoRepositoryPort {
     reservaId: string;
   }): Promise<PresupuestoPrevio | null>;
   /**
-   * Último `numero_presupuesto` del tenant en el año dado (para calcular el siguiente),
-   * o `null` si no hay ninguno (N1). El año va embebido en el literal `AAAANNN`.
+   * Último `numero_presupuesto` del tenant en el año dado y RÉGIMEN dado (para calcular el
+   * siguiente), o `null` si no hay ninguno (N1). El año va embebido en el literal
+   * `AAAANNN`; el `regimen` discrimina la doble secuencia (6.2, D2 Opción A): CON y SIN
+   * mantienen contadores independientes que pueden compartir el mismo literal.
    */
-  ultimoNumeroDelAnio(tenantId: string, anio: number): Promise<string | null>;
+  ultimoNumeroDelAnio(
+    tenantId: string,
+    anio: number,
+    regimen: RegimenIva,
+  ): Promise<string | null>;
   /** Crea el PRESUPUESTO congelado (version 1, enviado) con su número asignado. */
   crear(params: CrearPresupuestoParams): Promise<PresupuestoCreado>;
 }
@@ -318,6 +343,8 @@ export interface PreviewPresupuestoResultado {
   descuentoEur: string | null;
   desglose: DesgloseFiscal | null;
   reparto: RepartoPago | null;
+  /** Régimen fiscal derivado del método de pago (6.2 D4: la UI pinta el badge). */
+  regimenIva: RegimenIva;
 }
 
 /** Resultado de la confirmación: PRESUPUESTO creado + reparto + descartadas. */
@@ -396,9 +423,10 @@ export class PresupuestoYaExisteError extends Error {
 }
 
 /**
- * Se agotaron los reintentos de numeración (`UNIQUE(tenant_id, numero_presupuesto)`)
- * — escenario extremadamente improbable de contención sostenida. Es un fallo interno,
- * NO una colisión de fecha: se mapea a 500, nunca a 409 "fecha no disponible".
+ * Se agotaron los reintentos de numeración (`UNIQUE(tenant_id, regimen_iva,
+ * numero_presupuesto)`, 6.2) — escenario extremadamente improbable de contención
+ * sostenida. Es un fallo interno, NO una colisión de fecha: se mapea a 500, nunca a 409
+ * "fecha no disponible".
  */
 export class NumeracionPresupuestoAgotadaError extends Error {
   readonly codigo = 'NUMERACION_PRESUPUESTO_AGOTADA' as const;
@@ -406,6 +434,20 @@ export class NumeracionPresupuestoAgotadaError extends Error {
   constructor() {
     super('No se pudo asignar un número de presupuesto único tras varios reintentos');
     this.name = 'NumeracionPresupuestoAgotadaError';
+  }
+}
+
+/**
+ * Falta el método de pago (o es inválido) al generar el presupuesto (6.2, D4). Sin método
+ * no hay régimen derivable; se rechaza SIN efectos (ni motor ni persistencia). Mapea a
+ * 422/400.
+ */
+export class MetodoPagoRequeridoError extends Error {
+  readonly codigo = 'METODO_PAGO_REQUERIDO' as const;
+
+  constructor() {
+    super('El método de pago es obligatorio y debe ser transferencia o efectivo');
+    this.name = 'MetodoPagoRequeridoError';
   }
 }
 
@@ -431,10 +473,14 @@ const DIA_MS = 24 * 60 * 60 * 1000;
 const MAX_REINTENTOS_NUMERACION = 10;
 
 /**
- * Índice/constraint y columna del `UNIQUE(tenant_id, numero_presupuesto)` que serializa
- * la numeración por tenant y año. Solo un `P2002` sobre ESTE objetivo es reintentable.
+ * Índice/constraint y columnas del `UNIQUE(tenant_id, regimen_iva, numero_presupuesto)`
+ * (6.2, D2 Opción A) que serializa la doble numeración por tenant, año y RÉGIMEN. Solo un
+ * `P2002` sobre ESTE objetivo es reintentable. `meta.target` de Prisma llega como el nombre
+ * del índice (string) o como el array de columnas del constraint según versión/driver; se
+ * acepta cualquiera de las dos formas. NO se reintenta el `UNIQUE(tenant_id, fecha)` (D4).
  */
-const INDICE_NUMERO_PRESUPUESTO = 'presupuesto_tenant_id_numero_presupuesto_key';
+const INDICE_NUMERO_PRESUPUESTO =
+  'presupuesto_tenant_id_regimen_iva_numero_presupuesto_key';
 const COLUMNA_NUMERO_PRESUPUESTO = 'numero_presupuesto';
 
 /** ¿El valor de texto está presente (no nulo/undefined/vacío)? */
@@ -486,10 +532,12 @@ export class GenerarPresupuestoUseCase {
   async preview(
     comando: PreviewPresupuestoComando,
   ): Promise<PreviewPresupuestoResultado> {
+    // 6.2: método de pago OBLIGATORIO ANTES de cualquier efecto (deriva el régimen).
+    const regimen = this.resolverRegimen(comando.metodoPago);
     const { reserva } = await this.cargarYGuardarOrigen(comando);
     const settings = await this.obtenerSettings(comando.tenantId);
     const tarifa = await this.calcularTarifa(reserva, comando);
-    return this.componerBorrador(tarifa, comando, settings);
+    return this.componerBorrador(tarifa, comando, settings, regimen);
   }
 
   /**
@@ -500,6 +548,10 @@ export class GenerarPresupuestoUseCase {
   async confirmar(
     comando: ConfirmarPresupuestoComando,
   ): Promise<ConfirmarPresupuestoResultado> {
+    // 6.2: método de pago OBLIGATORIO — se valida ANTES de cualquier efecto (ni motor ni
+    // persistencia); de él se deriva el régimen fiscal que gobierna cálculo/render/numeración.
+    const regimen = this.resolverRegimen(comando.metodoPago);
+
     // Guardas previas SIN efectos (existencia 404, origen 409, datos fiscales 422).
     const { reserva, cliente } = await this.cargarYGuardarOrigen(comando);
     this.validarDatosFiscales(reserva, cliente);
@@ -514,11 +566,12 @@ export class GenerarPresupuestoUseCase {
       throw new PrecioManualRequeridoError();
     }
 
-    const desglose = this.resolverDesglose(tarifa, comando);
+    const desglose = this.resolverDesglose(tarifa, comando, regimen);
     const reparto = calcularReparto({
       totalConIva: Number(desglose.total),
       pctSenal: settings.pctSenal,
       fianzaDefaultEur: settings.fianzaDefaultEur,
+      regimen,
     });
     const ahora = this.deps.clock.ahora();
     const ttlExpiracion = new Date(ahora.getTime() + settings.ttlPrereservaDias * DIA_MS);
@@ -543,10 +596,12 @@ export class GenerarPresupuestoUseCase {
         throw new PresupuestoYaExisteError();
       }
 
-      // Numeración `AAAANNN` por tenant y año (N1): último del año → siguiente.
+      // Numeración `AAAANNN` por tenant, año y RÉGIMEN (N1 + 6.2 D2): último del año del
+      // PROPIO régimen → siguiente (doble secuencia; CON y SIN son independientes).
       const ultimoNumero = await repos.presupuestos.ultimoNumeroDelAnio(
         comando.tenantId,
         anioEmision,
+        regimen,
       );
       const numeroPresupuesto = siguienteNumeroPresupuesto({
         anio: anioEmision,
@@ -570,6 +625,8 @@ export class GenerarPresupuestoUseCase {
           ? comando.descuentoMotivo!
           : null,
         tarifaId,
+        metodoPago: comando.metodoPago,
+        regimenIva: regimen,
       });
 
       // (b) Transición de la RESERVA a pre_reserva (ttl = now()+ttl_prereserva_dias).
@@ -733,11 +790,23 @@ export class GenerarPresupuestoUseCase {
     );
   }
 
+  /**
+   * Valida el método de pago (obligatorio, valor del dominio) y deriva el régimen fiscal.
+   * Falta o valor inválido → `MetodoPagoRequeridoError` (sin efectos).
+   */
+  private resolverRegimen(metodoPago: MetodoPago | undefined): RegimenIva {
+    if (!esMetodoPagoValido(metodoPago)) {
+      throw new MetodoPagoRequeridoError();
+    }
+    return regimenDesdeMetodoPago(metodoPago);
+  }
+
   /** Compone el borrador del preview (desglose + reparto, o `null` si a-consultar). */
   private componerBorrador(
     tarifa: CalculoTarifaResultado,
     comando: ComandoBasePresupuesto,
     settings: TenantSettingsPresupuesto,
+    regimen: RegimenIva,
   ): PreviewPresupuestoResultado {
     const extrasTotalEur = (tarifa.extrasTotalEur ?? 0).toFixed(2);
     const descuentoEur = presente(comando.descuentoEur) ? comando.descuentoEur! : null;
@@ -751,14 +820,16 @@ export class GenerarPresupuestoUseCase {
         descuentoEur,
         desglose: null,
         reparto: null,
+        regimenIva: regimen,
       };
     }
 
-    const desglose = this.resolverDesglose(tarifa, comando);
+    const desglose = this.resolverDesglose(tarifa, comando, regimen);
     const reparto = calcularReparto({
       totalConIva: Number(desglose.total),
       pctSenal: settings.pctSenal,
       fianzaDefaultEur: settings.fianzaDefaultEur,
+      regimen,
     });
     return {
       tarifaAConsultar: tarifa.tarifaAConsultar,
@@ -767,6 +838,7 @@ export class GenerarPresupuestoUseCase {
       descuentoEur,
       desglose,
       reparto,
+      regimenIva: regimen,
     };
   }
 
@@ -778,12 +850,14 @@ export class GenerarPresupuestoUseCase {
   private resolverDesglose(
     tarifa: CalculoTarifaResultado,
     comando: ComandoBasePresupuesto,
+    regimen: RegimenIva,
   ): DesgloseFiscal {
     const totalConIva = tarifa.tarifaAConsultar
       ? Number(comando.precioManualEur)
       : (tarifa.totalEur ?? 0);
     return calcularDesgloseFiscal({
       totalConIva,
+      regimen,
       ...(presente(comando.descuentoEur)
         ? { descuentoEur: Number(comando.descuentoEur) }
         : {}),

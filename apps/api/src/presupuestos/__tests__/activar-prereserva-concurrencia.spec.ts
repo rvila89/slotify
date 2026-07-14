@@ -63,6 +63,8 @@ const comandoConfirmar = (reservaId: string): ConfirmarPresupuestoComando => ({
   usuarioId: GESTOR,
   reservaId,
   extras: [],
+  // 6.2: método de pago obligatorio; concurrencia sobre la variante CON IVA.
+  metodoPago: 'transferencia',
 });
 
 /**

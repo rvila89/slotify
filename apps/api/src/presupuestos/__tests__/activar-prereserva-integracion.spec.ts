@@ -79,6 +79,8 @@ const comandoConfirmar = (
   usuarioId: GESTOR,
   reservaId,
   extras: [],
+  // 6.2: método de pago obligatorio; por defecto CON IVA (transferencia).
+  metodoPago: 'transferencia',
   ...over,
 });
 

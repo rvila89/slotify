@@ -66,6 +66,7 @@ const config = (): ConfiguracionDocumentoTenant => ({
 const datosCargados = (): DatosDocumentoPresupuestoCargados => ({
   numeroPresupuesto: '2026001',
   fecha: new Date('2026-07-13T00:00:00.000Z'),
+  regimen: 'con_iva',
   cliente: {
     nombre: 'Anna',
     apellidos: 'Puig Soler',

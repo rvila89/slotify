@@ -262,6 +262,8 @@ const comandoPreview = (
   usuarioId: GESTOR,
   reservaId: RESERVA_ID,
   extras: [],
+  // 6.2: el método de pago es obligatorio; estos escenarios de 6.1b son CON IVA.
+  metodoPago: 'transferencia',
   ...over,
 });
 
@@ -272,6 +274,8 @@ const comandoConfirmar = (
   usuarioId: GESTOR,
   reservaId: RESERVA_ID,
   extras: [],
+  // 6.2: el método de pago es obligatorio; estos escenarios de 6.1b son CON IVA.
+  metodoPago: 'transferencia',
   ...over,
 });
 

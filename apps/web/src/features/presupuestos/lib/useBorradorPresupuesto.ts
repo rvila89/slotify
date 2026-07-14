@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePreviewPresupuesto } from '../api/usePreviewPresupuesto';
-import type { PresupuestoExtraInput, PreviewPresupuestoRequest } from '../model/types';
+import type {
+  MetodoPago,
+  PresupuestoExtraInput,
+  PreviewPresupuestoRequest,
+} from '../model/types';
 
 /**
  * Entradas del borrador que provienen del formulario (React Hook Form): el precio
- * manual se valida con Zod en el diálogo y aquí solo se observa (`watch`) para
- * recalcular el preview. Los extras, en cambio, son un mapa dinámico (extraId →
- * cantidad) que no encaja en un campo de formulario clásico, así que se gestionan
- * como estado local de este hook.
+ * manual y el método de pago se validan con Zod en el diálogo y aquí solo se
+ * observan (`watch`) para recalcular el preview. El método de pago (6.2) fija el
+ * régimen fiscal del borrador (`transferencia ⇒ con_iva`, `efectivo ⇒ sin_iva`),
+ * así que cambiarlo re-lanza el preview con la nueva variante. Los extras, en
+ * cambio, son un mapa dinámico (extraId → cantidad) que no encaja en un campo de
+ * formulario clásico, así que se gestionan como estado local de este hook.
  */
 type CamposFormulario = {
   precioManual: string;
+  metodoPago: MetodoPago;
 };
 
 /**
@@ -30,7 +37,7 @@ type CamposFormulario = {
 export const useBorradorPresupuesto = (
   reservaId: string,
   abierto: boolean,
-  { precioManual }: CamposFormulario,
+  { precioManual, metodoPago }: CamposFormulario,
 ) => {
   const preview = usePreviewPresupuesto();
   const { mutate: lanzarPreview, reset: resetPreview } = preview;
@@ -55,10 +62,10 @@ export const useBorradorPresupuesto = (
   );
 
   const construirBody = useCallback((): PreviewPresupuestoRequest => {
-    const body: PreviewPresupuestoRequest = { extras: extrasInput };
+    const body: PreviewPresupuestoRequest = { metodoPago, extras: extrasInput };
     if (precioManual.trim() !== '' && Number(precioManual) > 0) body.precioManualEur = precioManual;
     return body;
-  }, [extrasInput, precioManual]);
+  }, [extrasInput, precioManual, metodoPago]);
 
   // Recalcula el borrador (preview) al abrir y ante cualquier cambio de entrada,
   // con un pequeño debounce para no saturar el motor de tarifa mientras se teclea.

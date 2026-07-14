@@ -19,6 +19,8 @@ import { useBorradorPresupuesto } from '../lib/useBorradorPresupuesto';
 import { AvisoErrorPresupuesto } from './AvisoErrorPresupuesto';
 import { DesglosePresupuesto } from './DesglosePresupuesto';
 import { SelectorExtras } from './SelectorExtras';
+import { SelectorMetodoPago } from './SelectorMetodoPago';
+import { METODO_PAGO_POR_DEFECTO, etiquetaRegimenIva } from '../lib/metodoPago';
 import {
   DatosFiscalesClienteSection,
   type DatosFiscalesHandle,
@@ -62,6 +64,11 @@ const esquema = z.object({
       (v) => v.trim() === '' || (Number.isFinite(Number(v)) && Number(v) >= 0),
       MENSAJE_NO_NEGATIVO,
     ),
+  // 6.2: método de pago obligatorio (determina el régimen fiscal del presupuesto).
+  metodoPago: z.enum(['transferencia', 'efectivo'], {
+    required_error: 'Elige un método de pago',
+    invalid_type_error: 'Elige un método de pago',
+  }),
 });
 
 type FormularioPresupuesto = z.infer<typeof esquema>;
@@ -77,19 +84,21 @@ export const GenerarPresupuestoDialog = ({
     handleSubmit,
     watch,
     reset,
+    setValue,
     setError,
     formState: { errors },
   } = useForm<FormularioPresupuesto>({
     resolver: zodResolver(esquema),
-    defaultValues: { precioManual: '' },
+    defaultValues: { precioManual: '', metodoPago: METODO_PAGO_POR_DEFECTO },
   });
 
   const precioManual = watch('precioManual');
+  const metodoPago = watch('metodoPago');
 
   const { cantidades, cambiarCantidad, extrasInput, preview } = useBorradorPresupuesto(
     reservaId,
     abierto,
-    { precioManual },
+    { precioManual, metodoPago },
   );
   const { data: extras = [], isLoading: cargandoExtras } = useExtras(abierto);
   const { data: reserva } = useReserva(abierto ? reservaId : undefined);
@@ -106,7 +115,7 @@ export const GenerarPresupuestoDialog = ({
   useEffect(() => {
     if (!abierto) {
       resetConfirmar();
-      reset({ precioManual: '' });
+      reset({ precioManual: '', metodoPago: METODO_PAGO_POR_DEFECTO });
       setCamposResaltados([]);
     }
   }, [abierto, resetConfirmar, reset]);
@@ -117,9 +126,10 @@ export const GenerarPresupuestoDialog = ({
 
   const construirBodyConfirmar = () => {
     const body: {
+      metodoPago: typeof metodoPago;
       extras: PresupuestoExtraInput[];
       precioManualEur?: string;
-    } = { extras: extrasInput };
+    } = { metodoPago, extras: extrasInput };
     if (tarifaAConsultar && precioManual.trim() !== '') body.precioManualEur = precioManual;
     return body;
   };
@@ -191,6 +201,19 @@ export const GenerarPresupuestoDialog = ({
             deshabilitado={confirmar.isPending}
           />
 
+          <div className="flex flex-col gap-1">
+            <SelectorMetodoPago
+              valor={metodoPago}
+              onCambiar={(v) => setValue('metodoPago', v, { shouldValidate: true })}
+              deshabilitado={confirmar.isPending}
+            />
+            {errors.metodoPago && (
+              <p role="alert" className="px-1 font-body text-[13px] text-red-600">
+                {errors.metodoPago.message}
+              </p>
+            )}
+          </div>
+
           <section className="flex flex-col gap-3">
             <h3 className={claseLabel}>Extras</h3>
             {cargandoExtras ? (
@@ -254,11 +277,21 @@ export const GenerarPresupuestoDialog = ({
           )}
 
           {borrador?.desglose ? (
-            <DesglosePresupuesto
-              desglose={borrador.desglose}
-              reparto={borrador.reparto}
-              extrasTotalEur={borrador.extrasTotalEur}
-            />
+            <div className="flex flex-col gap-2">
+              {borrador.regimenIva && (
+                <p
+                  data-testid="borrador-regimen-iva"
+                  className="px-1 font-body text-xs font-medium tracking-[0.48px] text-text-secondary"
+                >
+                  Régimen fiscal: {etiquetaRegimenIva(borrador.regimenIva)}
+                </p>
+              )}
+              <DesglosePresupuesto
+                desglose={borrador.desglose}
+                reparto={borrador.reparto}
+                extrasTotalEur={borrador.extrasTotalEur}
+              />
+            </div>
           ) : (
             !preview.isPending &&
             tarifaAConsultar && (

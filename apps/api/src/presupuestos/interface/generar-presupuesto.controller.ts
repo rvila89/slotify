@@ -34,6 +34,7 @@ import type { UsuarioAutenticado } from '../../shared/auth/usuario-autenticado';
 import {
   GenerarPresupuestoUseCase,
   DatosFiscalesIncompletosError,
+  MetodoPagoRequeridoError,
   OrigenInvalidoError,
   PrecioManualRequeridoError,
   PresupuestoYaExisteError,
@@ -82,6 +83,7 @@ export class GenerarPresupuestoController {
       usuarioId: usuario.sub,
       reservaId: id,
       extras: this.aExtras(dto.extras),
+      metodoPago: dto.metodoPago,
       ...(dto.descuentoEur !== undefined ? { descuentoEur: dto.descuentoEur } : {}),
       ...(dto.precioManualEur !== undefined
         ? { precioManualEur: dto.precioManualEur }
@@ -109,6 +111,7 @@ export class GenerarPresupuestoController {
       usuarioId: usuario.sub,
       reservaId: id,
       extras: this.aExtras(dto.extras),
+      metodoPago: dto.metodoPago,
       ...(dto.descuentoEur !== undefined ? { descuentoEur: dto.descuentoEur } : {}),
       ...(dto.descuentoMotivo !== undefined
         ? { descuentoMotivo: dto.descuentoMotivo }
@@ -140,6 +143,7 @@ export class GenerarPresupuestoController {
       descuentoEur: resultado.descuentoEur,
       desglose: resultado.desglose,
       reparto: resultado.reparto,
+      regimenIva: resultado.regimenIva,
     };
   }
 
@@ -199,7 +203,10 @@ export class GenerarPresupuestoController {
         camposFaltantes: error.camposFaltantes,
       });
     }
-    if (error instanceof PrecioManualRequeridoError) {
+    if (
+      error instanceof PrecioManualRequeridoError ||
+      error instanceof MetodoPagoRequeridoError
+    ) {
       throw new UnprocessableEntityException({
         statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
         error: 'Unprocessable Entity',

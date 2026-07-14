@@ -2,8 +2,8 @@
 
 > **Documento**: Modelo de Datos (definición de entidades, campos y reglas)
 > **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados
-> **Versión**: 1.2
-> **Fecha**: 10/07/2026
+> **Versión**: 1.3
+> **Fecha**: 14/07/2026
 > **Fuente canónica del ERD**: [er-diagram.md](./er-diagram.md) · **Arquitectura**: [architecture.md](./architecture.md) · **Casos de uso**: [use-cases.md](./use-cases.md)
 
 ---
@@ -340,7 +340,13 @@ Versiones del presupuesto generado para una reserva (UC-14 / US-014). Cada versi
 
 La restricción `@@unique([reserva_id, version])` garantiza que no existan dos presupuestos con la misma versión para la misma reserva.
 
-**No lleva `tenant_id` propio**: el aislamiento multi-tenant se garantiza vía la FK a `Reserva`, que sí lleva `tenant_id`, con RLS activo.
+**RLS y `tenant_id`:** el campo `tenant_id` se añadió en 6.1b (con backfill desde `RESERVA`). El aislamiento efectivo sigue siendo la policy RLS preexistente por subconsulta a `RESERVA`. El `tenant_id` en la tabla sirve para soporte de la restricción de unicidad de numeración y no origina una nueva policy (ni en 6.1b ni en 6.2).
+
+**Método de pago y régimen fiscal (6.2):** al generar el presupuesto el gestor elige el `metodoPago` (`transferencia` / `efectivo`), obligatorio tanto en el preview como en la confirmación. La función de dominio pura `regimenDesdeMetodoPago` (mapa declarativo en `presupuestos/domain/`) deriva el régimen: `transferencia ⇒ con_iva`, `efectivo ⇒ sin_iva`. Ambos campos se persisten en `Presupuesto`. Las filas de 6.1b reciben backfill `metodo_pago = 'transferencia'` / `regimen_iva = 'con_iva'`.
+
+**Cálculo fiscal por régimen (6.2):** `calcularDesgloseFiscal` y `calcularReparto` son funciones de dominio puras que reciben `RegimenIva` y ramifican de forma declarativa. La base imponible es la MISMA en ambos regímenes (derivada del motor de tarifa menos descuento, dividida entre 1.21). En CON IVA el total suma el 21%; en SIN IVA el total es la base (importe menor, sin el 21%). El reparto 40/60 se calcula sobre el total del régimen; la fiança es fija del setting del tenant e igual en ambos. Los importes congelados reflejan el régimen del presupuesto.
+
+**Doble numeración por régimen (6.2):** dos secuencias independientes por `(tenantId, año, regimenIva)`. El literal `AAAANNN` (p. ej. `2026001`) es compartido entre CON y SIN; la unicidad se garantiza por `@@unique([tenantId, regimenIva, numeroPresupuesto])` (sustituye al `@@unique([tenantId, numeroPresupuesto])` de 6.1b). Los presupuestos de 6.1b (backfill `regimen_iva = 'con_iva'`) son la secuencia CON y continúan sin discontinuidad. El reintento `P2002` discrimina por `meta.target` para no confundirlo con el `P2002` de `FECHA_BLOQUEADA`. Las facturas conservan su numeración `F-YYYY-NNNN`; su migración a doble secuencia es la rebanada 6.3.
 
 **Nota de implementación — `tarifa_id` ausente del schema (US-014):** el design D-5 preveía almacenar `tarifa_id` como referencia trazable a la `TARIFA` vigente usada. En la implementación se confirmó que el motor de tarifa (US-016) devuelve `tarifa_id` en su esquema canónico, pero la columna no se añadió al modelo de `PRESUPUESTO` en esta iteración; la referencia a la tarifa queda en el `AUDIT_LOG`. Deuda de trazabilidad pendiente de UC-15/US-015.
 
@@ -348,23 +354,27 @@ La restricción `@@unique([reserva_id, version])` garantiza que no existan dos p
 |---|---|---|
 | `id_presupuesto` | `String @id @default(uuid())` | |
 | `reserva_id` | `String` | FK → `Reserva` |
+| `tenant_id` | `String` | FK → `Tenant`. Añadido en 6.1b. Backfill desde `Reserva`. Solo para la restricción de unicidad de numeración; el aislamiento RLS lo aplica la policy preexistente por subconsulta a `Reserva`. |
+| `metodo_pago` | `MetodoPago?` | enum `transferencia \| efectivo`. Nullable en BD (migración aditiva 6.2); backfill a `transferencia` para filas de 6.1b. Nunca null en filas nuevas. `@map("metodo_pago")` |
+| `regimen_iva` | `RegimenIva?` | enum `con_iva \| sin_iva`. Derivado de `metodo_pago` por `regimenDesdeMetodoPago`. Nullable en BD (migración aditiva 6.2); backfill a `con_iva` para filas de 6.1b. Nunca null en filas nuevas. `@map("regimen_iva")` |
+| `numero_presupuesto` | `String?` | Formato `AAAANNN` (p. ej. `2026001`). Nullable en borradores; asignado en la tx de confirmación con reintento `P2002`. Restricción `@@unique([tenantId, regimenIva, numeroPresupuesto])` (6.2). |
 | `version` | `Int` | 1, 2, 3… (único por reserva: `@@unique([reserva_id, version])`) |
-| `base_imponible` | `Decimal @db.Decimal(10,2)` | Base imponible antes de IVA. Derivada: `total / 1.21` |
-| `iva_porcentaje` | `Decimal @db.Decimal(4,2)` | 21.00 en MVP |
-| `iva_importe` | `Decimal @db.Decimal(10,2)` | Importe de IVA. Derivado: `total - base_imponible` |
-| `total` | `Decimal @db.Decimal(10,2)` | Total con IVA. Igual al `total_eur` del motor de tarifa (o precio manual si `tarifa_a_consultar = true`) menos `descuento_eur` |
+| `base_imponible` | `Decimal @db.Decimal(10,2)` | Base imponible antes de IVA. MISMA en ambos regímenes. Derivada: `(totalConIva − descuento) / 1.21` |
+| `iva_porcentaje` | `Decimal @db.Decimal(4,2)` | 21.00 en régimen CON IVA; 0.00 en régimen SIN IVA |
+| `iva_importe` | `Decimal @db.Decimal(10,2)` | Importe de IVA. `total − base` en CON IVA; 0.00 en SIN IVA |
+| `total` | `Decimal @db.Decimal(10,2)` | Total según régimen. CON IVA: `base + IVA21`. SIN IVA: `base` (importe menor). |
 | `descuento_eur` | `Decimal? @db.Decimal(10,2)` | Descuento aplicado por el Gestor. Nullable |
 | `descuento_motivo` | `String?` | Motivo del descuento. Nullable |
 | `tarifa_congelada` | `Boolean @default(true)` | Una vez confirmado, un cambio del tarifario no recalcula este presupuesto |
-| `pdf_url` | `String?` | URL del PDF generado post-commit (Puppeteer / react-pdf). Nullable hasta que se genera |
+| `pdf_url` | `String?` | URL del PDF generado post-commit (react-pdf). Nullable hasta que se genera. La variante del PDF (CON o SIN IVA) se determina por `regimen_iva`. |
 | `estado` | `EstadoPresupuesto` | `borrador \| enviado \| aceptado \| rechazado`. Al confirmar en UC-14 se crea con `estado = 'enviado'` directamente |
 | `fecha_envio` | `DateTime?` | No nulo solo cuando `estado = 'enviado'`. Nulo en `borrador`, `aceptado` y `rechazado` |
 | `fecha_creacion` / `fecha_actualizacion` | `DateTime` | |
 
-**Flujo de creación en UC-14 (US-014):**
-1. El Gestor revisa el borrador (calculado por `POST /reservas/{id}/presupuesto/preview` — sin persistencia).
-2. Al confirmar (`POST /reservas/{id}/presupuesto`), en **una única transacción**: INSERT en PRESUPUESTO con `version = 1`, `tarifa_congelada = true`, `estado = 'enviado'`; UPDATE de RESERVA a `pre_reserva`; insert-o-update del bloqueo en `FECHA_BLOQUEADA` a `now() + ttl_prereserva_dias`; vaciado cola A16 (`2d → 2y`); INSERT `AUDIT_LOG`.
-3. Post-commit: generación del PDF + UPDATE de `pdf_url` (idempotente); disparo de E2 vía motor US-045.
+**Flujo de creación en UC-14 (US-014) — actualizado en 6.2:**
+1. El Gestor elige el `metodoPago` y revisa el borrador (calculado por `POST /reservas/{id}/presupuesto/preview` con `metodoPago` obligatorio — sin persistencia). El importe del borrador refleja el régimen (CON IVA o SIN IVA).
+2. Al confirmar (`POST /reservas/{id}/presupuesto`), en **una única transacción**: se deriva el `regimenIva`, se calcula el desglose fiscal y el reparto según el régimen; INSERT en PRESUPUESTO con `version = 1`, `tarifa_congelada = true`, `estado = 'enviado'`, `metodoPago`, `regimenIva`; UPDATE de RESERVA a `pre_reserva`; insert-o-update del bloqueo en `FECHA_BLOQUEADA` a `now() + ttl_prereserva_dias`; vaciado cola A16 (`2d → 2y`); INSERT `AUDIT_LOG`.
+3. Post-commit: generación del PDF en la variante del régimen + UPDATE de `pdf_url` (idempotente); disparo de E2 vía motor US-045.
 
 **Mapa de estados del PRESUPUESTO:**
 - `borrador` — estado transitorio de preview (nunca persiste en US-014 MVP; se usa en UC-15 para ediciones)

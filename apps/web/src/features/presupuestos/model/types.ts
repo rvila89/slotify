@@ -17,6 +17,11 @@ export type PresupuestoExtraInput = components['schemas']['PresupuestoExtraInput
 export type Presupuesto = components['schemas']['Presupuesto'];
 export type Extra = components['schemas']['Extra'];
 
+/** [6.2] Método de pago elegido por el Gestor al generar el presupuesto. */
+export type MetodoPago = components['schemas']['MetodoPago'];
+/** [6.2] Régimen fiscal derivado del método de pago (respuesta del preview/confirmar). */
+export type RegimenIva = components['schemas']['RegimenIva'];
+
 export type ActualizarDatosFiscalesClienteRequest =
   components['schemas']['ActualizarDatosFiscalesClienteRequest'];
 export type ActualizarDatosFiscalesClienteResponse =

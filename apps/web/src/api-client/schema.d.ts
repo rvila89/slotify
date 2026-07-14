@@ -3019,6 +3019,10 @@ export interface components {
         /** @enum {string} */
         EstadoPresupuesto: "borrador" | "enviado" | "aceptado" | "rechazado";
         /** @enum {string} */
+        MetodoPago: "transferencia" | "efectivo";
+        /** @enum {string} */
+        RegimenIva: "con_iva" | "sin_iva";
+        /** @enum {string} */
         EstadoFactura: "borrador" | "enviada" | "cobrada";
         /** @enum {string} */
         FianzaStatus: "pendiente" | "recibo_enviado" | "cobrada" | "devuelta" | "retenida_parcial";
@@ -3830,6 +3834,15 @@ export interface components {
             estado?: components["schemas"]["EstadoPresupuesto"];
             /** Format: date-time */
             fechaEnvio?: string | null;
+            /** @description [6.2] Método de pago con el que se generó (nullable en filas de 6.1b con backfill a `transferencia`). */
+            metodoPago?: components["schemas"]["MetodoPago"] | null;
+            /** @description [6.2] Régimen fiscal derivado del método de pago (nullable en filas de 6.1b con backfill a `con_iva`). */
+            regimenIva?: components["schemas"]["RegimenIva"] | null;
+            /**
+             * @description [6.2] Número de presupuesto con formato `AAAANNN` (año + contador de 3 dígitos). Asignado en la confirmación desde la secuencia del régimen (doble numeración por tenant/año/régimen).
+             * @example 2026001
+             */
+            numeroPresupuesto?: string | null;
         };
         CreatePresupuestoRequest: {
             descuentoEur?: components["schemas"]["Importe"];
@@ -3861,12 +3874,14 @@ export interface components {
         };
         DesgloseFiscal: {
             baseImponible: components["schemas"]["Importe"];
-            /** @description Siempre "21.00" en MVP. */
+            /** @description "21.00" en régimen con_iva; "0.00" en sin_iva (6.2). */
             ivaPorcentaje: components["schemas"]["Porcentaje"];
             ivaImporte: components["schemas"]["Importe"];
             total: components["schemas"]["Importe"];
         };
         PreviewPresupuestoRequest: {
+            /** @description [6.2] Método de pago elegido por el Gestor. OBLIGATORIO. Determina el régimen fiscal del borrador (`transferencia ⇒ con_iva`, `efectivo ⇒ sin_iva`) y con ello el desglose/total y la variante del PDF. */
+            metodoPago: components["schemas"]["MetodoPago"];
             /**
              * @description Extras a incluir en el borrador. Se pasan al motor de tarifa para sumar subtotales.
              * @default []
@@ -3880,6 +3895,8 @@ export interface components {
         PresupuestoPreviewResponse: {
             /** @description `true` cuando el motor no tiene tarifa para el tramo (>50 invitados): habilita precio manual. */
             tarifaAConsultar: boolean;
+            /** @description [6.2] Régimen fiscal derivado del `metodoPago` del request. Fija la variante del borrador: `con_iva` (base + IVA 21%) o `sin_iva` (total = base, sin IVA). */
+            regimenIva: components["schemas"]["RegimenIva"];
             /** @description Salida canónica del motor de tarifa (US-016, snake_case). Importes null si tarifaAConsultar. */
             tarifa: components["schemas"]["CalculoTarifaResponse"];
             /** @description Suma de subtotales de extras (Decimal string). "0.00" si no hay extras. */
@@ -3892,6 +3909,8 @@ export interface components {
             reparto?: components["schemas"]["RepartoPago"] | null;
         };
         ConfirmarPresupuestoRequest: {
+            /** @description [6.2] Método de pago elegido por el Gestor. OBLIGATORIO. Deriva el `regimenIva` persistido (`transferencia ⇒ con_iva`, `efectivo ⇒ sin_iva`), que fija el desglose/total, la variante del PDF y la secuencia de `numeroPresupuesto` (doble numeración por régimen). */
+            metodoPago: components["schemas"]["MetodoPago"];
             /**
              * @description Extras definitivos del presupuesto (origen=presupuesto).
              * @default []

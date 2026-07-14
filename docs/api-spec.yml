@@ -3270,6 +3270,18 @@ components:
     EstadoPresupuesto:
       type: string
       enum: [borrador, enviado, aceptado, rechazado]
+    MetodoPago:
+      # [US-014 / 6.2] Método de pago elegido por el Gestor al generar el presupuesto. Determina el
+      # régimen fiscal (RegimenIva): transferencia ⇒ con_iva; efectivo ⇒ sin_iva. Viaja en el body del
+      # request (preview y confirmar); el régimen es la consecuencia derivada, nunca una entrada.
+      type: string
+      enum: [transferencia, efectivo]
+    RegimenIva:
+      # [US-014 / 6.2] Régimen fiscal derivado del método de pago. con_iva = base + IVA 21% (total mayor);
+      # sin_iva = base sin IVA (total menor). Condiciona el desglose fiscal, la variante del PDF y la
+      # secuencia de numeración. No se envía en el request: es la salida calculada del régimen.
+      type: string
+      enum: [con_iva, sin_iva]
     EstadoFactura:
       type: string
       enum: [borrador, enviada, cobrada]
@@ -4795,6 +4807,22 @@ components:
         pdfUrl: { type: string, nullable: true }
         estado: { $ref: '#/components/schemas/EstadoPresupuesto' }
         fechaEnvio: { type: string, format: date-time, nullable: true }
+        metodoPago:
+          allOf: [{ $ref: '#/components/schemas/MetodoPago' }]
+          nullable: true
+          description: '[6.2] Método de pago con el que se generó (nullable en filas de 6.1b con backfill a `transferencia`).'
+        regimenIva:
+          allOf: [{ $ref: '#/components/schemas/RegimenIva' }]
+          nullable: true
+          description: '[6.2] Régimen fiscal derivado del método de pago (nullable en filas de 6.1b con backfill a `con_iva`).'
+        numeroPresupuesto:
+          type: string
+          nullable: true
+          pattern: '^\d{7}$'
+          example: '2026001'
+          description: >-
+            [6.2] Número de presupuesto con formato `AAAANNN` (año + contador de 3 dígitos). Asignado en la
+            confirmación desde la secuencia del régimen (doble numeración por tenant/año/régimen).
     CreatePresupuestoRequest:
       type: object
       properties:
@@ -4833,21 +4861,30 @@ components:
         liquidacionEur: { allOf: [{ $ref: '#/components/schemas/Importe' }], description: '60% del total (liquidación).' }
         fianzaEur: { allOf: [{ $ref: '#/components/schemas/Importe' }], description: 'Fianza (TENANT_SETTINGS.fianza_default_eur), fuera del total.' }
     DesgloseFiscal:
-      # Desglose fiscal congelado (D-5): base + IVA 21% + total. Presente en el borrador (preview) y
-      # persistido en el PRESUPUESTO al confirmar. base = total / 1.21; ivaImporte = total - base.
+      # Desglose fiscal congelado (D-5): base + IVA + total. Presente en el borrador (preview) y
+      # persistido en el PRESUPUESTO al confirmar. La base es la MISMA en ambos regímenes; el régimen
+      # (6.2) decide si se le suma el IVA. CON IVA: total = base + IVA21; ivaImporte = total - base.
+      # SIN IVA: total = base; ivaPorcentaje = "0.00"; ivaImporte = "0.00".
       type: object
       required: [baseImponible, ivaPorcentaje, ivaImporte, total]
       properties:
         baseImponible: { $ref: '#/components/schemas/Importe' }
-        ivaPorcentaje: { allOf: [{ $ref: '#/components/schemas/Porcentaje' }], description: 'Siempre "21.00" en MVP.' }
+        ivaPorcentaje: { allOf: [{ $ref: '#/components/schemas/Porcentaje' }], description: '"21.00" en régimen con_iva; "0.00" en sin_iva (6.2).' }
         ivaImporte: { $ref: '#/components/schemas/Importe' }
         total: { $ref: '#/components/schemas/Importe' }
     PreviewPresupuestoRequest:
-      # Body OPCIONAL del preview. Sin body → borrador con los datos actuales de la RESERVA (sin extras
-      # extra, sin descuento). Con body → simula extras/descuento/precio manual.
+      # Body del preview. `metodoPago` es OBLIGATORIO (6.2): fija el régimen fiscal que rige el borrador
+      # (importe/variante CON o SIN IVA). El resto simula extras/descuento/precio manual.
       type: object
       additionalProperties: false
+      required: [metodoPago]
       properties:
+        metodoPago:
+          allOf: [{ $ref: '#/components/schemas/MetodoPago' }]
+          description: >-
+            [6.2] Método de pago elegido por el Gestor. OBLIGATORIO. Determina el régimen fiscal del
+            borrador (`transferencia ⇒ con_iva`, `efectivo ⇒ sin_iva`) y con ello el desglose/total y la
+            variante del PDF.
         extras:
           type: array
           default: []
@@ -4865,11 +4902,16 @@ components:
       # Resultado del cálculo del borrador (NO persistido). Combina el output canónico del motor de tarifa
       # (tarifa) con el desglose fiscal derivado, los extras, el reparto 40/60/fianza y las banderas de flujo.
       type: object
-      required: [tarifaAConsultar, tarifa, extrasTotalEur]
+      required: [tarifaAConsultar, tarifa, extrasTotalEur, regimenIva]
       properties:
         tarifaAConsultar:
           type: boolean
           description: '`true` cuando el motor no tiene tarifa para el tramo (>50 invitados): habilita precio manual.'
+        regimenIva:
+          allOf: [{ $ref: '#/components/schemas/RegimenIva' }]
+          description: >-
+            [6.2] Régimen fiscal derivado del `metodoPago` del request. Fija la variante del borrador:
+            `con_iva` (base + IVA 21%) o `sin_iva` (total = base, sin IVA).
         tarifa:
           allOf: [{ $ref: '#/components/schemas/CalculoTarifaResponse' }]
           description: 'Salida canónica del motor de tarifa (US-016, snake_case). Importes null si tarifaAConsultar.'
@@ -4892,8 +4934,17 @@ components:
           description: 'Reparto 40%/60% + fianza. `null` mientras el total sea desconocido (tarifa a consultar sin precio).'
     ConfirmarPresupuestoRequest:
       # Body de la confirmación (crea el PRESUPUESTO congelado + activa pre_reserva).
+      # `metodoPago` es OBLIGATORIO (6.2): determina el régimen fiscal persistido, la variante del PDF y la
+      # secuencia de numeración. Su ausencia produce error de validación (422/400) sin crear PRESUPUESTO.
       type: object
+      required: [metodoPago]
       properties:
+        metodoPago:
+          allOf: [{ $ref: '#/components/schemas/MetodoPago' }]
+          description: >-
+            [6.2] Método de pago elegido por el Gestor. OBLIGATORIO. Deriva el `regimenIva` persistido
+            (`transferencia ⇒ con_iva`, `efectivo ⇒ sin_iva`), que fija el desglose/total, la variante del
+            PDF y la secuencia de `numeroPresupuesto` (doble numeración por régimen).
         extras:
           type: array
           default: []
