@@ -95,7 +95,8 @@ PostgreSQL 15 quedará disponible en `localhost:5432`. Base de datos: `slotify_d
 # Aplicar migraciones
 pnpm db:migrate
 
-# Sembrar datos iniciales (tenant Masia l'Encís, 12 temporadas, 45 tarifas, 2 extras, gestor)
+# Sembrar datos iniciales (tenant Masia l'Encís, 12 temporadas, 45 tarifas, 2 extras, gestor,
+# plantilla de documentos con 14 secciones de condicions particulars)
 pnpm db:seed
 ```
 

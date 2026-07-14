@@ -60,6 +60,10 @@ const configTenantA = (): ConfiguracionDocumentoTenant => ({
     validesaTexto: '10 DIES',
     pieLegal: 'Text legal del peu del document.',
   },
+  condiciones: {
+    titulo: 'Condicions Particulars',
+    secciones: [{ titulo: 'Reserva i pagament', cuerpo: 'Cos.' }],
+  },
 });
 
 const configTenantB = (): ConfiguracionDocumentoTenant => ({

@@ -68,6 +68,7 @@ const configPiloto = (logoUrl: string | null = null): ConfiguracionDocumentoTena
     validesaTexto: '10 DIES',
     pieLegal: 'Aquest document té una validesa de 10 dies des de la seva emissió.',
   },
+  condiciones: { titulo: 'Condicions Particulars', secciones: [] },
 });
 
 const configOtroTenant = (): ConfiguracionDocumentoTenant => ({
@@ -91,6 +92,7 @@ const configOtroTenant = (): ConfiguracionDocumentoTenant => ({
     validesaTexto: '15 DIES',
     pieLegal: 'Validesa 15 dies.',
   },
+  condiciones: { titulo: 'Condicions Particulars', secciones: [] },
 });
 
 const datosPresupuesto = (

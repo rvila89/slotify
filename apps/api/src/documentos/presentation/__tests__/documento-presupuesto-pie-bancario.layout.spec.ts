@@ -128,6 +128,7 @@ const configPiloto = (logoUrl: string | null = null): ConfiguracionDocumentoTena
     validesaTexto: '10 DIES',
     pieLegal: PIE_LEGAL_PILOTO,
   },
+  condiciones: { titulo: 'Condicions Particulars', secciones: [] },
 });
 
 const datosConIva = (

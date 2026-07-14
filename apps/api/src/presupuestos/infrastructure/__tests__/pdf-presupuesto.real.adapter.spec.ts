@@ -61,6 +61,7 @@ const config = (): ConfiguracionDocumentoTenant => ({
     validesaTexto: '10 DIES',
     pieLegal: 'Validesa 10 dies.',
   },
+  condiciones: { titulo: 'Condicions Particulars', secciones: [] },
 });
 
 const datosCargados = (): DatosDocumentoPresupuestoCargados => ({

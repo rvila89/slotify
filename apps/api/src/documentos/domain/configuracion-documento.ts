@@ -53,6 +53,26 @@ export interface TextosDocumento {
   pieLegal: string;
 }
 
+/**
+ * Una sección de las "Condicions particulars" (épico #6, rebanada 6.4a): par
+ * título + cuerpo. El cuerpo puede ser multi-línea (con `\n`).
+ */
+export interface SeccionCondiciones {
+  titulo: string;
+  cuerpo: string;
+}
+
+/**
+ * Bloque de "Condicions particulars" del documento (épico #6, rebanada 6.4a):
+ * título del documento + lista ordenada de secciones. El tipo tolera 0 secciones;
+ * la degradación a `null` (no adjuntar) cuando no hay secciones la decide el
+ * adaptador real (D3), no el tipo.
+ */
+export interface CondicionesDocumento {
+  titulo: string;
+  secciones: SeccionCondiciones[];
+}
+
 /** Configuración de documento completa de un tenant (1-1 con `Tenant`). */
 export interface ConfiguracionDocumentoTenant {
   tenantId: string;
@@ -60,4 +80,6 @@ export interface ConfiguracionDocumentoTenant {
   identidadFiscal: IdentidadFiscalDocumento;
   banca: BancaDocumento;
   textos: TextosDocumento;
+  /** Condicions particulars (épico #6, rebanada 6.4a): título + secciones. */
+  condiciones: CondicionesDocumento;
 }

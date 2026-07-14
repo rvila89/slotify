@@ -11,7 +11,10 @@
 import { Injectable } from '@nestjs/common';
 import type { PlantillaDocumentoTenant } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
-import type { ConfiguracionDocumentoTenant } from '../../documentos/domain/configuracion-documento';
+import type {
+  CondicionesDocumento,
+  ConfiguracionDocumentoTenant,
+} from '../../documentos/domain/configuracion-documento';
 import type {
   CargarDatosDocumentoFacturaPort,
   DatosDocumentoFactura,
@@ -45,7 +48,21 @@ const aConfiguracion = (
     validesaTexto: fila.validesaTexto,
     pieLegal: fila.pieLegal,
   },
+  // Épico #6 6.4a: la factura no pinta condicions, pero el VO las requiere; se mapea la
+  // columna JSON (default `'{}'`) tolerando filas sin poblar.
+  condiciones: aCondiciones(fila.condiciones),
 });
+
+/** Mapea la columna JSON `condiciones` al bloque del VO (tolera filas sin poblar). */
+const aCondiciones = (
+  valor: PlantillaDocumentoTenant['condiciones'],
+): CondicionesDocumento => {
+  const bruto = (valor ?? {}) as Partial<CondicionesDocumento>;
+  return {
+    titulo: bruto.titulo ?? '',
+    secciones: Array.isArray(bruto.secciones) ? bruto.secciones : [],
+  };
+};
 
 @Injectable()
 export class CargarDatosDocumentoFacturaPrismaAdapter
