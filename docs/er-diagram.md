@@ -107,6 +107,7 @@ erDiagram
         string plantilla_concepto_fiscal "con placeholder {nombreComercial}; nunca contiene lloguer"
         string validesa_texto "p. ej. 10 DIES"
         string pie_legal
+        json condiciones "DEFAULT '{}'; estructura: {titulo, secciones:[{titulo,cuerpo}]} — 6.4a"
         timestamp fecha_creacion
         timestamp fecha_actualizacion
     }
@@ -518,6 +519,12 @@ Los campos se agrupan en cuatro bloques:
 | plantilla_concepto_fiscal | TEXT | Plantilla del concepto fiscal con placeholder `{nombreComercial}`. Misma regla dura: "espai", nunca "lloguer" |
 | validesa_texto | TEXT | Texto de validez del documento (p. ej. "10 DIES") |
 | pie_legal | TEXT | Texto del pie legal del documento |
+
+**Bloque condiciones particulars (6.4a):**
+
+| Atributo | Tipo | Descripción |
+|----------|------|-------------|
+| condiciones | JSON `@default("{}")` | Contenido del documento de condicions particulars. Estructura: `{ titulo: string; secciones: Array<{ titulo: string; cuerpo: string }> }`. El campo vale `{}` mientras el tenant no tenga secciones configuradas; en ese caso el adaptador PDF degrada a `null` (no genera PDF). Migración aditiva: `20260714130000_documento_condiciones_particulares`. RLS: protegido por la misma policy `tenant_isolation`. |
 
 ### 3.4 USUARIO
 Gestores, administradores y operarios del sistema.
@@ -1099,7 +1106,7 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 
 **RLS:** la tabla tiene `ENABLE ROW LEVEL SECURITY` y la policy `tenant_isolation` (`tenant_id = current_setting('app.tenant_id', true)`), alineada con el patrón del resto de tablas de negocio. Nota: como en el resto del schema, la RLS es efectiva para roles sin `BYPASSRLS`; el owner de la BD la evita por diseño de PostgreSQL (comportamiento preexistente, no regresión de este change).
 
-**Evolución del épico:** en 6.1a solo existe la entidad y el servicio de lectura (`ObtenerConfiguracionDocumentoService`). No hay endpoint HTTP propio. Las rebanadas siguientes consumirán esta config para generar los PDFs (6.1b) y la UI de ajustes de la configuración (6.5). El campo `logo_url` permanece `null` hasta que la rebanada 6.5 implemente la subida del logo.
+**Evolución del épico:** en 6.1a solo existe la entidad y el servicio de lectura (`ObtenerConfiguracionDocumentoService`). No hay endpoint HTTP propio. Las rebanadas siguientes consumirán esta config para generar los PDFs (6.1b y siguientes) y la UI de ajustes de la configuración (6.5). El campo `logo_url` permanece `null` hasta que la rebanada 6.5 implemente la subida del logo. La rebanada 6.4a añade el campo `condiciones` (JSON) para almacenar el contenido del PDF de condicions particulars; el VO `ConfiguracionDocumentoTenant` del dominio expone el bloque `condiciones` como `CondicionesDocumento`.
 
 ### 5.8 Generación de PDF real del presupuesto (épico #6, rebanadas 6.1b y 6.2)
 
@@ -1132,6 +1139,22 @@ La rebanada 6.2 añade la **variante SIN IVA** del PDF (hoja "PRESSUPOST SENSE I
 
 **Hexagonal — desacoplamiento `documentos` ↛ `presupuestos`:** el `RegimenIva` usado por la capa de plantilla (`documentos/presentation/`) se declara en la capability `documentos` (no se importa de `presupuestos`). El régimen llega como dato del modelo de vista, igual que el desglose fiscal y el reparto ya lo hacían en 6.1b.
 
+### 5.10 Condicions particulars PDF (épico #6, rebanada 6.4a)
+
+La rebanada 6.4a añade la generación del PDF de "Condicions particulars" y su adjunto al email de presupuesto (E2).
+
+**Modelo de datos:** `PlantillaDocumentoTenant` gana el campo `condiciones Json @default("{}")` (migración aditiva `20260714130000_documento_condiciones_particulares`). La estructura del JSON es `{ titulo: string; secciones: Array<{ titulo: string; cuerpo: string }> }`. Un valor vacío `{}` o con `secciones` vacío significa que el tenant no tiene condiciones configuradas; el adaptador degrada silenciosamente a `null` y no genera PDF.
+
+**Capa de dominio:** el VO `ConfiguracionDocumentoTenant` (`documentos/domain/configuracion-documento.ts`) expone el bloque `condiciones` tipado como `CondicionesDocumento` (`titulo` + `secciones: SeccionCondiciones[]`).
+
+**Puerto y adaptador:** `GenerarPdfCondicionesPort` (`generar({ tenantId }) => Promise<string|null>`) con token `GENERAR_PDF_CONDICIONES_PORT`. El adaptador real `PdfCondicionesRealAdapter` lee la config del tenant, degrada a `null` si `condiciones` es nulo o `secciones` está vacío, renderiza el PDF con react-pdf y sube los bytes a `condiciones/{tenantId}.pdf` vía `AlmacenDocumentosPort`, devolviendo la URL. El adaptador fake devuelve siempre `null`.
+
+**Capa de plantilla react-pdf (`documentos/presentation/`):** la plantilla del documento de condicions (`documento-condiciones.render.ts`, `DocumentoCondicionesLayout.tsx`, `ListaSeccionesCondiciones.tsx`, `BloqueFirmaCondiciones.tsx`) reutiliza la cabecera y el kit de estilos introducidos en 6.1b. El documento es de carácter LEGAL, idéntico por tenant, e incluye un **bloque de firma en blanco** (NOM I COGNOMS / SIGNATURA / DNI / DATA ESDEVENIMENT). El pilot (Masia l'Encís) se seedea con 14 secciones reales.
+
+**Integración con E2:** `DispararE2Adapter` adjunta el PDF de condiciones (`clave: 'condiciones'`) junto al presupuesto en el email E2, como paso post-commit fire-and-forget. Si `GenerarPdfCondicionesPort.generar` devuelve `null`, el adjunto se omite sin error; E2 se envía igualmente.
+
+**Sin cambio de contrato OpenAPI:** E2 es una operación post-commit interna; el envío E3 (con el flujo de confirmación de reserva) es la rebanada 6.4b y aún no existe.
+
 **Roadmap del épico #6:**
 
 | Rebanada | Alcance | Estado |
@@ -1139,12 +1162,15 @@ La rebanada 6.2 añade la **variante SIN IVA** del PDF (hoja "PRESSUPOST SENSE I
 | 6.1a | `PlantillaDocumentoTenant` + `AlmacenDocumentosPort` (pilares) | Implementada |
 | 6.1b | PDF real del presupuesto CON IVA, numeración `AAAANNN` | Implementada |
 | 6.2 | Presupuesto SIN IVA + método de pago + doble numeración por régimen | Implementada |
-| 6.3 | Reutilización de la capa `documentos/presentation/` para facturas; migración numeración factura a doble secuencia por régimen | Pendiente |
-| 6.4 | Condicions particulars (plantilla por tenant) | Pendiente |
+| 6.3 | Reutilización de la capa `documentos/presentation/` para facturas PDF reales CON/SIN IVA con referencia al nº de presupuesto | Implementada |
+| 6.4a | Condicions particulars: campo `condiciones` en `PlantillaDocumentoTenant`, plantilla react-pdf, adjunto en E2 (post-commit fire-and-forget) | Implementada |
+| 6.4b | Envío E3 de condicions particulars (endpoint y flujo de confirmación de reserva) | Pendiente |
 | 6.5 | UI de ajustes de configuración del documento + subida de logo | Pendiente |
 | B1 | Adaptador cloud S3/Supabase para `AlmacenDocumentosPort` (PDF durable + URL pública permanente) | Diferido |
 
 ---
+
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.8 (14/07/2026): refleja épico #6 rebanada 6.4a (`documentos-condiciones-particulares-pdf`) — añade campo `condiciones Json @default("{}")` al diagrama Mermaid de `PLANTILLA_DOCUMENTO_TENANT`; añade bloque condiciones en el diccionario §3.3 (estructura JSON, degradación a null, migración `20260714130000_documento_condiciones_particulares`, RLS); actualiza nota de evolución del épico en §5.7 para mencionar el VO `ConfiguracionDocumentoTenant`; añade §5.10 con la descripción completa de la rebanada 6.4a (campo `condiciones`, VO `CondicionesDocumento`/`SeccionCondiciones`, puerto `GenerarPdfCondicionesPort`, adaptador real/fake, capa de plantilla react-pdf con bloque de firma en blanco, integración con E2 fire-and-forget, sin cambio de contrato); actualiza el roadmap marcando 6.3 como Implementada y desdoblando 6.4 en 6.4a (Implementada) y 6.4b (Pendiente).*
 
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.7 (14/07/2026): refleja épico #6 rebanada 6.2 (`documentos-presupuesto-sin-iva-doble-numeracion`) — añade campos `metodo_pago` (enum `MetodoPago {transferencia, efectivo}`) y `regimen_iva` (enum `RegimenIva {con_iva, sin_iva}`) al diagrama Mermaid de PRESUPUESTO; actualiza la restricción de unicidad de numeración de `@@unique([tenantId, numeroPresupuesto])` a `@@unique([tenantId, regimenIva, numeroPresupuesto])` (doble secuencia por régimen); amplía §3.12 PRESUPUESTO en el diccionario (dos columnas nuevas con backfill, enums nuevos, regla de dominio método→régimen, cálculo fiscal por régimen, mecánica de doble numeración con reconciliación de la secuencia CON de 6.1b, actualización del flujo UC-14 para incluir `metodoPago` obligatorio); amplía §5.8 con la variante SIN IVA del PDF y las diferencias de contenido respecto a la variante CON IVA; añade §5.9 con el detalle de la rebanada 6.2 (método→régimen, cálculo fiscal, doble secuencia, desacoplamiento hexagonal `documentos`↛`presupuestos`) y actualiza el roadmap con 6.2 Implementada, 6.3 Pendiente (doble secuencia facturas), 6.4 Condicions particulars. Migraciones aditivas: `metodo_pago` y `regimen_iva` nullable + backfill; nueva unicidad sustituye a la de 6.1b.*
 

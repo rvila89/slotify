@@ -87,6 +87,7 @@ const configPiloto = (logoUrl: string | null = null): ConfiguracionDocumentoTena
     validesaTexto: '10 DIES',
     pieLegal: 'Aquest document té una validesa de 10 dies des de la seva emissió.',
   },
+  condiciones: { titulo: 'Condicions Particulars', secciones: [] },
 });
 
 const datosConIva = (

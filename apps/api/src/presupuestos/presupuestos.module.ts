@@ -21,8 +21,12 @@ import { ComunicacionesModule } from '../comunicaciones/comunicaciones.module';
 import { DespacharEmailService } from '../comunicaciones/application/despachar-email.service';
 import { DocumentosModule } from '../documentos/documentos.module';
 import { ObtenerConfiguracionDocumentoService } from '../documentos/application/obtener-configuracion-documento.service';
-import { ALMACEN_DOCUMENTOS_PORT } from '../documentos/documentos.tokens';
+import {
+  ALMACEN_DOCUMENTOS_PORT,
+  GENERAR_PDF_CONDICIONES_PORT,
+} from '../documentos/documentos.tokens';
 import type { AlmacenDocumentosPort } from '../documentos/domain/almacen-documentos.port';
+import type { GenerarPdfCondicionesPort } from '../documentos/domain/generar-pdf-condiciones.port';
 import { renderizarDocumentoPresupuestoABytes } from '../documentos/presentation/documento-presupuesto.render';
 import {
   GenerarPresupuestoUseCase,
@@ -111,9 +115,12 @@ import {
     },
     {
       provide: DISPARAR_E2_PORT,
-      inject: [DespacharEmailService, PrismaService],
-      useFactory: (motor: DespacharEmailService, prisma: PrismaService) =>
-        new DispararE2Adapter(motor, prisma),
+      inject: [DespacharEmailService, PrismaService, GENERAR_PDF_CONDICIONES_PORT],
+      useFactory: (
+        motor: DespacharEmailService,
+        prisma: PrismaService,
+        generarCondiciones: GenerarPdfCondicionesPort,
+      ) => new DispararE2Adapter(motor, prisma, generarCondiciones),
     },
     { provide: PRESUPUESTOS_CLOCK_PORT, useClass: SistemaClockAdapter },
     {

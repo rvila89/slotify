@@ -9,3 +9,5 @@ export const ALMACEN_DOCUMENTOS_PORT = Symbol('AlmacenDocumentosPort');
 export const CONFIGURACION_DOCUMENTO_REPOSITORY_PORT = Symbol(
   'ConfiguracionDocumentoRepositoryPort',
 );
+/** Épico #6, rebanada 6.4a: puerto de generación del PDF de "Condicions particulars". */
+export const GENERAR_PDF_CONDICIONES_PORT = Symbol('GenerarPdfCondicionesPort');

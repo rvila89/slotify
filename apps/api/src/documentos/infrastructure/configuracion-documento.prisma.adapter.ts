@@ -11,7 +11,10 @@ import { Injectable } from '@nestjs/common';
 import type { PlantillaDocumentoTenant } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type { ConfiguracionDocumentoRepositoryPort } from '../domain/configuracion-documento.repository.port';
-import type { ConfiguracionDocumentoTenant } from '../domain/configuracion-documento';
+import type {
+  CondicionesDocumento,
+  ConfiguracionDocumentoTenant,
+} from '../domain/configuracion-documento';
 
 @Injectable()
 export class ConfiguracionDocumentoPrismaAdapter
@@ -57,6 +60,21 @@ export class ConfiguracionDocumentoPrismaAdapter
         validesaTexto: fila.validesaTexto,
         pieLegal: fila.pieLegal,
       },
+      condiciones: this.aCondiciones(fila.condiciones),
+    };
+  }
+
+  /**
+   * Mapea la columna JSON `condiciones` (épico #6, 6.4a) al bloque del VO. La
+   * columna es `Json` (default `'{}'`): tolera filas sin poblar devolviendo un
+   * bloque vacío con secciones `[]` (la degradación a `null` la decide el adapter
+   * real, D3).
+   */
+  private aCondiciones(valor: PlantillaDocumentoTenant['condiciones']): CondicionesDocumento {
+    const bruto = (valor ?? {}) as Partial<CondicionesDocumento>;
+    return {
+      titulo: bruto.titulo ?? '',
+      secciones: Array.isArray(bruto.secciones) ? bruto.secciones : [],
     };
   }
 }

@@ -51,4 +51,9 @@ export const construirEstilos = (StyleSheet: KitReactPdf['StyleSheet']): Estilos
     pieLegal: { marginTop: 8 },
     negrita: { fontFamily: 'Helvetica-Bold' },
     validesa: { marginTop: 12, fontSize: 9, fontStyle: 'italic' },
+    // Bloque de firma de las condicions particulars (épico #6, 6.4a): etiqueta + línea
+    // en blanco para rellenar a mano.
+    filaFirma: { marginTop: 14 },
+    etiquetaFirma: { fontSize: 9, fontFamily: 'Helvetica-Bold' },
+    lineaFirma: { marginTop: 4, borderBottomWidth: 0.5, borderBottomColor: '#999999' },
   });

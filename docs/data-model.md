@@ -2,7 +2,7 @@
 
 > **Documento**: Modelo de Datos (definición de entidades, campos y reglas)
 > **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados
-> **Versión**: 1.3
+> **Versión**: 1.4
 > **Fecha**: 14/07/2026
 > **Fuente canónica del ERD**: [er-diagram.md](./er-diagram.md) · **Arquitectura**: [architecture.md](./architecture.md) · **Casos de uso**: [use-cases.md](./use-cases.md)
 
@@ -36,6 +36,7 @@ Este documento describe el modelo de datos de Slotify a nivel de **campos, tipos
 |---|---|---|---|---|
 | 1 | `Tenant` | `tenant` | Espacio boutique (masía, finca, villa). Raíz del multi-tenancy | UC-01, UC-02 |
 | 2 | `TenantSettings` | `tenant_settings` | Configuración por tenant (TTLs, %, fianza, idioma) | Transversal |
+| 2b | `PlantillaDocumentoTenant` | `plantilla_documento_tenant` | Configuración de documentos PDF por tenant (branding, identidad fiscal, banca, textos y condiciones). Relación 1:1 con `Tenant`. Base del épico #6 | Épico #6 |
 | 3 | `Usuario` | `usuario` | Gestor/admin/operario del sistema | UC-01, UC-02 |
 | 4 | `Cliente` | `cliente` | Datos de contacto y fiscales del cliente | UC-03, UC-14 |
 | 5 | `Reserva` | `reserva` | **Entidad central.** Recorre toda la máquina de estados | UC-03 a UC-28 |
@@ -90,6 +91,61 @@ Configuración ajustable por tenant ("opinado por fuera, configurable por dentro
 | `ttl_prereserva_dias` | `Int` | TTL bloqueo de pre-reserva (7 por defecto) |
 | `max_dias_programar_visita` | `Int` | Máx. días desde solicitud para visita (7) |
 | `idioma` | `String @default("es")` | Idioma de plantillas |
+| `fecha_actualizacion` | `DateTime @updatedAt` | |
+
+### 3.2b PlantillaDocumentoTenant
+Configuración de documentos PDF por tenant. Relación 1:1 con `Tenant` (`tenant_id @unique`). Fuente de verdad de los datos que los PDFs de Slotify necesitan (épico #6, rebanada 6.1a). RLS con la misma policy `tenant_isolation`. Tabla `@@map("plantilla_documento_tenant")`.
+
+**Matiz central:** `razon_social_fiscal` (p. ej. "Canoliart, SL") y `nombre_comercial` (p. ej. "Masia l'Encís") son campos DISTINTOS. Ver [er-diagram.md §3.3](./er-diagram.md) y §5.7 para la rationale (decisión A1).
+
+Los campos se agrupan en cinco bloques:
+
+**Bloque branding:**
+
+| Campo | Tipo | Reglas / Notas |
+|---|---|---|
+| `id_plantilla` | `String @id @default(uuid())` | |
+| `tenant_id` | `String @unique` | FK → `Tenant` (garantía 1:1 en BD) |
+| `logo_url` | `String?` | Clave o URL del logo en object storage. `null` hasta que se suba (fase 6.5) |
+| `color_primario` | `String` | Color primario en hexadecimal (`#RRGGBB`) |
+| `color_texto` | `String` | Color de texto en hexadecimal |
+
+**Bloque identidad fiscal:**
+
+| Campo | Tipo | Reglas / Notas |
+|---|---|---|
+| `razon_social_fiscal` | `String` | Razón social del emisor (p. ej. "Canoliart, SL"). DISTINTA del nombre comercial |
+| `nombre_comercial` | `String` | Nombre de marca del espacio (p. ej. "Masia l'Encís") |
+| `nif` | `String` | NIF/CIF del emisor |
+| `direccion_fiscal` | `String @db.Text` | Dirección fiscal completa (admite `\n`) |
+| `web` | `String` | URL del sitio web |
+| `email` | `String` | Email de contacto del espacio |
+
+**Bloque banca:**
+
+| Campo | Tipo | Reglas / Notas |
+|---|---|---|
+| `iban` | `String` | IBAN de la cuenta para transferencias |
+| `beneficiario_transferencia` | `String` | Nombre del beneficiario en la transferencia |
+| `concepto_transferencia` | `String` | Concepto fijo de la transferencia. Regla dura: "espai", nunca "lloguer" |
+
+**Bloque textos:**
+
+| Campo | Tipo | Reglas / Notas |
+|---|---|---|
+| `plantilla_concepto_fiscal` | `String @db.Text` | Plantilla del concepto fiscal con placeholder `{nombreComercial}`. Misma regla dura: "espai", nunca "lloguer" |
+| `validesa_texto` | `String` | Texto de validez del documento (p. ej. "10 DIES") |
+| `pie_legal` | `String @db.Text` | Texto del pie legal del documento |
+
+**Bloque condiciones particulars (6.4a):**
+
+| Campo | Tipo | Reglas / Notas |
+|---|---|---|
+| `condiciones` | `Json @default("{}")` | Contenido del PDF de condicions particulars. Estructura: `{ titulo: string; secciones: Array<{ titulo: string; cuerpo: string }> }`. Valor `{}` o `secciones` vacío = sin condiciones configuradas; el adaptador `PdfCondicionesRealAdapter` degrada a `null` sin error. Añadido en 6.4a (migración `20260714130000_documento_condiciones_particulares`). Expuesto en el VO `ConfiguracionDocumentoTenant` como tipo `CondicionesDocumento`. |
+
+| Campo | Tipo | Reglas / Notas |
+|---|---|---|
+| `fecha_creacion` | `DateTime @default(now())` | |
 | `fecha_actualizacion` | `DateTime @updatedAt` | |
 
 ### 3.3 Usuario

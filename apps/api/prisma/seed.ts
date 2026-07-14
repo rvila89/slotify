@@ -5,7 +5,7 @@
  *
  * Usa un tenantId fijo conocido para que los tests puedan referenciarlo.
  */
-import { PrismaClient, Temporada, Rol } from '@prisma/client';
+import { PrismaClient, Prisma, Temporada, Rol } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { construirConfiguracionDocumentoPiloto } from '../src/documentos/infrastructure/seed/configuracion-documento-piloto';
 
@@ -265,6 +265,7 @@ async function main(): Promise<void> {
       plantillaConceptoFiscal: configDocumento.textos.plantillaConceptoFiscal,
       validesaTexto: configDocumento.textos.validesaTexto,
       pieLegal: configDocumento.textos.pieLegal,
+      condiciones: configDocumento.condiciones as unknown as Prisma.InputJsonValue,
     },
   });
 
