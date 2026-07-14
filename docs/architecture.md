@@ -88,7 +88,7 @@ graph TB
 | **Auth** | JWT (access en memoria + refresh en cookie httpOnly), NestJS + Passport | Access token de vida corta en memoria; refresh token en cookie httpOnly a salvo de XSS. Tenant y rol en el payload firmado. Ver §2.8 |
 | **Jobs** | Cron simple → endpoint de barrido | TTLs como campo `ttl_expiracion` + barrido periódico; robusto e idempotente |
 | **Email** | Resend SDK (`ResendEmailAdapter`) + `FakeEmailAdapter` en test/CI/dev; motor `DespacharEmailService` (`comunicaciones/application/`) + puerto `EnviarEmailPort` (`comunicaciones/domain/`); catálogo de plantillas en `comunicaciones/infrastructure/plantillas/` | Motor hexagonal reutilizable (US-045): selecciona plantilla → sustituye variables → resuelve adjuntos → envía por el puerto → registra en `COMUNICACION` + `AUDIT_LOG`. `FakeEmailAdapter` forzado en test/CI/dev (cero envíos reales); `ResendEmailAdapter` en producción. Configuración validada con zod: `EMAIL_TRANSPORT` (`resend`\|`fake`), `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_SANDBOX`; en producción se exige `EMAIL_TRANSPORT=resend`. E1 activa; E2–E8 diseñadas/inactivas (cableado diferido a cada US). |
-| **PDF** | Plantillas HTML + Puppeteer (o react-pdf) | Generación server-side; plantillas editables (presupuestos/facturas borrador) |
+| **PDF** | `@react-pdf/renderer` (presupuestos, 6.1b; facturas, 6.3 pendiente) | Generación server-side con componentes `.tsx` reutilizables; librería ESM pura cargada con `import()` nativo; en tests requiere `NODE_OPTIONS=--experimental-vm-modules` (inyectado por `cross-env` en el script `test`); en producción funciona sin flags adicionales |
 | **Storage** | Puerto `AlmacenDocumentosPort` seleccionable por env (`ALMACEN_PROVIDER`). Adaptador `local` (dev/tests, bytes en memoria) en 6.1a; adaptador S3/Supabase cuando haya credenciales (decisión B1). Ver §2.19 | Abstracción hexagonal que desacopla los módulos de documentos/PDF del proveedor de object storage concreto |
 | **Hosting** | Railway (recomendado) o Render free + Postgres gestionada | Ver análisis de coste en §5 |
 | **Observabilidad** | Sentry (errores) | Útil y barato; PostHog y analytics quedan post-TFM |
@@ -518,20 +518,22 @@ La capability `presupuestos` cubre el **nodo de mayor complejidad del camino fel
 ```
 apps/api/src/presupuestos/
   domain/
-    presupuesto.entity.ts            Entidad PRESUPUESTO con desglose fiscal congelado
-    pdf-presupuesto.port.ts          Puerto de generación de PDF (interfaz pura — sin Puppeteer)
-    presupuesto.repository.port.ts   Puerto de persistencia
+    presupuesto.entity.ts              Entidad PRESUPUESTO con desglose fiscal congelado
+    pdf-presupuesto.port.ts            Puerto de generación de PDF (interfaz pura — sin react-pdf ni NestJS)
+    presupuesto.repository.port.ts     Puerto de persistencia
+    numeracion/
+      siguiente-numero-presupuesto.ts  Función de dominio pura: formato AAAANNN, reset anual por tenant
   application/
-    generar-presupuesto.use-case.ts  Orquestador UC-14: preview + confirmación (Unit of Work)
+    generar-presupuesto.use-case.ts    Orquestador UC-14: preview + confirmación (Unit of Work)
   infrastructure/
-    presupuesto.prisma.adapter.ts    Repositorio Prisma con RLS
-    puppeteer-pdf.adapter.ts         Adaptador de generación PDF (Puppeteer/react-pdf)
+    presupuesto.prisma.adapter.ts      Repositorio Prisma con RLS (lectura vía join a RESERVA)
+    pdf-presupuesto-real.adapter.ts    Adaptador real (6.1b): carga config + datos → render → subir → URL
   interface/
-    presupuestos.controller.ts       POST /reservas/{id}/presupuesto/preview · POST /reservas/{id}/presupuesto
-  presupuestos.module.ts
+    presupuestos.controller.ts         POST /reservas/{id}/presupuesto/preview · POST /reservas/{id}/presupuesto
+  presupuestos.module.ts               Importa DocumentosModule; token GENERAR_PDF_PRESUPUESTO_PORT → PdfPresupuestoRealAdapter
 ```
 
-**Regla de dependencia hexagonal:** `domain/` no importa Prisma ni Puppeteer ni NestJS. El módulo `presupuestos` no importa de `reservas/domain/` directamente: la coordinación transaccional se realiza a través del puerto de transición de RESERVA que el use-case de `presupuestos` invoca, respetando la regla de no-acoplamiento entre módulos de dominio.
+**Regla de dependencia hexagonal:** `domain/` no importa Prisma ni `@react-pdf/renderer` ni NestJS. El módulo `presupuestos` no importa de `reservas/domain/` directamente: la coordinación transaccional se realiza a través del puerto de transición de RESERVA que el use-case de `presupuestos` invoca, respetando la regla de no-acoplamiento entre módulos de dominio.
 
 #### Dos endpoints y la partición preview/confirmación
 
@@ -554,11 +556,12 @@ Un fallo parcial hace rollback completo de las 6 operaciones.
 
 #### PDF y E2 fuera de la transacción crítica
 
-La generación del PDF (Puppeteer/react-pdf) y el envío del email E2 ocurren **post-commit** para no alargar la ventana del `FOR UPDATE`:
+La generación del PDF (`@react-pdf/renderer`, rebanada 6.1b) y el envío del email E2 ocurren **post-commit** para no alargar la ventana del `FOR UPDATE`:
 
-- El adaptador `PdfPresupuestoPort` genera el PDF y devuelve la URL; un segundo UPDATE idempotente almacena `PRESUPUESTO.pdf_url`.
+- El `PdfPresupuestoRealAdapter` (token `GENERAR_PDF_PRESUPUESTO_PORT`) carga la configuración de documento del tenant vía `ObtenerConfiguracionDocumentoService`, construye el modelo de vista con `construirModeloDocumentoPresupuesto`, renderiza los bytes con `renderizarDocumentoPresupuestoABytes` y los sube vía `AlmacenDocumentosPort.subir`. Un segundo UPDATE idempotente almacena `PRESUPUESTO.pdf_url`.
 - E2 se dispara vía `DespacharEmailService` (US-045), adjuntando el PDF por referencia a `pdf_url`. La idempotencia `(reserva_id, codigo_email)` de US-045 garantiza una sola E2 por RESERVA (protege del doble clic).
 - Un fallo del proveedor de email **no revierte** la pre-reserva; queda trazado en `COMUNICACION` (`estado = 'fallido'`) sin reintento en MVP. E2 pasa de `diseñada/inactiva` a **activa** a partir de US-014. Ver DT-EMAIL-02 en §2.9.
+- Si la config de documento es `null` (no hay `PlantillaDocumentoTenant` para el tenant), el adaptador devuelve `null` y `pdf_url` queda a `null`; la pre-reserva ya está confirmada y el PDF se genera cuando la config esté disponible.
 
 #### Precio manual (>50 invitados)
 
@@ -570,11 +573,19 @@ US-014 actualiza el `HttpExceptionFilter` global para que propague el campo `cam
 
 #### Multi-tenancy y RLS
 
-PRESUPUESTO no lleva `tenant_id` propio: el aislamiento se garantiza vía la FK a RESERVA (que sí lleva `tenant_id`) con RLS activo en PostgreSQL. El adaptador Prisma de presupuestos lee siempre a través de la RESERVA del tenant del JWT.
+`PRESUPUESTO` tiene RLS activa con la policy `tenant_isolation` implementada por subconsulta a `RESERVA` (preexistente desde el inicio; no se altera en 6.1b). En la rebanada 6.1b se añade `tenant_id` como columna directa en la tabla, con backfill desde la `RESERVA` asociada, exclusivamente para soportar la restricción de unicidad de numeración `@@unique([tenantId, numeroPresupuesto])`. El aislamiento efectivo entre tenants sigue siendo la policy por join; el campo `tenant_id` no cambia el mecanismo de aislamiento. Ver `er-diagram.md §3.12` para el detalle del matiz.
 
-#### Sin migración de esquema
+#### Numeración de presupuesto (6.1b)
 
-US-014 no añade entidades ni columnas nuevas al schema: la tabla `PRESUPUESTO` (con `fecha_envio` y `fecha_actualizacion`) ya existía desde US-000. La capability solo activa el uso productivo de esa tabla.
+La función de dominio pura `siguienteNumeroPresupuesto` lee el último número del tenant en el año en curso y devuelve el siguiente en formato `AAAANNN` (p. ej. `2026001`). El número se asigna dentro de la **transacción de confirmación**, con reintento ante colisión de unicidad (`P2002` en `@@unique([tenantId, numeroPresupuesto])`). El reinicio anual es automático: al comenzar un nuevo año no hay registros del tenant en ese año y el primer número es `AAAA001`. La numeración no se expone por API en 6.1b; aparece en el PDF generado.
+
+#### Migración de esquema (6.1b)
+
+`20260713150000_presupuesto_numero_tenant`:
+- Añade columna `tenant_id UUID` con FK a `TENANT` y backfill desde `RESERVA`.
+- Añade columna `numero_presupuesto VARCHAR(7) nullable`.
+- Añade restricción `@@unique([tenantId, numeroPresupuesto])`.
+- **No recrea la policy RLS**: la policy preexistente por subconsulta a `RESERVA` continúa siendo el mecanismo de aislamiento.
 
 ---
 
@@ -975,9 +986,13 @@ US-034 debe poblar `fecha_post_evento = now()` en la misma transacción de final
 | Alerta FA-01 en barridos sucesivos (misma RESERVA, fianza sin cambio) | Anti-duplicación por AUDIT_LOG (Opción 4.2): si ya existe alerta `fianza_pendiente_t7d` posterior al último cambio de `fianza_status`, no se inserta nueva alerta |
 | Fallo de una transición dentro del lote | Rollback individual; las demás candidatas del mismo pase continúan sin afectarse |
 
-### 2.19 Módulo `documentos` — cimientos del épico #6 (rebanada 6.1a, `documentos-config-tenant-storage`)
+### 2.19 Módulo `documentos` — épico #6 (rebanadas 6.1a y 6.1b)
 
-La rebanada 6.1a establece los **dos pilares de infraestructura** que las rebanadas siguientes del épico #6 necesitan para generar PDFs por tenant: la configuración de documento por tenant (`PlantillaDocumentoTenant`) y el puerto de object storage (`AlmacenDocumentosPort`). En esta rebanada no hay endpoint HTTP, no hay generación de PDF y no hay interfaz de usuario.
+Las dos primeras rebanadas del épico #6 construyen los cimientos y el primer PDF real de Slotify.
+
+**Rebanada 6.1a (`documentos-config-tenant-storage`):** establece los **dos pilares de infraestructura** que las rebanadas siguientes del épico #6 necesitan para generar PDFs por tenant: la configuración de documento por tenant (`PlantillaDocumentoTenant`) y el puerto de object storage (`AlmacenDocumentosPort`). En esta rebanada no hay endpoint HTTP, no hay generación de PDF y no hay interfaz de usuario.
+
+**Rebanada 6.1b (`documentos-presupuesto-pdf-con-iva`):** implementa la **generación de PDF real del presupuesto** usando los pilares de 6.1a. Introduce la capa de plantilla react-pdf en `documentos/presentation/`, reutilizable por facturas (6.3). Ver §2.13 para el detalle del adaptador, la numeración y la RLS. Ver `er-diagram.md §5.8` para el roadmap completo del épico.
 
 #### Puerto de dominio `AlmacenDocumentosPort`
 
@@ -1029,20 +1044,43 @@ apps/api/src/documentos/
       almacen-documentos-local.adapter.spec.ts
       configuracion-documento-piloto.spec.ts     Verifica "espai nunca lloguer"
       configuracion-documento-integracion.spec.ts  Integración SQL real (tabla+UNIQUE+RLS+seed)
-  documentos.module.ts                           Wiring de puertos + factory ALMACEN_PROVIDER
+  presentation/                                  Capa de plantilla react-pdf (añadida en 6.1b; reutilizable por facturas 6.3)
+    construir-modelo-documento-presupuesto.ts    Función pura: datos → modelo de vista (sin layout)
+    renderizar-documento-presupuesto.ts          Función que invoca @react-pdf/renderer → bytes PDF
+    components/
+      DocumentoLayout.tsx                        Wrapper de página (márgenes, fuentes)
+      Cabecera.tsx                               Logo (si logoUrl) o solo-texto
+      BloqueCliente.tsx                          Datos fiscales del destinatario
+      TablaConcepto.tsx                          Conceptos + duración "(N hores)"
+      BloqueTotales.tsx                          Base / %IVA / total + reparto 40/60/fianza
+      PieBancario.tsx                            IBAN, beneficiario, concepto, validesa
+    __tests__/
+      render-plantilla.spec.ts                   Unit: produce bytes no vacíos; contiene textos clave
+  documentos.module.ts                           Wiring de puertos + factory ALMACEN_PROVIDER; exporta DocumentosModule
   documentos.tokens.ts                           Símbolos de inyección
 ```
 
 #### Relación con el contrato OpenAPI y casos de uso
 
-Esta rebanada **no introduce ningún endpoint HTTP** en el contrato OpenAPI y **no añade casos de uso** en `use-cases.md`. El contrato permanece inalterado. Las rebanadas 6.1b (generación de PDF) y 6.5 (UI de ajustes) sí añadirán endpoints; en ese momento intervendrá el `contract-engineer`.
+Las rebanadas 6.1a y 6.1b **no introducen ningún endpoint HTTP** en el contrato OpenAPI y **no añaden casos de uso** en `use-cases.md`. El contrato permanece inalterado. La rebanada 6.5 (UI de ajustes) añadirá endpoints; en ese momento intervendrá el `contract-engineer`. La numeración de presupuesto (`numero_presupuesto`) aparece en el PDF generado pero no se expone por API en 6.1b.
 
-#### Migración de esquema
+#### Limitación de almacenamiento del adaptador `local` (deuda B1)
 
-`20260713140000_documento_config_tenant`:
+El adaptador `local` (`ALMACEN_PROVIDER=local`) guarda los bytes del PDF en memoria del proceso: no son durables (se pierden al reiniciar el servidor) y la URL generada solo es accesible mientras el servidor está en marcha. Esta limitación es conocida y aceptada para dev/tests. El PDF durable, adjuntable en emails reales y accesible con URL pública permanente se habilitará con el **adaptador S3/Supabase** (decisión B1, diferida). Cuando se implemente, se añadirá como clase hermana de `AlmacenDocumentosLocalAdapter` en `infrastructure/`; el dominio y los casos de uso no se tocarán.
+
+#### Migraciones de esquema
+
+`20260713140000_documento_config_tenant` (6.1a):
 - Crea tabla `plantilla_documento_tenant` (PK `id_plantilla`, FK + `UNIQUE(tenant_id)`, 17 campos de contenido + `fecha_creacion` + `fecha_actualizacion`).
 - Habilita RLS y crea policy `tenant_isolation`.
 - Ver `er-diagram.md §3.3` y `er-diagram.md §5.7` para el detalle del modelo y las decisiones de diseño.
+
+`20260713150000_presupuesto_numero_tenant` (6.1b):
+- Añade columna `tenant_id UUID` a `PRESUPUESTO` con FK a `TENANT` y backfill desde `RESERVA`.
+- Añade columna `numero_presupuesto VARCHAR(7) nullable`.
+- Añade restricción `@@unique([tenantId, numeroPresupuesto])`.
+- **No recrea la policy RLS de `PRESUPUESTO`**: la policy preexistente por subconsulta a `RESERVA` sigue siendo el mecanismo de aislamiento.
+- Ver `er-diagram.md §3.12` y `er-diagram.md §5.8` para el detalle del modelo y las decisiones de diseño.
 
 ---
 

@@ -188,6 +188,7 @@ model Tenant {
   temporadas      TemporadaCalendario[]
   extras          Extra[]
   facturas        Factura[]
+  presupuestos    Presupuesto[]
   documentos      Documento[]
   comunicaciones  Comunicacion[]
   auditLogs       AuditLog[]
@@ -463,7 +464,9 @@ model ReservaExtra {
 
 model Presupuesto {
   idPresupuesto      String            @id @default(uuid()) @map("id_presupuesto")
+  tenantId           String?           @map("tenant_id")
   reservaId          String            @map("reserva_id")
+  numeroPresupuesto  String?           @map("numero_presupuesto")
   version            Int
   baseImponible      Decimal           @map("base_imponible") @db.Decimal(10, 2)
   ivaPorcentaje      Decimal           @map("iva_porcentaje") @db.Decimal(4, 2)
@@ -479,8 +482,13 @@ model Presupuesto {
   fechaActualizacion DateTime          @updatedAt @map("fecha_actualizacion")
 
   reserva Reserva @relation(fields: [reservaId], references: [idReserva])
+  tenant  Tenant? @relation(fields: [tenantId], references: [idTenant])
 
+  // Épico #6, 6.1b (N1/N2): numeración `AAAANNN` por tenant y año (el año va embebido en
+  // el literal), única por tenant. NULL mientras no se confirma (los NULL no colisionan en
+  // PostgreSQL). El reintento ante colisión (P2002) vive en el use-case de confirmación.
   @@unique([reservaId, version])
+  @@unique([tenantId, numeroPresupuesto])
   @@map("presupuesto")
 }
 

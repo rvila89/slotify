@@ -66,10 +66,25 @@ class PresupuestoPrismaRepository implements PresupuestoRepositoryPort {
       : { idPresupuesto: fila.idPresupuesto, estado: fila.estado };
   }
 
+  /**
+   * Último `numero_presupuesto` del tenant en el año (para calcular el siguiente, N1). El
+   * año va embebido en el prefijo `AAAA`; se ordena descendente para tomar el mayor.
+   */
+  async ultimoNumeroDelAnio(tenantId: string, anio: number): Promise<string | null> {
+    const fila = await this.tx.presupuesto.findFirst({
+      where: { tenantId, numeroPresupuesto: { startsWith: String(anio) } },
+      orderBy: { numeroPresupuesto: 'desc' },
+      select: { numeroPresupuesto: true },
+    });
+    return fila?.numeroPresupuesto ?? null;
+  }
+
   async crear(params: CrearPresupuestoParams): Promise<PresupuestoCreado> {
     const fila = await this.tx.presupuesto.create({
       data: {
+        tenantId: params.tenantId,
         reservaId: params.reservaId,
+        numeroPresupuesto: params.numeroPresupuesto,
         version: params.version,
         estado: EstadoPresupuesto.enviado,
         tarifaCongelada: params.tarifaCongelada,

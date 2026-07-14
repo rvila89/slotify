@@ -279,6 +279,8 @@ erDiagram
     PRESUPUESTO {
         uuid id_presupuesto PK
         uuid reserva_id FK
+        uuid tenant_id FK "añadido en 6.1b; backfill desde RESERVA; RLS-por-join sigue siendo el aislamiento"
+        string numero_presupuesto "nullable — formato AAAANNN (p. ej. 2026001); asignado en tx de confirmación con reintento ante P2002"
         int version "UNIQUE(reserva_id, version)"
         decimal base_imponible
         decimal iva_porcentaje
@@ -287,7 +289,7 @@ erDiagram
         decimal descuento_eur "nullable"
         string descuento_motivo "nullable"
         boolean tarifa_congelada "DEFAULT true"
-        string pdf_url "nullable, URL del PDF generado post-commit"
+        string pdf_url "nullable, URL del PDF generado post-commit por react-pdf (6.1b) o pendiente"
         enum estado "borrador | enviado | aceptado | rechazado"
         timestamp fecha_envio "nullable, solo cuando estado=enviado"
         timestamp fecha_creacion
@@ -732,7 +734,9 @@ Versiones del presupuesto generado para una reserva (UC-14 / US-014). Cada versi
 
 La restricción `UNIQUE(reserva_id, version)` garantiza que no existan dos presupuestos con la misma versión para la misma reserva.
 
-**No lleva `tenant_id` propio**: el aislamiento multi-tenant se garantiza vía la FK a `RESERVA`, que sí lleva `tenant_id`, con RLS activo.
+**RLS — política por subconsulta a RESERVA (preexistente; sin cambio en 6.1b):** `PRESUPUESTO` tiene RLS habilitada con la policy `tenant_isolation` implementada mediante una subconsulta a `RESERVA` — `presupuesto.reserva_id IN (SELECT id_reserva FROM reserva WHERE tenant_id = current_setting('app.tenant_id', true))` — porque en su origen la tabla no tenía `tenant_id` propio. En la migración de 6.1b se añade `tenant_id` como nueva columna (con backfill desde la `RESERVA` asociada), pero la policy RLS existente por subconsulta **no se recrea ni se altera**: el aislamiento efectivo sigue siendo la policy preexistente por join. El campo `tenant_id` en la tabla sirve únicamente para soporte de la restricción de unicidad de numeración `@@unique([tenantId, numeroPresupuesto])` y como referencia directa de multi-tenancy en las queries que lo necesiten.
+
+**Numeración de presupuesto (6.1b):** el campo `numero_presupuesto` adopta el formato `AAAANNN` (año de 4 dígitos + correlativo de 3 dígitos con reset anual por tenant), por ejemplo `2026001`. Se asigna en la **transacción de confirmación del presupuesto** con reintento ante colisión de unicidad (`P2002` en `@@unique([tenantId, numeroPresupuesto])`). La función de dominio pura `siguienteNumeroPresupuesto` lee el último número del año del tenant y devuelve el siguiente. El correlativo reinicia a `001` cada año natural.
 
 **Nota de implementación — `tarifa_id` ausente del schema (US-014):** el design D-5 preveía almacenar `tarifa_id` como referencia trazable a la `TARIFA` vigente usada. En la implementación se confirmó que el motor de tarifa (US-016) devuelve `tarifa_id` en su esquema canónico, pero la columna no se añadió al modelo de `PRESUPUESTO` en esta iteración; la referencia a la tarifa queda en el `AUDIT_LOG`. Deuda de trazabilidad pendiente de UC-15/US-015.
 
@@ -740,6 +744,8 @@ La restricción `UNIQUE(reserva_id, version)` garantiza que no existan dos presu
 |----------|------|-------------|
 | id_presupuesto | UUID PK | Identificador único |
 | reserva_id | UUID FK | Reserva asociada. FK → RESERVA |
+| tenant_id | UUID FK | Tenant emisor. Añadido en 6.1b con backfill desde RESERVA. Usado para la restricción de unicidad de numeración; el aislamiento RLS lo sigue aplicando la policy preexistente por subconsulta a RESERVA |
+| numero_presupuesto | VARCHAR(7) nullable | Número secuencial `AAAANNN` (p. ej. `2026001`). Nullable en borradores; se asigna en la transacción de confirmación con reintento ante `P2002`. Restricción `@@unique([tenantId, numeroPresupuesto])` |
 | version | INT | Número de versión (1, 2, 3…). Restricción `UNIQUE(reserva_id, version)` |
 | base_imponible | DECIMAL(10,2) | Base imponible antes de IVA. Derivada: `total / 1.21` |
 | iva_porcentaje | DECIMAL(4,2) | Porcentaje IVA (21 en MVP) |
@@ -748,7 +754,7 @@ La restricción `UNIQUE(reserva_id, version)` garantiza que no existan dos presu
 | descuento_eur | DECIMAL(10,2) | Descuento aplicado por el Gestor. Nullable |
 | descuento_motivo | VARCHAR | Motivo del descuento. Nullable |
 | tarifa_congelada | BOOLEAN | `DEFAULT true`. Una vez confirmado, un cambio del tarifario no recalcula este presupuesto |
-| pdf_url | VARCHAR(500) | URL del PDF generado (Puppeteer / react-pdf). Nullable hasta que el PDF se genera post-commit |
+| pdf_url | VARCHAR(500) | URL del PDF generado con `@react-pdf/renderer` (6.1b). Nullable hasta que el PDF se genera post-commit. El adaptador `local` construye la URL de forma determinista (`baseUrl/presupuestos/{tenantId}/{id}.pdf`) |
 | estado | ENUM | `borrador` \| `enviado` \| `aceptado` \| `rechazado`. Al confirmar en UC-14 se crea directamente con `estado = 'enviado'` |
 | fecha_envio | TIMESTAMP | No nulo solo cuando `estado = 'enviado'`. Nulo en `borrador`, `aceptado` y `rechazado` |
 | fecha_creacion | TIMESTAMP | `DEFAULT now()` |
@@ -1079,7 +1085,37 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 
 **Evolución del épico:** en 6.1a solo existe la entidad y el servicio de lectura (`ObtenerConfiguracionDocumentoService`). No hay endpoint HTTP propio. Las rebanadas siguientes consumirán esta config para generar los PDFs (6.1b) y la UI de ajustes de la configuración (6.5). El campo `logo_url` permanece `null` hasta que la rebanada 6.5 implemente la subida del logo.
 
+### 5.8 Generación de PDF real del presupuesto (épico #6, rebanada 6.1b)
+
+La rebanada 6.1b cierra el flujo de generación del PDF del presupuesto sustituyendo el `PdfPresupuestoFakeAdapter` por el `PdfPresupuestoRealAdapter`, cableado en el token `GENERAR_PDF_PRESUPUESTO_PORT` de `PresupuestosModule` (el módulo importa `DocumentosModule` para consumir el `AlmacenDocumentosPort` y el `ObtenerConfiguracionDocumentoService`).
+
+**Capa de plantilla react-pdf (`documentos/presentation/`):** librería de renderización basada en `@react-pdf/renderer` (ESM puro; se carga con `import()` nativo). La capa está formada por:
+- `construirModeloDocumentoPresupuesto` — función pura que transforma datos de la config y de la reserva en un modelo de vista limpio (sin lógica de layout).
+- `renderizarDocumentoPresupuestoABytes` — función que invoca `@react-pdf/renderer` y devuelve los bytes del PDF.
+- Componentes `.tsx` reutilizables: `DocumentoLayout`, `Cabecera` (solo-texto cuando `logoUrl = null`), `BloqueCliente`, `TablaConcepto`, `BloqueTotales` (base / IVA / total; reparto 40%/60%/fianza), `PieBancario`. Esta capa está pensada para reutilizarse en facturas (rebanada 6.3).
+
+**Numeración de presupuesto — función de dominio `siguienteNumeroPresupuesto`:** derivada de forma pura (sin estado), formato `AAAANNN` (p. ej. `2026001`, `2026002`…), reinicio anual por tenant. Se asigna en la **transacción de confirmación** con reintento ante colisión de unicidad (`P2002` en `@@unique([tenantId, numeroPresupuesto])`). La unicidad de la numeración es la única razón de la existencia del campo `tenant_id` en `PRESUPUESTO`; el aislamiento RLS continúa siendo la policy preexistente por subconsulta a `RESERVA` (no se añade policy nueva en la migración `20260713150000_presupuesto_numero_tenant`).
+
+**Contenido del PDF generado:** cabecera (logo o solo-texto), datos del tenant (razón social fiscal, NIF, dirección, web, email), datos del cliente, número y fecha del presupuesto, concepto derivado de `plantilla_concepto_fiscal` con `{nombreComercial}` resuelto (sin "lloguer"), tabla de conceptos con duración en horas (formato `(N hores)`, sin hora de inicio), extras, base imponible, porcentaje IVA, importe IVA, total, reparto 40%/60%/fianza, instrucciones de transferencia (IBAN, beneficiario, concepto), validesa y pie legal.
+
+**Toolchain en tests:** `@react-pdf/renderer` es ESM puro y requiere `NODE_OPTIONS=--experimental-vm-modules` bajo Jest. El script `test` de `apps/api` lo inyecta vía `cross-env`. En producción (`node dist/main.js`) el `import()` nativo funciona sin flags adicionales.
+
+**Limitaciones del almacenamiento local (adaptador `local`, `ALMACEN_PROVIDER=local`):** los bytes del PDF se guardan en memoria del proceso (no durable: se pierden al reiniciar el servidor) y la URL generada no está accesible externamente sin el servidor en marcha. Esta es una limitación de diseño conocida y documentada. El PDF durable, adjuntable en emails reales y accesible con URL pública permanente llega con el **adaptador cloud S3/Supabase** (decisión B1, diferida — deuda B1).
+
+**Deuda y roadmap del épico #6:**
+
+| Rebanada | Alcance | Estado |
+|----------|---------|--------|
+| 6.1a | `PlantillaDocumentoTenant` + `AlmacenDocumentosPort` (pilares) | Implementada |
+| 6.1b | PDF real del presupuesto CON IVA, numeración `AAAANNN` | Implementada |
+| 6.2 | Presupuesto SIN IVA + método de pago + doble numeración (con/sin IVA) | Pendiente |
+| 6.3 | Reutilización de la capa de plantilla `documentos/presentation/` para facturas | Pendiente |
+| 6.5 | UI de ajustes de configuración del documento + subida de logo | Pendiente |
+| B1 | Adaptador cloud S3/Supabase para `AlmacenDocumentosPort` (PDF durable + URL pública permanente) | Diferido |
+
 ---
+
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.6 (13/07/2026): refleja épico #6 rebanada 6.1b (`documentos-presupuesto-pdf-con-iva`) — añade campos `tenant_id` y `numero_presupuesto` (formato `AAAANNN`, p. ej. `2026001`) al diagrama Mermaid de PRESUPUESTO con la anotación `@@unique([tenantId, numeroPresupuesto])`; actualiza §3.12 PRESUPUESTO en el diccionario (dos columnas nuevas, descripción RLS-por-subconsulta-a-RESERVA, semántica de numeración, actualización de `pdf_url` para indicar `@react-pdf/renderer`); añade §5.8 con la arquitectura de la capa de plantilla react-pdf, la función de dominio de numeración, el contenido del PDF generado, las limitaciones del adaptador `local` y el roadmap completo del épico #6. Migración: `20260713150000_presupuesto_numero_tenant`. Sin cambios en el contrato OpenAPI (`numero_presupuesto` no se expone por API en 6.1b). Sin casos de uso nuevos en `use-cases.md`.*
 
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.5 (13/07/2026): refleja épico #6 rebanada 6.1a (`documentos-config-tenant-storage`) — añade entidad `PLANTILLA_DOCUMENTO_TENANT` al diagrama Mermaid y a las relaciones (`TENANT ||--|| PLANTILLA_DOCUMENTO_TENANT`); añade decisión de diseño n.º 11 (decisión A1: duplicación de datos fiscales, independencia de `Tenant`, matiz razón social fiscal ≠ nombre comercial); añade §3.3 PLANTILLA_DOCUMENTO_TENANT al diccionario (4 bloques: branding, identidad fiscal, banca, textos; UNIQUE(tenant_id); RLS; regla dura "espai nunca lloguer"); renumera §3.3–§3.17 → §3.4–§3.18; añade §5.7 con la rationale de la decisión A1, la distinción razón social / nombre comercial, la regla dura del concepto, la nota de RLS y la evolución del épico. Sin cambios en el contrato OpenAPI (sin endpoint HTTP en 6.1a). Migración: `20260713140000_documento_config_tenant`. Sin casos de uso nuevos en `use-cases.md`.*
 
