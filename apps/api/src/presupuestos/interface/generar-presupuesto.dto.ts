@@ -12,6 +12,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -21,6 +22,14 @@ import {
 } from 'class-validator';
 
 const IMPORTE_REGEX = /^\d+(\.\d{1,2})?$/;
+
+/** Métodos de pago admitidos (6.2, D1). El régimen fiscal se deriva en el backend. */
+const METODOS_PAGO = ['transferencia', 'efectivo'] as const;
+type MetodoPagoDto = (typeof METODOS_PAGO)[number];
+
+/** Regímenes fiscales expuestos en la respuesta (6.2, D4). */
+const METODOS_PAGO_REGIMEN = ['con_iva', 'sin_iva'] as const;
+type RegimenIvaDto = (typeof METODOS_PAGO_REGIMEN)[number];
 
 /** Un extra solicitado (snake_case, coherente con el motor de tarifa US-016). */
 export class PresupuestoExtraInputDto {
@@ -55,6 +64,16 @@ export class PreviewPresupuestoRequestDto {
   @IsOptional()
   @Matches(IMPORTE_REGEX, { message: 'precioManualEur debe ser un importe Decimal (2 dec)' })
   precioManualEur?: string;
+
+  @ApiProperty({
+    enum: METODOS_PAGO,
+    description:
+      'Método de pago (6.2, obligatorio): transferencia ⇒ CON IVA, efectivo ⇒ SIN IVA.',
+  })
+  @IsIn(METODOS_PAGO, {
+    message: 'metodoPago debe ser transferencia o efectivo',
+  })
+  metodoPago!: MetodoPagoDto;
 }
 
 /** Body de la confirmación: crea el PRESUPUESTO congelado + activa pre_reserva. */
@@ -83,6 +102,16 @@ export class ConfirmarPresupuestoRequestDto {
   @IsOptional()
   @Matches(IMPORTE_REGEX, { message: 'precioManualEur debe ser un importe Decimal (2 dec)' })
   precioManualEur?: string;
+
+  @ApiProperty({
+    enum: METODOS_PAGO,
+    description:
+      'Método de pago (6.2, obligatorio): transferencia ⇒ CON IVA, efectivo ⇒ SIN IVA.',
+  })
+  @IsIn(METODOS_PAGO, {
+    message: 'metodoPago debe ser transferencia o efectivo',
+  })
+  metodoPago!: MetodoPagoDto;
 }
 
 /** Desglose fiscal (base, IVA 21%, total) — Decimal string. */
@@ -131,6 +160,13 @@ export class PresupuestoPreviewResponseDto {
 
   @ApiProperty({ type: RepartoPagoDto, nullable: true })
   reparto!: RepartoPagoDto | null;
+
+  @ApiProperty({
+    enum: METODOS_PAGO_REGIMEN,
+    example: 'con_iva',
+    description: 'Régimen fiscal derivado del método de pago (6.2, D4).',
+  })
+  regimenIva!: RegimenIvaDto;
 }
 
 /** PRESUPUESTO congelado creado (subconjunto de `Presupuesto`). */
@@ -161,6 +197,12 @@ export class PresupuestoCreadoDto {
 
   @ApiProperty({ type: String, nullable: true })
   pdfUrl!: string | null;
+
+  @ApiProperty({ type: String, nullable: true, example: '2026001' })
+  numeroPresupuesto!: string | null;
+
+  @ApiProperty({ enum: METODOS_PAGO_REGIMEN, example: 'con_iva' })
+  regimenIva!: RegimenIvaDto;
 }
 
 /** RESERVA resultante en pre_reserva (subconjunto). */

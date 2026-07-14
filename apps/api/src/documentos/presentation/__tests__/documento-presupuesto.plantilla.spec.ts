@@ -98,6 +98,8 @@ const datosPresupuesto = (
 ): DatosDocumentoPresupuesto => ({
   numeroPresupuesto: '2026001',
   fecha: new Date('2026-07-13T00:00:00.000Z'),
+  // 6.2: régimen obligatorio; estos escenarios de 6.1b son la variante CON IVA.
+  regimen: 'con_iva',
   cliente: {
     nombre: 'Anna',
     apellidos: 'Puig Soler',

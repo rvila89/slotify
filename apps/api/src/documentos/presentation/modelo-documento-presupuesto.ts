@@ -16,6 +16,13 @@
  */
 import type { ConfiguracionDocumentoTenant } from '../domain/configuracion-documento';
 
+/**
+ * Régimen fiscal del documento (6.2). DECLARADO en `documentos` (NO se importa de
+ * `presupuestos`; hexagonal): el régimen llega como dato del documento. Duplicado
+ * intencionadamente, igual que los tipos de desglose/reparto.
+ */
+export type RegimenDocumento = 'con_iva' | 'sin_iva';
+
 /** Datos del CLIENTE (receptor) tal como se pintan en el documento. */
 export interface ClienteDocumento {
   nombre: string;
@@ -52,6 +59,8 @@ export interface RepartoDocumento {
 export interface DatosDocumentoPresupuesto {
   numeroPresupuesto: string;
   fecha: Date;
+  /** Régimen fiscal del documento (6.2): gobierna cabecera y totales de la variante. */
+  regimen: RegimenDocumento;
   cliente: ClienteDocumento;
   fechaEvento: Date;
   /** Duración del evento en horas (enum de negocio 4/8/12). */
@@ -66,6 +75,11 @@ export interface DatosDocumentoPresupuesto {
 export interface CabeceraModelo {
   /** N3: `true` cuando no hay logo del tenant (cabecera solo-texto). */
   soloTexto: boolean;
+  /**
+   * 6.2: `true` CON IVA, `false` SIN IVA. Cuando es `false`, la Cabecera OMITE la razón
+   * social fiscal + el NIF (mantiene nombre comercial, dirección, web, email y branding).
+   */
+  mostrarIdentidadFiscal: boolean;
   logoUrl: string | null;
   colorPrimario: string;
   colorTexto: string;
@@ -75,6 +89,19 @@ export interface CabeceraModelo {
   direccionFiscal: string;
   web: string;
   email: string;
+}
+
+/** Totales del documento: desglose fiscal + flag de visibilidad del desglose de IVA (6.2). */
+export interface TotalesModelo {
+  /**
+   * 6.2: `true` CON IVA, `false` SIN IVA. Cuando es `false`, BloqueTotales pinta SOLO el
+   * Total (sin filas "Base imposable" e "IVA"). En SIN IVA `total = base` (importe MENOR).
+   */
+  mostrarDesgloseIva: boolean;
+  baseImponible: string;
+  ivaPorcentaje: string;
+  ivaImporte: string;
+  total: string;
 }
 
 /** Pie bancario del documento (datos de la transferencia del tenant). */
@@ -97,7 +124,7 @@ export interface ModeloDocumentoPresupuesto {
   /** Concepto fiscal con `{nombreComercial}` resuelto; NUNCA contiene "lloguer". */
   conceptoPrincipal: string;
   extras: ReadonlyArray<ExtraDocumento>;
-  totales: DesgloseDocumento;
+  totales: TotalesModelo;
   reparto: RepartoDocumento;
   validesaTexto: string;
   pieLegal: string;
@@ -117,45 +144,52 @@ const resolverConcepto = (
 export const construirModeloDocumentoPresupuesto = (
   config: ConfiguracionDocumentoTenant,
   datos: DatosDocumentoPresupuesto,
-): ModeloDocumentoPresupuesto => ({
-  numeroPresupuesto: datos.numeroPresupuesto,
-  fecha: datos.fecha,
-  cabecera: {
-    soloTexto: config.branding.logoUrl === null,
-    logoUrl: config.branding.logoUrl,
-    colorPrimario: config.branding.colorPrimario,
-    colorTexto: config.branding.colorTexto,
-    razonSocialFiscal: config.identidadFiscal.razonSocialFiscal,
-    nombreComercial: config.identidadFiscal.nombreComercial,
-    nif: config.identidadFiscal.nif,
-    direccionFiscal: config.identidadFiscal.direccionFiscal,
-    web: config.identidadFiscal.web,
-    email: config.identidadFiscal.email,
-  },
-  cliente: datos.cliente,
-  fechaEvento: datos.fechaEvento,
-  duracionTexto: `(${datos.duracionHoras} hores)`,
-  numPersonas: datos.numPersonas,
-  conceptoPrincipal: resolverConcepto(
-    config.textos.plantillaConceptoFiscal,
-    config.identidadFiscal.nombreComercial,
-  ),
-  extras: datos.extras.map((extra) => ({
-    descripcion: extra.descripcion,
-    importeEur: extra.importeEur,
-  })),
-  totales: {
-    baseImponible: datos.desglose.baseImponible,
-    ivaPorcentaje: datos.desglose.ivaPorcentaje,
-    ivaImporte: datos.desglose.ivaImporte,
-    total: datos.desglose.total,
-  },
-  reparto: datos.reparto,
-  validesaTexto: config.textos.validesaTexto,
-  pieLegal: config.textos.pieLegal,
-  pieBancario: {
-    iban: config.banca.iban,
-    beneficiario: config.banca.beneficiarioTransferencia,
-    concepto: config.banca.conceptoTransferencia,
-  },
-});
+): ModeloDocumentoPresupuesto => {
+  // 6.2: la variante (flags de cabecera y totales) se resuelve desde el régimen del dato.
+  const mostrarIdentidadFiscal = datos.regimen === 'con_iva';
+  const mostrarDesgloseIva = datos.regimen === 'con_iva';
+  return {
+    numeroPresupuesto: datos.numeroPresupuesto,
+    fecha: datos.fecha,
+    cabecera: {
+      soloTexto: config.branding.logoUrl === null,
+      mostrarIdentidadFiscal,
+      logoUrl: config.branding.logoUrl,
+      colorPrimario: config.branding.colorPrimario,
+      colorTexto: config.branding.colorTexto,
+      razonSocialFiscal: config.identidadFiscal.razonSocialFiscal,
+      nombreComercial: config.identidadFiscal.nombreComercial,
+      nif: config.identidadFiscal.nif,
+      direccionFiscal: config.identidadFiscal.direccionFiscal,
+      web: config.identidadFiscal.web,
+      email: config.identidadFiscal.email,
+    },
+    cliente: datos.cliente,
+    fechaEvento: datos.fechaEvento,
+    duracionTexto: `(${datos.duracionHoras} hores)`,
+    numPersonas: datos.numPersonas,
+    conceptoPrincipal: resolverConcepto(
+      config.textos.plantillaConceptoFiscal,
+      config.identidadFiscal.nombreComercial,
+    ),
+    extras: datos.extras.map((extra) => ({
+      descripcion: extra.descripcion,
+      importeEur: extra.importeEur,
+    })),
+    totales: {
+      mostrarDesgloseIva,
+      baseImponible: datos.desglose.baseImponible,
+      ivaPorcentaje: datos.desglose.ivaPorcentaje,
+      ivaImporte: datos.desglose.ivaImporte,
+      total: datos.desglose.total,
+    },
+    reparto: datos.reparto,
+    validesaTexto: config.textos.validesaTexto,
+    pieLegal: config.textos.pieLegal,
+    pieBancario: {
+      iban: config.banca.iban,
+      beneficiario: config.banca.beneficiarioTransferencia,
+      concepto: config.banca.conceptoTransferencia,
+    },
+  };
+};

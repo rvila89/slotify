@@ -14,6 +14,7 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { calcularReparto } from '../domain/desglose-fiscal';
+import type { RegimenIva } from '../domain/regimen-desde-metodo-pago';
 import { duracionHorasPrismaANumero } from '../../reservas/infrastructure/duracion-horas.mapper';
 import type {
   CargarDatosDocumentoPresupuestoParams,
@@ -63,15 +64,22 @@ export class CargarDatosDocumentoPresupuestoPrismaAdapter
         return null;
       }
 
+      // 6.2: régimen persistido (backfill `con_iva` para filas de 6.1b sin régimen). El
+      // reparto opera sobre el `total` YA persistido del régimen; el régimen no lo altera.
+      const regimen: RegimenIva =
+        presupuesto.regimenIva === 'sin_iva' ? 'sin_iva' : 'con_iva';
+
       const reparto = calcularReparto({
         totalConIva: Number(aImporte(presupuesto.total)),
         pctSenal: Number(settings.pctSenal),
         fianzaDefaultEur: Number(settings.fianzaDefaultEur),
+        regimen,
       });
 
       const datos: DatosDocumentoPresupuestoCargados = {
         numeroPresupuesto: presupuesto.numeroPresupuesto ?? '',
         fecha: presupuesto.fechaEnvio ?? presupuesto.fechaCreacion,
+        regimen,
         cliente: {
           nombre: reserva.cliente.nombre,
           apellidos: reserva.cliente.apellidos,

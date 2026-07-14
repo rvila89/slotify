@@ -20,3 +20,12 @@ export const claseInputBase =
 
 /** Input del diálogo con el borde por defecto y el resaltado de error por `aria-invalid`. */
 export const claseInput = `${claseInputBase} border-border-default/30 aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-red-500`;
+
+/**
+ * Tarjeta de opción del selector de método de pago (6.2). Se renderiza como
+ * `<label>` que envuelve un radio nativo (accesible). El estado seleccionado y
+ * el foco del radio se reflejan con el selector `has-[:checked]` / `has-[:focus-visible]`
+ * (sin JS extra). Objetivo táctil ≥ 44px (`min-h-[3.5rem]`).
+ */
+export const claseTarjetaMetodoPago =
+  'flex min-h-[3.5rem] flex-1 cursor-pointer items-start gap-3 rounded-[12px] border border-border-default/30 bg-canvas p-4 transition hover:bg-surface-muted has-[:checked]:border-brand-primary has-[:checked]:ring-2 has-[:checked]:ring-brand-primary has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-primary has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60';

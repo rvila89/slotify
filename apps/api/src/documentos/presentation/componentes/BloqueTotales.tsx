@@ -1,10 +1,12 @@
 /**
- * Bloque de totales CON IVA (base / %IVA / IVA / total) + condicions de pagament
- * 40/60/fiança + validesa (épico #6, 6.1b). Primitivas react-pdf inyectadas en `kit`.
- * Reutilizable por factura (6.3).
+ * Bloque de totales + condicions de pagament 40/60/fiança + validesa (épico #6, 6.1b).
+ * 6.2: la variante SIN IVA (`mostrarDesgloseIva === false`) pinta SOLO el Total, sin las
+ * filas "Base imposable" e "IVA"; CON IVA conserva el desglose completo. Layout fijo,
+ * contenido 100% del modelo. Primitivas react-pdf inyectadas en `kit`. Reutilizable por
+ * factura (6.3).
  */
 import type {
-  DesgloseDocumento,
+  TotalesModelo,
   RepartoDocumento,
 } from '../modelo-documento-presupuesto';
 import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
@@ -12,7 +14,7 @@ import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
 export interface BloqueTotalesProps {
   kit: KitReactPdf;
   estilos: EstilosReactPdf;
-  totales: DesgloseDocumento;
+  totales: TotalesModelo;
   reparto: RepartoDocumento;
   validesaTexto: string;
 }
@@ -28,14 +30,20 @@ export const BloqueTotales = ({
   return (
     <View style={estilos.seccion}>
       <View style={estilos.totalesBloque}>
-        <View style={estilos.totalesFila}>
-          <Text style={estilos.totalesEtiqueta}>Base imposable</Text>
-          <Text style={estilos.totalesValor}>{totales.baseImponible} €</Text>
-        </View>
-        <View style={estilos.totalesFila}>
-          <Text style={estilos.totalesEtiqueta}>IVA ({totales.ivaPorcentaje} %)</Text>
-          <Text style={estilos.totalesValor}>{totales.ivaImporte} €</Text>
-        </View>
+        {totales.mostrarDesgloseIva ? (
+          <>
+            <View style={estilos.totalesFila}>
+              <Text style={estilos.totalesEtiqueta}>Base imposable</Text>
+              <Text style={estilos.totalesValor}>{totales.baseImponible} €</Text>
+            </View>
+            <View style={estilos.totalesFila}>
+              <Text style={estilos.totalesEtiqueta}>
+                IVA ({totales.ivaPorcentaje} %)
+              </Text>
+              <Text style={estilos.totalesValor}>{totales.ivaImporte} €</Text>
+            </View>
+          </>
+        ) : null}
         <View style={estilos.totalesFila}>
           <Text style={[estilos.totalesEtiqueta, estilos.totalDestacado]}>Total</Text>
           <Text style={[estilos.totalesValor, estilos.totalDestacado]}>

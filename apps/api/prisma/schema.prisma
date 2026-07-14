@@ -110,6 +110,19 @@ enum EstadoPresupuesto {
   rechazado
 }
 
+// Épico #6, 6.2 (documentos-presupuesto-sin-iva-doble-numeracion, D1): método de pago
+// elegido por el gestor y régimen fiscal derivado. `transferencia ⇒ con_iva`,
+// `efectivo ⇒ sin_iva`. Se persisten AMBOS en Presupuesto (auditoría + doble numeración).
+enum MetodoPago {
+  transferencia
+  efectivo
+}
+
+enum RegimenIva {
+  con_iva
+  sin_iva
+}
+
 enum TipoFactura {
   senal
   liquidacion
@@ -477,6 +490,11 @@ model Presupuesto {
   tarifaCongelada    Boolean           @default(true) @map("tarifa_congelada")
   pdfUrl             String?           @map("pdf_url")
   estado             EstadoPresupuesto
+  // Épico #6, 6.2 (D1): método de pago elegido + régimen fiscal derivado. Nullable
+  // (migración aditiva); backfill `transferencia`/`con_iva` para las filas de 6.1b. La app
+  // siempre escribe ambos al crear.
+  metodoPago         MetodoPago?       @map("metodo_pago")
+  regimenIva         RegimenIva?       @map("regimen_iva")
   fechaEnvio         DateTime?         @map("fecha_envio")
   fechaCreacion      DateTime          @default(now()) @map("fecha_creacion")
   fechaActualizacion DateTime          @updatedAt @map("fecha_actualizacion")
@@ -484,11 +502,13 @@ model Presupuesto {
   reserva Reserva @relation(fields: [reservaId], references: [idReserva])
   tenant  Tenant? @relation(fields: [tenantId], references: [idTenant])
 
-  // Épico #6, 6.1b (N1/N2): numeración `AAAANNN` por tenant y año (el año va embebido en
-  // el literal), única por tenant. NULL mientras no se confirma (los NULL no colisionan en
-  // PostgreSQL). El reintento ante colisión (P2002) vive en el use-case de confirmación.
+  // Épico #6, 6.1b (N1/N2) + 6.2 (D2 Opción A): numeración `AAAANNN` por tenant, año y
+  // RÉGIMEN (el año va embebido en el literal). La unicidad incluye `regimenIva` para que
+  // CON y SIN mantengan secuencias independientes que pueden compartir el mismo literal
+  // (`2026001` en CON y en SIN sin colisión). NULL mientras no se confirma (los NULL no
+  // colisionan en PostgreSQL). El reintento ante colisión (P2002) vive en el use-case.
   @@unique([reservaId, version])
-  @@unique([tenantId, numeroPresupuesto])
+  @@unique([tenantId, regimenIva, numeroPresupuesto])
   @@map("presupuesto")
 }
 

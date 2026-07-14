@@ -21,8 +21,12 @@ export const Cabecera = ({ kit, estilos, cabecera }: CabeceraProps) => {
         <Text style={[estilos.cabeceraTitulo, { color: cabecera.colorPrimario }]}>
           {cabecera.nombreComercial}
         </Text>
-        <Text style={estilos.cabeceraLinea}>{cabecera.razonSocialFiscal}</Text>
-        <Text style={estilos.cabeceraLinea}>NIF: {cabecera.nif}</Text>
+        {cabecera.mostrarIdentidadFiscal ? (
+          <>
+            <Text style={estilos.cabeceraLinea}>{cabecera.razonSocialFiscal}</Text>
+            <Text style={estilos.cabeceraLinea}>NIF: {cabecera.nif}</Text>
+          </>
+        ) : null}
         <Text style={estilos.cabeceraLinea}>{cabecera.direccionFiscal}</Text>
         <Text style={estilos.cabeceraLinea}>{cabecera.web}</Text>
         <Text style={estilos.cabeceraLinea}>{cabecera.email}</Text>

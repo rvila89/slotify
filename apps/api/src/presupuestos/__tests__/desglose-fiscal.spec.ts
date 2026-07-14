@@ -26,6 +26,10 @@ import {
   type RepartoPago,
 } from '../domain/desglose-fiscal';
 
+// 6.2: el cálculo se parametriza por régimen. Estos escenarios congelados de 6.1b son
+// CON IVA (comportamiento no regresivo); se pasa el régimen explícito.
+const CON_IVA = 'con_iva' as const;
+
 // ===========================================================================
 // 3.3 — Desglose fiscal: base = total / 1.21, IVA = total - base, iva% = 21.
 //        Los importes se expresan como Decimal string (Importe/Porcentaje del
@@ -35,7 +39,10 @@ import {
 describe('calcularDesgloseFiscal — deriva base e IVA de un total con IVA incluido (3.3)', () => {
   it('debe_derivar_base_e_iva_de_un_total_de_1076_con_iva_21', () => {
     // 1076 / 1.21 = 889.26 (base); IVA = 1076 - 889.26 = 186.74.
-    const out: DesgloseFiscal = calcularDesgloseFiscal({ totalConIva: 1076 });
+    const out: DesgloseFiscal = calcularDesgloseFiscal({
+      totalConIva: 1076,
+      regimen: CON_IVA,
+    });
 
     expect(out.ivaPorcentaje).toBe('21.00');
     expect(out.baseImponible).toBe('889.26');
@@ -44,7 +51,7 @@ describe('calcularDesgloseFiscal — deriva base e IVA de un total con IVA inclu
   });
 
   it('debe_cumplir_la_invariante_base_mas_iva_igual_al_total', () => {
-    const out = calcularDesgloseFiscal({ totalConIva: 1136 });
+    const out = calcularDesgloseFiscal({ totalConIva: 1136, regimen: CON_IVA });
 
     const base = Number(out.baseImponible);
     const iva = Number(out.ivaImporte);
@@ -56,7 +63,11 @@ describe('calcularDesgloseFiscal — deriva base e IVA de un total con IVA inclu
 
   it('debe_restar_el_descuento_del_total_antes_de_derivar_base_e_iva', () => {
     // total bruto 1136, descuento 136 → total neto 1000; base = 1000/1.21 = 826.45.
-    const out = calcularDesgloseFiscal({ totalConIva: 1136, descuentoEur: 136 });
+    const out = calcularDesgloseFiscal({
+      totalConIva: 1136,
+      descuentoEur: 136,
+      regimen: CON_IVA,
+    });
 
     expect(out.total).toBe('1000.00');
     expect(out.baseImponible).toBe('826.45');
@@ -65,7 +76,7 @@ describe('calcularDesgloseFiscal — deriva base e IVA de un total con IVA inclu
 
   it('debe_aceptar_un_total_manual_del_caso_tarifa_a_consultar', () => {
     // Precio manual (IVA incluido) del caso >50 invitados: mismo cálculo fiscal.
-    const out = calcularDesgloseFiscal({ totalConIva: 2500 });
+    const out = calcularDesgloseFiscal({ totalConIva: 2500, regimen: CON_IVA });
 
     expect(out.total).toBe('2500.00');
     expect(out.ivaPorcentaje).toBe('21.00');
@@ -85,6 +96,7 @@ describe('calcularReparto — 40/60 + fianza derivados de TENANT_SETTINGS', () =
       totalConIva: 1000,
       pctSenal: 40,
       fianzaDefaultEur: 500,
+      regimen: CON_IVA,
     });
 
     expect(out.senalEur).toBe('400.00');
@@ -94,7 +106,12 @@ describe('calcularReparto — 40/60 + fianza derivados de TENANT_SETTINGS', () =
   });
 
   it('debe_cumplir_que_senal_mas_liquidacion_es_igual_al_total_sin_contar_la_fianza', () => {
-    const out = calcularReparto({ totalConIva: 1076, pctSenal: 40, fianzaDefaultEur: 500 });
+    const out = calcularReparto({
+      totalConIva: 1076,
+      pctSenal: 40,
+      fianzaDefaultEur: 500,
+      regimen: CON_IVA,
+    });
 
     const suma = Number(out.senalEur) + Number(out.liquidacionEur);
     expect(Number(suma.toFixed(2))).toBe(1076);
@@ -102,7 +119,12 @@ describe('calcularReparto — 40/60 + fianza derivados de TENANT_SETTINGS', () =
 
   it('debe_derivar_el_porcentaje_de_senal_del_setting_y_no_de_una_constante_fija', () => {
     // Con pct_senal = 30, la señal es 300 y la liquidación 700 (no 400/600).
-    const out = calcularReparto({ totalConIva: 1000, pctSenal: 30, fianzaDefaultEur: 500 });
+    const out = calcularReparto({
+      totalConIva: 1000,
+      pctSenal: 30,
+      fianzaDefaultEur: 500,
+      regimen: CON_IVA,
+    });
 
     expect(out.senalEur).toBe('300.00');
     expect(out.liquidacionEur).toBe('700.00');

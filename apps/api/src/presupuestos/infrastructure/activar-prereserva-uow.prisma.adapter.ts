@@ -21,11 +21,14 @@ import { Injectable } from '@nestjs/common';
 import {
   AccionAudit,
   EstadoPresupuesto,
+  MetodoPago,
   Prisma,
+  RegimenIva,
   SubEstadoConsulta,
   TipoBloqueo,
 } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
+import type { RegimenIva as RegimenIvaDominio } from '../domain/regimen-desde-metodo-pago';
 import type {
   AuditoriaPrereservaPort,
   ColaPrereservaRepositoryPort,
@@ -67,12 +70,21 @@ class PresupuestoPrismaRepository implements PresupuestoRepositoryPort {
   }
 
   /**
-   * Último `numero_presupuesto` del tenant en el año (para calcular el siguiente, N1). El
-   * año va embebido en el prefijo `AAAA`; se ordena descendente para tomar el mayor.
+   * Último `numero_presupuesto` del tenant en el año y RÉGIMEN dados (6.2 D2, doble
+   * secuencia): filtra por `regimen_iva` además de tenant y año. El año va embebido en el
+   * prefijo `AAAA`; se ordena descendente para tomar el mayor de ese régimen.
    */
-  async ultimoNumeroDelAnio(tenantId: string, anio: number): Promise<string | null> {
+  async ultimoNumeroDelAnio(
+    tenantId: string,
+    anio: number,
+    regimen: RegimenIvaDominio,
+  ): Promise<string | null> {
     const fila = await this.tx.presupuesto.findFirst({
-      where: { tenantId, numeroPresupuesto: { startsWith: String(anio) } },
+      where: {
+        tenantId,
+        regimenIva: regimen as RegimenIva,
+        numeroPresupuesto: { startsWith: String(anio) },
+      },
       orderBy: { numeroPresupuesto: 'desc' },
       select: { numeroPresupuesto: true },
     });
@@ -97,6 +109,8 @@ class PresupuestoPrismaRepository implements PresupuestoRepositoryPort {
             ? null
             : new Prisma.Decimal(params.descuentoEur),
         descuentoMotivo: params.descuentoMotivo,
+        metodoPago: params.metodoPago as MetodoPago,
+        regimenIva: params.regimenIva as RegimenIva,
       },
     });
     return {
@@ -109,6 +123,8 @@ class PresupuestoPrismaRepository implements PresupuestoRepositoryPort {
       ivaImporte: aImporte(fila.ivaImporte),
       tarifaCongelada: fila.tarifaCongelada,
       pdfUrl: fila.pdfUrl,
+      numeroPresupuesto: fila.numeroPresupuesto,
+      regimenIva: (fila.regimenIva ?? 'con_iva') as RegimenIvaDominio,
     };
   }
 }
