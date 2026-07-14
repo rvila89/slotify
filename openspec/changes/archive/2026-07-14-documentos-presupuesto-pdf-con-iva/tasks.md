@@ -104,5 +104,4 @@
 - [x] 9.1 Code-review APTO (2 Media resueltos) + PDF verificado + OK humano **APROBADO 2026-07-14**
 
 ## 10. Archivar change + abrir PR (OBLIGATORIO — archive)
-- [ ] 10.1 `openspec archive documentos-presupuesto-pdf-con-iva`; actualizar
-      `openspec/specs/`; abrir PR (solo tras gate final y code-review APTO)
+- [x] 10.1 `openspec archive documentos-presupuesto-pdf-con-iva` — archivado 2026-07-14; specs vivas `documentos` (+3) y `presupuestos` (+3) actualizadas; PR abierto hacia `master`
