@@ -1,8 +1,8 @@
 ---
 id: US-024
-estado: sdd
+estado: en_revision
 branch: feature/firma-condiciones-particulares-us024
-pr: null
+pr: 72
 ---
 
 # 🧾 Historia de Usuario: Registrar Firma de Condiciones Particulares
