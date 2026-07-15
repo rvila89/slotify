@@ -598,20 +598,77 @@ flowchart TD
 | **Nombre** | Marcar Consulta como Descartada por Cliente |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor registra que el cliente ha indicado explícitamente que no desea continuar |
-| **Precondiciones** | - Consulta en cualquier sub-estado no terminal |
-| **Postcondiciones** | - Consulta pasa a sub-estado 2.z<br>- Fecha liberada (si había bloqueo)<br>- Cola reordenada (si estaba en cola) |
+| **Descripción** | El Gestor registra que el cliente ha comunicado explícitamente su desistimiento, transicionando la consulta al sub-estado terminal `2z`. Es la variante manual de A17 (no hay portal de cliente en MVP). Los efectos secundarios dependen del sub-estado de origen: liberación de `FECHA_BLOQUEADA` si había bloqueo activo, promoción FIFO (A15) si había cola, o reordenación de la cola si la consulta era un elemento de ella. Implementado en **US-013** (change `us-013-descartar-consulta-por-cliente`). |
+| **Precondiciones** | - RESERVA en `estado = 'consulta'` con `sub_estado ∈ {2a, 2b, 2c, 2d, 2v}` (guarda de origen; terminales `2x`/`2y`/`2z` y estados `reserva_cancelada`/`reserva_completada` se rechazan sin efectos)<br>- Gestor autenticado con rol gestor sobre el tenant |
+| **Postcondiciones** | La transición a `sub_estado = '2z'` y todos sus efectos ocurren en una **única transacción all-or-nothing** bajo el contexto RLS del tenant, serializada por `SELECT … FOR UPDATE` sobre `FECHA_BLOQUEADA` (cuando el origen tiene bloqueo) y/o la RESERVA. Efectos por origen:<br>- **`2a`**: solo marca `2z`; no hay `FECHA_BLOQUEADA` ni cola que tocar<br>- **`2b`/`2c`/`2v` (sin cola)**: `2z` + `liberarFecha()` elimina la fila de `FECHA_BLOQUEADA`; si la cola resultante es vacía, sin acción adicional<br>- **`2b`/`2v` (con cola activa)**: `2z` + `liberarFecha()` + disparo de `PromocionColaPort.promoverPrimeroEnCola()` **una sola vez** (seam A15, mecánica UC-12 / US-018): la primera en cola (`posicion_cola = 1`) pasa a `2b`, re-bloqueo atómico vía `bloquearFecha()` y reordenación del resto re-apuntando `consulta_bloqueante_id`<br>- **`2d`** (en cola de otra bloqueante `B`): `2z` + `posicion_cola → NULL` + `consulta_bloqueante_id → NULL`; decremento de `posicion_cola` de todas las RESERVA en `2d` con el mismo `consulta_bloqueante_id = B` y `posicion_cola > P`; la bloqueante `B` no se modifica; no se libera `FECHA_BLOQUEADA`<br>- **Motivo opcional**: si el Gestor provee motivo, se **anexa** a `RESERVA.notas` como `notas_previas + "\n[descarte cliente] " + motivo`; si no se proporciona, `notas` permanece sin cambios<br>- `AUDIT_LOG`: `accion='transicion'`, `entidad='RESERVA'`, `datos_anteriores.sub_estado=<origen>`, `datos_nuevos.sub_estado='2z'`<br>- **Sin email al cliente**: la transición a `2z` no activa ningún código E1–E8 del catálogo; la auditoría de `liberarFecha()` y la de la promoción son registradas por sus propios seams sin duplicarse aquí |
 | **Prioridad** | Media |
 | **Frecuencia** | Media |
+| **US** | US-013 |
+| **Endpoint** | `POST /reservas/{id}/descartar` — body `{ motivo?: string }` (operationId `descartarConsultaPorCliente`) |
+| **Entidades afectadas** | RESERVA (UPDATE `sub_estado='2z'`, `notas` si hay motivo), FECHA_BLOQUEADA (DELETE vía `liberarFecha()` en orígenes `2b`/`2c`/`2v`), AUDIT_LOG — sin migración nueva (columnas y enums existentes desde US-000/US-004) |
 
-**Flujo Básico:**
-1. El gestor abre la ficha de consulta
-2. El gestor selecciona "Marcar como descartada"
-3. El gestor opcionalmente indica motivo
-4. El sistema cambia sub-estado a 2.z
-5. Si había bloqueo: el sistema libera la fecha
-6. Si estaba en cola: el sistema reordena la cola
-7. El sistema registra en audit log
+**Tabla de efectos por origen (fuente de verdad del spec-delta):**
+
+| Origen | → sub_estado | ¿Libera fecha? | ¿Promueve cola (A15)? | ¿Reordena cola (decremento)? |
+|--------|-------------|----------------|-----------------------|------------------------------|
+| `2a`   | `2z`        | No             | No                    | No                           |
+| `2b` sin cola | `2z` | Sí (`liberarFecha()`) | No (cola vacía → no-op) | No |
+| `2b` con cola | `2z` | Sí (`liberarFecha()`) | Sí, una vez (A15) | No (A15 reordena internamente) |
+| `2c`   | `2z`        | Sí (`liberarFecha()`) | No (cola ya vaciada en `2c`) | No |
+| `2d`   | `2z`        | No             | No                    | Sí (decremento de `posicion_cola > P`) |
+| `2v` sin cola | `2z` | Sí (`liberarFecha()`) | No | No |
+| `2v` con cola heredada | `2z` | Sí (`liberarFecha()`) | Sí, una vez (A15) | No |
+
+**Distinción de terminales:**
+- `2z` = descartada **por cliente** (esta US, manual, A17)
+- `2y` = descartada por cola al activar pre-reserva (US-014, A16)
+- `2x` = expirada por barrido de TTL (US-012, A21)
+
+**Flujo Básico (origen 2b con cola):**
+1. El gestor abre la ficha de consulta en `sub_estado = '2b'` (o cualquier sub-estado no terminal)
+2. El gestor selecciona "Marcar como descartada por cliente" (botón deshabilitado en terminales `2x`/`2y`/`2z`/`reserva_cancelada`/`reserva_completada`)
+3. El gestor introduce motivo opcional en el diálogo de confirmación y confirma
+4. El sistema valida la guarda de origen: `estado = 'consulta'` y `sub_estado ∈ {2a,2b,2c,2d,2v}` (422 si no cumple)
+5. El sistema resuelve la tabla de efectos por origen (declarativa, no `if` dispersos)
+6. En una única transacción all-or-nothing serializada por `SELECT … FOR UPDATE` sobre la fila `FECHA_BLOQUEADA`:
+   - Marca la RESERVA: `sub_estado = '2z'`; si hay motivo, anexa a `notas`
+   - Invoca `liberarFecha()` (eliminación atómica de la fila de `FECHA_BLOQUEADA`)
+   - Dispara `PromocionColaPort.promoverPrimeroEnCola({ tenantId, fecha })` exactamente una vez (la cola tiene candidatos)
+   - Registra `AUDIT_LOG accion='transicion'`, `datos_anteriores.sub_estado='2b'`, `datos_nuevos.sub_estado='2z'`
+7. El sistema responde `200` con la RESERVA en `sub_estado='2z'`; el frontend re-consulta la cola/pipeline para reflejar la promoción
+
+**Flujos Alternativos:**
+- **FA-01** (origen `2a` — sin bloqueo ni cola): solo cambia `sub_estado = '2z'`; no se busca ni elimina `FECHA_BLOQUEADA`; sin acciones sobre cola; `200` con RESERVA en `2z`
+- **FA-02** (origen `2b`/`2v` sin cola): `liberarFecha()` elimina la fila; la búsqueda de candidatos devuelve 0 y no dispara promoción; `200`
+- **FA-03** (origen `2c`): `liberarFecha()` elimina la fila; la cola ya se vació al entrar en `2c`, por lo que la operación de cola es vacía (0 filas, sin error); `200`
+- **FA-04** (origen `2d`): la RESERVA sale de la cola (`posicion_cola → NULL`, `consulta_bloqueante_id → NULL`); se decrementan las `posicion_cola` de las que estaban detrás (`posicion_cola > P`); la bloqueante no se toca; no se libera `FECHA_BLOQUEADA`; `200`
+- **FA-05** (sin motivo): la transición completa normalmente; `RESERVA.notas` permanece sin cambios; `200`
+- **FA-06** (guarda de origen — RESERVA en estado terminal): `sub_estado ∈ {2x,2y,2z}` o estado `reserva_cancelada`/`reserva_completada` → el sistema retorna `409` "Esta consulta ya está en un estado terminal y no puede modificarse"; sin mutaciones
+- **FA-07** (doble descarte concurrente — RC-3): la primera transacción marca `2z`; la segunda, al releer bajo lock, encuentra la RESERVA ya en terminal → `409` con mensaje informativo (la UI lo muestra como mensaje de información, no error crítico)
+- **FA-08** (descarte vs barrido TTL — RC-1): si el barrido de expiración (US-012) y el descarte compiten sobre la misma RESERVA, la primera transacción en commitear gana; la segunda observa el sub-estado ya terminal y no actúa; el resultado final es `2z` **o** `2x`, nunca ambos
+- **FA-09** (liberación vs nuevo bloqueo — RC-2): `UNIQUE(tenant_id, fecha)` garantiza que la nueva solicitud de bloqueo de esa fecha solo puede insertarse **después** de que la eliminación del descarte confirme; nunca coexisten dos bloqueos activos
+
+```mermaid
+flowchart TD
+    A[Gestor: Marcar como descartada por cliente + motivo opcional] --> B{Guarda de origen: estado=consulta y sub_estado ∈ 2a|2b|2c|2d|2v?}
+    B -->|Terminal o estado no consulta| C[409 — Estado terminal inmutable]
+    B -->|Válido| D{sub_estado origen?}
+    D -->|2a| E[Tx: UPDATE RESERVA sub_estado=2z + notas opc + AUDIT_LOG]
+    E --> Z[200 — RESERVA sub_estado=2z]
+    D -->|2b ó 2c ó 2v| F[Tx SELECT…FOR UPDATE fila FECHA_BLOQUEADA]
+    F --> G[UPDATE RESERVA sub_estado=2z + notas opc]
+    G --> H[liberarFecha — DELETE FECHA_BLOQUEADA]
+    H --> I{Cola activa 2b/2v?}
+    I -->|No o 2c| J[AUDIT_LOG transicion]
+    I -->|Sí 2b/2v| K[PromocionColaPort.promoverPrimeroEnCola una vez]
+    K --> J
+    J --> Z
+    D -->|2d| L[Tx SELECT…FOR UPDATE RESERVA + cola]
+    L --> M[UPDATE RESERVA: sub_estado=2z, posicion_cola=NULL, consulta_bloqueante_id=NULL]
+    M --> N[UPDATE posicion_cola−1 de RESERVA 2d con mismo bloqueante y posicion_cola > P]
+    N --> O[AUDIT_LOG transicion]
+    O --> Z
+```
 
 ---
 
@@ -797,19 +854,22 @@ sequenceDiagram
 | **Nombre** | Salir Voluntariamente de la Cola |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | Un cliente en cola decide no esperar más y sale voluntariamente |
-| **Precondiciones** | - Consulta en sub-estado 2.d |
-| **Postcondiciones** | - Consulta pasa a sub-estado 2.z<br>- Cola reordenada |
+| **Descripción** | Un cliente en cola (`sub_estado = '2d'`) comunica al Gestor que no desea seguir esperando. El Gestor ejecuta la salida en nombre del cliente. Este caso de uso es la **rama `2d`** del descarte por cliente (UC-10 / US-013): comparte el mismo endpoint `POST /reservas/{id}/descartar` con `{ motivo?: string }` y la misma transacción all-or-nothing. Efectos específicos de la rama `2d`: `sub_estado → '2z'`, `posicion_cola → NULL`, `consulta_bloqueante_id → NULL`; decremento de `posicion_cola` del resto de la cola de la misma bloqueante (cierre de hueco); la bloqueante no se toca; no se libera `FECHA_BLOQUEADA`. Ver ficha completa en **UC-10**. |
+| **Precondiciones** | - Consulta en `sub_estado = '2d'` (en cola de espera; equivale a la rama `2d` de UC-10) |
+| **Postcondiciones** | - Consulta pasa a `sub_estado = '2z'` (terminal)<br>- `posicion_cola = NULL`, `consulta_bloqueante_id = NULL`<br>- Cola reordenada: `posicion_cola − 1` para las que estaban por detrás<br>- `AUDIT_LOG accion='transicion'`, sin email al cliente |
 | **Prioridad** | Media |
 | **Frecuencia** | Baja |
+| **US** | US-013 (rama origen `2d`) |
+| **Endpoint** | Ver UC-10 — `POST /reservas/{id}/descartar` |
 
 **Flujo Básico (gestor):**
-1. El gestor abre la ficha de consulta en cola
-2. El gestor selecciona "Forzar salida de cola"
+1. El gestor abre la ficha de consulta en cola (`sub_estado = '2d'`)
+2. El gestor selecciona "Marcar como descartada por cliente" (misma acción que UC-10)
 3. El gestor opcionalmente indica motivo
-4. El sistema cambia sub-estado de 2.d a 2.z
-5. El sistema reordena la cola (los siguientes suben una posición)
-6. El sistema muestra confirmación al cliente
+4. El sistema ejecuta la rama `2d` de la transición de descarte: `sub_estado → '2z'`, sale de la cola, reordena posiciones del resto
+5. El sistema registra en `AUDIT_LOG`
+
+> Para el detalle completo del flujo, flujos alternativos, concurrencia y diagrama, ver **UC-10** (implementado en **US-013**).
 
 ---
 
@@ -2229,23 +2289,26 @@ stateDiagram-v2
     consulta_2a --> consulta_2b: Indica fecha libre
     consulta_2a --> consulta_2v: Solicita visita
     consulta_2a --> pre_reserva: Info completa
+    consulta_2a --> consulta_2z: Cliente descarta (US-013)
     
     consulta_2b --> consulta_2c: Confirma pero<br>falta invitados
     consulta_2b --> consulta_2v: Solicita visita
     consulta_2b --> pre_reserva: Info completa
     consulta_2b --> consulta_2x: TTL 3d expira
+    consulta_2b --> consulta_2z: Cliente descarta (US-013)
     
     consulta_2c --> pre_reserva: Info completa
     consulta_2c --> consulta_2x: TTL expira
+    consulta_2c --> consulta_2z: Cliente descarta (US-013)
     
     consulta_2d --> consulta_2b: Promoción automática FIFO (US-018) o manual por Gestor (US-019)
     consulta_2d --> consulta_2y: Bloqueante avanza
-    consulta_2d --> consulta_2z: Cliente sale
+    consulta_2d --> consulta_2z: Cliente descarta (US-013)
     
     consulta_2v --> consulta_2b: Visita OK<br>+ interés
     consulta_2v --> pre_reserva: Visita OK<br>+ reserva inmediata
     consulta_2v --> consulta_2x: Bloqueo expira
-    consulta_2v --> consulta_2z: Cliente descarta
+    consulta_2v --> consulta_2z: Cliente descarta (US-013)
     
     pre_reserva --> reserva_confirmada: Señal cobrada
     pre_reserva --> reserva_cancelada: TTL 7d expira
@@ -2338,6 +2401,7 @@ Este análisis ha identificado **38 casos de uso** que cubren completamente la f
 
 ---
 
+*Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.8 (15/07/2026): refleja US-013 — Marcar consulta como descartada por cliente (UC-10 / A17): reemplaza la ficha stub de UC-10 con la especificación completa implementada: guarda de origen declarativa `{consulta, sub_estado ∈ {2a,2b,2c,2d,2v}}`; tabla de efectos por origen (liberación de `FECHA_BLOQUEADA`, promoción FIFO A15 vía `PromocionColaPort`, reordenación de cola o no-op según el sub-estado de partida); motivo opcional anexado a `RESERVA.notas`; atomicidad all-or-nothing; endpoint `POST /reservas/{id}/descartar` con body `{ motivo?: string }` (operationId `descartarConsultaPorCliente`); flujos alternativos FA-01..FA-09 (incluyendo RC-1/RC-2/RC-3 de concurrencia); diagrama Mermaid; distinción semántica de terminales `2x`/`2y`/`2z`; sin email al cliente (no mapeado a ningún código E1–E8). Actualiza el diagrama de estados §6: añade las aristas `consulta_2a`/`consulta_2b`/`consulta_2c → consulta_2z` que faltaban (ya existían `2d→2z` y `2v→2z`). Sin migración de esquema (columnas y enums ya existentes desde US-000/US-004).*
 *Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.7 (07/07/2026): refleja US-049 y US-050 — Pipeline de Reservas. UC-37 (Kanban) y UC-38 (Listado) marcados como implementados. Añadidos a la tabla §5, a la matriz de trazabilidad §7.1 y actualizados los totales de §8 (36 → 38 casos, 12 → 13 áreas). Fix de conformidad del backend (US-050 bloque 5b): la proyección de `GET /reservas` ahora es conforme al schema `Reserva` del contrato — emite `idReserva` (no `id`) y propaga `fechaEvento`, `numInvitadosFinal`, `numAdultosNinosMayores4`, `numNinosMenores4`, `notas`. Fix de filtro (US-050 bloque 5c): el adaptador admite `subEstado IS NULL` vía `AND/OR`, por lo que `pre_reserva`, `reserva_confirmada`, `evento_en_curso` y `post_evento` (con `subEstado = null`) aparecen correctamente en el pipeline. Ninguno de los dos fixes supone cambio de contrato ni de esquema de datos.*
 *Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.6 (04/07/2026): refleja US-028 — Gestor Aprueba y Envía la Factura de Liquidación (UC-21 / UC-22): actualiza el flujo básico de UC-21 — paso 3 añade la posibilidad de descuento negociado en borrador (D-2 US-028); paso 4 documenta `AprobarYEnviarLiquidacionUseCase` con atomicidad síncrona E4 confirmada (D-1 US-028: excepción al patrón post-commit, rollback total si E4 falla); pasos 5–6 detallan los efectos (`liquidacion_status='facturada'`, `fianza_status='recibo_enviado'`, `COMUNICACION E4 es_reenvio=false`); añade FA-02 (rollback total ante fallo de E4), FA-03 (reenvío D-4 US-028: `es_reenvio=true`, sin reasignación fiscal), FA-04 (descuento negociado), FA-05 (PDF no disponible). Actualiza el flujo básico de UC-22 — paso 3 documenta `EnviarReciboFianzaUseCase` (US-028 D-3: endpoint `POST /reservas/{id}/facturas/fianza/enviar`, `codigo_email='manual'`, solo `fianza_status`); añade FA-03 (fianza ya enviada antes de la aprobación de liquidación — E4 no sobreescribe). Sin cambios en UC-28 (sigue siendo "Archivar Reserva", distinto de US-028 de facturación).*
 *Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 1.5 (03/07/2026): refleja US-010 — Registrar resultado de visita: reserva inmediata (2.v → pre_reserva / UC-08 FA-08 / UC-14): actualiza la ficha de UC-08 con la descripción del flujo B implementado (US-010), postcondiciones para "reserva inmediata" (`estado='pre_reserva'`, `sub_estado=NULL`, TTL de 7 días, cola A16 vaciada, sin email propio), endpoint polimórfico (`resultado: "interesado" | "reserva_inmediata"`), entidades afectadas ampliadas; añade el Flujo Básico B (pasos 1–8) con validación de datos obligatorios UC-14 + transacción RESERVA + FECHA_BLOQUEADA UPDATE + cola A16 + AUDIT_LOG; añade FA-10 (datos incompletos — 422 con `camposFaltantes`), FA-11 (cola vacía — válida), FA-12 (concurrencia D4 y vaciado de cola); actualiza el diagrama Mermaid con la rama `reserva_inmediata`. Sin migración de esquema (todos los campos ya existían desde US-000/US-008).*

@@ -1055,6 +1055,92 @@ export const resolverArchivadoAutomatico = (
 };
 
 // ---------------------------------------------------------------------------
+// Transición de DESCARTE POR CLIENTE → 2.z (US-013 / UC-10 / A17 / §D-1/§D-4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Destino resuelto de un descarte por cliente: el `(estado, subEstado)` terminal al que
+ * transiciona una RESERVA de consulta activa cuando el Gestor la marca como descartada por
+ * el cliente. Es el resultado puro de `resolverDescarteCliente`; `null` (no representado
+ * aquí) indica que el origen NO es un sub_estado no terminal de consulta (guarda de origen).
+ */
+export interface ResultadoDescarteCliente {
+  estado: EstadoReserva;
+  subEstado: SubEstadoConsulta;
+}
+
+/**
+ * Entrada de la tabla declarativa de descarte por cliente: `origen` (consulta no terminal) →
+ * `destino` terminal `2.z`. Modela la transición como ESTRUCTURA DE DATOS (skill
+ * `state-machine`, NO condicionales dispersos), en paralelo estricto a `MAPA_EXPIRACION_TTL`
+ * (US-012) y `MAPA_PROMOCION_COLA` (US-018).
+ */
+interface TransicionDescarteCliente {
+  origen: { estado: EstadoReserva; subEstado: SubEstadoConsulta | null };
+  destino: ResultadoDescarteCliente;
+}
+
+/**
+ * Tabla declarativa `MAPA_DESCARTE_CLIENTE` (US-013, §D-1): mapea cada sub_estado NO TERMINAL
+ * de la fase `consulta` a su destino terminal `2.z` por el descarte manual del Gestor en
+ * nombre del cliente (A17). Es la ÚNICA fuente de verdad de qué se descarta y a dónde (no `if`
+ * dispersos):
+ *   { consulta, 2a } → { consulta, 2z }
+ *   { consulta, 2b } → { consulta, 2z }
+ *   { consulta, 2c } → { consulta, 2z }
+ *   { consulta, 2d } → { consulta, 2z }
+ *   { consulta, 2v } → { consulta, 2z }
+ *
+ * El destino del descarte por CLIENTE es SIEMPRE `2.z` (§D-4) — NUNCA `2.x` (expiración por
+ * TTL, US-012) ni `2.y` (vaciado de cola al activar pre-reserva, US-014): `2.z` es un terminal
+ * SEMÁNTICAMENTE DISTINTO. Cualquier origen ausente de esta tabla —los terminales
+ * `2x/2y/2z`, la consulta sin sub_estado (defensivo), y todo estado principal distinto de
+ * `consulta` (incluidos `reserva_cancelada`/`reserva_completada`, inmutables)— NO es un origen
+ * válido: `resolverDescarteCliente` devuelve `null` y el descarte se rechaza sin efectos
+ * (guarda de origen). Al ser pura y re-evaluable, la guarda se invoca DENTRO de la transacción
+ * bajo el `SELECT … FOR UPDATE` (base de RC-1/RC-3) — sin locks distribuidos.
+ */
+export const MAPA_DESCARTE_CLIENTE: ReadonlyArray<TransicionDescarteCliente> = [
+  {
+    origen: { estado: 'consulta', subEstado: '2a' },
+    destino: { estado: 'consulta', subEstado: '2z' },
+  },
+  {
+    origen: { estado: 'consulta', subEstado: '2b' },
+    destino: { estado: 'consulta', subEstado: '2z' },
+  },
+  {
+    origen: { estado: 'consulta', subEstado: '2c' },
+    destino: { estado: 'consulta', subEstado: '2z' },
+  },
+  {
+    origen: { estado: 'consulta', subEstado: '2d' },
+    destino: { estado: 'consulta', subEstado: '2z' },
+  },
+  {
+    origen: { estado: 'consulta', subEstado: '2v' },
+    destino: { estado: 'consulta', subEstado: '2z' },
+  },
+];
+
+/**
+ * Guarda + resolución declarativa del descarte por cliente (US-013, §D-1/§D-4): función PURA
+ * que consulta `MAPA_DESCARTE_CLIENTE` y devuelve el destino terminal (`2.z`) del origen
+ * `(estado, subEstado)`, o `null` si NO es un sub_estado no terminal de consulta (guarda de
+ * origen: terminales y no-orígenes → `null`, se rechaza sin efectos). Al ser pura y
+ * re-evaluable, se invoca DENTRO de la transacción bajo el lock (base de RC-1/RC-3).
+ */
+export const resolverDescarteCliente = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): ResultadoDescarteCliente | null => {
+  const transicion = MAPA_DESCARTE_CLIENTE.find(
+    (t) => t.origen.estado === estado && t.origen.subEstado === subEstado,
+  );
+  return transicion ? transicion.destino : null;
+};
+
+// ---------------------------------------------------------------------------
 // Guarda PURA de la FIANZA RESUELTA del archivado automático (US-037 / §D-6)
 // ---------------------------------------------------------------------------
 

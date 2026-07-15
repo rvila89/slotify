@@ -943,6 +943,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/descartar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Marcar consulta como descartada por cliente — transición {2a|2b|2c|2d|2v}→2z (UC-10 / US-013)
+         * @description [US-013] El **Gestor** (JWT de usuario, RLS del tenant del JWT — NUNCA `X-Cron-Token`) marca
+         *     **en nombre del cliente** (no hay portal de cliente en el MVP) una RESERVA en
+         *     `estado='consulta'` con `subEstado ∈ {2a,2b,2c,2d,2v}` como **descartada por cliente**,
+         *     transicionándola a `subEstado='2z'` (terminal e **inmutable**). `2z` es un terminal
+         *     semánticamente distinto de `2x` (expiración por TTL, US-012) y `2y` (vaciado de cola al activar
+         *     pre-reserva, US-014); la máquina de estados declarativa lo modela como arista propia.
+         *
+         *     En una **única transacción** atómica bajo el contexto RLS del tenant, serializada por
+         *     `SELECT … FOR UPDATE` sobre la fila de `FECHA_BLOQUEADA` (cuando el origen tiene bloqueo) y/o
+         *     sobre la fila RESERVA (sin Redis ni locks distribuidos), el sistema re-evalúa **bajo el lock** la
+         *     guarda de origen y ejecuta los efectos secundarios **según el sub-estado de origen** (tabla
+         *     declarativa design.md §D-1) — todo INTERNO al backend, no expuesto en el contrato:
+         *     - `2a`: solo marca `2z` (no hay bloqueo ni cola).
+         *     - `2b`/`2c`/`2v`: libera la FECHA_BLOQUEADA vía `liberarFecha()` (US-040/US-041).
+         *     - `2b`/`2v` **con cola**: además dispara **una única vez** la promoción FIFO A15
+         *       (`promoverPrimeroEnCola`, US-018/US-041): la primera en cola pasa a `2b` (nueva bloqueante) y
+         *       el resto reordena. La respuesta refleja al menos el nuevo estado de la RESERVA descartada
+         *       (`2z`); el frontend re-consulta la cola/pipeline para ver la promoción (mismo patrón que
+         *       `POST /reservas/{id}/salir-cola` y `/promover`, que devuelven la RESERVA principal).
+         *     - `2d`: sale de la cola (`posicionCola→null`, `consultaBloqueanteId→null`) y **decrementa** la
+         *       posición del resto de la cola de la misma bloqueante; NO libera fecha ni promueve.
+         *
+         *     Si el Gestor aporta `motivo`, se **anexa** a `RESERVA.notas` dentro de la misma transacción
+         *     (decisión del Gate; append, no sobrescritura); sin `motivo` la transición completa igual y
+         *     `notas` no se toca. Se escribe `AUDIT_LOG` `accion='transicion'`, `entidad='RESERVA'`,
+         *     `datos_anteriores.sub_estado=<origen>`, `datos_nuevos.sub_estado='2z'`. **NO** se envía ningún
+         *     email al cliente (esta acción no está mapeada a ningún código E1–E8). La auditoría de
+         *     `liberarFecha()` y de la promoción las registran sus respectivos seams; esta acción NO las
+         *     duplica.
+         *
+         *     **Concurrencia (RC-1/RC-2/RC-3)**: el descarte, el barrido de TTL de US-012 y un doble clic del
+         *     gestor se serializan por `SELECT … FOR UPDATE`; exactamente una operación gana. Un segundo
+         *     descarte (o una carrera perdida contra el TTL) observa la RESERVA fuera de un sub-estado activo
+         *     bajo el lock y termina como **409** (estado terminal inmutable), sin doble transición, sin doble
+         *     AUDIT_LOG y sin doble liberación/promoción. La `UNIQUE(tenant_id, fecha)` impide dos bloqueos
+         *     activos simultáneos sobre la misma fecha.
+         */
+        post: operations["descartarConsultaPorCliente"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tarifas/calcular": {
         parameters: {
             query?: never;
@@ -4536,6 +4594,24 @@ export interface components {
             /** @example No se puede archivar la reserva: la fianza está pendiente de resolución. Registra la devolución o retención de fianza antes de archivar. */
             message?: unknown;
         };
+        /** @description Cuerpo opcional de la acción de descarte por cliente. `motivo` es opcional: si se envía, se anexa a `RESERVA.notas`; si se omite, la transición a `2z` completa igual sin tocar `notas`. */
+        DescartarConsultaRequest: {
+            /**
+             * @description Motivo del descarte comunicado por el cliente (OPCIONAL). El backend lo anexa a `RESERVA.notas`. La ausencia de motivo no bloquea ni retrasa la transición.
+             * @example El cliente ha decidido celebrar el evento en otra ubicación.
+             */
+            motivo?: string | null;
+        };
+        DescartarConsultaConflictError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Discriminador del 409: la RESERVA está en un sub-estado/estado terminal, por lo que la transición a `2z` no es aplicable (incluye doble descarte concurrente y carrera perdida contra el barrido de TTL de US-012).
+             * @example transicion_no_permitida
+             * @enum {string}
+             */
+            code: "transicion_no_permitida";
+            /** @example Esta consulta ya está en un estado terminal y no puede modificarse */
+            message?: unknown;
+        };
         RegistrarIbanDevolucionRequest: {
             /**
              * @description IBAN a registrar (se normaliza en servidor: mayúsculas, sin espacios). Se valida por checksum módulo 97 antes de persistir; un IBAN que no supere mod-97 devuelve 422 (FA-01).
@@ -5225,6 +5301,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    descartarConsultaPorCliente: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DescartarConsultaRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Consulta descartada: RESERVA en `estado='consulta'`, `subEstado='2z'` (terminal). Devuelve
+             *     la RESERVA descartada actualizada. Si el origen (`2b`/`2v` con cola) disparó la promoción
+             *     A15, la RESERVA promovida cambia por separado; el frontend refleja ese cambio re-consultando
+             *     la cola/pipeline (mismo patrón que `/salir-cola` y `/promover`).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Reserva"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado (mapeo F5-02; RC-3 / RC-1): la RESERVA `{id}` está en un sub-estado
+             *     terminal (`2x`/`2y`/`2z`) o en un estado terminal (`reserva_cancelada`/`reserva_completada`),
+             *     así que la transición a `2z` no es aplicable — incluido el doble descarte concurrente
+             *     (segunda petición) y la carrera perdida contra el barrido de TTL de US-012. Sin efectos, sin
+             *     doble transición, sin liberar/promover. Mensaje: "Esta consulta ya está en un estado
+             *     terminal y no puede modificarse".
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DescartarConsultaConflictError"];
                 };
             };
         };

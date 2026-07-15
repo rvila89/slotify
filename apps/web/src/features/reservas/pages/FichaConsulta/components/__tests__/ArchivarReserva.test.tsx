@@ -48,6 +48,7 @@ const renderAcciones = (r: Reserva, onArchivarReserva = vi.fn()) =>
       onConfirmarSenal={noop}
       onFinalizarEvento={noop}
       onArchivarReserva={onArchivarReserva}
+      onDescartarConsulta={noop}
     />,
   );
 

@@ -45,6 +45,7 @@ const renderAcciones = (r: Reserva) =>
       onConfirmarSenal={noop}
       onFinalizarEvento={noop}
       onArchivarReserva={noop}
+      onDescartarConsulta={noop}
     />,
   );
 

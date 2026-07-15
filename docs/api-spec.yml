@@ -910,6 +910,98 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Reserva' }
 
+  # ============================ US-013: DESCARTE POR CLIENTE → 2z ============================
+  # [US-013 / UC-10 · A17] Endpoint de ACCIÓN dedicado (Opción A confirmada en el Gate SDD, design.md
+  # §D-5), calcado del patrón de las demás transiciones de RESERVA (POST /reservas/{id}/finalizar-evento,
+  # /archivar): acción MANUAL del Gestor (JWT del usuario, RLS del tenant del JWT — NUNCA X-Cron-Token:
+  # no es el barrido de TTL de US-012 que produce `2x`). Transiciona una única RESERVA en
+  # `estado='consulta'` con `subEstado ∈ {2a,2b,2c,2d,2v}` (no terminal) a `subEstado='2z'` (descartada
+  # por cliente, terminal e inmutable). Los efectos secundarios por origen (liberar FECHA_BLOQUEADA vía
+  # `liberarFecha()`, promoción FIFO A15 vía `promoverPrimeroEnCola` en 2b/2v con cola, reordenación de
+  # cola en 2d) son INTERNOS al backend (seams US-018/US-040/US-041) y NO se exponen en el contrato: el
+  # contrato solo declara la acción y devuelve la RESERVA resultante. El `{id}` identifica la ÚNICA
+  # RESERVA a descartar; `tenant_id` y `usuario_id` DERIVAN SIEMPRE del JWT, nunca del path ni del body.
+  /reservas/{id}/descartar:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Reservas]
+      summary: Marcar consulta como descartada por cliente — transición {2a|2b|2c|2d|2v}→2z (UC-10 / US-013)
+      operationId: descartarConsultaPorCliente
+      description: |
+        [US-013] El **Gestor** (JWT de usuario, RLS del tenant del JWT — NUNCA `X-Cron-Token`) marca
+        **en nombre del cliente** (no hay portal de cliente en el MVP) una RESERVA en
+        `estado='consulta'` con `subEstado ∈ {2a,2b,2c,2d,2v}` como **descartada por cliente**,
+        transicionándola a `subEstado='2z'` (terminal e **inmutable**). `2z` es un terminal
+        semánticamente distinto de `2x` (expiración por TTL, US-012) y `2y` (vaciado de cola al activar
+        pre-reserva, US-014); la máquina de estados declarativa lo modela como arista propia.
+
+        En una **única transacción** atómica bajo el contexto RLS del tenant, serializada por
+        `SELECT … FOR UPDATE` sobre la fila de `FECHA_BLOQUEADA` (cuando el origen tiene bloqueo) y/o
+        sobre la fila RESERVA (sin Redis ni locks distribuidos), el sistema re-evalúa **bajo el lock** la
+        guarda de origen y ejecuta los efectos secundarios **según el sub-estado de origen** (tabla
+        declarativa design.md §D-1) — todo INTERNO al backend, no expuesto en el contrato:
+        - `2a`: solo marca `2z` (no hay bloqueo ni cola).
+        - `2b`/`2c`/`2v`: libera la FECHA_BLOQUEADA vía `liberarFecha()` (US-040/US-041).
+        - `2b`/`2v` **con cola**: además dispara **una única vez** la promoción FIFO A15
+          (`promoverPrimeroEnCola`, US-018/US-041): la primera en cola pasa a `2b` (nueva bloqueante) y
+          el resto reordena. La respuesta refleja al menos el nuevo estado de la RESERVA descartada
+          (`2z`); el frontend re-consulta la cola/pipeline para ver la promoción (mismo patrón que
+          `POST /reservas/{id}/salir-cola` y `/promover`, que devuelven la RESERVA principal).
+        - `2d`: sale de la cola (`posicionCola→null`, `consultaBloqueanteId→null`) y **decrementa** la
+          posición del resto de la cola de la misma bloqueante; NO libera fecha ni promueve.
+
+        Si el Gestor aporta `motivo`, se **anexa** a `RESERVA.notas` dentro de la misma transacción
+        (decisión del Gate; append, no sobrescritura); sin `motivo` la transición completa igual y
+        `notas` no se toca. Se escribe `AUDIT_LOG` `accion='transicion'`, `entidad='RESERVA'`,
+        `datos_anteriores.sub_estado=<origen>`, `datos_nuevos.sub_estado='2z'`. **NO** se envía ningún
+        email al cliente (esta acción no está mapeada a ningún código E1–E8). La auditoría de
+        `liberarFecha()` y de la promoción las registran sus respectivos seams; esta acción NO las
+        duplica.
+
+        **Concurrencia (RC-1/RC-2/RC-3)**: el descarte, el barrido de TTL de US-012 y un doble clic del
+        gestor se serializan por `SELECT … FOR UPDATE`; exactamente una operación gana. Un segundo
+        descarte (o una carrera perdida contra el TTL) observa la RESERVA fuera de un sub-estado activo
+        bajo el lock y termina como **409** (estado terminal inmutable), sin doble transición, sin doble
+        AUDIT_LOG y sin doble liberación/promoción. La `UNIQUE(tenant_id, fecha)` impide dos bloqueos
+        activos simultáneos sobre la misma fecha.
+      requestBody:
+        # Motivo OPCIONAL (design.md §D-5, Gate). Sin body — o body vacío — la transición completa
+        # igual y no toca `RESERVA.notas`. `additionalProperties: false` cierra el shape.
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DescartarConsultaRequest' }
+      responses:
+        '200':
+          description: |
+            Consulta descartada: RESERVA en `estado='consulta'`, `subEstado='2z'` (terminal). Devuelve
+            la RESERVA descartada actualizada. Si el origen (`2b`/`2v` con cola) disparó la promoción
+            A15, la RESERVA promovida cambia por separado; el frontend refleja ese cambio re-consultando
+            la cola/pipeline (mismo patrón que `/salir-cola` y `/promover`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reserva' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          # Autenticado pero sin rol/tenant para la acción manual del Gestor.
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          # RESERVA `{id}` inexistente o de otro tenant (invisible bajo RLS).
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            Conflicto de estado (mapeo F5-02; RC-3 / RC-1): la RESERVA `{id}` está en un sub-estado
+            terminal (`2x`/`2y`/`2z`) o en un estado terminal (`reserva_cancelada`/`reserva_completada`),
+            así que la transición a `2z` no es aplicable — incluido el doble descarte concurrente
+            (segunda petición) y la carrera perdida contra el barrido de TTL de US-012. Sin efectos, sin
+            doble transición, sin liberar/promover. Mensaje: "Esta consulta ya está en un estado
+            terminal y no puede modificarse".
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DescartarConsultaConflictError' }
+
   # ============================ PRESUPUESTOS / TARIFAS ============================
   /tarifas/calcular:
     post:
@@ -6086,6 +6178,50 @@ components:
               example: >-
                 No se puede archivar la reserva: la fianza está pendiente de resolución. Registra la
                 devolución o retención de fianza antes de archivar.
+
+    # -------- US-013: descarte por cliente → 2z --------
+    # [US-013 §"Motivo de descarte opcional"] Cuerpo (opcional) de POST /reservas/{id}/descartar. El
+    # único parámetro de negocio es un `motivo` OPCIONAL (string libre) que el backend ANEXA a
+    # `RESERVA.notas` (decisión del Gate, design.md §D-5); su ausencia NO bloquea la transición. La
+    # identidad de la RESERVA viaja en el path y el actor Gestor en el JWT. `additionalProperties: false`
+    # cierra el shape. Sin `motivo`, `RESERVA.notas` permanece sin cambios.
+    DescartarConsultaRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Cuerpo opcional de la acción de descarte por cliente. `motivo` es opcional: si se envía, se
+        anexa a `RESERVA.notas`; si se omite, la transición a `2z` completa igual sin tocar `notas`.
+      properties:
+        motivo:
+          type: string
+          nullable: true
+          description: >-
+            Motivo del descarte comunicado por el cliente (OPCIONAL). El backend lo anexa a
+            `RESERVA.notas`. La ausencia de motivo no bloquea ni retrasa la transición.
+          example: El cliente ha decidido celebrar el evento en otra ubicación.
+
+    # [US-013 §"Guarda de origen" / RC-3] Error 409 de POST /reservas/{id}/descartar: la RESERVA está en
+    # un estado terminal (sub-estado `2x`/`2y`/`2z` o estado `reserva_cancelada`/`reserva_completada`),
+    # o una petición concurrente ya la descartó / la expiró por TTL (US-012). Precondición de estado
+    # incumplida (mapeo F5-02: 409 = conflicto de estado), simétrico a FinalizarEventoConflictError.
+    # Sigue el patrón allOf(ErrorResponse) + `code` semántico del resto del contrato (envelope NestJS).
+    DescartarConsultaConflictError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [code]
+          properties:
+            code:
+              type: string
+              enum: [transicion_no_permitida]
+              description: >-
+                Discriminador del 409: la RESERVA está en un sub-estado/estado terminal, por lo que la
+                transición a `2z` no es aplicable (incluye doble descarte concurrente y carrera perdida
+                contra el barrido de TTL de US-012).
+              example: transicion_no_permitida
+            message:
+              # Mensaje exigido literalmente por la spec (specs/consultas/spec.md, guarda de origen / RC-3).
+              example: Esta consulta ya está en un estado terminal y no puede modificarse
 
     # -------- US-035: registrar IBAN de devolución --------
     # [US-035 D-5A] Cuerpo del PATCH /reservas/{id}/iban-devolucion: el único parámetro de negocio

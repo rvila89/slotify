@@ -145,6 +145,12 @@ import {
 import { CargarReservaArchivadoManualPrismaAdapter } from './infrastructure/cargar-reserva-archivado-manual.prisma.adapter';
 import { ArchivarReservaManualUoWPrismaAdapter } from './infrastructure/archivar-reserva-manual-uow.prisma.adapter';
 import { ArchivarReservaManualController } from './interface/archivar-reserva-manual.controller';
+import {
+  DescartarConsultaPorClienteUseCase,
+  type DescarteConsultaUoWPort,
+} from './application/descartar-consulta-por-cliente.use-case';
+import { DescartarConsultaUoWPrismaAdapter } from './infrastructure/descartar-consulta-uow.prisma.adapter';
+import { DescartarConsultaController } from './interface/descartar-consulta.controller';
 import { DispararE5Adapter } from './infrastructure/disparar-e5.adapter';
 import { DocumentacionEventoStubAdapter } from './infrastructure/documentacion-evento.stub.adapter';
 import { FinalizarEventoController } from './interface/finalizar-evento.controller';
@@ -230,6 +236,7 @@ import {
   ALERTA_FIANZA_PENDIENTE_PORT,
   CARGAR_RESERVA_ARCHIVADO_MANUAL_PORT,
   UNIDAD_DE_TRABAJO_ARCHIVADO_MANUAL_PORT,
+  UNIDAD_DE_TRABAJO_DESCARTE_CONSULTA_PORT,
 } from './reservas.tokens';
 
 @Module({
@@ -257,6 +264,7 @@ import {
     RegistrarIbanDevolucionController,
     ActualizarDatosFiscalesClienteController,
     ArchivarReservaManualController,
+    DescartarConsultaController,
   ],
   providers: [
     {
@@ -853,6 +861,24 @@ import {
             }),
         }),
     },
+    // US-013 — descarte por cliente ({2a,2b,2c,2d,2v} → 2z). UoW atómica propia scoped a UNA
+    // RESERVA del tenant del JWT con SELECT … FOR UPDATE: transición a 2z + (según origen)
+    // liberación de FECHA_BLOQUEADA (misma mecánica que liberarFecha()) + decremento de cola
+    // (2d) + anexado opcional del motivo a notas + AUDIT_LOG (origen Gestor). La promoción A15
+    // (2b/2v con cola) se dispara POST-COMMIT vía el seam PROMOCION_COLA_PORT, exactamente una
+    // vez. Sin email, sin cron, sin locks distribuidos.
+    {
+      provide: UNIDAD_DE_TRABAJO_DESCARTE_CONSULTA_PORT,
+      inject: [PrismaService, PROMOCION_COLA_PORT],
+      useFactory: (prisma: PrismaService, promocion: PromocionColaPort) =>
+        new DescartarConsultaUoWPrismaAdapter(prisma, promocion),
+    },
+    {
+      provide: DescartarConsultaPorClienteUseCase,
+      inject: [UNIDAD_DE_TRABAJO_DESCARTE_CONSULTA_PORT],
+      useFactory: (uow: DescarteConsultaUoWPort) =>
+        new DescartarConsultaPorClienteUseCase({ uow }),
+    },
     CronTokenGuard,
     BarridoExpiracionScheduler,
     BarridoEventosScheduler,
@@ -880,6 +906,7 @@ import {
     ActualizarDatosFiscalesClienteUseCase,
     ArchivarReservasCompletadasService,
     ArchivarReservaManualUseCase,
+    DescartarConsultaPorClienteUseCase,
   ],
 })
 export class ReservasModule {}

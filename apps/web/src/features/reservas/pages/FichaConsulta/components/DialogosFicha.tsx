@@ -14,6 +14,7 @@ import { RegistrarResultadoVisitaDialog } from '../../../components/RegistrarRes
 import { ExtenderBloqueoDialog } from '../../../components/ExtenderBloqueoDialog';
 import { FinalizarEventoDialog } from '../../../components/FinalizarEventoDialog';
 import { ArchivarReservaDialog } from '../../../components/ArchivarReservaDialog';
+import { DescartarConsultaDialog } from '../../../components/DescartarConsultaDialog';
 import { MAX_DIAS_PROGRAMAR_VISITA_DEFAULT } from '../../../lib/fecha';
 import type { PendienteInvitadosResultado, Reserva } from '../../../model/types';
 import type { components } from '@/api-client';
@@ -42,6 +43,7 @@ type Props = {
     senal: [boolean, Setter<boolean>];
     finalizar: [boolean, Setter<boolean>];
     archivar: [boolean, Setter<boolean>];
+    descartar: [boolean, Setter<boolean>];
   };
   onResuelto: Setter<Reserva | null>;
   onResueltoInvitados: Setter<PendienteInvitadosResultado | null>;
@@ -54,7 +56,10 @@ type Props = {
   onReenviadoPresupuesto: (resultado: ReenviarPresupuestoResponse) => void;
   onConfirmadoSenal: Setter<ConfirmarSenalResponse | null>;
   onFinalizado: Setter<FinalizarEventoResponse | null>;
-  onArchivado: Setter<Reserva | null>;
+  /** Desenlaces terminales (archivado US-038 / descarte US-013): la página no guarda
+      estado (toast + refetch en el diálogo), así que basta con un callback. */
+  onArchivado: (reserva: Reserva) => void;
+  onDescartado: (reserva: Reserva) => void;
 };
 
 export const DialogosFicha = ({
@@ -73,6 +78,7 @@ export const DialogosFicha = ({
   onConfirmadoSenal,
   onFinalizado,
   onArchivado,
+  onDescartado,
 }: Props) => (
   <>
     <AnadirFechaDialog
@@ -139,6 +145,13 @@ export const DialogosFicha = ({
       abierto={dialogos.archivar[0]}
       onAbiertoChange={dialogos.archivar[1]}
       onArchivado={onArchivado}
+    />
+    <DescartarConsultaDialog
+      reservaId={reservaId}
+      codigo={reserva.codigo}
+      abierto={dialogos.descartar[0]}
+      onAbiertoChange={dialogos.descartar[1]}
+      onDescartado={onDescartado}
     />
   </>
 );
