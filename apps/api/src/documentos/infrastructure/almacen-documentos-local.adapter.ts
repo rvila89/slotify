@@ -60,9 +60,23 @@ export class AlmacenDocumentosLocalAdapter implements AlmacenDocumentosPort {
     return `${this.baseUrl}/${this.claveNormalizada(clave)}`;
   }
 
-  /** Ruta física del fichero para una clave (bajo el dir del almacén). */
+  /**
+   * Ruta física del fichero para una clave (bajo el dir del almacén). Blinda
+   * contra path traversal: la ruta resuelta debe quedar ESTRICTAMENTE dentro del
+   * dir del almacén. Claves con `..`, absolutas o que apunten al propio dir se
+   * rechazan (defensa en profundidad; hoy las claves son internas y controladas,
+   * pero el puerto es genérico).
+   */
   private rutaDeClave(clave: string): string {
-    return path.join(this.dir, this.claveNormalizada(clave));
+    const base = path.resolve(this.dir);
+    const ruta = path.resolve(base, this.claveNormalizada(clave));
+    const rel = path.relative(base, ruta);
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new Error(
+        `Clave de almacén inválida (fuera del directorio permitido): "${clave}"`,
+      );
+    }
+    return ruta;
   }
 
   /** Clave sin barra inicial (evita rutas/URLs con barra duplicada). */

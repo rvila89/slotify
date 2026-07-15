@@ -142,4 +142,28 @@ describe('AlmacenDocumentosLocalAdapter — almacén local durable a disco (6.5,
     // Assert
     expect(adaptador.urlPublica(claveA)).not.toBe(adaptador.urlPublica(claveB));
   });
+
+  it.each([
+    '../fuera.jpg',
+    'logos/../../fuera.jpg',
+    '..\\fuera.jpg',
+  ])('debe_rechazar_subir_con_clave_que_hace_path_traversal (%s)', async (claveMaliciosa) => {
+    // Arrange
+    const adaptador = new AlmacenDocumentosLocalAdapter(dir, BASE_URL);
+
+    // Act + Assert — no debe escribir fuera del dir del almacén.
+    await expect(adaptador.subir(BYTES, claveMaliciosa)).rejects.toThrow(
+      /fuera del directorio/i,
+    );
+  });
+
+  it('debe_rechazar_obtener_con_clave_que_hace_path_traversal', async () => {
+    // Arrange
+    const adaptador = new AlmacenDocumentosLocalAdapter(dir, BASE_URL);
+
+    // Act + Assert — no debe leer fuera del dir del almacén.
+    await expect(adaptador.obtener('../../secreto')).rejects.toThrow(
+      /fuera del directorio/i,
+    );
+  });
 });
