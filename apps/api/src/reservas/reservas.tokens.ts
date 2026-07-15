@@ -126,3 +126,9 @@ export const CARGAR_RESERVA_ARCHIVADO_MANUAL_PORT = Symbol(
 export const UNIDAD_DE_TRABAJO_ARCHIVADO_MANUAL_PORT = Symbol(
   'UnidadDeTrabajoArchivadoManualPort',
 );
+
+// US-013 — descarte por cliente ({2a,2b,2c,2d,2v} → 2z, acción manual del Gestor con JWT; UoW
+// atómica propia con SELECT … FOR UPDATE + liberarFecha()/promoción/decremento de cola según origen)
+export const UNIDAD_DE_TRABAJO_DESCARTE_CONSULTA_PORT = Symbol(
+  'UnidadDeTrabajoDescarteConsultaPort',
+);

@@ -62,6 +62,12 @@ export type {
   RegistrarIbanError,
   RegistrarIbanDevolucionVars,
 } from './api/useRegistrarIbanDevolucion';
+export { useDescartarConsulta } from './api/useDescartarConsulta';
+export type {
+  DescartarConsultaError,
+  DescartarConsultaVars,
+} from './api/useDescartarConsulta';
+export { puedeDescartarConsulta, MENSAJE_DESCARTE_TERMINAL } from './lib/descartarConsulta';
 export { IbanDevolucionCard } from './components/IbanDevolucionCard';
 export { puedeRegistrarIban, tieneFianza } from './lib/ibanDevolucion';
 export { esIbanValido, normalizarIban } from './lib/iban';

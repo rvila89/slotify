@@ -20,6 +20,7 @@ import { bloqueoVigente, puedeExtenderBloqueo } from '../../../lib/fecha';
 import { puedeFinalizarEvento } from '../../../lib/finalizarEvento';
 import { puedeArchivarReserva } from '../../../lib/archivarReserva';
 import { AccionArchivar } from './AccionArchivar';
+import { AccionDescartar } from './AccionDescartar';
 import { AccionesPreReserva } from './AccionesPreReserva';
 import type { Reserva } from '../../../model/types';
 
@@ -63,6 +64,7 @@ type Props = {
   onConfirmarSenal: () => void;
   onFinalizarEvento: () => void;
   onArchivarReserva: () => void;
+  onDescartarConsulta: () => void;
 };
 
 export const AccionesConsulta = ({
@@ -77,6 +79,7 @@ export const AccionesConsulta = ({
   onConfirmarSenal,
   onFinalizarEvento,
   onArchivarReserva,
+  onDescartarConsulta,
 }: Props) => {
   const subEstado = reserva.subEstado;
   const esExploratoria = subEstado === '2a';
@@ -125,6 +128,11 @@ export const AccionesConsulta = ({
   // `post_evento`. El bloque de la acción (deshabilitado con la razón si la fianza no
   // está resuelta) vive en `AccionArchivar` para no superar `max-lines`.
   const puedeArchivar = puedeArchivarReserva(reserva.estado);
+  // US-013 (UC-10, A17 manual): "Marcar como descartada por cliente" — el bloque
+  // se ofrece mientras la RESERVA sigue en fase `consulta` (habilitado en
+  // `2a/2b/2c/2d/2v`, deshabilitado con motivo en terminales `2x/2y/2z`). En
+  // `pre_reserva`+ desaparece (ya no es un lead descartable por el cliente).
+  const mostrarDescartar = reserva.estado === 'consulta';
 
   const botonVisita = (
     <button
@@ -329,6 +337,13 @@ export const AccionesConsulta = ({
           razón si la fianza no está resuelta (FA-01/FA-02); el backend revalida (422). */}
       <AccionArchivar reserva={reserva} onArchivarReserva={onArchivarReserva} />
 
+      {/* US-013: "Marcar como descartada por cliente" — visible en fase `consulta`.
+          Deshabilitada (con motivo) en sub_estados terminales; el backend revalida
+          (409 `transicion_no_permitida`). */}
+      {mostrarDescartar && (
+        <AccionDescartar reserva={reserva} onDescartarConsulta={onDescartarConsulta} />
+      )}
+
       {/* Terminales u otros estados sin acciones disponibles. */}
       {!esExploratoria &&
         !puedePendienteInvitados &&
@@ -340,7 +355,8 @@ export const AccionesConsulta = ({
         !puedeEditar &&
         !puedeConfirmar &&
         !puedeFinalizar &&
-        !puedeArchivar && (
+        !puedeArchivar &&
+        !mostrarDescartar && (
           <p className={claseTextoInfo}>
             <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
             No hay acciones disponibles para esta consulta en su estado actual.

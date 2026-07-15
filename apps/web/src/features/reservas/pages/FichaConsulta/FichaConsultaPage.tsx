@@ -38,8 +38,7 @@ const claseSeccion =
 /**
  * Ficha de consulta/reserva. Muestra el detalle de una RESERVA y, según su estado y
  * sub-estado, ofrece las acciones de transición del pipeline (US-005/007/008/006/
- * 014/021/034) vía diálogos de dominio. Los avisos del desenlace y los fragmentos
- * visuales viven en `components/`.
+ * 014/021/034/013) vía diálogos de dominio. Los avisos y fragmentos viven en `components/`.
  */
 export const FichaConsultaPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -55,6 +54,7 @@ export const FichaConsultaPage = () => {
   const [dialogoSenalAbierto, setDialogoSenalAbierto] = useState(false);
   const [dialogoFinalizarAbierto, setDialogoFinalizarAbierto] = useState(false);
   const [dialogoArchivarAbierto, setDialogoArchivarAbierto] = useState(false);
+  const [dialogoDescartarAbierto, setDialogoDescartarAbierto] = useState(false);
   // RESERVA resultante de la transición de fecha (US-005): alimenta el aviso 2b/2d.
   const [resultado, setResultado] = useState<Reserva | null>(null);
   // Resultado de la transición 2.b → 2.c (US-007): alimenta su aviso (TTL + cola).
@@ -79,10 +79,6 @@ export const FichaConsultaPage = () => {
   const [resultadoSenal, setResultadoSenal] = useState<ConfirmarSenalResponse | null>(null);
   // Resultado de la finalización del evento (US-034, post_evento + E5 + docs pendiente).
   const [resultadoFinalizar, setResultadoFinalizar] = useState<FinalizarEventoResponse | null>(null);
-  // Resultado del archivado manual (US-038): la RESERVA en `reserva_completada`. El éxito
-  // se comunica por toast; la reserva se refetch y sale del pipeline (el botón desaparece).
-  const [, setResultadoArchivar] = useState<Reserva | null>(null);
-
   if (isLoading) {
     return (
       <p data-testid="ficha-cargando" className="font-body text-sm text-text-secondary">
@@ -242,10 +238,8 @@ export const FichaConsultaPage = () => {
             setResultadoFinalizar(null);
             setDialogoFinalizarAbierto(true);
           }}
-          onArchivarReserva={() => {
-            setResultadoArchivar(null);
-            setDialogoArchivarAbierto(true);
-          }}
+          onArchivarReserva={() => setDialogoArchivarAbierto(true)}
+          onDescartarConsulta={() => setDialogoDescartarAbierto(true)}
         />
       </section>
 
@@ -324,6 +318,7 @@ export const FichaConsultaPage = () => {
             senal: [dialogoSenalAbierto, setDialogoSenalAbierto],
             finalizar: [dialogoFinalizarAbierto, setDialogoFinalizarAbierto],
             archivar: [dialogoArchivarAbierto, setDialogoArchivarAbierto],
+            descartar: [dialogoDescartarAbierto, setDialogoDescartarAbierto],
           }}
           onResuelto={setResultado}
           onResueltoInvitados={setResultadoInvitados}
@@ -336,7 +331,10 @@ export const FichaConsultaPage = () => {
           onReenviadoPresupuesto={(datos) => setResultadoEdicion({ clase: 'reenvio', datos })}
           onConfirmadoSenal={setResultadoSenal}
           onFinalizado={setResultadoFinalizar}
-          onArchivado={setResultadoArchivar}
+          // Desenlaces terminales (archivado US-038 / descarte US-013): toast +
+          // refetch en el diálogo; la página no guarda estado.
+          onArchivado={() => {}}
+          onDescartado={() => {}}
         />
       )}
     </div>
