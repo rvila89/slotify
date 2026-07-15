@@ -7,9 +7,13 @@
  * tx+RLS, lectura de la reserva, COMUNICACION E3, AUDIT_LOG) y se comprueba el
  * ESTADO DE LA BD tras la operación. El transporte de email va en modo fake en
  * `test` (`FakeEmailAdapter`, cero red); la generación de condiciones puede
- * degradar a `null` (o lanzar por la flakiness react-pdf ESM) sin tumbar el envío
- * (§D-adjunto-condiciones): por eso `condPartAdjuntada` se asevera como booleano,
- * no como valor fijo.
+ * generar el PDF de condiciones on-demand.
+ *
+ * US-023 (GAP 2, D-condiciones-bloqueante — DECISIÓN CERRADA/aprobada, ENDURECER): las condiciones
+ * son requisito DURO del envío E3. Para que el camino feliz sea reproducible sin depender del
+ * `plantilla_documento_tenant` sembrado, este spec SOBREESCRIBE `GENERAR_PDF_CONDICIONES_PORT` con
+ * un stub que devuelve una URL fija (evita la flakiness ESM de react-pdf); así `condPartAdjuntada`
+ * es SIEMPRE `true` en un 200 y el primer envío PERSISTE el DOCUMENTO de condiciones (GAP 1).
  *
  * Cubre los casos ALCANZABLES contra BD real:
  *   - Happy path: `borrador → enviada`, conserva `numero_factura`, fija
@@ -40,6 +44,8 @@ import {
 } from '@prisma/client';
 import { FacturacionModule } from '../facturacion.module';
 import { PrismaService } from '../../shared/prisma/prisma.service';
+import { GENERAR_PDF_CONDICIONES_PORT } from '../../documentos/documentos.tokens';
+import type { GenerarPdfCondicionesPort } from '../../documentos/domain/generar-pdf-condiciones.port';
 import {
   EnviarFacturaSenalUseCase,
   E3YaEnviadoError,
@@ -51,6 +57,16 @@ const TENANT = '00000000-0000-0000-0000-000000000001';
 const OTRO_TENANT = '00000000-0000-0000-0000-0000000000ff';
 const GESTOR = '00000000-0000-0000-0000-000000000002';
 const EMAIL_PATTERN = '@us023-int.test';
+const URL_PDF_CONDICIONES = 'http://localhost:3000/api/documentos/condiciones/tenant.pdf';
+
+/**
+ * Stub del puerto de generación del PDF de condiciones (GAP 2): devuelve una URL fija, de modo que
+ * las condiciones existen SIEMPRE en el camino feliz (requisito duro) sin depender de sembrar el
+ * `plantilla_documento_tenant` ni del render react-pdf (flakiness ESM).
+ */
+const condicionesStub: GenerarPdfCondicionesPort = {
+  generar: async () => URL_PDF_CONDICIONES,
+};
 
 let moduleRef: TestingModule;
 let prisma: PrismaService;
@@ -134,6 +150,7 @@ const limpiar = async (): Promise<void> => {
   const ids = reservas.map((r) => r.idReserva);
   if (ids.length > 0) {
     await prisma.comunicacion.deleteMany({ where: { reservaId: { in: ids } } });
+    await prisma.documento.deleteMany({ where: { reservaId: { in: ids } } });
     await prisma.pago.deleteMany({ where: { factura: { reservaId: { in: ids } } } });
     await prisma.factura.deleteMany({ where: { reservaId: { in: ids } } });
     await prisma.auditLog.deleteMany({ where: { entidadId: { in: ids } } });
@@ -147,7 +164,11 @@ const limpiar = async (): Promise<void> => {
 beforeAll(async () => {
   moduleRef = await Test.createTestingModule({
     imports: [ConfigModule.forRoot({ isGlobal: true }), FacturacionModule],
-  }).compile();
+  })
+    // GAP 2: stub del PDF de condiciones (URL fija) para el camino feliz endurecido.
+    .overrideProvider(GENERAR_PDF_CONDICIONES_PORT)
+    .useValue(condicionesStub)
+    .compile();
   await moduleRef.init();
   prisma = moduleRef.get(PrismaService);
   useCase = moduleRef.get(EnviarFacturaSenalUseCase);
@@ -176,7 +197,16 @@ describe('EnviarFacturaSenal — happy path (integración real)', () => {
     expect(res.senal.estado).toBe('enviada');
     expect(res.senal.numeroFactura).toBe('F-2028-0007');
     expect(res.condPartEnviadasFecha).toBeInstanceOf(Date);
-    expect(typeof res.condPartAdjuntada).toBe('boolean');
+    // GAP 2 (endurecido): en un 200 las condiciones SIEMPRE van adjuntas.
+    expect(res.condPartAdjuntada).toBe(true);
+
+    // GAP 1: el primer envío PERSISTE el DOCUMENTO de condiciones (url + mime application/pdf).
+    const documento = await prisma.documento.findFirst({
+      where: { reservaId, tipo: 'condiciones_particulares' },
+    });
+    expect(documento).not.toBeNull();
+    expect(documento?.url).toBe(URL_PDF_CONDICIONES);
+    expect(documento?.mimeType).toBe('application/pdf');
 
     // FACTURA en BD
     const factura = await prisma.factura.findUnique({ where: { idFactura: facturaId } });

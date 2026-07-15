@@ -72,8 +72,15 @@ import {
   FacturaSenalNoEncontradaError as EnviarSenalNoEncontradaError,
   FacturaSenalNoEnviableError,
   E3YaEnviadoError,
+  CondicionesNoConfiguradasError,
   EmisionEnvioFallidoError as SenalEmisionEnvioFallidoError,
 } from '../application/enviar-factura-senal.use-case';
+import {
+  ReenviarE3UseCase,
+  E3NoEnviadoPreviamenteError,
+  FacturaSenalNoEncontradaError as ReenviarE3NoEncontradaError,
+  EmisionEnvioFallidoError as ReenviarE3EmisionEnvioFallidoError,
+} from '../application/reenviar-e3.use-case';
 import {
   ReenviarLiquidacionUseCase,
   FacturaNoEnviadaError,
@@ -106,6 +113,8 @@ import {
   RechazarFacturaRequestDto,
   RegenerarPdfFacturaRequestDto,
   ReenviarLiquidacionResponseDto,
+  ReenviarE3RequestDto,
+  ReenviarE3ResponseDto,
   RegistrarCobroLiquidacionDto,
   RegistrarCobroLiquidacionResponseDto,
   RegistrarCobroFianzaDto,
@@ -203,6 +212,7 @@ export class FacturaController {
     private readonly enviarReciboFianzaSeparado: EnviarReciboFianzaSeparadoUseCase,
     private readonly enviarFacturaSenal: EnviarFacturaSenalUseCase,
     private readonly reenviarLiquidacion: ReenviarLiquidacionUseCase,
+    private readonly reenviarE3: ReenviarE3UseCase,
     private readonly registrarCobroLiquidacion: RegistrarCobroLiquidacionUseCase,
     private readonly registrarCobroFianza: RegistrarCobroFianzaUseCase,
   ) {}
@@ -442,6 +452,41 @@ export class FacturaController {
     }
   }
 
+  @Post('reservas/:id/facturas/senal/reenviar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reenviar E3 (factura de señal + condiciones particulares) ya enviado (UC-19 / US-023)',
+  })
+  async reenviarSenal(
+    @Param('id') id: string,
+    @Body() _body: ReenviarE3RequestDto,
+    @CurrentUser() usuario: UsuarioAutenticado,
+  ): Promise<ReenviarE3ResponseDto> {
+    try {
+      const resultado = await this.reenviarE3.ejecutar({
+        tenantId: usuario.tenantId,
+        usuarioId: usuario.sub,
+        reservaId: id,
+      });
+      const senal = await this.cargarSenalReenviada(usuario.tenantId, id);
+      return {
+        factura: aFacturaEmitidaDto(senal),
+        comunicacion: {
+          idComunicacion: resultado.comunicacion.idComunicacion,
+          estado: resultado.comunicacion.estado,
+          esReenvio: resultado.comunicacion.esReenvio,
+          fechaEnvio:
+            resultado.comunicacion.fechaEnvio == null
+              ? null
+              : resultado.comunicacion.fechaEnvio.toISOString(),
+        },
+        condPartEnviadasFecha: resultado.condPartEnviadasFecha.toISOString(),
+      };
+    } catch (error) {
+      this.aHttp(error);
+    }
+  }
+
   @Post('reservas/:id/facturas/liquidacion/cobro')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -577,6 +622,39 @@ export class FacturaController {
     };
   }
 
+  /**
+   * Recupera la factura de señal ya emitida para incluirla SIN cambios en la respuesta del reenvío
+   * de E3 (el use-case no muta la factura; su resultado solo trae la nueva COMUNICACION y la fecha).
+   */
+  private async cargarSenalReenviada(
+    tenantId: string,
+    reservaId: string,
+  ): Promise<FacturaEmitible> {
+    const facturas = await this.listarFacturasReserva.ejecutar({
+      tenantId,
+      reservaId,
+      tipo: 'senal',
+    });
+    const senal = facturas[0];
+    if (senal === undefined) {
+      throw new EnviarSenalNoEncontradaError(reservaId);
+    }
+    return {
+      idFactura: senal.idFactura,
+      tenantId,
+      reservaId: senal.reservaId,
+      numeroFactura: senal.numeroFactura,
+      tipo: 'senal',
+      estado: senal.estado,
+      total: senal.total,
+      baseImponible: senal.baseImponible,
+      ivaPorcentaje: senal.ivaPorcentaje,
+      ivaImporte: senal.ivaImporte,
+      pdfUrl: senal.pdfUrl,
+      fechaEmision: senal.fechaEmision === null ? null : new Date(senal.fechaEmision),
+    };
+  }
+
   /** Valida el filtro `?tipo=` (400 si no es un tipo conocido); undefined si se omite. */
   private validarTipo(tipo?: string): TipoFacturaListado | undefined {
     if (tipo === undefined || tipo === '') {
@@ -605,7 +683,8 @@ export class FacturaController {
       error instanceof JustificanteNoEncontradoError ||
       error instanceof CobroFianzaNoEncontradaError ||
       error instanceof JustificanteFianzaNoEncontradoError ||
-      error instanceof EnviarSenalNoEncontradaError
+      error instanceof EnviarSenalNoEncontradaError ||
+      error instanceof ReenviarE3NoEncontradaError
     ) {
       throw new NotFoundException({
         statusCode: HttpStatus.NOT_FOUND,
@@ -657,7 +736,11 @@ export class FacturaController {
         codigo: error.codigo,
       });
     }
-    if (error instanceof E3YaEnviadoError) {
+    if (
+      error instanceof E3YaEnviadoError ||
+      error instanceof CondicionesNoConfiguradasError ||
+      error instanceof E3NoEnviadoPreviamenteError
+    ) {
       throw new ConflictException({
         statusCode: HttpStatus.CONFLICT,
         error: 'Conflict',
@@ -667,7 +750,8 @@ export class FacturaController {
     }
     if (
       error instanceof EmisionEnvioFallidoError ||
-      error instanceof SenalEmisionEnvioFallidoError
+      error instanceof SenalEmisionEnvioFallidoError ||
+      error instanceof ReenviarE3EmisionEnvioFallidoError
     ) {
       throw new HttpException(
         {

@@ -1102,23 +1102,31 @@ flowchart TD
 | **Nombre** | Gestionar Condiciones Particulares |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema, Cliente |
-| **Descripción** | El gestor gestiona el ciclo de vida del documento de condicions particulars: aprobación y envío manual al cliente, seguimiento de recepción y registro de firma. El envío se realiza mediante la acción "Enviar factura 40%" (E3), que en una única operación atómica aprueba la factura de señal y la despacha al cliente junto con el PDF de condicions particulars (si están configuradas). Implementado en **US-023** (change `documentos-enviar-factura-senal-e3`, 6.4b). |
-| **Precondiciones** | - Reserva en estado `reserva_confirmada`<br>- Factura de señal (`tipo='senal'`) existente en `estado='borrador'` con `pdf_url` no nulo<br>- Gestor autenticado con rol gestor sobre el tenant |
-| **Postcondiciones** | - `FACTURA(senal).estado = 'enviada'`; `RESERVA.cond_part_enviadas_fecha` fijada a `now()`; `RESERVA.cond_part_firmadas = false`; `COMUNICACION E3` con `estado='enviado'`; `AUDIT_LOG` de los cambios |
+| **Descripción** | El gestor gestiona el ciclo de vida del documento de condicions particulars: aprobación y envío manual al cliente, seguimiento de recepción y registro de firma. El envío se realiza mediante la acción "Enviar factura 40%" (E3), que en una única operación atómica aprueba la factura de señal y la despacha al cliente junto con el PDF de condicions particulars. Las condicions particulars son un **requisito duro** del envío E3: si el tenant no las tiene configuradas el envío es bloqueado (409). Implementado en **US-023** (changes `documentos-enviar-factura-senal-e3` 6.4b + `condiciones-particulares-e3-us023`). |
+| **Precondiciones** | - Reserva en estado `reserva_confirmada`<br>- Factura de señal (`tipo='senal'`) existente en `estado='borrador'` con `pdf_url` no nulo<br>- Tenant con condicions particulars configuradas (`PlantillaDocumentoTenant.condiciones` con secciones no vacías)<br>- Gestor autenticado con rol gestor sobre el tenant |
+| **Postcondiciones** | - `FACTURA(senal).estado = 'enviada'`; `RESERVA.cond_part_enviadas_fecha` fijada a `now()`; `RESERVA.cond_part_firmadas = false`; `COMUNICACION E3` con `estado='enviado'`; `DOCUMENTO(tipo='condiciones_particulares')` creado o reutilizado (idempotente); `AUDIT_LOG` de los cambios |
 | **Prioridad** | Alta |
 | **Frecuencia** | Alta |
 | **US** | US-023 |
-| **Endpoint** | `POST /reservas/{id}/facturas/senal/enviar` (operationId `enviarFacturaSenal`, tag `Facturacion`) — body vacío `{}`; respuesta 200 con `FacturaSenalEnvioResponse` (`factura`, `condPartEnviadasFecha`, `condPartAdjuntada`) |
-| **Entidades afectadas** | FACTURA (UPDATE estado borrador→enviada, fecha_emision), RESERVA (UPDATE cond_part_enviadas_fecha, cond_part_firmadas), COMUNICACION (INSERT E3 enviado), AUDIT_LOG — sin migración BD (campos y enum E3 ya existían) |
+| **Endpoints** | `POST /reservas/{id}/facturas/senal/enviar` (operationId `enviarFacturaSenal`) — primer envío; `POST /reservas/{id}/facturas/senal/reenviar` (operationId `reenviarE3`) — reenvío manual del gestor; ambos body vacío `{}`; respuesta 200 con `FacturaSenalEnvioResponse` (`factura`, `condPartEnviadasFecha`, `condPartAdjuntada`) |
+| **Entidades afectadas** | FACTURA (UPDATE estado borrador→enviada, fecha_emision), RESERVA (UPDATE cond_part_enviadas_fecha, cond_part_firmadas), COMUNICACION (INSERT E3 enviado), DOCUMENTO (INSERT o SELECT idempotente tipo=condiciones_particulares), AUDIT_LOG — sin migración BD |
 
 **Flujo Básico — aprobación y envío de E3 (US-023):**
 1. La factura de señal fue generada en borrador por US-022 como efecto post-commit de la confirmación de la reserva (UC-18)
 2. El gestor abre la ficha de la reserva en `reserva_confirmada` y pulsa "Enviar factura 40%"
 3. El sistema valida: existe FACTURA de tipo `senal` para la reserva (404 si no); la factura está en `borrador` (409 si `rechazada`); no existe COMUNICACION E3 `enviado` previa (409 `E3_YA_ENVIADO` si ya se envió); `pdf_url` no nulo (502 si nulo)
-4. El sistema intenta generar el PDF de condicions particulars (`GenerarPdfCondicionesPort.generar({tenantId}).catch(() => null)`); si devuelve `null` o lanza, se omite el adjunto de condiciones (el envío continúa solo con la factura)
-5. En una única unidad de trabajo atómica (`tx + RLS`): envía E3 por `EnviarEmailPort` directo con la factura de señal adjunta y, si está disponible, el PDF de condicions particulars. Si el proveedor de email falla → `EmisionEnvioFallidoError` (502), **rollback total** (nada se consolida)
-6. Tras confirmar E3: transiciona la FACTURA `borrador → enviada`; fija `RESERVA.cond_part_enviadas_fecha = now()` y `RESERVA.cond_part_firmadas = false`; crea COMUNICACION E3 `enviado`; registra AUDIT_LOG (`datos_nuevos.condPartAdjuntada`)
-7. El sistema responde 200 con la factura emitida, `condPartEnviadasFecha` y `condPartAdjuntada`
+4. El sistema obtiene el PDF de condicions particulars (`GenerarPdfCondicionesPort.generar({tenantId})`); si el tenant no tiene condiciones configuradas (devuelve `null`) → aborta con 409 `CONDICIONES_NO_CONFIGURADAS` y rollback total (E3 no se envía, la factura permanece en `borrador`, `cond_part_enviadas_fecha` sigue nulo). Si lanza excepción transitoria → 502 con rollback.
+5. En una única unidad de trabajo atómica (`tx + RLS`): envía E3 por `EnviarEmailPort` directo con la factura de señal y el PDF de condicions particulars adjuntos. Si el proveedor de email falla → `EmisionEnvioFallidoError` (502), **rollback total** (nada se consolida)
+6. Tras confirmar E3: transiciona la FACTURA `borrador → enviada`; fija `RESERVA.cond_part_enviadas_fecha = now()` y `RESERVA.cond_part_firmadas = false`; crea o reutiliza `DOCUMENTO(tipo='condiciones_particulares', reservaId, tenantId, url, mimeType='application/pdf')` (idempotente: si ya existe, se reutiliza; AUDIT_LOG `crear` solo en la primera creación); crea COMUNICACION E3 `enviado`; registra AUDIT_LOG
+7. El sistema responde 200 con la factura emitida, `condPartEnviadasFecha` y `condPartAdjuntada=true`
+
+**Flujo Básico — reenvío manual de E3 (US-023, GAP 3):**
+1. El gestor abre la ficha de una reserva con E3 ya enviado y pulsa "Reenviar E3"
+2. El sistema valida: existe FACTURA de señal `enviada` (404 `FACTURA_SENAL_NO_ENCONTRADA` si no); existe COMUNICACION E3 `enviado` con `es_reenvio=false` (409 `E3_NO_ENVIADO_PREVIAMENTE` si no)
+3. Reutiliza el PDF de la factura y el `DOCUMENTO(tipo='condiciones_particulares')` ya persistido — NO regenera ni duplica ningún documento
+4. En una única unidad de trabajo atómica: envía E3 por `EnviarEmailPort` directo; si falla → rollback
+5. Tras confirmar: crea nueva COMUNICACION E3 `es_reenvio=true, estado='enviado'` (esquiva el índice UNIQUE parcial); actualiza `RESERVA.cond_part_enviadas_fecha = now()`; registra AUDIT_LOG. NO transiciona factura ni reserva
+6. El sistema responde 200
 
 **Flujo Básico — registro de firma:**
 1. El cliente devuelve el documento firmado (email o físico)
@@ -1135,7 +1143,7 @@ flowchart TD
 - **FA-01**: Día del evento sin firma (`cond_part_firmadas = false` en T-0) → Sistema emite alerta no bloqueante A29 al gestor (US-031); el evento puede iniciarse igualmente (la firma puede hacerse presencialmente)
 - **FA-02** (idempotencia — E3 ya enviado): COMUNICACION E3 `enviado` previa → 409 `E3_YA_ENVIADO`; ni re-envío ni duplicado de COMUNICACION. Una COMUNICACION E3 en `fallido` sí permite reintento.
 - **FA-03** (PDF de señal ausente): `FACTURA.pdf_url = null` → 502 `EMISION_ENVIO_FALLIDO`; el gestor regenera el PDF antes de reintentar.
-- **FA-04** (condiciones no configuradas): tenant sin condicions particulars configuradas → E3 se envía solo con la factura; `condPartAdjuntada = false` trazado en AUDIT_LOG; 200 (no es un error).
+- **FA-04** (condiciones no configuradas): tenant sin condicions particulars configuradas (`secciones` vacías) → 409 `CONDICIONES_NO_CONFIGURADAS`; E3 **no se envía**; el gestor debe configurar las condiciones del espacio antes de poder despachar E3.
 - **FA-05** (factura rechazada): `FACTURA.estado = 'rechazada'` → 409 `FACTURA_SENAL_NO_ENVIABLE`; hay que regenerar/aprobar el borrador antes.
 
 ---

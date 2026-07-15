@@ -80,6 +80,24 @@ export const CARGAR_RESERVA_SENAL_EMISION_PORT = Symbol('CargarReservaSenalEmisi
 /** Envío SÍNCRONO/CONFIRMADO de E3 (factura de señal + condicions particulars, puerto directo). */
 export const ENVIAR_E3_EMISION_PORT = Symbol('EnviarE3EmisionPort');
 
+// --- US-023 (GAP 3): reenvío manual de E3 (factura de señal + condiciones) ---
+/** Lectura de la RESERVA para el reenvío de E3 (email cliente + cond_part_enviadas_fecha). */
+export const CARGAR_RESERVA_REENVIO_E3_PORT = Symbol('CargarReservaReenvioE3Port');
+/** Lectura de la FACTURA de señal ya emitida (reenvío de E3). */
+export const CARGAR_FACTURA_SENAL_REENVIO_PORT = Symbol('CargarFacturaSenalReenvioPort');
+/** Lectura de la COMUNICACION E3 `enviado` previa (precondición del reenvío). */
+export const BUSCAR_E3_PREVIA_PORT = Symbol('BuscarE3PreviaPort');
+/** Lectura del DOCUMENTO de condiciones ya persistido (GAP 1), a reutilizar en el reenvío. */
+export const BUSCAR_DOCUMENTO_CONDICIONES_PORT = Symbol('BuscarDocumentoCondicionesPort');
+/** Reenvío de E3 (reutiliza los documentos ya persistidos). */
+export const REENVIAR_E3_PORT = Symbol('ReenviarE3Port');
+/** Registro de la NUEVA COMUNICACION E3 del reenvío (es_reenvio=true). */
+export const REGISTRAR_COMUNICACION_REENVIO_E3_PORT = Symbol('RegistrarComunicacionReenvioE3Port');
+/** Actualización de cond_part_enviadas_fecha al reenviar E3. */
+export const FIJAR_CONDICIONES_ENVIADAS_REENVIO_PORT = Symbol('FijarCondicionesEnviadasReenvioPort');
+/** Registro de auditoría del reenvío de E3. */
+export const REGISTRAR_AUDITORIA_REENVIO_E3_PORT = Symbol('RegistrarAuditoriaReenvioE3Port');
+
 // --- US-029: registro del cobro de la liquidación (UC-21 pasos 7-10, D-2) ---
 /** Unidad de trabajo transaccional del cobro (tx + RLS + SELECT ... FOR UPDATE sobre RESERVA). */
 export const UNIDAD_DE_TRABAJO_COBRO_PORT = Symbol('UnidadDeTrabajoCobroPort');

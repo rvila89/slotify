@@ -64,6 +64,37 @@ export type FacturaSenalEnvioErrorResponse =
   components['schemas']['FacturaSenalEnvioError'];
 
 /**
+ * Respuesta del **reenvío de E3** (US-023 · GAP 3 · design.md §D-reenvio-e3), sobre el SDK generado
+ * (`operation reenviarE3`, `POST /reservas/{id}/facturas/senal/reenviar`):
+ *  - `factura`: la factura de señal YA emitida (sin cambios de estado, número ni desglose).
+ *  - `comunicacion`: la NUEVA COMUNICACION E3 creada por el reenvío (`esReenvio=true`).
+ *  - `condPartEnviadasFecha`: el nuevo timestamp fijado en `RESERVA.cond_part_enviadas_fecha`.
+ */
+export type ReenviarE3Response = components['schemas']['ReenviarE3Response'];
+
+/**
+ * Error NORMALIZADO del **reenvío de E3** (US-023 · GAP 3), para que la UI ramifique en español sin
+ * volver a mirar códigos HTTP. El contrato comparte el envelope `FacturaSenalEnvioError` con el envío
+ * inicial; el reenvío observa este subconjunto de `codigo` (via `normalizarErrorReenvioE3`):
+ *  - `no-enviado-previamente` (409 `E3_NO_ENVIADO_PREVIAMENTE`): no hay un E3 enviado previamente que
+ *    reenviar.
+ *  - `condiciones-no-configuradas` (409 `CONDICIONES_NO_CONFIGURADAS`): el tenant no tiene condiciones
+ *    particulares configuradas (endurecido en GAP 2); hay que configurarlas para poder enviar E3.
+ *  - `no-encontrada` (404 `FACTURA_SENAL_NO_ENCONTRADA`): no existe factura de señal en la reserva.
+ *  - `envio-fallido` (502/503 `EMISION_ENVIO_FALLIDO`): fallo RECUPERABLE, reintentable (rollback total).
+ *  - `generico` (401/403/otros/red).
+ */
+export type ReenvioE3Error = {
+  tipo:
+    | 'no-enviado-previamente'
+    | 'condiciones-no-configuradas'
+    | 'no-encontrada'
+    | 'envio-fallido'
+    | 'generico';
+  mensaje: string;
+};
+
+/**
  * Error NORMALIZADO del envío de la factura de señal por E3 (6.4b), para que la UI ramifique
  * en español sin volver a mirar códigos HTTP. Cada `tipo` mapea 1:1 con un `codigo` del
  * contrato OpenAPI (via `normalizarErrorEnvioSenal`):
