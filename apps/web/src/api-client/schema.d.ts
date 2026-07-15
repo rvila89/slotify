@@ -1181,6 +1181,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/condiciones-firmadas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Registrar la firma de las condiciones particulares (UC-19 / US-024)
+         * @description [US-024] El **Gestor** sube la **copia firmada** de las condiciones particulares (segundo flujo
+         *     de UC-19; el primer flujo —generación y envío de E3— es US-023). Sobre una RESERVA a la que ya
+         *     se enviaron las condiciones (E3, `cond_part_enviadas_fecha` no nulo) y en un estado válido, en
+         *     una **única transacción de BD** (bajo el contexto RLS del tenant del JWT), all-or-nothing:
+         *     1. **Guardas de servidor** (autoritativas, antes de mutar):
+         *        - `RESERVA.cond_part_enviadas_fecha` **no nulo** (E3 enviado en US-023). Si es nulo → **409**
+         *          (`CONDICIONES_NO_ENVIADAS`) "Las condiciones particulares no han sido enviadas al cliente
+         *          aún"; sin efectos.
+         *        - `RESERVA.estado ∈ {reserva_confirmada, evento_en_curso, post_evento}`. Si es terminal
+         *          (`reserva_completada`, `reserva_cancelada`) o cualquier otro → **422** (`ESTADO_INVALIDO`)
+         *          "No se puede registrar la firma en una reserva en estado terminal"; sin efectos.
+         *        - Se adjunta **exactamente un** fichero con `mimeType ∈ {image/jpeg, image/png,
+         *          application/pdf}` y tamaño ≤ 10 MB. Si falta / formato no permitido / > 10 MB → **422**
+         *          (`CONDICIONES_REQUERIDAS` / `FORMATO_NO_PERMITIDO` / `TAMANO_EXCEDIDO`); sin efectos.
+         *     2. Sube el fichero firmado al almacén de documentos (clave por reserva versionada, se conservan
+         *        todas las versiones) y **crea una nueva fila DOCUMENTO** con `tipo='condiciones_particulares'`,
+         *        `reservaId`, `tenantId` (del JWT), `url`, `mimeType`, `nombreArchivo`, `tamanoBytes`. El
+         *        DOCUMENTO **original no firmado** (US-023, mismo `tipo`) **permanece**: no se sustituye ni se
+         *        elimina (conviven dos filas del mismo tipo).
+         *     3. Actualiza `RESERVA.cond_part_firmadas=true` y `RESERVA.cond_part_firmadas_fecha=now()`.
+         *        **No transiciona `estado`** ni ningún sub-proceso (`preEventoStatus`/`liquidacionStatus`/
+         *        `fianzaStatus` intactos).
+         *     4. `AUDIT_LOG accion='actualizar'`, `entidad='RESERVA'`,
+         *        `datos_anteriores.cond_part_firmadas` (su valor previo), `datos_nuevos.cond_part_firmadas=true`
+         *        + `datos_nuevos.cond_part_firmadas_fecha`, con el usuario del Gestor.
+         *
+         *     **Re-firma permitida (no idempotente por diseño)**: si `cond_part_firmadas` ya es `true`, la
+         *     operación NO se rechaza — crea otra versión del DOCUMENTO, actualiza `cond_part_firmadas_fecha`
+         *     al nuevo timestamp, mantiene el flag en `true` y conserva el histórico (design.md §D-re-firma).
+         *     Cada subida es una versión firmada nueva. Si el envío al almacén o cualquier escritura falla, la
+         *     transacción **revierte por completo** (sin DOCUMENTO huérfano ni RESERVA mutada).
+         */
+        post: operations["registrarCondicionesFirmadas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/presupuestos": {
         parameters: {
             query?: never;
@@ -3469,6 +3522,26 @@ export interface components {
             /** @description Mensaje legible para la UI ("La reserva ya ha sido confirmada" o "Fecha no disponible"). */
             motivo: string;
         };
+        RegistrarCondicionesFirmadasResponse: {
+            /** @description RESERVA resultante con `condPartFirmadas=true` y `condPartFechaFirma` (timestamp del registro de la firma). `estado` y los sub-procesos (`preEventoStatus`/`liquidacionStatus`/ `fianzaStatus`) permanecen inalterados: la firma no es una transición de estado. */
+            reserva: components["schemas"]["Reserva"];
+            /** @description DOCUMENTO creado con `tipo='condiciones_particulares'` (la copia firmada), `url` y `mimeType` del fichero subido. El DOCUMENTO original no firmado (US-023) permanece; en la re-firma (D-re-firma) esta es la versión más reciente, referencia de la firma. */
+            documentoFirmado: components["schemas"]["Documento"];
+        };
+        CondicionesFirmadasValidacionError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description `ESTADO_INVALIDO` → la RESERVA está en estado terminal (`reserva_completada`, `reserva_cancelada`) o fuera de `{reserva_confirmada, evento_en_curso, post_evento}` ("No se puede registrar la firma en una reserva en estado terminal"); `CONDICIONES_REQUERIDAS` → no se adjuntó el fichero de las condiciones firmadas; `FORMATO_NO_PERMITIDO` → mime no permitido (no jpeg/png/pdf); `TAMANO_EXCEDIDO` → fichero > 10 MB.
+             * @enum {string}
+             */
+            codigo: "ESTADO_INVALIDO" | "CONDICIONES_REQUERIDAS" | "FORMATO_NO_PERMITIDO" | "TAMANO_EXCEDIDO";
+        };
+        CondicionesFirmadasConflictoError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description `CONDICIONES_NO_ENVIADAS` → `RESERVA.cond_part_enviadas_fecha` es nulo: las condiciones particulares aún no se han enviado al cliente por E3 (US-023) → "Las condiciones particulares no han sido enviadas al cliente aún".
+             * @enum {string}
+             */
+            codigo: "CONDICIONES_NO_ENVIADAS";
+        };
         /**
          * @description FACTURA de una reserva (`tipo` ∈ {`senal`, `liquidacion`, `fianza`, `complementaria`}), con
          *     desglose fiscal, estado del ciclo de vida y flags derivados para la UI. Es el item de la
@@ -5159,6 +5232,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfirmarSenalValidacionError"];
+                };
+            };
+        };
+    };
+    registrarCondicionesFirmadas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Copia firmada de las condiciones particulares. Formatos permitidos: `image/jpeg`, `image/png`, `application/pdf`. Tamaño máximo 10 MB. Obligatorio.
+                     */
+                    condicionesFirmadas: string;
+                };
+            };
+        };
+        responses: {
+            /**
+             * @description Firma registrada. Devuelve la RESERVA con `condPartFirmadas=true` y `condPartFechaFirma`
+             *     (timestamp del registro) y el DOCUMENTO firmado creado. El `estado` de la reserva y los
+             *     sub-procesos no cambian.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrarCondicionesFirmadasResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description La operación requiere un prerequisito del flujo que no se cumple: las condiciones
+             *     particulares aún NO han sido enviadas al cliente por E3 (`RESERVA.cond_part_enviadas_fecha`
+             *     es nulo, US-023). No se crea DOCUMENTO, no se muta RESERVA ni se registra AUDIT_LOG.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CondicionesFirmadasConflictoError"];
+                };
+            };
+            /**
+             * @description Validación de negocio sin efectos (guarda de estado o validación de fichero). No se crea
+             *     DOCUMENTO, no se muta `RESERVA.cond_part_firmadas`/`cond_part_firmadas_fecha` ni se registra
+             *     AUDIT_LOG. Un `codigo` de dominio discrimina el caso:
+             *     - **Guarda de estado**: la RESERVA está en un estado terminal (`reserva_completada`,
+             *       `reserva_cancelada`) o fuera de `{reserva_confirmada, evento_en_curso, post_evento}`.
+             *     - **Fichero ausente / formato no permitido / tamaño excedido**.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CondicionesFirmadasValidacionError"];
                 };
             };
         };

@@ -1238,6 +1238,107 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ConfirmarSenalValidacionError' }
 
+  # [US-024 / UC-19 segundo flujo] Registro de la FIRMA de las condiciones particulares. Espejo del
+  # patrón multipart de `confirmar-senal` (US-021): multipart/form-data, campo binario obligatorio,
+  # mime whitelist {image/jpeg, image/png, application/pdf}, ≤ 10 MB, validación autoritativa en
+  # servidor, crea un DOCUMENTO `tipo='condiciones_particulares'` en la misma transacción. A diferencia
+  # de `confirmar-senal`, NO transiciona el estado (design.md §D-no-transicion): solo marca
+  # `cond_part_firmadas=true` + `cond_part_firmadas_fecha=now()`. Endpoint DISTINTO del
+  # `/reservas/{id}/condiciones-particulares` (JSON, genérico) preexistente. Ruta y campo fijados en
+  # el Gate 1 humano: `condiciones-firmadas` + campo `condicionesFirmadas`, @Roles('gestor'),
+  # @HttpCode(200). Códigos (Gate 1): 409 CONDICIONES_NO_ENVIADAS si `cond_part_enviadas_fecha` es
+  # nulo; 422 para guarda de estado (terminal / fuera de {reserva_confirmada, evento_en_curso,
+  # post_evento}) y validación de fichero (ausente / mime no permitido / > 10 MB).
+  /reservas/{id}/condiciones-firmadas:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Confirmacion]
+      summary: Registrar la firma de las condiciones particulares (UC-19 / US-024)
+      operationId: registrarCondicionesFirmadas
+      description: |
+        [US-024] El **Gestor** sube la **copia firmada** de las condiciones particulares (segundo flujo
+        de UC-19; el primer flujo —generación y envío de E3— es US-023). Sobre una RESERVA a la que ya
+        se enviaron las condiciones (E3, `cond_part_enviadas_fecha` no nulo) y en un estado válido, en
+        una **única transacción de BD** (bajo el contexto RLS del tenant del JWT), all-or-nothing:
+        1. **Guardas de servidor** (autoritativas, antes de mutar):
+           - `RESERVA.cond_part_enviadas_fecha` **no nulo** (E3 enviado en US-023). Si es nulo → **409**
+             (`CONDICIONES_NO_ENVIADAS`) "Las condiciones particulares no han sido enviadas al cliente
+             aún"; sin efectos.
+           - `RESERVA.estado ∈ {reserva_confirmada, evento_en_curso, post_evento}`. Si es terminal
+             (`reserva_completada`, `reserva_cancelada`) o cualquier otro → **422** (`ESTADO_INVALIDO`)
+             "No se puede registrar la firma en una reserva en estado terminal"; sin efectos.
+           - Se adjunta **exactamente un** fichero con `mimeType ∈ {image/jpeg, image/png,
+             application/pdf}` y tamaño ≤ 10 MB. Si falta / formato no permitido / > 10 MB → **422**
+             (`CONDICIONES_REQUERIDAS` / `FORMATO_NO_PERMITIDO` / `TAMANO_EXCEDIDO`); sin efectos.
+        2. Sube el fichero firmado al almacén de documentos (clave por reserva versionada, se conservan
+           todas las versiones) y **crea una nueva fila DOCUMENTO** con `tipo='condiciones_particulares'`,
+           `reservaId`, `tenantId` (del JWT), `url`, `mimeType`, `nombreArchivo`, `tamanoBytes`. El
+           DOCUMENTO **original no firmado** (US-023, mismo `tipo`) **permanece**: no se sustituye ni se
+           elimina (conviven dos filas del mismo tipo).
+        3. Actualiza `RESERVA.cond_part_firmadas=true` y `RESERVA.cond_part_firmadas_fecha=now()`.
+           **No transiciona `estado`** ni ningún sub-proceso (`preEventoStatus`/`liquidacionStatus`/
+           `fianzaStatus` intactos).
+        4. `AUDIT_LOG accion='actualizar'`, `entidad='RESERVA'`,
+           `datos_anteriores.cond_part_firmadas` (su valor previo), `datos_nuevos.cond_part_firmadas=true`
+           + `datos_nuevos.cond_part_firmadas_fecha`, con el usuario del Gestor.
+
+        **Re-firma permitida (no idempotente por diseño)**: si `cond_part_firmadas` ya es `true`, la
+        operación NO se rechaza — crea otra versión del DOCUMENTO, actualiza `cond_part_firmadas_fecha`
+        al nuevo timestamp, mantiene el flag en `true` y conserva el histórico (design.md §D-re-firma).
+        Cada subida es una versión firmada nueva. Si el envío al almacén o cualquier escritura falla, la
+        transacción **revierte por completo** (sin DOCUMENTO huérfano ni RESERVA mutada).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [condicionesFirmadas]
+              properties:
+                condicionesFirmadas:
+                  type: string
+                  format: binary
+                  description: >-
+                    Copia firmada de las condiciones particulares. Formatos permitidos: `image/jpeg`,
+                    `image/png`, `application/pdf`. Tamaño máximo 10 MB. Obligatorio.
+      responses:
+        '200':
+          description: |
+            Firma registrada. Devuelve la RESERVA con `condPartFirmadas=true` y `condPartFechaFirma`
+            (timestamp del registro) y el DOCUMENTO firmado creado. El `estado` de la reserva y los
+            sub-procesos no cambian.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistrarCondicionesFirmadasResponse' }
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            La operación requiere un prerequisito del flujo que no se cumple: las condiciones
+            particulares aún NO han sido enviadas al cliente por E3 (`RESERVA.cond_part_enviadas_fecha`
+            es nulo, US-023). No se crea DOCUMENTO, no se muta RESERVA ni se registra AUDIT_LOG.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CondicionesFirmadasConflictoError' }
+        '422':
+          description: |
+            Validación de negocio sin efectos (guarda de estado o validación de fichero). No se crea
+            DOCUMENTO, no se muta `RESERVA.cond_part_firmadas`/`cond_part_firmadas_fecha` ni se registra
+            AUDIT_LOG. Un `codigo` de dominio discrimina el caso:
+            - **Guarda de estado**: la RESERVA está en un estado terminal (`reserva_completada`,
+              `reserva_cancelada`) o fuera de `{reserva_confirmada, evento_en_curso, post_evento}`.
+            - **Fichero ausente / formato no permitido / tamaño excedido**.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CondicionesFirmadasValidacionError' }
+
   /reservas/{id}/presupuestos:
     parameters:
       - { $ref: '#/components/parameters/IdReserva' }
@@ -4135,6 +4236,64 @@ components:
             motivo:
               type: string
               description: 'Mensaje legible para la UI ("La reserva ya ha sido confirmada" o "Fecha no disponible").'
+
+    # -------- US-024: Registro de la firma de condiciones particulares (confirmacion) --------
+    # Respuesta 200 y errores del endpoint POST /reservas/{id}/condiciones-firmadas. Reutiliza los
+    # schemas existentes Reserva / Documento (la Reserva ya expone condPartFirmadas + condPartFechaFirma,
+    # líneas del schema Reserva) y el envelope ErrorResponse + `codigo` (mismo patrón que
+    # ConfirmarSenalValidacionError / ConfirmarSenalConflictoError de US-021). No se inventa contrato.
+    RegistrarCondicionesFirmadasResponse:
+      # 200: la RESERVA con la firma registrada (condPartFirmadas=true, condPartFechaFirma) + el
+      # DOCUMENTO firmado creado. El estado de la reserva NO cambia (design.md §D-no-transicion).
+      type: object
+      required: [reserva, documentoFirmado]
+      properties:
+        reserva:
+          allOf: [{ $ref: '#/components/schemas/Reserva' }]
+          description: >-
+            RESERVA resultante con `condPartFirmadas=true` y `condPartFechaFirma` (timestamp del
+            registro de la firma). `estado` y los sub-procesos (`preEventoStatus`/`liquidacionStatus`/
+            `fianzaStatus`) permanecen inalterados: la firma no es una transición de estado.
+        documentoFirmado:
+          allOf: [{ $ref: '#/components/schemas/Documento' }]
+          description: >-
+            DOCUMENTO creado con `tipo='condiciones_particulares'` (la copia firmada), `url` y `mimeType`
+            del fichero subido. El DOCUMENTO original no firmado (US-023) permanece; en la re-firma
+            (D-re-firma) esta es la versión más reciente, referencia de la firma.
+    CondicionesFirmadasValidacionError:
+      # 422 (guarda de estado o validación de fichero, sin efectos). Un `codigo` de dominio discrimina el
+      # caso. Sin DOCUMENTO, sin mutación de RESERVA, sin AUDIT_LOG. Mismo patrón allOf(ErrorResponse) +
+      # `codigo` que ConfirmarSenalValidacionError (US-021).
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo]
+          properties:
+            codigo:
+              type: string
+              enum: [ESTADO_INVALIDO, CONDICIONES_REQUERIDAS, FORMATO_NO_PERMITIDO, TAMANO_EXCEDIDO]
+              description: >-
+                `ESTADO_INVALIDO` → la RESERVA está en estado terminal (`reserva_completada`,
+                `reserva_cancelada`) o fuera de `{reserva_confirmada, evento_en_curso, post_evento}`
+                ("No se puede registrar la firma en una reserva en estado terminal");
+                `CONDICIONES_REQUERIDAS` → no se adjuntó el fichero de las condiciones firmadas;
+                `FORMATO_NO_PERMITIDO` → mime no permitido (no jpeg/png/pdf);
+                `TAMANO_EXCEDIDO` → fichero > 10 MB.
+    CondicionesFirmadasConflictoError:
+      # 409 (prerequisito del flujo no cumplido: E3 no enviado). Sin efectos. Mismo patrón
+      # allOf(ErrorResponse) + `codigo` que ConfirmarSenalConflictoError (US-021).
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo]
+          properties:
+            codigo:
+              type: string
+              enum: [CONDICIONES_NO_ENVIADAS]
+              description: >-
+                `CONDICIONES_NO_ENVIADAS` → `RESERVA.cond_part_enviadas_fecha` es nulo: las condiciones
+                particulares aún no se han enviado al cliente por E3 (US-023) → "Las condiciones
+                particulares no han sido enviadas al cliente aún".
 
     # -------- US-022: Factura de señal (facturacion) --------
     # [US-022 / UC-18] La FACTURA es el agregado raíz de la capability `facturacion`. FacturaSenalDto

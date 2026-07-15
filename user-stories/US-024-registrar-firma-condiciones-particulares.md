@@ -1,8 +1,8 @@
 ---
 id: US-024
-estado: backlog
-branch: null
-pr: null
+estado: en_revision
+branch: feature/firma-condiciones-particulares-us024
+pr: 72
 ---
 
 # 🧾 Historia de Usuario: Registrar Firma de Condiciones Particulares
