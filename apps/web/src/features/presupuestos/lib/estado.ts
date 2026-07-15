@@ -42,6 +42,18 @@ export const motivoNoPuedeGenerar = (reserva: ReservaGuarda): string => {
   return 'Esta consulta está en un estado terminal y no admite la generación de un presupuesto.';
 };
 
+/**
+ * Guarda de cliente para la acción "Editar presupuesto" (US-015 · UC-15). Espejo de
+ * la precondición del servidor: solo se ofrece sobre una RESERVA en
+ * `estado='pre_reserva'`. Un PRESUPUESTO `aceptado` (señal confirmada vía UC-17) o
+ * `rechazado` mueve la RESERVA fuera de `pre_reserva` (a `reserva_confirmada` u otro
+ * estado), de modo que el estado de la RESERVA es un espejo suficiente en cliente;
+ * el servidor revalida defensivamente el estado del último PRESUPUESTO (409). Solo
+ * habilita/deshabilita la acción en la ficha.
+ */
+export const puedeEditarPresupuesto = (reserva: { estado?: string }): boolean =>
+  reserva.estado === 'pre_reserva';
+
 /** Etiquetas legibles en español de cada campo fiscal/de reserva faltante (FA-01). */
 export const ETIQUETA_CAMPO_FALTANTE: Record<CampoFiscalFaltante, string> = {
   dniNif: 'DNI / NIF del cliente',

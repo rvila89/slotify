@@ -17,3 +17,19 @@ export type {
   PresupuestoPreviewResponse,
   PresupuestoError,
 } from './model/types';
+
+// US-015 — Editar y reenviar presupuesto en pre_reserva (UC-15).
+export { EditarPresupuestoDialog } from './components/EditarPresupuestoDialog';
+export { AvisoPresupuestoEditado } from './components/AvisoPresupuestoEditado';
+export { puedeEditarPresupuesto } from './lib/estado';
+export { usePreviewEdicionPresupuesto } from './api/usePreviewEdicionPresupuesto';
+export type { PreviewEdicionVars } from './api/usePreviewEdicionPresupuesto';
+export { useEditarPresupuesto } from './api/useEditarPresupuesto';
+export type { EditarPresupuestoVars } from './api/useEditarPresupuesto';
+export { useReenviarPresupuesto } from './api/useReenviarPresupuesto';
+export type { ReenviarPresupuestoVars } from './api/useReenviarPresupuesto';
+export type {
+  EdicionPresupuestoResponse,
+  EdicionPresupuestoPreviewResponse,
+  ReenviarPresupuestoResponse,
+} from './model/types';

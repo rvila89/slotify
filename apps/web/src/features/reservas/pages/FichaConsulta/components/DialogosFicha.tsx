@@ -1,5 +1,11 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { GenerarPresupuestoDialog, type ConfirmarPresupuestoResponse } from '@/features/presupuestos';
+import {
+  GenerarPresupuestoDialog,
+  EditarPresupuestoDialog,
+  type ConfirmarPresupuestoResponse,
+  type EdicionPresupuestoResponse,
+  type ReenviarPresupuestoResponse,
+} from '@/features/presupuestos';
 import { ConfirmarSenalDialog, type ConfirmarSenalResponse } from '@/features/confirmacion';
 import { AnadirFechaDialog } from '../../../components/AnadirFechaDialog';
 import { PendienteInvitadosDialog } from '../../../components/PendienteInvitadosDialog';
@@ -32,6 +38,7 @@ type Props = {
     resultado: [boolean, Setter<boolean>];
     extender: [boolean, Setter<boolean>];
     presupuesto: [boolean, Setter<boolean>];
+    editarPresupuesto: [boolean, Setter<boolean>];
     senal: [boolean, Setter<boolean>];
     finalizar: [boolean, Setter<boolean>];
     archivar: [boolean, Setter<boolean>];
@@ -43,6 +50,8 @@ type Props = {
   onResueltoReservaInmediata: Setter<Reserva | null>;
   onResueltoExtension: Setter<Reserva | null>;
   onConfirmadoPresupuesto: Setter<ConfirmarPresupuestoResponse | null>;
+  onEditadoPresupuesto: (resultado: EdicionPresupuestoResponse) => void;
+  onReenviadoPresupuesto: (resultado: ReenviarPresupuestoResponse) => void;
   onConfirmadoSenal: Setter<ConfirmarSenalResponse | null>;
   onFinalizado: Setter<FinalizarEventoResponse | null>;
   onArchivado: Setter<Reserva | null>;
@@ -59,6 +68,8 @@ export const DialogosFicha = ({
   onResueltoReservaInmediata,
   onResueltoExtension,
   onConfirmadoPresupuesto,
+  onEditadoPresupuesto,
+  onReenviadoPresupuesto,
   onConfirmadoSenal,
   onFinalizado,
   onArchivado,
@@ -102,6 +113,13 @@ export const DialogosFicha = ({
       abierto={dialogos.presupuesto[0]}
       onAbiertoChange={dialogos.presupuesto[1]}
       onConfirmado={onConfirmadoPresupuesto}
+    />
+    <EditarPresupuestoDialog
+      reservaId={reservaId}
+      abierto={dialogos.editarPresupuesto[0]}
+      onAbiertoChange={dialogos.editarPresupuesto[1]}
+      onEditado={onEditadoPresupuesto}
+      onReenviado={onReenviadoPresupuesto}
     />
     <ConfirmarSenalDialog
       reservaId={reservaId}

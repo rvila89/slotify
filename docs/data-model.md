@@ -44,7 +44,7 @@ Este documento describe el modelo de datos de Slotify a nivel de **campos, tipos
 | 7 | `Tarifa` | `tarifa` | Precios precalculados (temporada × duración × invitados) | UC-16 |
 | 8 | `TemporadaCalendario` | `temporada_calendario` | Mapeo mes → temporada | UC-16 |
 | 9 | `Extra` | `extra` | Catálogo de extras del tenant | UC-14, UC-16 |
-| 10 | `ReservaExtra` | `reserva_extra` | Línea de extra con precio congelado y factura asociada | UC-14, UC-21 |
+| 10 | `ReservaExtra` | `reserva_extra` | Línea de extra con precio congelado y factura asociada. Primera persistencia real en UC-15 | UC-14, UC-15, UC-21 |
 | 11 | `Presupuesto` | `presupuesto` | Versiones del presupuesto PDF | UC-14, UC-15 |
 | 12 | `Factura` | `factura` | Factura de señal, liquidación, fianza o complementaria | UC-18, UC-21 |
 | 13 | `Pago` | `pago` | Cobro conciliado contra una factura | UC-17, UC-21, UC-22 |
@@ -376,25 +376,33 @@ Catálogo de extras del tenant (barbacoa, paellero). Precio de referencia; no se
 ### 3.10 ReservaExtra
 Línea facturable de extra. `precio_unitario` se congela **al añadir la línea**, no al aceptar el presupuesto.
 
+**Primera persistencia real — US-015 (D3, aprobado gate 2026-07-15):** US-014 nunca persistió filas de `ReservaExtra` (los extras del preview/confirmar se pasaban solo al motor de tarifa para el cálculo). **US-015 es la primera historia que crea líneas `ReservaExtra` reales** al confirmar la edición del presupuesto en `pre_reserva`. Las líneas se ligan a la `Reserva` (conjunto vivo; sin FK a `Presupuesto`); el dato fiscal firme por versión lo proporciona el desglose congelado (`base_imponible`/`total`) del `Presupuesto`. Las líneas añadidas en UC-15 usan `origen = 'anadido_post_confirmacion'` y `factura_id = null`. Las líneas **existentes** conservan su `precio_unitario` congelado aunque el catálogo cambie; solo las líneas **nuevas** añadidas en esa edición toman el precio actual del catálogo.
+
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
 | `id_reserva_extra` | `String @id @default(uuid())` | |
 | `reserva_id` | `String` | FK → `Reserva` |
-| `extra_id` | `String?` | FK → `Extra`. Nulo si extra fuera de catálogo |
-| `factura_id` | `String?` | FK → `Factura` donde se cobra. Nulo mientras no facturado |
+| `extra_id` | `String?` | FK → `Extra`. Nulo si extra fuera de catálogo (`concepto_libre` en su lugar) |
+| `factura_id` | `String?` | FK → `Factura` donde se cobra. `null` mientras no facturado; se asigna al emitir la factura de liquidación (US-028) o complementaria |
 | `concepto_libre` | `String?` | Descripción manual para extras fuera de catálogo |
-| `origen` | `OrigenExtra` | `presupuesto \| anadido_post_confirmacion` |
-| `cantidad` | `Int` | `>= 1` |
-| `precio_unitario` | `Decimal @db.Decimal(10,2)` | Congelado al añadir la línea |
+| `origen` | `OrigenExtra` | `presupuesto \| anadido_post_confirmacion`. UC-15 usa `anadido_post_confirmacion` para todas las líneas añadidas en la edición |
+| `cantidad` | `Int` | `>= 1`. Modificar la cantidad de una línea existente recalcula `subtotal` sin cambiar `precio_unitario` |
+| `precio_unitario` | `Decimal @db.Decimal(10,2)` | Congelado al añadir la línea. Inmune a cambios posteriores del catálogo. En UC-15, líneas **nuevas** toman el `precio_eur` actual del `Extra`; líneas **existentes** conservan su valor congelado |
 | `subtotal` | `Decimal @db.Decimal(10,2)` | `cantidad × precio_unitario` |
 | `fecha_creacion` | `DateTime @default(now())` | |
 
 **Regla de facturación:** las líneas con `factura_id IS NULL` se asignan a la factura de liquidación (T-1d); si la petición llega después de emitida la liquidación, a una factura `complementaria` en post-evento.
 
 ### 3.11 Presupuesto
-Versiones del presupuesto generado para una reserva (UC-14 / US-014). Cada versión congela el desglose fiscal derivado del motor de tarifa en el momento de la confirmación. La primera versión (`version = 1`) se crea en la misma transacción que la transición de la RESERVA a `pre_reserva`. Versiones posteriores corresponden a ediciones (UC-15).
+Versiones del presupuesto generado para una reserva (UC-14 / US-014; edición en UC-15 / US-015). Cada versión congela el desglose fiscal derivado del motor de tarifa en el momento de la confirmación. La primera versión (`version = 1`) se crea en la misma transacción que la transición de la RESERVA a `pre_reserva`. Versiones posteriores corresponden a ediciones del presupuesto en `pre_reserva` (UC-15 / US-015).
 
 La restricción `@@unique([reserva_id, version])` garantiza que no existan dos presupuestos con la misma versión para la misma reserva.
+
+**Versionado inmutable — US-015 (D2, aprobado gate 2026-07-15):**
+- Cada edición confirmada (UC-15) crea una **fila nueva** con `version = MAX(version)+1`; las versiones anteriores persisten como historial (no se borran ni sobrescriben).
+- El **presupuesto vigente** es el de mayor `version` (se deriva por `MAX`, sin campo `es_vigente`).
+- Cada **envío de una versión nueva** consume un `numero_presupuesto = AAAANNN` de la secuencia del régimen (reintento `P2002`). Un **borrador** queda con `numero_presupuesto = null` hasta enviarlo.
+- El **reenvío sin cambios** (UC-15 flujo B) no crea versión nueva ni consume número; solo registra `COMUNICACION E2 es_reenvio=true` + `AUDIT_LOG`.
 
 **RLS y `tenant_id`:** el campo `tenant_id` se añadió en 6.1b (con backfill desde `RESERVA`). El aislamiento efectivo sigue siendo la policy RLS preexistente por subconsulta a `RESERVA`. El `tenant_id` en la tabla sirve para soporte de la restricción de unicidad de numeración y no origina una nueva policy (ni en 6.1b ni en 6.2).
 
@@ -404,7 +412,7 @@ La restricción `@@unique([reserva_id, version])` garantiza que no existan dos p
 
 **Doble numeración por régimen (6.2):** dos secuencias independientes por `(tenantId, año, regimenIva)`. El literal `AAAANNN` (p. ej. `2026001`) es compartido entre CON y SIN; la unicidad se garantiza por `@@unique([tenantId, regimenIva, numeroPresupuesto])` (sustituye al `@@unique([tenantId, numeroPresupuesto])` de 6.1b). Los presupuestos de 6.1b (backfill `regimen_iva = 'con_iva'`) son la secuencia CON y continúan sin discontinuidad. El reintento `P2002` discrimina por `meta.target` para no confundirlo con el `P2002` de `FECHA_BLOQUEADA`. Las facturas conservan su numeración `F-YYYY-NNNN`; su migración a doble secuencia es la rebanada 6.3.
 
-**Nota de implementación — `tarifa_id` ausente del schema (US-014):** el design D-5 preveía almacenar `tarifa_id` como referencia trazable a la `TARIFA` vigente usada. En la implementación se confirmó que el motor de tarifa (US-016) devuelve `tarifa_id` en su esquema canónico, pero la columna no se añadió al modelo de `PRESUPUESTO` en esta iteración; la referencia a la tarifa queda en el `AUDIT_LOG`. Deuda de trazabilidad pendiente de UC-15/US-015.
+**Nota de implementación — `tarifa_id` ausente del schema (US-014/US-015):** el design D-5 preveía almacenar `tarifa_id` como referencia trazable a la `TARIFA` vigente usada. En la implementación se confirmó que el motor de tarifa (US-016) devuelve `tarifa_id` en su esquema canónico, pero la columna no se añadió al modelo de `Presupuesto` en US-014 ni en US-015; la referencia a la tarifa queda en el `AUDIT_LOG`. Deuda técnica pendiente de una historia de trazabilidad dedicada.
 
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
@@ -413,30 +421,36 @@ La restricción `@@unique([reserva_id, version])` garantiza que no existan dos p
 | `tenant_id` | `String` | FK → `Tenant`. Añadido en 6.1b. Backfill desde `Reserva`. Solo para la restricción de unicidad de numeración; el aislamiento RLS lo aplica la policy preexistente por subconsulta a `Reserva`. |
 | `metodo_pago` | `MetodoPago?` | enum `transferencia \| efectivo`. Nullable en BD (migración aditiva 6.2); backfill a `transferencia` para filas de 6.1b. Nunca null en filas nuevas. `@map("metodo_pago")` |
 | `regimen_iva` | `RegimenIva?` | enum `con_iva \| sin_iva`. Derivado de `metodo_pago` por `regimenDesdeMetodoPago`. Nullable en BD (migración aditiva 6.2); backfill a `con_iva` para filas de 6.1b. Nunca null en filas nuevas. `@map("regimen_iva")` |
-| `numero_presupuesto` | `String?` | Formato `AAAANNN` (p. ej. `2026001`). Nullable en borradores; asignado en la tx de confirmación con reintento `P2002`. Restricción `@@unique([tenantId, regimenIva, numeroPresupuesto])` (6.2). |
-| `version` | `Int` | 1, 2, 3… (único por reserva: `@@unique([reserva_id, version])`) |
+| `numero_presupuesto` | `String?` | Formato `AAAANNN` (p. ej. `2026001`). Nullable en borradores (UC-15 borrador sin enviar); asignado en la tx de confirmación/envío con reintento `P2002`. Restricción `@@unique([tenantId, regimenIva, numeroPresupuesto])` (6.2). El reenvío sin cambios (UC-15 flujo B) reutiliza el número existente sin consumir uno nuevo. |
+| `version` | `Int` | 1, 2, 3… `version=1` creado por UC-14; versiones sucesivas por UC-15. Restricción `@@unique([reserva_id, version])`. |
 | `base_imponible` | `Decimal @db.Decimal(10,2)` | Base imponible antes de IVA. MISMA en ambos regímenes. Derivada: `(totalConIva − descuento) / 1.21` |
 | `iva_porcentaje` | `Decimal @db.Decimal(4,2)` | 21.00 en régimen CON IVA; 0.00 en régimen SIN IVA |
 | `iva_importe` | `Decimal @db.Decimal(10,2)` | Importe de IVA. `total − base` en CON IVA; 0.00 en SIN IVA |
 | `total` | `Decimal @db.Decimal(10,2)` | Total según régimen. CON IVA: `base + IVA21`. SIN IVA: `base` (importe menor). |
-| `descuento_eur` | `Decimal? @db.Decimal(10,2)` | Descuento aplicado por el Gestor. Nullable |
+| `descuento_eur` | `Decimal? @db.Decimal(10,2)` | Descuento aplicado por el Gestor. Nullable. En UC-15: `descuento_eur ≥ 0` y `≤ base_imponible` (total nunca negativo). |
 | `descuento_motivo` | `String?` | Motivo del descuento. Nullable |
-| `tarifa_congelada` | `Boolean @default(true)` | Una vez confirmado, un cambio del tarifario no recalcula este presupuesto |
-| `pdf_url` | `String?` | URL del PDF generado post-commit (react-pdf). Nullable hasta que se genera. La variante del PDF (CON o SIN IVA) se determina por `regimen_iva`. |
-| `estado` | `EstadoPresupuesto` | `borrador \| enviado \| aceptado \| rechazado`. Al confirmar en UC-14 se crea con `estado = 'enviado'` directamente |
+| `tarifa_congelada` | `Boolean @default(true)` | Una vez confirmada la versión, un cambio del tarifario no la recalcula. Las versiones de UC-15 heredan este comportamiento. |
+| `pdf_url` | `String?` | URL del PDF generado post-commit (react-pdf). Nullable hasta que se genera. Cada versión de UC-15 regenera su propio PDF post-commit; el reenvío sin cambios reutiliza el `pdf_url` de la versión vigente. |
+| `estado` | `EstadoPresupuesto` | `borrador \| enviado \| aceptado \| rechazado`. UC-14 crea siempre `enviado`; UC-15 crea `enviado` (con envío) o `borrador` (sin envío). |
 | `fecha_envio` | `DateTime?` | No nulo solo cuando `estado = 'enviado'`. Nulo en `borrador`, `aceptado` y `rechazado` |
 | `fecha_creacion` / `fecha_actualizacion` | `DateTime` | |
 
 **Flujo de creación en UC-14 (US-014) — actualizado en 6.2:**
 1. El Gestor elige el `metodoPago` y revisa el borrador (calculado por `POST /reservas/{id}/presupuesto/preview` con `metodoPago` obligatorio — sin persistencia). El importe del borrador refleja el régimen (CON IVA o SIN IVA).
 2. Al confirmar (`POST /reservas/{id}/presupuesto`), en **una única transacción**: se deriva el `regimenIva`, se calcula el desglose fiscal y el reparto según el régimen; INSERT en PRESUPUESTO con `version = 1`, `tarifa_congelada = true`, `estado = 'enviado'`, `metodoPago`, `regimenIva`; UPDATE de RESERVA a `pre_reserva`; insert-o-update del bloqueo en `FECHA_BLOQUEADA` a `now() + ttl_prereserva_dias`; vaciado cola A16 (`2d → 2y`); INSERT `AUDIT_LOG`.
-3. Post-commit: generación del PDF en la variante del régimen + UPDATE de `pdf_url` (idempotente); disparo de E2 vía motor US-045.
+3. Post-commit: generación del PDF en la variante del régimen + UPDATE de `pdf_url` (idempotente); disparo de E2 (`es_reenvio=false`) vía motor US-045.
+
+**Flujo de edición en UC-15 (US-015):**
+1. El Gestor solicita preview sin persistir (`POST /reservas/{id}/presupuesto/edicion/preview`): motor de tarifa UC-16 si cambian invitados/duración; desglose fiscal por las funciones puras del régimen del presupuesto vigente; sin efectos en BD.
+2. Al confirmar la edición (`POST /reservas/{id}/presupuesto/edicion`), en **una única transacción**: INSERT de `Presupuesto` con `version = MAX(version)+1`, `tarifa_congelada = true`, `estado = 'enviado'` o `'borrador'` según `enviar`; si `enviado`: `numero_presupuesto = AAAANNN` (secuencia del régimen, reintento `P2002`); si `borrador`: `numero_presupuesto = null`; INSERT/UPDATE de `ReservaExtra` (precio congelado en líneas nuevas, existentes inalteradas); INSERT `AUDIT_LOG accion='actualizar'`.
+3. Post-commit (solo si `enviar=true`): regeneración del PDF + UPDATE `pdf_url`; disparo de E2 con `es_reenvio=true` vía motor US-045.
+4. Reenvío sin cambios (`POST /reservas/{id}/presupuesto/reenvio`): NO crea versión nueva; INSERT `COMUNICACION E2 es_reenvio=true` + `AUDIT_LOG`; responde `200`.
 
 **Mapa de estados del PRESUPUESTO:**
-- `borrador` — estado transitorio de preview (nunca persiste en US-014 MVP; se usa en UC-15 para ediciones)
-- `enviado` — estado inicial al confirmar en UC-14; el PDF se adjunta en E2
-- `aceptado` — cuando el cliente acepta (UC-15/US-015, fuera de US-014)
-- `rechazado` — cuando el cliente rechaza (UC-15/US-015, fuera de US-014)
+- `borrador` — en UC-15 el Gestor puede guardar la edición sin enviar (`numero_presupuesto=null`, sin COMUNICACION); en UC-14 el preview no persiste (no se inserta fila)
+- `enviado` — al confirmar en UC-14 o al confirmar la edición con `enviar=true` en UC-15; `numero_presupuesto` asignado; PDF adjuntado en E2
+- `aceptado` — cuando el cliente acepta; guarda de UC-15: un presupuesto `aceptado` no puede editarse
+- `rechazado` — cuando el cliente rechaza
 
 ### 3.12 Factura
 Facturas de señal (40%), liquidación (60% + extras), fianza y complementarias.

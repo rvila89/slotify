@@ -14,6 +14,8 @@ type Props = {
   desglose: DesgloseFiscal;
   reparto?: RepartoPago | null;
   extrasTotalEur?: string | null;
+  /** [US-015] Descuento aplicado en el borrador de edición (si el gestor lo indicó). */
+  descuentoEur?: string | null;
 };
 
 const claseFila = 'flex items-baseline justify-between gap-4 font-body text-sm';
@@ -23,6 +25,7 @@ export const DesglosePresupuesto = ({
   desglose,
   reparto,
   extrasTotalEur,
+  descuentoEur,
 }: Props) => (
   <div data-testid="desglose-presupuesto" className="flex flex-col gap-4">
     <div className="flex flex-col gap-2 rounded-[16px] border border-border-default/20 bg-surface-subtle/40 p-4">
@@ -38,6 +41,14 @@ export const DesglosePresupuesto = ({
         <div className={claseFila}>
           <span className="text-text-secondary">Extras (incluidos en el total)</span>
           <span className={claseImporte}>{formatearEuros(extrasTotalEur)}</span>
+        </div>
+      )}
+      {descuentoEur && Number(descuentoEur) > 0 && (
+        <div className={claseFila} data-testid="desglose-descuento">
+          <span className="text-text-secondary">Descuento aplicado</span>
+          <span className="shrink-0 tabular-nums text-accent-success">
+            −{formatearEuros(descuentoEur)}
+          </span>
         </div>
       )}
       <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-border-default/20 pt-3 font-display text-base font-bold">

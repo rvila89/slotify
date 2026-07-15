@@ -1127,6 +1127,120 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/presupuesto/edicion/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Recalcular el borrador de la edición sin persistir (UC-15 / US-015)
+         * @description [US-015] Recalcula el borrador de la **edición** del presupuesto de la RESERVA `{id}` (que está en
+         *     `pre_reserva`) con los cambios propuestos (`numAdultosNinosMayores4`, `duracionHoras`, líneas de
+         *     extras, `descuentoEur`, `precioManualEur`), delegando en el **motor de tarifa** (US-016) cuando
+         *     cambian invitados o duración. **NO persiste** nada: no crea versión de PRESUPUESTO, no crea/modifica
+         *     líneas `RESERVA_EXTRA`, no muta `RESERVA.estado`/`ttlExpiracion` ni `FechaBloqueada`, y no envía email.
+         *
+         *     **Guarda de origen** (máquina de estados declarativa): solo se permite sobre una RESERVA en
+         *     `estado='pre_reserva'` cuyo **último** PRESUPUESTO está en `estado ∈ {borrador, enviado}`. Si la
+         *     RESERVA no está en `pre_reserva`, o el último PRESUPUESTO está `aceptado`/`rechazado`, se rechaza con
+         *     409 **antes** de invocar el motor de tarifa.
+         *
+         *     **Precio congelado de extras**: el `precioUnitario` de cada línea nueva lo **congela el servidor** con
+         *     el precio actual del EXTRA del catálogo; el body NO dicta el precio de líneas nuevas. Las líneas ya
+         *     existentes conservan su precio congelado.
+         *
+         *     **Caso `tarifaAConsultar`** (>50 invitados): el motor devuelve importes `null`; la respuesta propaga
+         *     `tarifaAConsultar=true` y el desglose fiscal queda `null` salvo que se envíe `precioManualEur`, con el
+         *     que se recalcula el desglose (base = total / 1.21, IVA 21% en régimen con_iva).
+         */
+        post: operations["previewEdicionPresupuesto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reservas/{id}/presupuesto/edicion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirmar la edición y crear nueva versión del presupuesto (UC-15 / US-015)
+         * @description [US-015] **Confirma** la edición: en una **única transacción de BD** (bajo el contexto RLS del tenant
+         *     del JWT) crea un PRESUPUESTO nuevo con `version = MAX(version de la reserva) + 1`, `tarifaCongelada=true`,
+         *     `ivaPorcentaje` según régimen (21% con_iva / 0% sin_iva) y el desglose fiscal congelado
+         *     (`baseImponible`/`ivaImporte`/`total`/`descuentoEur`/`descuentoMotivo`). El PRESUPUESTO **anterior
+         *     persiste como historial** (no se borra ni sobrescribe); la unicidad `(reservaId, version)` serializa
+         *     (colisión `P2002` ⇒ reintento recalculando `MAX+1`). Las líneas `RESERVA_EXTRA` se materializan con el
+         *     `precioUnitario` **congelado por el server** (`origen='anadido_post_confirmacion'`, `facturaId=null`).
+         *
+         *     El campo `enviar` decide el desenlace:
+         *     - **`enviar=true`**: `estado='enviado'`, consume un `numeroPresupuesto` `AAAANNN` **nuevo** de la
+         *       secuencia del régimen, regenera el PDF y, post-commit (no bloqueante, idempotente por reenvío),
+         *       dispara el email **E2** registrando una `COMUNICACION` con `codigoEmail='E2'`, `estado='enviado'` y
+         *       `esReenvio=true` (esquiva el índice UNIQUE parcial `(reserva_id, codigo_email) WHERE es_reenvio=false`)
+         *       + `AUDIT_LOG accion='actualizar'` con el nuevo `idPresupuesto`.
+         *     - **`enviar=false`**: `estado='borrador'`, `numeroPresupuesto=null`, **sin** COMUNICACION ni email
+         *       (queda disponible para enviarse más tarde). Sí registra `AUDIT_LOG accion='actualizar'`.
+         *
+         *     **Invariantes**: `RESERVA.estado` permanece `pre_reserva` y `FechaBloqueada.ttlExpiracion` **NO** se
+         *     modifica (UC-15 no extiende el bloqueo; no toca el bloqueo atómico de fecha).
+         *
+         *     **Precio manual obligatorio** cuando el motor devuelve `tarifaAConsultar=true` (>50 invitados): el body
+         *     DEBE incluir `precioManualEur`; su ausencia → 422.
+         */
+        post: operations["editarPresupuesto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reservas/{id}/presupuesto/reenvio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reenviar la versión vigente del presupuesto sin cambios (UC-15 / US-015)
+         * @description [US-015] Reenvía **sin cambios** el PDF de la versión **vigente** (`MAX(version)`) del PRESUPUESTO de la
+         *     RESERVA `{id}` (en `pre_reserva`). **NO crea** una versión nueva, **NO consume** un `numeroPresupuesto`
+         *     y **NO recalcula** el desglose ni crea/modifica líneas `RESERVA_EXTRA`. Registra una nueva `COMUNICACION`
+         *     con `codigoEmail='E2'`, `estado='enviado'` y `esReenvio=true` (esquiva el índice UNIQUE parcial, patrón
+         *     US-023/US-028) + `AUDIT_LOG accion='actualizar'`, y deja la versión vigente en `estado='enviado'`.
+         *
+         *     **Invariantes**: `RESERVA.estado` permanece `pre_reserva` y `FechaBloqueada.ttlExpiracion` **NO** cambia.
+         *     No hay body (opera sobre la versión vigente derivada por el server).
+         */
+        post: operations["reenviarPresupuesto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/confirmar-senal": {
         parameters: {
             query?: never;
@@ -1328,8 +1442,14 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Editar y enviar presupuesto (UC-15)
-         * @description Edita líneas/descuento y, opcionalmente, marca el presupuesto como `enviado` (dispara email E-presupuesto).
+         * [DEPRECADO US-015] Usa POST /reservas/{id}/presupuesto/edicion (o /edicion/preview, /reenvio)
+         * @deprecated
+         * @description DEPRECADO (US-015): la edición/reenvío del presupuesto en `pre_reserva` se ha partido en tres
+         *     endpoints dedicados sobre la RESERVA — `POST /reservas/{id}/presupuesto/edicion/preview` (recalcula sin
+         *     persistir), `POST /reservas/{id}/presupuesto/edicion` (crea nueva versión; `enviar` decide `enviado` vs
+         *     `borrador`) y `POST /reservas/{id}/presupuesto/reenvio` (reenvío sin cambios de la versión vigente). Este
+         *     PATCH placeholder (identificado por `idPresupuesto`, no versionado) queda solo por compatibilidad y no se
+         *     implementa.
          */
         patch: {
             parameters: {
@@ -3498,6 +3618,13 @@ export interface components {
             /** @description Mensaje legible para la UI (p. ej. "Fecha no disponible" o "Usa la edición del presupuesto"). */
             motivo: string;
         };
+        PresupuestoEdicionValidacionError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description `DESCUENTO_INVALIDO` (`descuentoEur` negativo o mayor que la `baseImponible`); `DURACION_INVALIDA` (`duracionHoras` fuera de `{4,8,12}`).
+             * @enum {string}
+             */
+            codigo: "DESCUENTO_INVALIDO" | "DURACION_INVALIDA";
+        };
         ConfirmarSenalResponse: {
             /** @description RESERVA resultante: `estado='reserva_confirmada'`, `ttlExpiracion=null`, `importeSenal` e `importeLiquidacion` congelados (`senal + liquidacion = importeTotal`), y los tres sub-procesos `preEventoStatus`/`liquidacionStatus`/`fianzaStatus = 'pendiente'`. */
             reserva: components["schemas"]["Reserva"];
@@ -4150,6 +4277,84 @@ export interface components {
              * @example 0
              */
             consultasDescartadas?: number;
+        };
+        EdicionExtraInput: {
+            /**
+             * Format: uuid
+             * @description ID del EXTRA del catálogo del tenant. Null para un extra fuera de catálogo (usa `conceptoLibre`).
+             */
+            extraId?: string | null;
+            /** @description Descripción del extra fuera de catálogo (cuando `extraId` es null). El precio de estos lo fija el server. */
+            conceptoLibre?: string | null;
+            /** @description Unidades del extra (>= 1). Recalcula `subtotal = precioUnitario × cantidad` sin cambiar el precio congelado. */
+            cantidad: number;
+        };
+        EdicionPresupuestoPreviewRequest: {
+            /** @description [6.2] Método de pago elegido por el Gestor. OBLIGATORIO. Determina el régimen fiscal del borrador (`transferencia ⇒ con_iva`, `efectivo ⇒ sin_iva`) y con ello el desglose/total y la variante del PDF. */
+            metodoPago: components["schemas"]["MetodoPago"];
+            /** @description Nuevo nº de invitados (adultos + niños > 4 años). Si cambia de tramo, recalcula la tarifa vía motor US-016. */
+            numAdultosNinosMayores4?: number;
+            /**
+             * @description Nueva duración del evento en horas. Solo `{4,8,12}`; recalcula la tarifa. Fuera de rango → 422.
+             * @enum {integer}
+             */
+            duracionHoras?: 4 | 8 | 12;
+            /**
+             * @description Conjunto propuesto de líneas de extras. El server congela el `precioUnitario` de las líneas nuevas.
+             * @default []
+             */
+            extras: components["schemas"]["EdicionExtraInput"][];
+            /** @description Descuento a restar del total. `>= 0` y `<= baseImponible` (si no, 422). */
+            descuentoEur?: components["schemas"]["Importe"];
+            /** @description Justificación del descuento, opcional. */
+            descuentoMotivo?: string;
+            /** @description Precio total manual (IVA incluido) para el caso `tarifaAConsultar=true` (>50 invitados). Si se envía, el desglose fiscal se recalcula a partir de él; ignorado en el caso normal. */
+            precioManualEur?: components["schemas"]["Importe"];
+        };
+        EdicionPresupuestoPreviewResponse: {
+            /** @description `true` cuando el motor no tiene tarifa para el tramo (>50 invitados): habilita precio manual. */
+            tarifaAConsultar: boolean;
+            /** @description [6.2] Régimen fiscal derivado del `metodoPago` del request (`con_iva` o `sin_iva`). */
+            regimenIva: components["schemas"]["RegimenIva"];
+            /** @description Salida canónica del motor de tarifa (US-016, snake_case). Importes null si tarifaAConsultar. */
+            tarifa: components["schemas"]["CalculoTarifaResponse"];
+            /** @description Líneas de extras del borrador con el `precioUnitario` **congelado por el server** (no lo dicta el body) y el `subtotal = precioUnitario × cantidad`. Reutiliza el schema `ReservaExtra` (sin persistir). */
+            lineasExtras: components["schemas"]["ReservaExtra"][];
+            /** @description Suma de subtotales de las líneas de extras (Decimal string). "0.00" si no hay extras. */
+            extrasTotalEur: components["schemas"]["Importe"];
+            /** @description Descuento aplicado en el borrador, si el Gestor lo indicó. */
+            descuentoEur?: components["schemas"]["Importe"] | null;
+            /** @description Desglose fiscal (base/IVA/total). `null` cuando `tarifaAConsultar=true` y no se envió `precioManualEur` (el Gestor debe introducir el precio para completar el desglose). */
+            desglose?: components["schemas"]["DesgloseFiscal"] | null;
+            /** @description Reparto 40%/60% + fianza. `null` mientras el total sea desconocido (tarifa a consultar sin precio). */
+            reparto?: components["schemas"]["RepartoPago"] | null;
+        };
+        EdicionPresupuestoRequest: components["schemas"]["EdicionPresupuestoPreviewRequest"] & {
+            /** @description `true` ⇒ nueva versión en `estado='enviado'`, consume un `numeroPresupuesto` `AAAANNN` nuevo, regenera el PDF y dispara el email E2 (`COMUNICACION` con `esReenvio=true`) + `AUDIT_LOG`. `false` ⇒ nueva versión en `estado='borrador'`, `numeroPresupuesto=null`, sin COMUNICACION ni email. */
+            enviar: boolean;
+        };
+        EdicionPresupuestoResponse: {
+            /** @description Nueva versión del PRESUPUESTO (`version = anterior + 1`, `tarifaCongelada=true`). Con `enviar=true`: `estado='enviado'`, `numeroPresupuesto` asignado. Con `enviar=false`: `estado='borrador'`, `numeroPresupuesto=null`. */
+            presupuesto: components["schemas"]["Presupuesto"];
+            /**
+             * Format: uuid
+             * @description ID de la fila TARIFA congelada usada; `null` en el caso `tarifa_a_consultar` (precio manual).
+             */
+            tarifaId?: string | null;
+            /** @description Líneas `RESERVA_EXTRA` persistidas con `precioUnitario` congelado por el server. */
+            lineasExtras?: components["schemas"]["ReservaExtra"][];
+            reparto?: components["schemas"]["RepartoPago"];
+            /** @description RESERVA resultante: `estado` sigue `pre_reserva`, `ttlExpiracion` SIN cambios (no se extiende el bloqueo). */
+            reserva: components["schemas"]["Reserva"];
+            /** @description COMUNICACION E2 registrada cuando `enviar=true` (`codigoEmail='E2'`, `esReenvio=true`, `estado='enviado'`). `null` cuando `enviar=false` (borrador, sin email). */
+            comunicacion?: components["schemas"]["Comunicacion"] | null;
+        };
+        ReenviarPresupuestoRequest: Record<string, never>;
+        ReenviarPresupuestoResponse: {
+            /** @description PRESUPUESTO vigente (`MAX(version)`) reenviado SIN cambios (misma `version`, mismo `numeroPresupuesto`), en `estado=enviado`. */
+            presupuesto: components["schemas"]["Presupuesto"];
+            /** @description COMUNICACION E2 registrada por el reenvío (`codigoEmail=E2`, `esReenvio=true`, `estado=enviado`). */
+            comunicacion: components["schemas"]["Comunicacion"];
         };
         ReservaExtra: {
             /** Format: uuid */
@@ -5153,6 +5358,180 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PresupuestoDatosFiscalesError"] | components["schemas"]["PresupuestoPrecioManualRequeridoError"] | components["schemas"]["CalculoTarifaTarifaNoConfiguradaError"] | components["schemas"]["CalculoTarifaTemporadaNoConfiguradaError"];
+                };
+            };
+        };
+    };
+    previewEdicionPresupuesto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EdicionPresupuestoPreviewRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Borrador de la edición recalculado (NO persistido). Incluye el desglose fiscal (base, IVA 21%,
+             *     total), las líneas de extras con `precioUnitario` congelado por el server, el reparto 40/60/fianza
+             *     y `tarifaAConsultar`. Si `tarifaAConsultar=true` sin `precioManualEur`, los importes fiscales son
+             *     `null` (el Gestor debe introducir el precio).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EdicionPresupuestoPreviewResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Guarda de origen / precondición de estado (409 = conflicto de estado). La RESERVA no está en
+             *     `pre_reserva`, o su último PRESUPUESTO está `aceptado`/`rechazado` (no editable). No se ejecuta el
+             *     motor de tarifa ni se muta nada.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresupuestoGuardaOrigenError"];
+                };
+            };
+            /**
+             * @description Validación de negocio sin efectos. Casos:
+             *     - **`descuentoEur` inválido**: negativo o mayor que la `baseImponible` calculada.
+             *     - **`duracionHoras` inválida**: fuera de `{4,8,12}`.
+             *     - **Datos fiscales/de la reserva incompletos**: falta `dniNif`/`direccion`/`codigoPostal`/
+             *       `poblacion`/`provincia` del CLIENTE o datos de la RESERVA — el cuerpo enumera `camposFaltantes`.
+             *     - **Tarifario incompleto**: `TARIFA_NO_CONFIGURADA` / `TEMPORADA_NO_CONFIGURADA` (≤50 invitados).
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresupuestoEdicionValidacionError"] | components["schemas"]["PresupuestoDatosFiscalesError"] | components["schemas"]["CalculoTarifaTarifaNoConfiguradaError"] | components["schemas"]["CalculoTarifaTemporadaNoConfiguradaError"];
+                };
+            };
+        };
+    };
+    editarPresupuesto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EdicionPresupuestoRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Nueva versión del PRESUPUESTO creada (`version = anterior + 1`, `tarifaCongelada=true`). Devuelve el
+             *     PRESUPUESTO congelado, el reparto 40/60/fianza y la RESERVA (que sigue en `pre_reserva`). Con
+             *     `enviar=true` incluye `estado='enviado'` y `numeroPresupuesto`; con `enviar=false`, `estado='borrador'`
+             *     y `numeroPresupuesto=null`.
+             */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EdicionPresupuestoResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado (409). La RESERVA no está en `pre_reserva`, o su último PRESUPUESTO está
+             *     `aceptado`/`rechazado` (no editable). Rollback total: sin nueva versión ni líneas `RESERVA_EXTRA`.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresupuestoGuardaOrigenError"];
+                };
+            };
+            /**
+             * @description Validación de negocio sin efectos. Casos:
+             *     - **`descuentoEur` inválido**: negativo o mayor que la `baseImponible`.
+             *     - **`duracionHoras` inválida**: fuera de `{4,8,12}`.
+             *     - **Precio manual requerido y ausente**: `tarifaAConsultar=true` (>50 invitados) sin `precioManualEur`.
+             *     - **Datos fiscales/de la reserva incompletos**: el cuerpo enumera `camposFaltantes`.
+             *     - **Tarifario incompleto**: `TARIFA_NO_CONFIGURADA` / `TEMPORADA_NO_CONFIGURADA`.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresupuestoEdicionValidacionError"] | components["schemas"]["PresupuestoPrecioManualRequeridoError"] | components["schemas"]["PresupuestoDatosFiscalesError"] | components["schemas"]["CalculoTarifaTarifaNoConfiguradaError"] | components["schemas"]["CalculoTarifaTemporadaNoConfiguradaError"];
+                };
+            };
+        };
+    };
+    reenviarPresupuesto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReenviarPresupuestoRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Reenvío registrado. Devuelve el PRESUPUESTO vigente (sin cambios de versión ni número) y la
+             *     COMUNICACION E2 (`esReenvio=true`) generada.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReenviarPresupuestoResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado (409). La RESERVA no está en `pre_reserva`, o su último PRESUPUESTO está
+             *     `aceptado`/`rechazado`, o no existe un PRESUPUESTO vigente que reenviar. Sin efectos.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresupuestoGuardaOrigenError"];
                 };
             };
         };

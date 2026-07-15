@@ -29,7 +29,7 @@
 | Tarifa | Configuración de precios precalculados | UC-16 |
 | TemporadaCalendario | Mapeo mes → temporada | UC-16 |
 | Extra | Catálogo de extras del tenant (barbacoa, paellero) | UC-14, UC-16 |
-| ReservaExtra | Línea de extra de una reserva, con precio congelado, origen y factura asociada | UC-14, UC-21 |
+| ReservaExtra | Línea de extra de una reserva, con precio congelado, origen y factura asociada. Primera persistencia real en UC-15 | UC-14, UC-15, UC-21 |
 | Presupuesto | Versiones del presupuesto PDF | UC-14, UC-15 |
 | Factura | Factura de señal, liquidación, fianza o complementaria | UC-18, UC-21 |
 | Pago | Cobro conciliado contra una factura | UC-17, UC-21, UC-22 |
@@ -732,6 +732,8 @@ Línea de extra de una reserva. Es la unidad que se factura. El precio se congel
 | precio_unitario | DECIMAL(10,2) | Precio congelado en el momento de añadir la línea |
 | subtotal | DECIMAL(10,2) | cantidad × precio_unitario |
 
+**Primera persistencia real de líneas `RESERVA_EXTRA` — US-015 (D3, aprobado gate 2026-07-15):** US-014 nunca persiste filas de `RESERVA_EXTRA` (los extras del preview/confirmar se pasan solo al motor de tarifa para el cálculo; el adaptador del PDF los leía desde `reserva.reservaExtras`, que quedaba vacío salvo seed). **US-015 es la primera historia que crea líneas `RESERVA_EXTRA` reales**. Al confirmar la edición del presupuesto, el use-case materializa las líneas (añadir/quitar/modificar) con `precio_unitario` congelado al precio actual del catálogo en ese momento (`factura_id = null`, `origen = 'anadido_post_confirmacion'` para las añadidas tras activar la pre_reserva). Las líneas se ligan a la **RESERVA** (conjunto vivo, sin FK a `PRESUPUESTO`); el dato fiscal firme por versión lo proporciona el desglose congelado (`base_imponible`/`total`) del PRESUPUESTO. Decisión MVP sin migración de schema (la columna `presupuesto_id` en `RESERVA_EXTRA` no se añade; queda como opción si el PO exige histórico de extras por versión).
+
 **Flujo de facturación de extras según el momento de la petición:**
 - Extra en el presupuesto inicial (`origen = presupuesto`): se incluye en la factura de liquidación (60% + extras) a T-1d.
 - Extra pedido tras la confirmación, antes de T-1d (`origen = anadido_post_confirmacion`): se acumula y entra en la misma factura de liquidación.
@@ -739,9 +741,16 @@ Línea de extra de una reserva. Es la unidad que se factura. El precio se congel
 - En todos los casos, al generar la factura correspondiente se marcan los `RESERVA_EXTRA` con `factura_id` pendientes (`factura_id IS NULL`) de esa reserva.
 
 ### 3.12 PRESUPUESTO
-Versiones del presupuesto generado para una reserva (UC-14 / US-014). Cada versión congela el desglose fiscal derivado del motor de tarifa en el momento de la confirmación. La primera versión (`version = 1`) se crea en la misma transacción que la transición de la RESERVA a `pre_reserva`. Versiones posteriores corresponden a ediciones (UC-15).
+Versiones del presupuesto generado para una reserva (UC-14 / US-014; edición en UC-15 / US-015). Cada versión congela el desglose fiscal derivado del motor de tarifa en el momento de la confirmación. La primera versión (`version = 1`) se crea en la misma transacción que la transición de la RESERVA a `pre_reserva`. Versiones posteriores corresponden a ediciones en `pre_reserva` (UC-15 / US-015).
 
 La restricción `UNIQUE(reserva_id, version)` garantiza que no existan dos presupuestos con la misma versión para la misma reserva.
+
+**Versionado inmutable — modelo aprobado gate US-015 (D2, 2026-07-15):**
+- Cada edición confirmada crea una **nueva fila** `PRESUPUESTO` con `version = MAX(version de la reserva) + 1`; las versiones anteriores persisten intactas como historial (no se borran ni se sobrescriben).
+- El **presupuesto vigente** es el de mayor `version` (`MAX(version)` para esa reserva); la vigencia se deriva, no se almacena en un campo `es_vigente`.
+- Cada **envío de una versión nueva** consume un número `AAAANNN` de la secuencia del régimen (`siguienteNumeroPresupuesto` + reintento `P2002`). Un **borrador** (no enviado) queda con `numero_presupuesto = null` hasta que se envíe.
+- El **reenvío sin cambios** (UC-15 flujo B) **no crea una versión nueva** ni consume número; solo registra `COMUNICACION E2 es_reenvio=true` + `AUDIT_LOG`.
+- La concurrencia de doble edición simultánea se resuelve por el `UNIQUE(reserva_id, version)`: la transacción perdedora recibe `P2002` y reintenta calculando `MAX+1` (mismo patrón que la numeración; sin locks distribuidos).
 
 **RLS — política por subconsulta a RESERVA (preexistente; sin cambio en 6.1b/6.2):** `PRESUPUESTO` tiene RLS habilitada con la policy `tenant_isolation` implementada mediante una subconsulta a `RESERVA` — `presupuesto.reserva_id IN (SELECT id_reserva FROM reserva WHERE tenant_id = current_setting('app.tenant_id', true))` — porque en su origen la tabla no tenía `tenant_id` propio. En la migración de 6.1b se añade `tenant_id` como nueva columna (con backfill desde la `RESERVA` asociada), pero la policy RLS existente por subconsulta **no se recrea ni se altera**: el aislamiento efectivo sigue siendo la policy preexistente por join. En 6.2 se añaden `metodo_pago` y `regimen_iva` (nullable + backfill), también protegidas por la policy preexistente: **no se crea una nueva policy RLS**.
 
@@ -758,7 +767,7 @@ La restricción `UNIQUE(reserva_id, version)` garantiza que no existan dos presu
 - **SIN IVA** (`efectivo`): `total = base` (importe MENOR, sin el 21%), `ivaPorcentaje = 0`, `ivaImporte = 0`. Ejemplo: base 1000 → CON IVA total 1210; SIN IVA total 1000.
 El **reparto 40/60** se calcula sobre el `total` del régimen. La **fiança** (`fianzaEur`) es el importe fijo del setting del tenant, aparte del total, igual en ambos regímenes. Los importes congelados (base, iva, total, reparto) reflejan el régimen del presupuesto.
 
-**Nota de implementación — `tarifa_id` ausente del schema (US-014):** el design D-5 preveía almacenar `tarifa_id` como referencia trazable a la `TARIFA` vigente usada. En la implementación se confirmó que el motor de tarifa (US-016) devuelve `tarifa_id` en su esquema canónico, pero la columna no se añadió al modelo de `PRESUPUESTO` en esta iteración; la referencia a la tarifa queda en el `AUDIT_LOG`. Deuda de trazabilidad pendiente de UC-15/US-015.
+**Nota de implementación — `tarifa_id` ausente del schema (US-014):** el design D-5 preveía almacenar `tarifa_id` como referencia trazable a la `TARIFA` vigente usada. En la implementación se confirmó que el motor de tarifa (US-016) devuelve `tarifa_id` en su esquema canónico, pero la columna no se añadió al modelo de `PRESUPUESTO` en esta iteración; la referencia a la tarifa queda en el `AUDIT_LOG`. US-015 tampoco introduce este campo (deuda técnica pendiente de una historia de trazabilidad dedicada).
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
@@ -785,13 +794,19 @@ El **reparto 40/60** se calcula sobre el `total` del régimen. La **fiança** (`
 **Flujo de creación en UC-14 (US-014) — actualizado en 6.2:**
 1. El Gestor elige el `metodoPago` (`transferencia` / `efectivo`) y revisa el borrador (calculado por `POST /reservas/{id}/presupuesto/preview` con `metodoPago` obligatorio — sin persistencia). El importe del borrador refleja el régimen (CON IVA o SIN IVA).
 2. Al confirmar (`POST /reservas/{id}/presupuesto`) con `metodoPago` obligatorio, en **una única transacción**: se deriva el `regimenIva` (dominio puro), se calcula el desglose fiscal según el régimen, se inserta PRESUPUESTO con `version = 1`, `tarifa_congelada = true`, `estado = 'enviado'`, `metodoPago` y `regimenIva`; se transiciona la RESERVA a `pre_reserva`; se hace insert-o-update del bloqueo en `FECHA_BLOQUEADA` a `now() + ttl_prereserva_dias`; se vacía la cola A16 (`2d → 2y`); se escribe `AUDIT_LOG`.
-3. Post-commit: se genera el PDF en la variante correspondiente al régimen y se actualiza `pdf_url` (segundo UPDATE idempotente); se dispara E2 vía motor US-045.
+3. Post-commit: se genera el PDF en la variante correspondiente al régimen y se actualiza `pdf_url` (segundo UPDATE idempotente); se dispara E2 (`es_reenvio=false`) vía motor US-045.
+
+**Flujo de edición en UC-15 (US-015):**
+1. Preview sin persistir (`POST /reservas/{id}/presupuesto/edicion/preview`): motor UC-16 si cambian invitados/duración; desglose fiscal por funciones puras del régimen del presupuesto vigente; sin efectos en BD.
+2. Al confirmar (`POST /reservas/{id}/presupuesto/edicion`), en **una única transacción**: INSERT `PRESUPUESTO version=MAX+1`, `tarifa_congelada=true`, `estado='enviado'`/`'borrador'` según `enviar`; si `enviado`: `numero_presupuesto=AAAANNN` (secuencia del régimen, reintento `P2002`); si `borrador`: `numero_presupuesto=null`; INSERT/UPDATE `RESERVA_EXTRA` (precio congelado en líneas nuevas; existentes inalteradas); INSERT `AUDIT_LOG accion='actualizar'`. `RESERVA.estado` y `FECHA_BLOQUEADA.ttl_expiracion` no se mutan.
+3. Post-commit (solo si `enviar=true`): regeneración PDF + UPDATE `pdf_url`; disparo E2 `es_reenvio=true` vía motor US-045.
+4. Reenvío sin cambios (`POST /reservas/{id}/presupuesto/reenvio`): NO crea versión nueva; INSERT `COMUNICACION E2 es_reenvio=true` + `AUDIT_LOG`; responde `200`.
 
 **Mapa de estados del PRESUPUESTO:**
-- `borrador` → estado transitorio de preview (nunca persiste en US-014 MVP; se usa en UC-15 para ediciones)
-- `enviado` → estado inicial al confirmar en UC-14; el PDF se adjunta en E2
-- `aceptado` → cuando el cliente acepta (UC-15/US-015, fuera de US-014)
-- `rechazado` → cuando el cliente rechaza (UC-15/US-015, fuera de US-014)
+- `borrador` → en US-014 el preview no persiste (es transitorio); en UC-15/US-015 el Gestor puede **guardar la edición como borrador** (`numero_presupuesto = null`, sin COMUNICACION), que persiste hasta enviarlo o ser sustituido por otra versión
+- `enviado` → estado al confirmar la edición con `enviar: true` en UC-15/US-015, o al confirmar en UC-14; `numero_presupuesto` asignado; el PDF se adjunta en E2 (`es_reenvio = true` para las ediciones de UC-15)
+- `aceptado` → cuando el cliente acepta; PRESUPUESTO en este estado no puede editarse (guarda de UC-15)
+- `rechazado` → cuando el cliente rechaza
 
 ### 3.13 FACTURA
 Facturas de señal (40%), liquidación (60% + extras), fianza y complementarias. El agregado raíz de la capability `facturacion` (US-022).
@@ -941,7 +956,7 @@ Log de emails del ciclo de vida de la reserva (E1–E8) y emails manuales. El mo
 
 **Extensión de E1 en la transición 2.a → 2.b (US-005 / D-6):** tras el COMMIT de `2a → 2b`, el adaptador `ConfirmacionBloqueoEmailAdapter` hace un **UPSERT** de la fila `(reserva, E1)`: si ya existía una E1 del alta, la actualiza (mismo `id_comunicacion`); si no existe, la crea. El índice UNIQUE parcial impide duplicados. El envío es post-commit y no bloqueante: un fallo no revierte la RESERVA ni la `FECHA_BLOQUEADA` comprometidas. Este email no tiene código `E` propio en el catálogo (E1–E8): es una extensión de E1 adaptando el copy a "bloqueo provisional confirmado" (ver `data-model.md §3.16`).
 
-**Cobertura de emails E1–E8:** E1 activa (trigger cableado en US-003/004+US-045; extensión en US-005). E2 activa (trigger cableado en US-014 — post-commit de la confirmación `{2a|2b|2c|2v} → pre_reserva`; PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; registro en `COMUNICACION` con `codigo_email='E2'`, `estado='enviado'`; idempotencia garantizada por índice UNIQUE parcial de US-045). E6 activa (trigger cableado en US-008 — post-commit de la transición `{2a|2b|2c}→2v`; registro en `COMUNICACION` con `codigo_email='E6'`, `estado='enviado'`, `reserva_id`, `cliente_id`). E7 activa (trigger cableado en US-009 — post-commit de la transición `2v→2b` "cliente interesado"; registro en `COMUNICACION` con `codigo_email='E7'`, `estado='enviado'`, `reserva_id`, `cliente_id`). E3 avanza en US-022 (la factura de señal, prerequisito de E3, está implementada) pero su trigger se cablea en US-023 (condiciones particulares, trigger natural de E3). **E4 activa — trigger cableado en US-028** (aprobación/emisión de la factura de liquidación y del recibo de fianza): la acción `aprobar-enviar` emite ambas facturas, registra `COMUNICACION E4` con `estado='enviado'` y actualiza `liquidacion_status = 'facturada'` y `fianza_status = 'recibo_enviado'` de forma **atómica** (D-1: excepción síncrona al patrón post-commit); si E4 falla, se hace rollback completo de estados y numeración. El reenvío de la factura ya emitida (`POST /reservas/{id}/facturas/liquidacion/reenviar`) crea un nuevo registro `COMUNICACION E4` con `es_reenvio = true`, sin mutar el contenido fiscal. El envío separado del recibo de fianza (`POST /reservas/{id}/facturas/fianza/enviar`) registra `COMUNICACION` con `codigo_email = 'manual'` (D-3). US-027 generó los borradores con `numero_factura = NULL`; US-028 asignó `numero_factura = F-YYYY-NNNN` al emitir. E5, E8 diseñadas/inactivas; su trigger: E5→US-034, E8→US-035. Ver [architecture.md §2.9 DT-EMAIL-02 y §2.15](./architecture.md).
+**Cobertura de emails E1–E8:** E1 activa (trigger cableado en US-003/004+US-045; extensión en US-005). E2 activa con **dos triggers**: (1) US-014 — post-commit de la confirmación `{2a|2b|2c|2v} → pre_reserva`, `COMUNICACION` con `codigo_email='E2'`, `es_reenvio=false`, PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; (2) US-015 — post-commit de la edición del presupuesto (envío de versión nueva) **y** del reenvío sin cambios, `COMUNICACION` con `codigo_email='E2'`, `es_reenvio=true`; el índice UNIQUE parcial `(reserva_id, codigo_email) WHERE es_reenvio=false` garantiza que los reenvíos no colisionan con el E2 original ni entre sí; idempotencia garantizada por el índice de US-045. **Gap E2 resuelto (US-015 D1, decisión PO/humano 2026-07-15):** se reutiliza el template E2 para UC-15 con `es_reenvio=true`, sin crear código `E` nuevo ni migrar el enum `CodigoEmail`. E6 activa (trigger cableado en US-008 — post-commit de la transición `{2a|2b|2c}→2v`; registro en `COMUNICACION` con `codigo_email='E6'`, `estado='enviado'`, `reserva_id`, `cliente_id`). E7 activa (trigger cableado en US-009 — post-commit de la transición `2v→2b` "cliente interesado"; registro en `COMUNICACION` con `codigo_email='E7'`, `estado='enviado'`, `reserva_id`, `cliente_id`). E3 avanza en US-022 (la factura de señal, prerequisito de E3, está implementada) pero su trigger se cablea en US-023 (condiciones particulares, trigger natural de E3). **E4 activa — trigger cableado en US-028** (aprobación/emisión de la factura de liquidación y del recibo de fianza): la acción `aprobar-enviar` emite ambas facturas, registra `COMUNICACION E4` con `estado='enviado'` y actualiza `liquidacion_status = 'facturada'` y `fianza_status = 'recibo_enviado'` de forma **atómica** (D-1: excepción síncrona al patrón post-commit); si E4 falla, se hace rollback completo de estados y numeración. El reenvío de la factura ya emitida (`POST /reservas/{id}/facturas/liquidacion/reenviar`) crea un nuevo registro `COMUNICACION E4` con `es_reenvio = true`, sin mutar el contenido fiscal. El envío separado del recibo de fianza (`POST /reservas/{id}/facturas/fianza/enviar`) registra `COMUNICACION` con `codigo_email = 'manual'` (D-3). US-027 generó los borradores con `numero_factura = NULL`; US-028 asignó `numero_factura = F-YYYY-NNNN` al emitir. E5, E8 diseñadas/inactivas; su trigger: E5→US-034, E8→US-035. Ver [architecture.md §2.9 DT-EMAIL-02 y §2.15](./architecture.md).
 
 ### 3.18 AUDIT_LOG
 Registro de auditoría de todas las acciones sobre reservas, facturas y autenticación.

@@ -509,6 +509,44 @@ export const esEstadoValidoParaRegistrarFirmaCondiciones = (
 ): boolean => ESTADOS_VALIDOS_REGISTRAR_FIRMA_CONDICIONES.includes(estado);
 
 // ---------------------------------------------------------------------------
+// Guarda de PRECONDICIÓN «editar/reenviar presupuesto en pre_reserva»
+// (US-015 / UC-15 / design.md §D5 §D-no-transicion)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tabla declarativa de ESTADOS válidos para EDITAR/REENVIAR el presupuesto de una
+ * RESERVA (US-015, skill `state-machine`, NO condicionales dispersos). Como
+ * `ESTADOS_VALIDOS_REGISTRAR_FIRMA_CONDICIONES` (US-024) y
+ * `ESTADOS_BLOQUEO_BLANDO_EXTENSIBLE` (US-006), es una PRECONDICIÓN sobre el estado
+ * ACTUAL del agregado —NO una transición origen→destino—: la edición ACTUALIZA la
+ * oferta económica (crea una nueva versión de PRESUPUESTO) pero la RESERVA NO
+ * transiciona (permanece `pre_reserva`, `ttl_expiracion` intacto), por eso NO se
+ * añade ninguna arista al grafo (design.md §D5). Regla firme del Gate (§D2/§D5):
+ * válido ⇔ `estado = 'pre_reserva'` (único estado). NO son válidos `consulta` (todos
+ * sus sub-estados; una consulta aún no tiene presupuesto en pre_reserva),
+ * `reserva_confirmada` (señal ya confirmada, oferta cerrada) ni los posteriores/
+ * terminales (`evento_en_curso`/`post_evento`/`reserva_completada`/
+ * `reserva_cancelada`, inmutables) → 409 sin efectos. La SEGUNDA vertiente de la
+ * precondición —que el ÚLTIMO PRESUPUESTO esté en `{borrador, enviado}` y NO en
+ * `aceptado`/`rechazado`— NO es un estado de la máquina de la RESERVA: se valida
+ * sobre el PRESUPUESTO en el use-case.
+ */
+const ESTADOS_VALIDOS_EDITAR_PRESUPUESTO: ReadonlyArray<EstadoReserva> = [
+  'pre_reserva',
+];
+
+/**
+ * Guarda declarativa de PRECONDICIÓN: ¿es `estado` un estado VÁLIDO para editar/
+ * reenviar el presupuesto (US-015)? Consulta la tabla
+ * `ESTADOS_VALIDOS_EDITAR_PRESUPUESTO`: solo `pre_reserva` lo es. Se evalúa ANTES de
+ * invocar el motor de tarifa y de abrir la transacción para rechazar sin efectos con
+ * 409 (`RESERVA_FUERA_DE_PRERESERVA`) cualquier otro estado.
+ */
+export const esEstadoValidoParaEditarPresupuesto = (
+  estado: EstadoReserva,
+): boolean => ESTADOS_VALIDOS_EDITAR_PRESUPUESTO.includes(estado);
+
+// ---------------------------------------------------------------------------
 // Transición TERMINAL por EXPIRACIÓN de TTL (US-012 / UC-09 / §D-3)
 // ---------------------------------------------------------------------------
 

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { CalendarPlus, User } from 'lucide-react';
-import { AvisoPresupuestoConfirmado, type ConfirmarPresupuestoResponse } from '@/features/presupuestos';
-import { AvisoReservaConfirmada, type ConfirmarSenalResponse } from '@/features/confirmacion';
+import type { ConfirmarPresupuestoResponse } from '@/features/presupuestos';
+import type { ConfirmarSenalResponse } from '@/features/confirmacion';
 import {
   FacturaSenalCard,
   DocumentosLiquidacionFianza,
@@ -21,8 +21,11 @@ import { AvisoVisitaProgramada } from './components/AvisoVisitaProgramada';
 import { AvisoResultadoVisita } from './components/AvisoResultadoVisita';
 import { AvisoReservaInmediata } from './components/AvisoReservaInmediata';
 import { AvisoBloqueoExtendido } from './components/AvisoBloqueoExtendido';
-import { AvisoEventoFinalizado } from './components/AvisoEventoFinalizado';
 import { DialogosFicha } from './components/DialogosFicha';
+import {
+  AvisosEdicionPresupuesto,
+  type ResultadoEdicion,
+} from './components/AvisosEdicionPresupuesto';
 import { IbanDevolucionCard } from '../../components/IbanDevolucionCard';
 import { puedeRegistrarIban } from '../../lib/ibanDevolucion';
 import type { PendienteInvitadosResultado, Reserva } from '../../model/types';
@@ -48,6 +51,7 @@ export const FichaConsultaPage = () => {
   const [dialogoResultadoAbierto, setDialogoResultadoAbierto] = useState(false);
   const [dialogoExtenderAbierto, setDialogoExtenderAbierto] = useState(false);
   const [dialogoPresupuestoAbierto, setDialogoPresupuestoAbierto] = useState(false);
+  const [dialogoEditarPresupuestoAbierto, setDialogoEditarPresupuestoAbierto] = useState(false);
   const [dialogoSenalAbierto, setDialogoSenalAbierto] = useState(false);
   const [dialogoFinalizarAbierto, setDialogoFinalizarAbierto] = useState(false);
   const [dialogoArchivarAbierto, setDialogoArchivarAbierto] = useState(false);
@@ -68,6 +72,9 @@ export const FichaConsultaPage = () => {
   // Resultado de la confirmación del presupuesto (US-014): alimenta su aviso (pre_reserva).
   const [resultadoPresupuesto, setResultadoPresupuesto] =
     useState<ConfirmarPresupuestoResponse | null>(null);
+  // Resultado de la edición/reenvío del presupuesto (US-015): edición enviada/guardada
+  // (`clase='edicion'`) o reenvío sin cambios (`clase='reenvio'`).
+  const [resultadoEdicion, setResultadoEdicion] = useState<ResultadoEdicion | null>(null);
   // Resultado de la confirmación de señal (US-021): alimenta su aviso (reserva_confirmada).
   const [resultadoSenal, setResultadoSenal] = useState<ConfirmarSenalResponse | null>(null);
   // Resultado de la finalización del evento (US-034, post_evento + E5 + docs pendiente).
@@ -144,21 +151,16 @@ export const FichaConsultaPage = () => {
           onCerrar={() => setResultadoExtension(null)}
         />
       )}
-      {resultadoPresupuesto && (
-        <AvisoPresupuestoConfirmado
-          resultado={resultadoPresupuesto}
-          onCerrar={() => setResultadoPresupuesto(null)}
-        />
-      )}
-      {resultadoSenal && (
-        <AvisoReservaConfirmada resultado={resultadoSenal} onCerrar={() => setResultadoSenal(null)} />
-      )}
-      {resultadoFinalizar && (
-        <AvisoEventoFinalizado
-          resultado={resultadoFinalizar}
-          onCerrar={() => setResultadoFinalizar(null)}
-        />
-      )}
+      <AvisosEdicionPresupuesto
+        presupuesto={resultadoPresupuesto}
+        edicion={resultadoEdicion}
+        senal={resultadoSenal}
+        finalizar={resultadoFinalizar}
+        onCerrarPresupuesto={() => setResultadoPresupuesto(null)}
+        onCerrarEdicion={() => setResultadoEdicion(null)}
+        onCerrarSenal={() => setResultadoSenal(null)}
+        onCerrarFinalizar={() => setResultadoFinalizar(null)}
+      />
 
       <section className={claseSeccion} aria-labelledby="ficha-cliente">
         <div id="ficha-cliente" className="flex items-center gap-3">
@@ -227,6 +229,10 @@ export const FichaConsultaPage = () => {
           onGenerarPresupuesto={() => {
             setResultadoPresupuesto(null);
             setDialogoPresupuestoAbierto(true);
+          }}
+          onEditarPresupuesto={() => {
+            setResultadoEdicion(null);
+            setDialogoEditarPresupuestoAbierto(true);
           }}
           onConfirmarSenal={() => {
             setResultadoSenal(null);
@@ -314,6 +320,7 @@ export const FichaConsultaPage = () => {
             resultado: [dialogoResultadoAbierto, setDialogoResultadoAbierto],
             extender: [dialogoExtenderAbierto, setDialogoExtenderAbierto],
             presupuesto: [dialogoPresupuestoAbierto, setDialogoPresupuestoAbierto],
+            editarPresupuesto: [dialogoEditarPresupuestoAbierto, setDialogoEditarPresupuestoAbierto],
             senal: [dialogoSenalAbierto, setDialogoSenalAbierto],
             finalizar: [dialogoFinalizarAbierto, setDialogoFinalizarAbierto],
             archivar: [dialogoArchivarAbierto, setDialogoArchivarAbierto],
@@ -325,6 +332,8 @@ export const FichaConsultaPage = () => {
           onResueltoReservaInmediata={setResultadoReservaInmediata}
           onResueltoExtension={setResultadoExtension}
           onConfirmadoPresupuesto={setResultadoPresupuesto}
+          onEditadoPresupuesto={(datos) => setResultadoEdicion({ clase: 'edicion', datos })}
+          onReenviadoPresupuesto={(datos) => setResultadoEdicion({ clase: 'reenvio', datos })}
           onConfirmadoSenal={setResultadoSenal}
           onFinalizado={setResultadoFinalizar}
           onArchivado={setResultadoArchivar}
