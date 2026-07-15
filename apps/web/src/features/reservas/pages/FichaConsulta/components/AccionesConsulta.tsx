@@ -1,7 +1,6 @@
 import {
   CalendarClock,
   CalendarPlus,
-  CheckCircle2,
   ClipboardCheck,
   Flag,
   FileText,
@@ -10,13 +9,18 @@ import {
   Timer,
   Users,
 } from 'lucide-react';
-import { motivoNoPuedeGenerar, puedeGenerarPresupuesto } from '@/features/presupuestos';
+import {
+  motivoNoPuedeGenerar,
+  puedeEditarPresupuesto,
+  puedeGenerarPresupuesto,
+} from '@/features/presupuestos';
 import { puedeConfirmarSenal } from '@/features/confirmacion';
 import { aforoDeReserva } from '../../../lib/aforo';
 import { bloqueoVigente, puedeExtenderBloqueo } from '../../../lib/fecha';
 import { puedeFinalizarEvento } from '../../../lib/finalizarEvento';
 import { puedeArchivarReserva } from '../../../lib/archivarReserva';
 import { AccionArchivar } from './AccionArchivar';
+import { AccionesPreReserva } from './AccionesPreReserva';
 import type { Reserva } from '../../../model/types';
 
 /**
@@ -55,6 +59,7 @@ type Props = {
   onRegistrarResultadoVisita: () => void;
   onExtenderBloqueo: () => void;
   onGenerarPresupuesto: () => void;
+  onEditarPresupuesto: () => void;
   onConfirmarSenal: () => void;
   onFinalizarEvento: () => void;
   onArchivarReserva: () => void;
@@ -68,6 +73,7 @@ export const AccionesConsulta = ({
   onRegistrarResultadoVisita,
   onExtenderBloqueo,
   onGenerarPresupuesto,
+  onEditarPresupuesto,
   onConfirmarSenal,
   onFinalizarEvento,
   onArchivarReserva,
@@ -105,6 +111,10 @@ export const AccionesConsulta = ({
   // Solo se muestra la acción (habilitada o bloqueada) mientras la reserva sigue
   // en fase de consulta; en `pre_reserva`+ desaparece (ya hay presupuesto/UC-15).
   const mostrarPresupuesto = reserva.estado === 'consulta';
+  // US-015 (UC-15): "Editar presupuesto" SOLO cuando la RESERVA está en `pre_reserva`
+  // (un presupuesto aceptado/rechazado la saca de ese estado). El backend revalida el
+  // estado del último PRESUPUESTO de forma defensiva (409 si aceptado/fuera de fase).
+  const puedeEditar = puedeEditarPresupuesto({ estado: reserva.estado });
   // US-021 (UC-17): "Confirmar pago de señal" SOLO cuando la RESERVA está en
   // `pre_reserva`. En cualquier otro estado la acción no se ofrece.
   const puedeConfirmar = puedeConfirmarSenal({ estado: reserva.estado });
@@ -287,25 +297,13 @@ export const AccionesConsulta = ({
         </div>
       )}
 
-      {/* US-021: "Confirmar pago de señal" — solo en `pre_reserva`. */}
-      {puedeConfirmar && (
-        <div className="flex flex-col gap-3">
-          <p className="font-body text-sm text-text-secondary">
-            El cliente ha aceptado el presupuesto. Adjunta el justificante del pago de la señal
-            para confirmar la reserva: la fecha quedará bloqueada en firme, se congelarán los
-            importes de señal y liquidación y se iniciarán los sub-procesos del evento.
-          </p>
-          <button
-            type="button"
-            data-testid="boton-confirmar-senal"
-            onClick={onConfirmarSenal}
-            className={claseBotonAccion}
-          >
-            <CheckCircle2 aria-hidden className="size-5" />
-            Confirmar pago de señal
-          </button>
-        </div>
-      )}
+      {/* US-015 + US-021: acciones de la fase `pre_reserva` (editar presupuesto /
+          confirmar señal), extraídas para respetar el límite de 300 líneas. */}
+      <AccionesPreReserva
+        reserva={reserva}
+        onEditarPresupuesto={onEditarPresupuesto}
+        onConfirmarSenal={onConfirmarSenal}
+      />
 
       {/* US-034: "Marcar evento como finalizado" — solo en `evento_en_curso`. */}
       {puedeFinalizar && (
@@ -339,6 +337,7 @@ export const AccionesConsulta = ({
         !enCola &&
         !puedeExtender &&
         !mostrarPresupuesto &&
+        !puedeEditar &&
         !puedeConfirmar &&
         !puedeFinalizar &&
         !puedeArchivar && (

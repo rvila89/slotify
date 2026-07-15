@@ -50,20 +50,54 @@ import { CargarDatosDocumentoPresupuestoPrismaAdapter } from './infrastructure/c
 import { DispararE2Adapter } from './infrastructure/disparar-e2.adapter';
 import { SistemaClockAdapter } from './infrastructure/sistema-clock.adapter';
 import { GenerarPresupuestoController } from './interface/generar-presupuesto.controller';
+import { EditarPresupuestoController } from './interface/editar-presupuesto.controller';
+import {
+  EditarPresupuestoUseCase,
+  ReenviarPresupuestoUseCase,
+  type CargarExtraCatalogoPort,
+  type CargarLineasExistentesPort,
+  type CargarPresupuestoVigentePort,
+  type CargarReservaEdicionPort,
+  type ClockPort as EdicionClockPort,
+  type DispararE2EdicionPort,
+  type ReenviarE2Port,
+  type TenantSettingsPresupuestoPort as EdicionTenantSettingsPort,
+  type UnidadDeTrabajoEditarPresupuestoPort,
+} from './application/editar-presupuesto.use-case';
+import {
+  CargarExtraCatalogoPrismaAdapter,
+  CargarLineasExistentesPrismaAdapter,
+  CargarPresupuestoVigentePrismaAdapter,
+  CargarReservaEdicionPrismaAdapter,
+} from './infrastructure/editar-presupuesto-lecturas.prisma.adapter';
+import { EditarPresupuestoUoWPrismaAdapter } from './infrastructure/editar-presupuesto-uow.prisma.adapter';
+import {
+  ReenviarE2PresupuestoAdapter,
+  RegistrarAuditoriaReenvioPresupuestoAdapter,
+  RegistrarE2ReenvioPresupuestoAdapter,
+} from './infrastructure/reenviar-presupuesto.prisma.adapter';
 import {
   CARGAR_CLIENTE_PRESUPUESTO_PORT,
   CARGAR_DATOS_DOCUMENTO_PRESUPUESTO_PORT,
+  CARGAR_EXTRA_CATALOGO_PORT,
+  CARGAR_LINEAS_EXISTENTES_PORT,
+  CARGAR_PRESUPUESTO_VIGENTE_PORT,
+  CARGAR_RESERVA_EDICION_PORT,
   CARGAR_RESERVA_PRESUPUESTO_PORT,
   DISPARAR_E2_PORT,
   GENERAR_PDF_PRESUPUESTO_PORT,
   PRESUPUESTOS_CLOCK_PORT,
+  REENVIAR_E2_PRESUPUESTO_PORT,
+  REGISTRAR_AUDITORIA_REENVIO_PORT,
+  REGISTRAR_E2_REENVIO_PORT,
   TENANT_SETTINGS_PRESUPUESTO_PORT,
   UNIDAD_DE_TRABAJO_ACTIVAR_PRERESERVA_PORT,
+  UNIDAD_DE_TRABAJO_EDITAR_PRESUPUESTO_PORT,
 } from './presupuestos.tokens';
 
 @Module({
   imports: [PrismaModule, TarifasModule, ComunicacionesModule, DocumentosModule],
-  controllers: [GenerarPresupuestoController],
+  controllers: [GenerarPresupuestoController, EditarPresupuestoController],
   providers: [
     {
       provide: UNIDAD_DE_TRABAJO_ACTIVAR_PRERESERVA_PORT,
@@ -158,7 +192,131 @@ import {
           dispararE2,
         }),
     },
+    // -----------------------------------------------------------------------
+    // US-015 — Edición / reenvío del presupuesto en pre_reserva
+    // -----------------------------------------------------------------------
+    {
+      provide: UNIDAD_DE_TRABAJO_EDITAR_PRESUPUESTO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new EditarPresupuestoUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: CARGAR_RESERVA_EDICION_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarReservaEdicionPort =>
+        new CargarReservaEdicionPrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: CARGAR_PRESUPUESTO_VIGENTE_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarPresupuestoVigentePort =>
+        new CargarPresupuestoVigentePrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: CARGAR_EXTRA_CATALOGO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarExtraCatalogoPort =>
+        new CargarExtraCatalogoPrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: CARGAR_LINEAS_EXISTENTES_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarLineasExistentesPort =>
+        new CargarLineasExistentesPrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: REENVIAR_E2_PRESUPUESTO_PORT,
+      inject: [DespacharEmailService, PrismaService],
+      useFactory: (
+        motor: DespacharEmailService,
+        prisma: PrismaService,
+      ): ReenviarE2Port =>
+        new ReenviarE2PresupuestoAdapter(motor, prisma).reenviar,
+    },
+    {
+      provide: REGISTRAR_E2_REENVIO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new RegistrarE2ReenvioPresupuestoAdapter(prisma).registrar,
+    },
+    {
+      provide: REGISTRAR_AUDITORIA_REENVIO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new RegistrarAuditoriaReenvioPresupuestoAdapter(prisma).registrar,
+    },
+    {
+      provide: EditarPresupuestoUseCase,
+      inject: [
+        CalculadoraTarifaService,
+        UNIDAD_DE_TRABAJO_EDITAR_PRESUPUESTO_PORT,
+        TENANT_SETTINGS_PRESUPUESTO_PORT,
+        CARGAR_RESERVA_EDICION_PORT,
+        CARGAR_PRESUPUESTO_VIGENTE_PORT,
+        CARGAR_EXTRA_CATALOGO_PORT,
+        CARGAR_LINEAS_EXISTENTES_PORT,
+        GENERAR_PDF_PRESUPUESTO_PORT,
+        PRESUPUESTOS_CLOCK_PORT,
+        DISPARAR_E2_PORT,
+      ],
+      useFactory: (
+        motorTarifa: CalculadoraTarifaService,
+        unidadDeTrabajo: UnidadDeTrabajoEditarPresupuestoPort,
+        tenantSettings: EdicionTenantSettingsPort,
+        cargarReserva: CargarReservaEdicionPort,
+        cargarPresupuestoVigente: CargarPresupuestoVigentePort,
+        cargarExtraCatalogo: CargarExtraCatalogoPort,
+        cargarLineasExistentes: CargarLineasExistentesPort,
+        generarPdf: GenerarPdfPresupuestoPort,
+        clock: EdicionClockPort,
+        dispararE2: DispararE2EdicionPort,
+      ) =>
+        new EditarPresupuestoUseCase({
+          motorTarifa,
+          unidadDeTrabajo,
+          tenantSettings,
+          cargarReserva,
+          cargarPresupuestoVigente,
+          cargarExtraCatalogo,
+          cargarLineasExistentes,
+          generarPdf,
+          clock,
+          dispararE2,
+        }),
+    },
+    {
+      provide: ReenviarPresupuestoUseCase,
+      inject: [
+        CARGAR_RESERVA_EDICION_PORT,
+        CARGAR_PRESUPUESTO_VIGENTE_PORT,
+        REENVIAR_E2_PRESUPUESTO_PORT,
+        REGISTRAR_E2_REENVIO_PORT,
+        REGISTRAR_AUDITORIA_REENVIO_PORT,
+        PRESUPUESTOS_CLOCK_PORT,
+      ],
+      useFactory: (
+        cargarReserva: CargarReservaEdicionPort,
+        cargarPresupuestoVigente: CargarPresupuestoVigentePort,
+        reenviarE2: ReenviarE2Port,
+        registrarE2Reenvio: RegistrarE2ReenvioPresupuestoAdapter['registrar'],
+        registrarAuditoria: RegistrarAuditoriaReenvioPresupuestoAdapter['registrar'],
+        clock: EdicionClockPort,
+      ) =>
+        new ReenviarPresupuestoUseCase({
+          cargarReserva,
+          cargarPresupuestoVigente,
+          reenviarE2,
+          registrarE2Reenvio,
+          registrarAuditoria,
+          clock,
+        }),
+    },
   ],
-  exports: [GenerarPresupuestoUseCase],
+  exports: [
+    GenerarPresupuestoUseCase,
+    EditarPresupuestoUseCase,
+    ReenviarPresupuestoUseCase,
+  ],
 })
 export class PresupuestosModule {}

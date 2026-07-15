@@ -16,6 +16,19 @@ export type RepartoPago = components['schemas']['RepartoPago'];
 export type PresupuestoExtraInput = components['schemas']['PresupuestoExtraInput'];
 export type Presupuesto = components['schemas']['Presupuesto'];
 export type Extra = components['schemas']['Extra'];
+export type ReservaExtra = components['schemas']['ReservaExtra'];
+
+// US-015 — Edición versionada + reenvío del presupuesto en pre_reserva (UC-15).
+export type EdicionPresupuestoPreviewRequest =
+  components['schemas']['EdicionPresupuestoPreviewRequest'];
+export type EdicionPresupuestoPreviewResponse =
+  components['schemas']['EdicionPresupuestoPreviewResponse'];
+export type EdicionPresupuestoRequest = components['schemas']['EdicionPresupuestoRequest'];
+export type EdicionPresupuestoResponse = components['schemas']['EdicionPresupuestoResponse'];
+export type EdicionExtraInput = components['schemas']['EdicionExtraInput'];
+export type ReenviarPresupuestoResponse = components['schemas']['ReenviarPresupuestoResponse'];
+/** Duración del evento en horas admitida por la edición (recalcula la tarifa). */
+export type DuracionHorasEdicion = NonNullable<EdicionPresupuestoPreviewRequest['duracionHoras']>;
 
 /** [6.2] Método de pago elegido por el Gestor al generar el presupuesto. */
 export type MetodoPago = components['schemas']['MetodoPago'];
@@ -33,6 +46,8 @@ export type PresupuestoPrecioManualRequeridoError =
   components['schemas']['PresupuestoPrecioManualRequeridoError'];
 export type PresupuestoGuardaOrigenError =
   components['schemas']['PresupuestoGuardaOrigenError'];
+export type PresupuestoEdicionValidacionError =
+  components['schemas']['PresupuestoEdicionValidacionError'];
 export type ErrorResponse = components['schemas']['ErrorResponse'];
 
 /** Campos fiscales/de reserva que el backend puede reportar como faltantes (FA-01). */
@@ -74,6 +89,24 @@ export type PresupuestoError =
   | {
       /** 409 ORIGEN_INVALIDO: la RESERVA está en 2d/terminal/pre_reserva+. */
       tipo: 'origen-invalido';
+      mensaje: string;
+    }
+  | {
+      /**
+       * 409 (edición/reenvío, US-015): la RESERVA no está en `pre_reserva` o su
+       * último PRESUPUESTO está `aceptado`/`rechazado` (no editable).
+       */
+      tipo: 'edicion-no-permitida';
+      mensaje: string;
+    }
+  | {
+      /** 422 DESCUENTO_INVALIDO (US-015): negativo o mayor que la base imponible. */
+      tipo: 'descuento-invalido';
+      mensaje: string;
+    }
+  | {
+      /** 422 DURACION_INVALIDA (US-015): `duracionHoras` fuera de {4,8,12}. */
+      tipo: 'duracion-invalida';
       mensaje: string;
     }
   | {

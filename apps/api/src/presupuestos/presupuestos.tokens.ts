@@ -26,3 +26,26 @@ export const CARGAR_DATOS_DOCUMENTO_PRESUPUESTO_PORT = Symbol(
 export const DISPARAR_E2_PORT = Symbol('DispararE2Port');
 /** Reloj del sistema (TTL de la pre_reserva). */
 export const PRESUPUESTOS_CLOCK_PORT = Symbol('PresupuestosClockPort');
+
+// ---------------------------------------------------------------------------
+// US-015 — Edición / reenvío del presupuesto en pre_reserva
+// ---------------------------------------------------------------------------
+
+/** Unidad de trabajo transaccional de la edición (versionado + líneas + auditoría). */
+export const UNIDAD_DE_TRABAJO_EDITAR_PRESUPUESTO_PORT = Symbol(
+  'UnidadDeTrabajoEditarPresupuestoPort',
+);
+/** Lectura de la RESERVA para la edición (guardas). */
+export const CARGAR_RESERVA_EDICION_PORT = Symbol('CargarReservaEdicionPort');
+/** Lectura del PRESUPUESTO vigente (`MAX(version)`). */
+export const CARGAR_PRESUPUESTO_VIGENTE_PORT = Symbol('CargarPresupuestoVigentePort');
+/** Lectura del precio ACTUAL de un EXTRA del catálogo (congelar líneas nuevas). */
+export const CARGAR_EXTRA_CATALOGO_PORT = Symbol('CargarExtraCatalogoPort');
+/** Lectura del conjunto vivo de líneas `RESERVA_EXTRA` de la RESERVA. */
+export const CARGAR_LINEAS_EXISTENTES_PORT = Symbol('CargarLineasExistentesPort');
+/** Reenvío del E2 del reenvío sin cambios (best-effort). */
+export const REENVIAR_E2_PRESUPUESTO_PORT = Symbol('ReenviarE2PresupuestoPort');
+/** Registro de la COMUNICACION E2 del reenvío (`es_reenvio=true`). */
+export const REGISTRAR_E2_REENVIO_PORT = Symbol('RegistrarE2ReenvioPort');
+/** Registro del AUDIT_LOG del reenvío (`accion='actualizar'`). */
+export const REGISTRAR_AUDITORIA_REENVIO_PORT = Symbol('RegistrarAuditoriaReenvioPort');

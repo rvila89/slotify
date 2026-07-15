@@ -1,7 +1,7 @@
 ---
 id: US-015
-estado: backlog
-branch: null
+estado: en_revision
+branch: feature/us-015-editar-reenviar-presupuesto-prereserva
 pr: null
 ---
 

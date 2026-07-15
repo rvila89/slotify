@@ -893,32 +893,72 @@ flowchart TD
 
 ---
 
-#### UC-15: Editar y Enviar Presupuesto
+#### UC-15: Editar y Reenviar Presupuesto en Pre-reserva
 
 | Campo | Descripción |
 |-------|-------------|
 | **ID** | UC-15 |
-| **Nombre** | Editar y Enviar Presupuesto |
+| **Nombre** | Editar y Reenviar Presupuesto en Pre-reserva |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor edita un presupuesto existente antes de enviarlo o reenvía uno ya enviado |
-| **Precondiciones** | - Reserva en estado pre_reserva<br>- Presupuesto generado |
-| **Postcondiciones** | - Presupuesto actualizado<br>- Nueva versión enviada al cliente |
+| **Descripción** | El Gestor ajusta la oferta económica de un presupuesto ya generado (invitados, extras, descuento) mientras la RESERVA está en `pre_reserva` y envía la versión actualizada al cliente, sin perder el historial de versiones. Implementado en **US-015**. |
+| **Precondiciones** | - `RESERVA.estado = 'pre_reserva'`<br>- Último `PRESUPUESTO.estado ∈ {'borrador', 'enviado'}` (no `aceptado` ni `rechazado`)<br>- Gestor autenticado con rol gestor sobre el tenant |
+| **Postcondiciones** | **Edición confirmada con envío:** nuevo `PRESUPUESTO` con `version = MAX(version)+1`, `tarifa_congelada = true`, `estado = 'enviado'`, `numero_presupuesto = AAAANNN` (nuevo de la secuencia del régimen); PDF regenerado; `COMUNICACION` con `codigo_email = 'E2'` y `es_reenvio = true`; `AUDIT_LOG accion='actualizar'`; `RESERVA.estado` permanece `pre_reserva`; `FECHA_BLOQUEADA.ttl_expiracion` no se modifica.<br>**Guardar borrador sin enviar:** nuevo `PRESUPUESTO version = MAX+1` con `estado = 'borrador'`, `numero_presupuesto = null`; sin `COMUNICACION` ni email.<br>**Reenvío sin cambios:** NO se crea nueva versión; `COMUNICACION E2 es_reenvio=true`; `AUDIT_LOG`. |
 | **Prioridad** | Media |
 | **Frecuencia** | Media |
+| **US** | US-015 |
+| **Endpoints** | `POST /reservas/{id}/presupuesto/edicion/preview` (recálculo sin persistencia) · `POST /reservas/{id}/presupuesto/edicion` (crea versión; `enviar: boolean`) · `POST /reservas/{id}/presupuesto/reenvio` (reenvío sin cambios) |
+| **Entidades afectadas** | PRESUPUESTO (INSERT nueva versión; sin cambio de schema), RESERVA_EXTRA (primera persistencia real de líneas, con precio congelado; sin migración de schema — ver §3.11), COMUNICACION (INSERT E2 `es_reenvio=true`), AUDIT_LOG |
 
-**Flujo Básico:**
-1. El gestor abre la ficha de pre_reserva
-2. El gestor accede al presupuesto
-3. El gestor modifica campos editables:
-   - Cantidades
-   - Extras
-   - Descuentos especiales
-4. El sistema recalcula totales
-5. El sistema regenera el PDF
-6. El gestor confirma el envío
-7. El sistema envía el presupuesto actualizado
-8. El sistema registra la versión en audit log
+**Flujo Básico A — editar y enviar:**
+1. El Gestor abre la ficha de pre_reserva en `/reservas/:id` y hace clic en "Editar presupuesto" (botón visible solo en `pre_reserva` con presupuesto no aceptado)
+2. El sistema valida la guarda de precondición: `RESERVA.estado = 'pre_reserva'` y `último PRESUPUESTO.estado ∈ {'borrador','enviado'}`; si no se cumple, rechaza sin efectos
+3. El Gestor modifica los campos editables: `num_adultos_ninos_mayores4`, `duracion_horas ∈ {4,8,12}`, líneas de `RESERVA_EXTRA` (añadir/quitar/modificar cantidad), `descuento_eur`
+4. El Gestor solicita un preview (`POST /reservas/{id}/presupuesto/edicion/preview`): el sistema **no persiste** nada; delega en el motor de tarifa UC-16 si cambian invitados o duración; recalcula el desglose fiscal (`base_imponible`, `iva_importe`, `total`) con las funciones puras del régimen del presupuesto vigente
+5. Si el cambio de invitados dispara `tarifa_a_consultar = true` (>50): el sistema devuelve importes a `null` y habilita precio manual; la confirmación no está disponible hasta que el Gestor introduzca el precio
+6. El Gestor revisa el borrador y elige **enviar** (`enviar: true`) o **guardar borrador** (`enviar: false`) vía `POST /reservas/{id}/presupuesto/edicion`
+7. El sistema ejecuta la confirmación en **una única transacción**: (a) inserta `PRESUPUESTO version = MAX(version)+1`, `tarifa_congelada = true`, `estado = 'enviado'` o `'borrador'` según `enviar`; si `enviado`, asigna `numero_presupuesto = AAAANNN` de la secuencia del régimen (con reintento `P2002` sobre `(tenantId, regimenIva, numeroPresupuesto)`); si `borrador`, `numero_presupuesto = null`; (b) persiste las líneas `RESERVA_EXTRA` con `precio_unitario` congelado al precio actual del catálogo para las líneas **nuevas** (las existentes conservan su precio); (c) registra `AUDIT_LOG accion='actualizar'`
+8. Post-commit (solo si `enviar = true`): regenera el PDF de la nueva versión; actualiza `pdf_url`; dispara E2 con `es_reenvio = true` vía motor US-045; registra `COMUNICACION` con `codigo_email = 'E2'`, `es_reenvio = true`, `estado = 'enviado'`
+9. El sistema responde `201` con la nueva versión del PRESUPUESTO; `RESERVA.estado` y `FECHA_BLOQUEADA.ttl_expiracion` permanecen inalterados
+
+**Flujo Básico B — reenvío sin cambios:**
+1. El Gestor abre la ficha de pre_reserva y hace clic en "Reenviar presupuesto" sin modificar ningún campo
+2. El sistema valida la guarda de precondición (igual que flujo A)
+3. El Gestor confirma el reenvío vía `POST /reservas/{id}/presupuesto/reenvio`
+4. El sistema **NO** crea una nueva versión de PRESUPUESTO; reenvía el PDF de la versión vigente
+5. El sistema registra `COMUNICACION` con `codigo_email = 'E2'`, `es_reenvio = true`, `estado = 'enviado'` y `AUDIT_LOG accion='actualizar'`
+6. El sistema responde `200`; la versión vigente permanece en su estado; `RESERVA.estado` y `FECHA_BLOQUEADA.ttl_expiracion` no cambian
+
+**Flujos Alternativos:**
+- **FA-01** (PRESUPUESTO aceptado): `PRESUPUESTO.estado = 'aceptado'` → el sistema rechaza la operación **409** "El presupuesto está aceptado y no puede modificarse"; sin efectos.
+- **FA-02** (RESERVA fuera de `pre_reserva`): `RESERVA.estado ≠ 'pre_reserva'` → **409** sin efectos; el botón de edición no está visible en UI para estos estados.
+- **FA-03** (preview sin persistir): `POST /presupuesto/edicion/preview` — el sistema recalcula y devuelve el nuevo desglose sin crear ninguna fila de `PRESUPUESTO` ni de `RESERVA_EXTRA`, sin mutar `RESERVA.estado` ni `FECHA_BLOQUEADA`.
+- **FA-04** (>50 invitados sin precio manual): `tarifa_a_consultar = true` sin `precioManualEur` en confirmar → **422**; sin crear versión.
+- **FA-05** (`descuento_eur > base_imponible` o < 0): **422** "El descuento no puede superar la base imponible"; sin crear versión.
+- **FA-06** (`duracion_horas` inválida): valor fuera de `{4,8,12}` → **422**; sin crear versión.
+- **FA-07** (concurrencia — doble edición simultánea): el `UNIQUE(reserva_id, version)` serializa: dos confirmaciones que calculan la misma `version` → una gana; la perdedora recibe `P2002` y reintenta calculando `MAX+1` (mismo patrón que la numeración de US-014). Sin locks distribuidos.
+- **FA-08** (fallo de PDF o email post-commit): no revierte la transacción de creación del PRESUPUESTO; `pdf_url` queda `null` hasta el reintento; `COMUNICACION` queda en `estado='fallido'`.
+
+```mermaid
+flowchart TD
+    A[Gestor: Editar presupuesto en pre_reserva] --> B{Guarda: pre_reserva + presupuesto no aceptado?}
+    B -->|No — RESERVA fuera de pre_reserva| C[409 — Estado inválido]
+    B -->|No — Presupuesto aceptado| D[409 — Presupuesto no editable]
+    B -->|Sí| E{Acción del Gestor}
+    E -->|Preview| F[POST /edicion/preview — recalcula sin persistir; motor UC-16 si cambian invitados/duracion]
+    F --> G{tarifa_a_consultar?}
+    G -->|Sí — >50 inv| H[Habilitar precio manual; esperar input]
+    G -->|No| I[Devolver desglose borrador sin efectos]
+    E -->|Confirmar edicion| J{enviar?}
+    J -->|borrador| K[INSERT PRESUPUESTO version=MAX+1 estado=borrador numero=null + RESERVA_EXTRA congelado + AUDIT_LOG]
+    J -->|enviar| L[INSERT PRESUPUESTO version=MAX+1 estado=enviado + numero AAAANNN + RESERVA_EXTRA + AUDIT_LOG]
+    L --> M[Post-commit: PDF → pdf_url + E2 es_reenvio=true → COMUNICACION enviado]
+    E -->|Reenvio sin cambios| N[POST /reenvio — NO crea versión]
+    N --> O[COMUNICACION E2 es_reenvio=true + AUDIT_LOG]
+    K --> P[201 — RESERVA.estado=pre_reserva inalterado; ttl_expiracion inalterado]
+    M --> P
+    O --> Q[200 — RESERVA.estado inalterado]
+```
 
 ---
 
@@ -1886,7 +1926,7 @@ flowchart TD
 | ID | Trigger | Contenido | Estado plantilla |
 |----|---------|-----------|-----------------|
 | E1 | Lead entrante | Respuesta inicial + tarifa estimada | Activa |
-| E2 | Activar pre-reserva | Presupuesto PDF + instrucciones señal | Inactiva (diferida) |
+| E2 | (1) Activar pre-reserva (UC-14) · (2) Reenvío de presupuesto actualizado UC-15 (`es_reenvio=true`) | Presupuesto PDF + instrucciones señal | Inactiva (diferida) |
 | E3 | Acción manual del gestor: "Enviar factura 40%" — `POST /reservas/{id}/facturas/senal/enviar` (US-023, 6.4b) | Factura 40% + condicions particulars (adjunto opcional) | Activa |
 | E4 | Inicio sub-proceso liquidación | Factura liquidación + recibo fianza | Inactiva (diferida) |
 | E5 | Evento finalizado | Agradecimiento + solicitud IBAN | Inactiva (diferida) |
@@ -1895,6 +1935,8 @@ flowchart TD
 | E8 | Cliente proporciona IBAN | Confirmación recepción + próximos pasos | Inactiva (diferida) |
 
 > **Nota**: E1 y E3 son las únicas plantillas activas en el catálogo de plantillas del backend. E3 usa `EnviarEmailPort` directo (sin `DespacharEmailService`) para garantizar rollback atómico si el proveedor falla. Las demás están diseñadas pero con cableado diferido.
+>
+> **Gap E2 resuelto (US-015 / D1 — decisión PO/humano 2026-07-15):** UC-15 (editar/reenviar presupuesto estando ya en `pre_reserva`) no tenía código `E` propio asignado. Tras revisar las opciones en el gate SDD (crear `E2b`/`E9` vs reutilizar `E2`), el PO aprobó la **opción A**: reutilizar el template **E2** con `COMUNICACION.es_reenvio = true`. Esto encaja con el índice UNIQUE parcial `(reserva_id, codigo_email) WHERE es_reenvio = false` (permite N reenvíos por reserva) y con el precedente de US-023/US-028. Sin migración del enum `CodigoEmail`.
 
 **Flujo Básico:**
 1. El sistema detecta el trigger
@@ -2037,7 +2079,7 @@ flowchart TB
     
     subgraph PreRes[Pre-reserva]
         UC14[UC-14: Generar Presupuesto]
-        UC15[UC-15: Editar Presupuesto]
+        UC15[UC-15: Editar/Reenviar Presupuesto]
         UC16[UC-16: Calcular Tarifa]
     end
     
@@ -2149,7 +2191,7 @@ flowchart TB
 | UC-12 | Promover de Cola (automático US-018 / manual US-019) | Sistema/Gestor | Crítico | Crítica | Alta |
 | UC-13 | Salir de Cola | Cliente/Gestor | Bajo | Media | Baja |
 | UC-14 | Generar Presupuesto | Gestor | Crítico | Crítica | Alta |
-| UC-15 | Editar Presupuesto | Gestor | Medio | Media | Media |
+| UC-15 | Editar y Reenviar Presupuesto en Pre-reserva | Gestor | Medio | Media | Media |
 | UC-16 | Calcular Tarifa | Sistema | Crítico | Crítica | Media |
 | UC-17 | Confirmar Señal | Gestor | Crítico | Crítica | Alta |
 | UC-18 | Generar Factura Señal | Sistema | Alto | Crítica | Media |

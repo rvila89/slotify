@@ -41,6 +41,7 @@ const renderAcciones = (r: Reserva) =>
       onRegistrarResultadoVisita={noop}
       onExtenderBloqueo={noop}
       onGenerarPresupuesto={noop}
+      onEditarPresupuesto={noop}
       onConfirmarSenal={noop}
       onFinalizarEvento={noop}
       onArchivarReserva={noop}
