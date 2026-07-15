@@ -86,6 +86,17 @@ import {
   type RegistrarComunicacionReenvioPort,
 } from './application/reenviar-liquidacion.use-case';
 import {
+  ReenviarE3UseCase,
+  type BuscarDocumentoCondicionesPort,
+  type BuscarE3PreviaPort,
+  type CargarFacturaSenalReenvioPort,
+  type CargarReservaReenvioE3Port,
+  type FijarCondicionesEnviadasReenvioPort,
+  type ReenviarE3Port,
+  type RegistrarAuditoriaReenvioE3Port,
+  type RegistrarComunicacionReenvioE3Port,
+} from './application/reenviar-e3.use-case';
+import {
   RegistrarCobroLiquidacionUseCase,
   type UnidadDeTrabajoCobroPort,
 } from './application/registrar-cobro-liquidacion.use-case';
@@ -108,21 +119,29 @@ import {
   SenalEmisionUoWPrismaAdapter,
 } from './infrastructure/emision-uow.prisma.adapter';
 import {
+  BuscarDocumentoCondicionesPrismaAdapter,
+  BuscarE3PreviaPrismaAdapter,
+  CargarFacturaSenalReenvioPrismaAdapter,
   CargarLiquidacionReenvioPrismaAdapter,
   CargarReservaEmisionPrismaAdapter,
   CargarReservaFianzaPrismaAdapter,
   CargarReservaReenvioPrismaAdapter,
+  CargarReservaReenvioE3PrismaAdapter,
   CargarReservaSenalEmisionPrismaAdapter,
 } from './infrastructure/lecturas-emision.prisma.adapter';
 import {
   EnviarE3EmisionAdapter,
   EnviarE4EmisionAdapter,
   EnviarReciboFianzaAdapter,
+  ReenviarE3Adapter,
   ReenviarE4Adapter,
 } from './infrastructure/emision-email.adapter';
 import {
+  FijarCondicionesEnviadasReenvioPrismaAdapter,
   RegistrarAuditoriaReenvioPrismaAdapter,
+  RegistrarAuditoriaReenvioE3PrismaAdapter,
   RegistrarComunicacionReenvioPrismaAdapter,
+  RegistrarComunicacionReenvioE3PrismaAdapter,
 } from './infrastructure/reenvio-comunicacion.prisma.adapter';
 import { FacturacionUoWPrismaAdapter } from './infrastructure/facturacion-uow.prisma.adapter';
 import { BorradoresUoWPrismaAdapter } from './infrastructure/borradores-uow.prisma.adapter';
@@ -184,6 +203,14 @@ import {
   UNIDAD_DE_TRABAJO_SENAL_EMISION_PORT,
   CARGAR_RESERVA_SENAL_EMISION_PORT,
   ENVIAR_E3_EMISION_PORT,
+  CARGAR_RESERVA_REENVIO_E3_PORT,
+  CARGAR_FACTURA_SENAL_REENVIO_PORT,
+  BUSCAR_E3_PREVIA_PORT,
+  BUSCAR_DOCUMENTO_CONDICIONES_PORT,
+  REENVIAR_E3_PORT,
+  REGISTRAR_COMUNICACION_REENVIO_E3_PORT,
+  FIJAR_CONDICIONES_ENVIADAS_REENVIO_PORT,
+  REGISTRAR_AUDITORIA_REENVIO_E3_PORT,
 } from './facturacion.tokens';
 
 /** Firma del puerto de auditoría de aprobación/rechazo (acepta ambos registros). */
@@ -399,6 +426,56 @@ type CargarFacturaFn = (params: {
       inject: [ENVIAR_EMAIL_PORT],
       useFactory: (enviarEmail: EnviarEmailPort): EnviarE3EmisionPort =>
         new EnviarE3EmisionAdapter(enviarEmail).enviar,
+    },
+
+    // --- US-023 (GAP 3): adaptadores del reenvío de E3 (señal + condiciones) ---
+    {
+      provide: CARGAR_RESERVA_REENVIO_E3_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarReservaReenvioE3Port =>
+        new CargarReservaReenvioE3PrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: CARGAR_FACTURA_SENAL_REENVIO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarFacturaSenalReenvioPort =>
+        new CargarFacturaSenalReenvioPrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: BUSCAR_E3_PREVIA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): BuscarE3PreviaPort =>
+        new BuscarE3PreviaPrismaAdapter(prisma).buscar,
+    },
+    {
+      provide: BUSCAR_DOCUMENTO_CONDICIONES_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): BuscarDocumentoCondicionesPort =>
+        new BuscarDocumentoCondicionesPrismaAdapter(prisma).buscar,
+    },
+    {
+      provide: REENVIAR_E3_PORT,
+      inject: [ENVIAR_EMAIL_PORT],
+      useFactory: (enviarEmail: EnviarEmailPort): ReenviarE3Port =>
+        new ReenviarE3Adapter(enviarEmail).reenviar,
+    },
+    {
+      provide: REGISTRAR_COMUNICACION_REENVIO_E3_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): RegistrarComunicacionReenvioE3Port =>
+        new RegistrarComunicacionReenvioE3PrismaAdapter(prisma).registrar,
+    },
+    {
+      provide: FIJAR_CONDICIONES_ENVIADAS_REENVIO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): FijarCondicionesEnviadasReenvioPort =>
+        new FijarCondicionesEnviadasReenvioPrismaAdapter(prisma).fijar,
+    },
+    {
+      provide: REGISTRAR_AUDITORIA_REENVIO_E3_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): RegistrarAuditoriaReenvioE3Port =>
+        new RegistrarAuditoriaReenvioE3PrismaAdapter(prisma).registrar,
     },
 
     // --- US-029: unidad de trabajo del cobro de la liquidación (FOR UPDATE sobre RESERVA) ---
@@ -657,6 +734,42 @@ type CargarFacturaFn = (params: {
       },
     },
     {
+      provide: ReenviarE3UseCase,
+      inject: [
+        CARGAR_RESERVA_REENVIO_E3_PORT,
+        CARGAR_FACTURA_SENAL_REENVIO_PORT,
+        BUSCAR_E3_PREVIA_PORT,
+        BUSCAR_DOCUMENTO_CONDICIONES_PORT,
+        REENVIAR_E3_PORT,
+        REGISTRAR_COMUNICACION_REENVIO_E3_PORT,
+        FIJAR_CONDICIONES_ENVIADAS_REENVIO_PORT,
+        REGISTRAR_AUDITORIA_REENVIO_E3_PORT,
+        FACTURACION_CLOCK_PORT,
+      ],
+      useFactory: (
+        cargarReserva: CargarReservaReenvioE3Port,
+        cargarFacturaSenal: CargarFacturaSenalReenvioPort,
+        buscarE3Previa: BuscarE3PreviaPort,
+        buscarDocumentoCondiciones: BuscarDocumentoCondicionesPort,
+        reenviarE3: ReenviarE3Port,
+        registrarComunicacion: RegistrarComunicacionReenvioE3Port,
+        fijarCondicionesEnviadas: FijarCondicionesEnviadasReenvioPort,
+        registrarAuditoria: RegistrarAuditoriaReenvioE3Port,
+        clock: ClockPort,
+      ) =>
+        new ReenviarE3UseCase({
+          cargarReserva,
+          cargarFacturaSenal,
+          buscarE3Previa,
+          buscarDocumentoCondiciones,
+          reenviarE3,
+          registrarComunicacion,
+          fijarCondicionesEnviadas,
+          registrarAuditoria,
+          clock,
+        }),
+    },
+    {
       provide: RegistrarCobroLiquidacionUseCase,
       inject: [UNIDAD_DE_TRABAJO_COBRO_PORT, FACTURACION_CLOCK_PORT],
       useFactory: (unidadDeTrabajo: UnidadDeTrabajoCobroPort, clock: ClockPort) =>
@@ -682,6 +795,7 @@ type CargarFacturaFn = (params: {
     EnviarReciboFianzaSeparadoUseCase,
     EnviarFacturaSenalUseCase,
     ReenviarLiquidacionUseCase,
+    ReenviarE3UseCase,
     RegistrarCobroLiquidacionUseCase,
     RegistrarCobroFianzaUseCase,
     RegistrarDevolucionFianzaUseCase,

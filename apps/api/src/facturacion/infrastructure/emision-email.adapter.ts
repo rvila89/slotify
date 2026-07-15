@@ -26,6 +26,10 @@ import type {
   ReenviarE4Params,
   ReenviarE4Port,
 } from '../application/reenviar-liquidacion.use-case';
+import type {
+  ReenviarE3Params,
+  ReenviarE3Port,
+} from '../application/reenviar-e3.use-case';
 
 /** Convierte los adjuntos del use-case a `AdjuntoRef` del puerto de email. */
 const aAdjuntosRef = (
@@ -103,6 +107,29 @@ export class ReenviarE4Adapter {
       asunto: `Reenvío factura de liquidación ${params.numeroFactura ?? ''} — reserva ${params.codigoReserva}`,
       cuerpo: 'Reenviamos tu factura de liquidación.',
       codigoEmail: 'E4',
+      tenantId: params.tenantId,
+      adjuntos: aAdjuntosRef(params.adjuntos),
+    });
+    return { idComunicacion: '', estado: 'enviado' as const, fechaEnvio: new Date() };
+  };
+}
+
+/**
+ * Adaptador del reenvío de E3 (US-023 / GAP 3): reenvía la factura de señal ya emitida + el
+ * DOCUMENTO de condiciones ya persistido, sin regenerar nada. Espejo de `ReenviarE4Adapter`:
+ * `EnviarEmailPort` DIRECTO con `codigoEmail: 'E3'`, SÍNCRONO/CONFIRMADO (si el proveedor falla,
+ * PROPAGA para que el use-case aborte el reenvío sin registrar la COMUNICACION).
+ */
+@Injectable()
+export class ReenviarE3Adapter {
+  constructor(private readonly enviarEmail: EnviarEmailPort) {}
+
+  readonly reenviar: ReenviarE3Port = async (params: ReenviarE3Params) => {
+    await this.enviarEmail.enviar({
+      destinatario: params.destinatario,
+      asunto: `Reenvío de tu reserva y factura de señal — reserva ${params.codigoReserva}`,
+      cuerpo: 'Reenviamos la factura de la señal y las condicions particulars de tu evento.',
+      codigoEmail: 'E3',
       tenantId: params.tenantId,
       adjuntos: aAdjuntosRef(params.adjuntos),
     });

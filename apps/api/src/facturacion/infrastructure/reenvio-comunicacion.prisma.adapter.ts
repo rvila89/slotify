@@ -25,6 +25,13 @@ import type {
   RegistrarComunicacionReenvioParams,
   RegistrarComunicacionReenvioPort,
 } from '../application/reenviar-liquidacion.use-case';
+import type {
+  ComunicacionReenvioE3,
+  FijarCondicionesEnviadasReenvioPort,
+  RegistrarAuditoriaReenvioE3Port,
+  RegistrarComunicacionReenvioE3Params,
+  RegistrarComunicacionReenvioE3Port,
+} from '../application/reenviar-e3.use-case';
 
 @Injectable()
 export class RegistrarComunicacionReenvioPrismaAdapter {
@@ -65,6 +72,88 @@ export class RegistrarAuditoriaReenvioPrismaAdapter {
   constructor(private readonly prisma: PrismaService) {}
 
   readonly registrar: RegistrarAuditoriaReenvioPort = async (registro): Promise<void> => {
+    await this.prisma.$transaction(async (tx) => {
+      await this.prisma.fijarTenant(tx, registro.tenantId);
+      await tx.auditLog.create({
+        data: {
+          tenantId: registro.tenantId,
+          entidad: registro.entidad,
+          entidadId: registro.entidadId,
+          accion: AccionAudit.crear,
+          datosNuevos: (registro.usuarioId
+            ? { ...registro.datosNuevos, usuarioId: registro.usuarioId }
+            : registro.datosNuevos) as Prisma.InputJsonValue,
+        },
+      });
+    });
+  };
+}
+
+// ---------------------------------------------------------------------------
+// US-023 (GAP 3): reenvío de E3. Espejo de los adaptadores de E4, con `codigoEmail='E3'`.
+// ---------------------------------------------------------------------------
+
+/**
+ * Registra la NUEVA COMUNICACION E3 del reenvío con `es_reenvio=true` para quedar FUERA del índice
+ * UNIQUE parcial `(reserva_id, codigo_email) WHERE es_reenvio=false` (US-045 / US-028 D-4) y no
+ * colisionar (P2002) con el E3 original ni con reenvíos anteriores.
+ */
+@Injectable()
+export class RegistrarComunicacionReenvioE3PrismaAdapter {
+  constructor(private readonly prisma: PrismaService) {}
+
+  readonly registrar: RegistrarComunicacionReenvioE3Port = async (
+    params: RegistrarComunicacionReenvioE3Params,
+  ): Promise<ComunicacionReenvioE3> => {
+    const fila = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.fijarTenant(tx, params.tenantId);
+      return tx.comunicacion.create({
+        data: {
+          tenantId: params.tenantId,
+          reservaId: params.reservaId,
+          clienteId: params.clienteId,
+          codigoEmail: CodigoEmailPrisma.E3,
+          asunto: 'Reenvío de tu reserva y factura de señal',
+          cuerpo: null,
+          destinatarioEmail: params.destinatarioEmail,
+          estado: EstadoComunicacionPrisma.enviado,
+          fechaEnvio: params.fechaEnvio,
+          esReenvio: true,
+        },
+        select: { idComunicacion: true, estado: true, fechaEnvio: true, esReenvio: true },
+      });
+    });
+    return {
+      idComunicacion: fila.idComunicacion,
+      estado: fila.estado,
+      fechaEnvio: fila.fechaEnvio,
+      esReenvio: fila.esReenvio,
+    };
+  };
+}
+
+/** Actualiza `RESERVA.cond_part_enviadas_fecha` al nuevo timestamp del reenvío de E3. */
+@Injectable()
+export class FijarCondicionesEnviadasReenvioPrismaAdapter {
+  constructor(private readonly prisma: PrismaService) {}
+
+  readonly fijar: FijarCondicionesEnviadasReenvioPort = async (params): Promise<void> => {
+    await this.prisma.$transaction(async (tx) => {
+      await this.prisma.fijarTenant(tx, params.tenantId);
+      await tx.reserva.update({
+        where: { idReserva: params.reservaId },
+        data: { condPartEnviadasFecha: params.condPartEnviadasFecha },
+      });
+    });
+  };
+}
+
+/** Registro de auditoría del reenvío de E3 (reutiliza el patrón de E4). */
+@Injectable()
+export class RegistrarAuditoriaReenvioE3PrismaAdapter {
+  constructor(private readonly prisma: PrismaService) {}
+
+  readonly registrar: RegistrarAuditoriaReenvioE3Port = async (registro): Promise<void> => {
     await this.prisma.$transaction(async (tx) => {
       await this.prisma.fijarTenant(tx, registro.tenantId);
       await tx.auditLog.create({

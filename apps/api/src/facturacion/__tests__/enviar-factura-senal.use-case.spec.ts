@@ -1,31 +1,33 @@
 /**
- * TESTS del caso de uso `EnviarFacturaSenalUseCase` (US-023 / épico #6, rebanada 6.4b
- * Bloque C) — fase TDD RED. tasks.md Fase 3: 3.1 (camino feliz borrador → enviada, E3
- * confirmado, `cond_part_enviadas_fecha` fijada, COMUNICACION E3 + AUDIT_LOG), 3.2
- * (atomicidad/rollback ante fallo de E3), 3.3 (PDF de señal ausente → 502), 3.4 (estado
- * `rechazada` → 409), 3.5 (idempotencia E3 `enviado` → 409 / E3 `fallido` → reintento),
- * 3.6 (adjunto de condiciones degrada/lanza → E3 solo con la señal + condPartAdjuntada
- * false), 3.7 (404 no encontrada / cross-tenant RLS).
+ * TESTS del caso de uso `EnviarFacturaSenalUseCase` (US-023 / épico #6) — fase TDD RED.
  *
- * Trazabilidad: US-023, spec-delta `facturacion` (Requirement: "Envío atómico de la
- * factura de señal con E3"), `comunicaciones` (E3 con la factura de señal + condiciones
- * opcionales), `documentos` (adjunto de condicions particulars degradable). design.md
- * §D-ruta-email (puerto directo, espejo literal de E4), §D-guarda-estado (enviable =
- * borrador o enviada-sin-E3), §D-idempotencia (COMUNICACION E3 `enviado` → 409),
- * §D-adjunto-condiciones (fallo de condiciones NO tumba E3), §D-num (reintento P2002),
- * §Atomicidad. Contrato: `POST /reservas/{id}/facturas/senal/enviar` (200 / 404
- * FACTURA_SENAL_NO_ENCONTRADA / 409 FACTURA_SENAL_NO_ENVIABLE / 409 E3_YA_ENVIADO / 502
- * EMISION_ENVIO_FALLIDO).
+ * ATENCIÓN — CAMBIO DE SEMÁNTICA (US-023, GAP 1 + GAP 2). Este spec fue escrito para 6.4b
+ * (condiciones TOLERANTES: si degradaban a `null` o lanzaban, E3 se enviaba igual con
+ * `condPartAdjuntada=false`). US-023 lo REVISA:
+ *   - GAP 1 (D-persistencia-documento): el envío confirmado de E3 PERSISTE una fila
+ *     `DOCUMENTO tipo='condiciones_particulares'` (url, mime, reserva, tenant) + AUDIT_LOG
+ *     `crear`, DENTRO de la tx, e idempotente por reserva. El rollback de E3 no deja
+ *     DOCUMENTO huérfano.
+ *   - GAP 2 (D-condiciones-bloqueante, DECISIÓN CERRADA/aprobada en el gate SDD —
+ *     ENDURECER): las condiciones son REQUISITO DURO. `GenerarPdfCondicionesPort → null`
+ *     aborta con `CondicionesNoConfiguradasError` (409) y rollback total; un render que
+ *     LANZA aborta con error recuperable (`EmisionEnvioFallidoError`, 502) y rollback. En
+ *     el camino feliz E3 va SIEMPRE con ambos adjuntos y `condPartAdjuntada=true` (nunca
+ *     puede ser `false` en un 200).
  *
- * Espejo literal de `aprobar-y-enviar-liquidacion.use-case.spec.ts`: dobles de puertos
- * in-memory (hexagonal, hook `no-infra-in-domain`), sin Prisma, sin react-pdf. Fija la
- * ORQUESTACIÓN: guardas de estado/existencia, idempotencia por COMUNICACION E3, envío E3
- * síncrono DENTRO de la tx (si falla → rollback), fijación de `cond_part_enviadas_fecha`
- * y `cond_part_firmadas=false`, degradación del adjunto de condiciones y AUDIT_LOG.
+ * Cobertura tasks.md Fase 3: 3.1 (persistir DOCUMENTO + AUDIT_LOG crear), 3.2
+ * (idempotencia del DOCUMENTO + rollback sin huérfano), 3.3 (condiciones `null` → 409;
+ * render que lanza → recuperable; rollback total), 3.4 (camino feliz endurecido, ambos
+ * adjuntos), más las guardas heredadas (estado, idempotencia E3, 404 RLS, atomicidad E3).
  *
- * RED: aún NO existe `facturacion/application/enviar-factura-senal.use-case.ts`. El import
- * falla y la batería está en ROJO por AUSENCIA DE IMPLEMENTACIÓN. GREEN es de
- * `backend-developer`.
+ * Trazabilidad: spec-delta `documentos` (ADDED "Persistencia idempotente del DOCUMENTO…",
+ * MODIFIED "El fallo del adjunto de condicions particulars…"); design.md
+ * §D-persistencia-documento, §D-condiciones-bloqueante, §Atomicidad.
+ *
+ * Espejo de estilo: dobles de puertos in-memory (hexagonal, hook `no-infra-in-domain`),
+ * sin Prisma, sin react-pdf. RED: el símbolo `CondicionesNoConfiguradasError` aún no existe
+ * en el use-case y la implementación viva sigue siendo tolerante (`.catch(() => null)`) y
+ * NO persiste el DOCUMENTO → los nuevos asserts FALLAN. GREEN es de `backend-developer`.
  */
 import {
   EnviarFacturaSenalUseCase,
@@ -33,6 +35,10 @@ import {
   FacturaSenalNoEnviableError,
   E3YaEnviadoError,
   EmisionEnvioFallidoError,
+  // GAP 2 — nuevo error de negocio "condiciones no configuradas" (mapea a 409). En RED este
+  // símbolo aún NO está exportado por el use-case → el import falla y toda la batería
+  // arranca en ROJO por AUSENCIA DE IMPLEMENTACIÓN.
+  CondicionesNoConfiguradasError,
   type EnviarFacturaSenalDeps,
   type EnviarFacturaSenalComando,
   type FacturaSenalEmitible,
@@ -41,6 +47,42 @@ import {
   type UnidadDeTrabajoSenalEmisionPort,
   type ClockPort,
 } from '../application/enviar-factura-senal.use-case';
+
+// ---------------------------------------------------------------------------
+// GAP 1 — Puerto de dominio NUEVO para persistir el DOCUMENTO de condiciones.
+// Se declara aquí (mínimo tipado) para poder montar el doble; la interfaz real
+// y el adaptador Prisma los crea el backend-developer (documentos/domain +
+// documentos/infrastructure). tx-bound: vive dentro de la unidad de trabajo del
+// envío E3. Fuente: design.md §D-persistencia-documento.
+// ---------------------------------------------------------------------------
+
+/** Proyección mínima del DOCUMENTO persistido. */
+interface DocumentoPersistido {
+  idDocumento: string;
+  tipo: 'condiciones_particulares';
+  reservaId: string;
+  tenantId: string;
+  url: string;
+  mimeType: string;
+}
+
+/** Puerto de repositorio de DOCUMENTO (tx-bound), idempotente por reserva+tipo. */
+interface DocumentoRepositoryPort {
+  buscarPorReservaYTipo(params: {
+    reservaId: string;
+    tenantId: string;
+    tipo: 'condiciones_particulares';
+  }): Promise<DocumentoPersistido | null>;
+  crear(params: {
+    reservaId: string;
+    tenantId: string;
+    tipo: 'condiciones_particulares';
+    url: string;
+    mimeType: string;
+    nombreArchivo?: string;
+    tamanoBytes?: number;
+  }): Promise<DocumentoPersistido>;
+}
 
 const TENANT = '00000000-0000-0000-0000-000000000001';
 const RESERVA_ID = 'res-conf-1';
@@ -109,6 +151,11 @@ interface ReposFake extends RepositoriosSenalEmision {
     crear: jest.Mock;
   } & { buscarE3: jest.Mock };
   auditoria: { registrar: jest.Mock };
+  // GAP 1 — repositorio tx-bound del DOCUMENTO de condiciones (idempotente).
+  documentos: DocumentoRepositoryPort & {
+    buscarPorReservaYTipo: jest.Mock;
+    crear: jest.Mock;
+  };
 }
 
 const crearReposFake = (opciones: {
@@ -116,6 +163,8 @@ const crearReposFake = (opciones: {
   ultimoNumero?: string | null;
   /** Estado de la COMUNICACION E3 previa, o null si no hay ninguna. */
   e3Previa?: string | null;
+  /** DOCUMENTO de condiciones YA existente (GAP 1: idempotencia), o null si no hay. */
+  documentoPrevio?: DocumentoPersistido | null;
 } = {}): ReposFake => ({
   facturas: {
     buscarPorReservaYTipo: jest.fn(async (_reservaId: string, tipo: string) => {
@@ -139,6 +188,20 @@ const crearReposFake = (opciones: {
     crear: jest.fn(async (p: Record<string, unknown>) => ({ idComunicacion: 'com-e3-1', ...p })),
   },
   auditoria: { registrar: jest.fn(async () => undefined) },
+  documentos: {
+    buscarPorReservaYTipo: jest.fn(async () =>
+      'documentoPrevio' in opciones ? (opciones.documentoPrevio ?? null) : null,
+    ),
+    crear: jest.fn(
+      async (p: {
+        reservaId: string;
+        tenantId: string;
+        tipo: 'condiciones_particulares';
+        url: string;
+        mimeType: string;
+      }): Promise<DocumentoPersistido> => ({ idDocumento: 'doc-cond-1', ...p }),
+    ),
+  } as ReposFake['documentos'],
 });
 
 const crearUowFake = (
@@ -158,11 +221,14 @@ const montar = (opciones: {
   e3Falla?: boolean;
   /** Comportamiento del puerto de condiciones: url | null (degrada) | throw. */
   condiciones?: 'url' | 'null' | 'throw';
+  /** DOCUMENTO de condiciones YA existente (GAP 1: idempotencia). */
+  documentoPrevio?: DocumentoPersistido | null;
 } = {}) => {
   const reserva = 'reserva' in opciones ? opciones.reserva : reservaEmision();
   const repos = crearReposFake({
     ...('senal' in opciones ? { senal: opciones.senal } : {}),
     ...('e3Previa' in opciones ? { e3Previa: opciones.e3Previa } : {}),
+    ...('documentoPrevio' in opciones ? { documentoPrevio: opciones.documentoPrevio } : {}),
     ultimoNumero: opciones.ultimoNumero,
   });
   const uow = crearUowFake(repos);
@@ -206,6 +272,14 @@ const comando = (
 
 const emitirArgs = (repos: ReposFake): Record<string, unknown> | undefined =>
   repos.facturas.emitir.mock.calls.map((c) => c[0])[0];
+
+/** AUDIT_LOG con accion='crear' sobre la entidad DOCUMENTO (GAP 1). */
+const auditDocumentoCrear = (
+  repos: ReposFake,
+): Record<string, any> | undefined =>
+  repos.auditoria.registrar.mock.calls
+    .map((c) => c[0])
+    .find((a) => a.accion === 'crear' && a.entidad === 'DOCUMENTO');
 
 // ===========================================================================
 // 3.1 — Camino feliz: borrador → enviada, E3 confirmado con la factura de señal
@@ -465,51 +539,219 @@ describe('EnviarFacturaSenal — idempotencia de E3 (3.5)', () => {
 });
 
 // ===========================================================================
-// 3.6 — Adjunto de condiciones: si el puerto degrada a `null` o LANZA, E3 se
-//        envía SOLO con la factura de señal; condPartAdjuntada = false y el
-//        AUDIT_LOG lo traza (§D-adjunto-condiciones). Un throw NO tumba E3.
+// GAP 2 — 3.3: CONDICIONES BLOQUEANTES (ENDURECIDO, decisión cerrada del gate
+//        SDD, revierte 6.4b). `GenerarPdfCondicionesPort → null` → aborta con
+//        CondicionesNoConfiguradasError (409) y ROLLBACK TOTAL (factura sigue en
+//        `borrador`, NO se envía E3, NO se persiste DOCUMENTO,
+//        cond_part_enviadas_fecha permanece NULL). Un render que LANZA → error
+//        recuperable (EmisionEnvioFallidoError, 502) + rollback total.
+//        Fuente: design.md §D-condiciones-bloqueante; spec-delta documentos
+//        (MODIFIED). NOTA: sustituye a los tests tolerantes de 6.4b (antigua
+//        sección "degradación del adjunto de condiciones"), que asertaban
+//        condPartAdjuntada=false con 200 — semántica ya NO válida.
 // ===========================================================================
 
-describe('EnviarFacturaSenal — degradación del adjunto de condiciones (3.6)', () => {
-  it('debe_enviar_E3_solo_con_la_senal_cuando_las_condiciones_degradan_a_null', async () => {
-    const { useCase, enviarE3 } = montar({ condiciones: 'null' });
+describe('EnviarFacturaSenal — condiciones bloqueantes: null (GAP 2, 3.3)', () => {
+  it('debe_abortar_con_CondicionesNoConfiguradas_cuando_el_puerto_devuelve_null', async () => {
+    const { useCase } = montar({ condiciones: 'null' });
+
+    await expect(useCase.ejecutar(comando())).rejects.toBeInstanceOf(
+      CondicionesNoConfiguradasError,
+    );
+  });
+
+  it('no_debe_enviar_E3_ni_consolidar_ni_persistir_DOCUMENTO_cuando_no_hay_condiciones', async () => {
+    const { useCase, enviarE3, repos } = montar({ condiciones: 'null' });
+
+    await expect(useCase.ejecutar(comando())).rejects.toBeInstanceOf(
+      CondicionesNoConfiguradasError,
+    );
+    // NO se envía E3.
+    expect(enviarE3).not.toHaveBeenCalled();
+    // La factura permanece en `borrador` (no se emite).
+    expect(repos.facturas.emitir).not.toHaveBeenCalled();
+    // cond_part_enviadas_fecha permanece NULL (no se fija).
+    expect(repos.reservas.fijarCondicionesEnviadas).not.toHaveBeenCalled();
+    // NO se persiste el DOCUMENTO de condiciones.
+    expect(repos.documentos.crear).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// GAP 2 — 3.3bis: la GENERACIÓN de condiciones que LANZA (fallo de render/subida,
+//        p. ej. flakiness ESM de react-pdf) → error RECUPERABLE (reintentable,
+//        EmisionEnvioFallidoError → 502) con ROLLBACK TOTAL, sin consolidar la
+//        emisión. Fuente: design.md §D-condiciones-bloqueante, spec-delta
+//        documentos (Scenario "Un fallo de render de condiciones aborta la
+//        emisión de forma recuperable").
+// ===========================================================================
+
+describe('EnviarFacturaSenal — condiciones bloqueantes: render que lanza (GAP 2, 3.3bis)', () => {
+  it('debe_abortar_con_error_recuperable_cuando_la_generacion_de_condiciones_lanza', async () => {
+    const { useCase } = montar({ condiciones: 'throw' });
+
+    await expect(useCase.ejecutar(comando())).rejects.toBeInstanceOf(
+      EmisionEnvioFallidoError,
+    );
+  });
+
+  it('no_debe_consolidar_la_emision_cuando_la_generacion_de_condiciones_lanza', async () => {
+    const { useCase, enviarE3, repos } = montar({ condiciones: 'throw' });
+
+    await expect(useCase.ejecutar(comando())).rejects.toBeInstanceOf(
+      EmisionEnvioFallidoError,
+    );
+    expect(enviarE3).not.toHaveBeenCalled();
+    expect(repos.facturas.emitir).not.toHaveBeenCalled();
+    expect(repos.reservas.fijarCondicionesEnviadas).not.toHaveBeenCalled();
+    expect(repos.documentos.crear).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// GAP 2 — 3.4: CAMINO FELIZ ENDURECIDO. Con condiciones OK, E3 se envía con AMBOS
+//        adjuntos, condPartAdjuntada = true (nunca false en un 200), y el
+//        DOCUMENTO de condiciones queda persistido. Fuente: design.md
+//        §D-condiciones-bloqueante, spec-delta documentos (Scenario "Con
+//        condiciones configuradas, E3 se envía con ambos adjuntos").
+// ===========================================================================
+
+describe('EnviarFacturaSenal — camino feliz endurecido con condiciones (GAP 2, 3.4)', () => {
+  it('debe_enviar_E3_con_AMBOS_adjuntos_senal_y_condiciones', async () => {
+    const { useCase, enviarE3 } = montar();
 
     await useCase.ejecutar(comando());
 
     expect(enviarE3).toHaveBeenCalledTimes(1);
     const adjuntos = enviarE3.mock.calls[0][0].adjuntos as ReadonlyArray<{ pdfUrl: string }>;
-    expect(adjuntos.map((a) => a.pdfUrl)).toEqual([
-      'https://storage.local/facturas/senal.pdf',
-    ]);
+    expect(adjuntos.map((a) => a.pdfUrl)).toEqual(
+      expect.arrayContaining([
+        'https://storage.local/facturas/senal.pdf',
+        URL_PDF_CONDICIONES,
+      ]),
+    );
+    expect(adjuntos).toHaveLength(2);
   });
 
-  it('no_debe_tumbar_E3_cuando_generarCondiciones_LANZA_una_excepcion', async () => {
-    const { useCase, enviarE3, repos } = montar({ condiciones: 'throw' });
-
-    // Un throw del render/subida (p. ej. la flakiness ESM de react-pdf) NO propaga.
-    await useCase.ejecutar(comando());
-
-    expect(enviarE3).toHaveBeenCalledTimes(1);
-    // La consolidación sí ocurre (la factura se emite).
-    expect(repos.facturas.emitir).toHaveBeenCalledTimes(1);
-  });
-
-  it('debe_devolver_condPartAdjuntada_false_cuando_las_condiciones_no_se_adjuntan', async () => {
-    const { useCase } = montar({ condiciones: 'null' });
+  it('debe_devolver_condPartAdjuntada_true_en_el_camino_feliz', async () => {
+    const { useCase } = montar();
 
     const resultado = await useCase.ejecutar(comando());
 
-    expect(resultado.condPartAdjuntada).toBe(false);
+    expect(resultado.condPartAdjuntada).toBe(true);
   });
 
-  it('debe_trazar_condPartAdjuntada_false_en_AUDIT_LOG_cuando_se_omiten_las_condiciones', async () => {
-    const { useCase, repos } = montar({ condiciones: 'throw' });
+  it('debe_persistir_el_DOCUMENTO_de_condiciones_en_el_camino_feliz', async () => {
+    const { useCase, repos } = montar();
 
     await useCase.ejecutar(comando());
 
-    const trazas = JSON.stringify(repos.auditoria.registrar.mock.calls);
-    expect(trazas).toContain('condPartAdjuntada');
-    expect(trazas).toContain('false');
+    expect(repos.documentos.crear).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ===========================================================================
+// GAP 1 — 3.1: el PRIMER envío confirmado de E3 PERSISTE una fila DOCUMENTO
+//        tipo='condiciones_particulares' (url del PDF, mime application/pdf,
+//        reserva, tenant) DENTRO de la tx, y registra AUDIT_LOG accion='crear'
+//        para ese DOCUMENTO. Fuente: spec-delta documentos (ADDED); design.md
+//        §D-persistencia-documento.
+// ===========================================================================
+
+describe('EnviarFacturaSenal — persistencia del DOCUMENTO de condiciones (GAP 1, 3.1)', () => {
+  it('debe_persistir_DOCUMENTO_condiciones_con_url_mime_reserva_y_tenant', async () => {
+    const { useCase, repos } = montar();
+
+    await useCase.ejecutar(comando());
+
+    expect(repos.documentos.crear).toHaveBeenCalledTimes(1);
+    const args = repos.documentos.crear.mock.calls[0][0];
+    expect(args.tipo).toBe('condiciones_particulares');
+    expect(args.url).toBe(URL_PDF_CONDICIONES);
+    expect(args.mimeType).toBe('application/pdf');
+    expect(args.reservaId).toBe(RESERVA_ID);
+    expect(args.tenantId).toBe(TENANT);
+  });
+
+  it('debe_buscar_por_reserva_y_tipo_ANTES_de_crear_el_DOCUMENTO_para_idempotencia', async () => {
+    const { useCase, repos } = montar();
+
+    await useCase.ejecutar(comando());
+
+    expect(repos.documentos.buscarPorReservaYTipo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reservaId: RESERVA_ID,
+        tenantId: TENANT,
+        tipo: 'condiciones_particulares',
+      }),
+    );
+  });
+
+  it('debe_registrar_AUDIT_LOG_crear_para_el_DOCUMENTO_persistido', async () => {
+    const { useCase, repos } = montar();
+
+    await useCase.ejecutar(comando());
+
+    const audit = auditDocumentoCrear(repos);
+    expect(audit).toBeDefined();
+    expect(audit!.entidad).toBe('DOCUMENTO');
+    expect(audit!.accion).toBe('crear');
+  });
+
+  it('debe_persistir_el_DOCUMENTO_dentro_de_la_unica_unidad_de_trabajo', async () => {
+    const { useCase, uow } = montar();
+
+    await useCase.ejecutar(comando());
+
+    // La creación del DOCUMENTO se integra en la misma tx del envío E3.
+    expect(uow.ejecutar).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ===========================================================================
+// GAP 1 — 3.2: IDEMPOTENCIA + rollback. Si ya existe el DOCUMENTO de condiciones
+//        para la reserva, se REUTILIZA (no crea 2ª fila, no 2º AUDIT_LOG
+//        'crear'). Si E3 falla dentro de la tx → rollback → no queda DOCUMENTO
+//        huérfano persistido. Fuente: spec-delta documentos (Scenarios "…se
+//        reutiliza sin duplicar" y "El rollback… no deja DOCUMENTO huérfano");
+//        design.md §D-persistencia-documento, §Atomicidad.
+// ===========================================================================
+
+const documentoExistente: DocumentoPersistido = {
+  idDocumento: 'doc-cond-existente',
+  tipo: 'condiciones_particulares',
+  reservaId: RESERVA_ID,
+  tenantId: TENANT,
+  url: URL_PDF_CONDICIONES,
+  mimeType: 'application/pdf',
+};
+
+describe('EnviarFacturaSenal — idempotencia del DOCUMENTO de condiciones (GAP 1, 3.2)', () => {
+  it('no_debe_crear_una_segunda_fila_DOCUMENTO_cuando_ya_existe_uno_para_la_reserva', async () => {
+    const { useCase, repos } = montar({ documentoPrevio: documentoExistente });
+
+    await useCase.ejecutar(comando());
+
+    // Se reutiliza el existente: no se crea otra fila.
+    expect(repos.documentos.crear).not.toHaveBeenCalled();
+  });
+
+  it('no_debe_registrar_un_segundo_AUDIT_LOG_crear_cuando_el_DOCUMENTO_ya_existe', async () => {
+    const { useCase, repos } = montar({ documentoPrevio: documentoExistente });
+
+    await useCase.ejecutar(comando());
+
+    expect(auditDocumentoCrear(repos)).toBeUndefined();
+  });
+
+  it('no_debe_dejar_DOCUMENTO_huerfano_cuando_el_envio_de_E3_falla', async () => {
+    // El DOCUMENTO se crea DENTRO de la tx SOLO tras confirmar E3; si E3 falla
+    // antes, no debe haberse creado (y en producción la tx revierte). No debe
+    // quedar ninguna fila DOCUMENTO persistida.
+    const { useCase, repos } = montar({ e3Falla: true });
+
+    await expect(useCase.ejecutar(comando())).rejects.toBeInstanceOf(EmisionEnvioFallidoError);
+    expect(repos.documentos.crear).not.toHaveBeenCalled();
   });
 });
 

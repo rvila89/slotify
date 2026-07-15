@@ -26,6 +26,7 @@
  * `@nestjs/*`.
  */
 import type { EstadoFactura, TipoFactura } from '../domain/factura';
+import type { DocumentoRepositoryPort } from '../../documentos/domain/documento.repository.port';
 
 /**
  * Estado de la señal de partida a efectos de la guarda de "enviable". Además de los estados
@@ -116,7 +117,7 @@ export interface ComunicacionesSenalEmisionPort {
 export interface RegistroAuditoriaSenalEmision {
   tenantId: string;
   usuarioId?: string | null;
-  entidad: 'FACTURA' | 'RESERVA' | 'COMUNICACION';
+  entidad: 'FACTURA' | 'RESERVA' | 'COMUNICACION' | 'DOCUMENTO';
   entidadId: string;
   accion: 'actualizar' | 'crear';
   datosAnteriores?: Record<string, unknown> | null;
@@ -134,6 +135,8 @@ export interface RepositoriosSenalEmision {
   reservas: ReservasSenalEmisionPort;
   comunicaciones: ComunicacionesSenalEmisionPort;
   auditoria: AuditoriaSenalEmisionPort;
+  /** GAP 1: repositorio TX-BOUND del DOCUMENTO de condiciones (idempotente por reserva). */
+  documentos: DocumentoRepositoryPort;
 }
 
 /**
@@ -261,6 +264,26 @@ export class E3YaEnviadoError extends Error {
   }
 }
 
+/**
+ * El tenant no tiene condiciones particulares configuradas (o sin secciones): el PDF de
+ * condiciones degrada a `null`. GAP 2 (D-condiciones-bloqueante, decisión CERRADA/aprobada en el
+ * gate SDD — ENDURECER): las condiciones son requisito DURO del envío E3, por lo que se ABORTA con
+ * rollback total (la factura sigue en `borrador`, sin E3, sin DOCUMENTO, `cond_part_enviadas_fecha`
+ * NULL). Mapea a HTTP 409 `CONDICIONES_NO_CONFIGURADAS`. El mensaje es la alerta al gestor.
+ */
+export class CondicionesNoConfiguradasError extends Error {
+  readonly codigo = 'CONDICIONES_NO_CONFIGURADAS' as const;
+  readonly reservaId: string;
+
+  constructor(reservaId: string) {
+    super(
+      'Configura las condiciones particulares del espacio para poder enviar E3',
+    );
+    this.name = 'CondicionesNoConfiguradasError';
+    this.reservaId = reservaId;
+  }
+}
+
 /** Fallo recuperable de PDF/email (rollback total) → HTTP 502/503. */
 export class EmisionEnvioFallidoError extends Error {
   readonly codigo = 'EMISION_ENVIO_FALLIDO' as const;
@@ -292,7 +315,8 @@ const esErrorNoReintentable = (error: unknown): boolean =>
   error instanceof EmisionEnvioFallidoError ||
   error instanceof FacturaSenalNoEncontradaError ||
   error instanceof FacturaSenalNoEnviableError ||
-  error instanceof E3YaEnviadoError;
+  error instanceof E3YaEnviadoError ||
+  error instanceof CondicionesNoConfiguradasError;
 
 // ---------------------------------------------------------------------------
 // Caso de uso
@@ -371,29 +395,41 @@ export class EnviarFacturaSenalUseCase {
 
     const ahora = this.deps.clock.ahora();
 
-    // (1b) Genera/OMITE el adjunto de condiciones (`.catch(() => null)`): degradación a `null`
-    //      o throw → se omite el adjunto y `condPartAdjuntada=false` (NO tumba E3).
-    const urlCondiciones = await this.deps
-      .generarCondiciones({ tenantId: comando.tenantId })
-      .catch(() => null);
-    const condPartAdjuntada = urlCondiciones !== null;
+    // (1b) Obtiene el PDF de condiciones — GUARDA DURA (GAP 2, D-condiciones-bloqueante, decisión
+    //      CERRADA/aprobada en el gate SDD — ENDURECER, revierte la tolerancia de 6.4b):
+    //        - `null` (tenant sin config/secciones) → `CondicionesNoConfiguradasError` (409) y
+    //          ROLLBACK TOTAL: no se envía E3, la factura sigue en `borrador`, sin DOCUMENTO.
+    //        - excepción (fallo transitorio de render/subida) → `EmisionEnvioFallidoError` (502),
+    //          error RECUPERABLE, también con rollback.
+    //      Las condiciones son requisito DURO: en el camino feliz E3 va SIEMPRE con ambos adjuntos
+    //      y `condPartAdjuntada = true`.
+    let urlCondiciones: string | null;
+    try {
+      urlCondiciones = await this.deps.generarCondiciones({
+        tenantId: comando.tenantId,
+      });
+    } catch (error) {
+      throw new EmisionEnvioFallidoError(error);
+    }
+    if (urlCondiciones === null) {
+      throw new CondicionesNoConfiguradasError(comando.reservaId);
+    }
+    const condPartAdjuntada = true;
 
-    // (1c) Envío E3 SÍNCRONO y CONFIRMADO (§D-ruta-email): adjunta siempre la señal; las
-    //      condiciones solo si se generaron. Si falla → PROPAGA para que la tx revierta.
+    // (1c) Envío E3 SÍNCRONO y CONFIRMADO (§D-ruta-email): adjunta SIEMPRE la señal y las
+    //      condiciones. Si falla → PROPAGA para que la tx revierta.
     const adjuntos: AdjuntoSenalEmision[] = [
       {
         clave: 'senal',
         nombre: 'factura-senal.pdf',
         pdfUrl: senal.pdfUrl,
       },
-    ];
-    if (urlCondiciones !== null) {
-      adjuntos.push({
+      {
         clave: 'condiciones',
         nombre: 'condicions-particulars.pdf',
         pdfUrl: urlCondiciones,
-      });
-    }
+      },
+    ];
     let comunicacionEnviada: {
       idComunicacion: string;
       estado: 'enviado';
@@ -452,6 +488,38 @@ export class EnviarFacturaSenalUseCase {
       fechaEnvio: comunicacionEnviada.fechaEnvio,
       destinatarioEmail: reserva.clienteEmail,
     });
+
+    // (GAP 1, D-persistencia-documento) Persistencia IDEMPOTENTE del DOCUMENTO de condiciones
+    // DENTRO de la tx: se busca por reserva + tipo; si NO existe se crea (url del PDF ya generado,
+    // mime application/pdf) + AUDIT_LOG `crear`; si existe se REUTILIZA (sin 2ª fila ni 2º
+    // AUDIT_LOG). Al vivir en la misma unidad de trabajo, el rollback de E3 no deja huérfanos.
+    const documentoPrevio = await repos.documentos.buscarPorReservaYTipo({
+      reservaId: comando.reservaId,
+      tenantId: comando.tenantId,
+      tipo: 'condiciones_particulares',
+    });
+    if (documentoPrevio === null) {
+      const documento = await repos.documentos.crear({
+        reservaId: comando.reservaId,
+        tenantId: comando.tenantId,
+        tipo: 'condiciones_particulares',
+        url: urlCondiciones,
+        mimeType: 'application/pdf',
+      });
+      await repos.auditoria.registrar({
+        tenantId: comando.tenantId,
+        usuarioId: comando.usuarioId,
+        entidad: 'DOCUMENTO',
+        entidadId: documento.idDocumento,
+        accion: 'crear',
+        datosNuevos: {
+          tipo: 'condiciones_particulares',
+          url: documento.url,
+          mimeType: documento.mimeType,
+          reservaId: comando.reservaId,
+        },
+      });
+    }
 
     // Resultado: proyección de la señal emitida + metadatos del envío de condiciones.
     const senalEmitida: FacturaSenalEmitible = {

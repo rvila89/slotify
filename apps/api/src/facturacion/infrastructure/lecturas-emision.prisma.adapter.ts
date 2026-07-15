@@ -25,6 +25,16 @@ import type {
   CargarReservaSenalEmisionPort,
   ReservaSenalEmision,
 } from '../application/enviar-factura-senal.use-case';
+import type {
+  BuscarDocumentoCondicionesPort,
+  BuscarE3PreviaPort,
+  CargarFacturaSenalReenvioPort,
+  CargarReservaReenvioE3Port,
+  ComunicacionE3PreviaReenvio,
+  DocumentoCondicionesReenvio,
+  FacturaSenalReenvio,
+  ReservaReenvioE3,
+} from '../application/reenviar-e3.use-case';
 
 /** Carga la RESERVA para la emisión (email del cliente incluido). */
 @Injectable()
@@ -174,6 +184,150 @@ export class CargarReservaReenvioPrismaAdapter {
       clienteEmail: fila.cliente.email ?? '',
     };
     return reserva;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// US-023 (GAP 3): lecturas del reenvío de E3 (RLS, cada una en su propio $transaction).
+// ---------------------------------------------------------------------------
+
+/** Carga la RESERVA para el reenvío de E3 (email cliente + cond_part_enviadas_fecha). */
+@Injectable()
+export class CargarReservaReenvioE3PrismaAdapter {
+  constructor(private readonly prisma: PrismaService) {}
+
+  readonly cargar: CargarReservaReenvioE3Port = async (params) => {
+    const fila = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.fijarTenant(tx, params.tenantId);
+      return tx.reserva.findFirst({
+        where: { idReserva: params.reservaId, tenantId: params.tenantId },
+        select: {
+          idReserva: true,
+          tenantId: true,
+          clienteId: true,
+          codigo: true,
+          condPartEnviadasFecha: true,
+          cliente: { select: { email: true } },
+        },
+      });
+    });
+    if (fila === null) {
+      return null;
+    }
+    const reserva: ReservaReenvioE3 = {
+      idReserva: fila.idReserva,
+      tenantId: fila.tenantId,
+      clienteId: fila.clienteId,
+      codigo: fila.codigo,
+      clienteEmail: fila.cliente.email ?? '',
+      condPartEnviadasFecha: fila.condPartEnviadasFecha,
+    };
+    return reserva;
+  };
+}
+
+/** Carga la FACTURA de señal de una reserva (para el reenvío de E3). */
+@Injectable()
+export class CargarFacturaSenalReenvioPrismaAdapter {
+  constructor(private readonly prisma: PrismaService) {}
+
+  readonly cargar: CargarFacturaSenalReenvioPort = async (params) => {
+    const fila = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.fijarTenant(tx, params.tenantId);
+      return tx.factura.findFirst({
+        where: { reservaId: params.reservaId, tipo: 'senal' },
+        select: {
+          idFactura: true,
+          tenantId: true,
+          reservaId: true,
+          numeroFactura: true,
+          tipo: true,
+          estado: true,
+          total: true,
+          pdfUrl: true,
+          fechaEmision: true,
+        },
+      });
+    });
+    if (fila === null) {
+      return null;
+    }
+    const senal: FacturaSenalReenvio = {
+      idFactura: fila.idFactura,
+      tenantId: fila.tenantId,
+      reservaId: fila.reservaId,
+      numeroFactura: fila.numeroFactura,
+      tipo: 'senal',
+      estado: fila.estado as 'borrador' | 'enviada' | 'cobrada',
+      total: fila.total.toFixed(2),
+      pdfUrl: fila.pdfUrl,
+      fechaEmision: fila.fechaEmision,
+    };
+    return senal;
+  };
+}
+
+/** Busca la COMUNICACION E3 `enviado` previa (`es_reenvio=false`) de la reserva. */
+@Injectable()
+export class BuscarE3PreviaPrismaAdapter {
+  constructor(private readonly prisma: PrismaService) {}
+
+  readonly buscar: BuscarE3PreviaPort = async (params) => {
+    const fila = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.fijarTenant(tx, params.tenantId);
+      return tx.comunicacion.findFirst({
+        where: { reservaId: params.reservaId, codigoEmail: 'E3', esReenvio: false },
+        orderBy: { fechaCreacion: 'desc' },
+        select: { idComunicacion: true, estado: true, esReenvio: true },
+      });
+    });
+    if (fila === null) {
+      return null;
+    }
+    const previa: ComunicacionE3PreviaReenvio = {
+      idComunicacion: fila.idComunicacion,
+      estado: fila.estado,
+      esReenvio: fila.esReenvio,
+    };
+    return previa;
+  };
+}
+
+/** Busca el DOCUMENTO de condiciones ya persistido (GAP 1) de la reserva, para reutilizarlo. */
+@Injectable()
+export class BuscarDocumentoCondicionesPrismaAdapter {
+  constructor(private readonly prisma: PrismaService) {}
+
+  readonly buscar: BuscarDocumentoCondicionesPort = async (params) => {
+    const fila = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.fijarTenant(tx, params.tenantId);
+      return tx.documento.findFirst({
+        where: {
+          reservaId: params.reservaId,
+          tenantId: params.tenantId,
+          tipo: 'condiciones_particulares',
+        },
+        select: {
+          idDocumento: true,
+          tenantId: true,
+          reservaId: true,
+          url: true,
+          mimeType: true,
+        },
+      });
+    });
+    if (fila === null) {
+      return null;
+    }
+    const documento: DocumentoCondicionesReenvio = {
+      idDocumento: fila.idDocumento,
+      tipo: 'condiciones_particulares',
+      reservaId: fila.reservaId ?? params.reservaId,
+      tenantId: fila.tenantId,
+      url: fila.url,
+      mimeType: fila.mimeType,
+    };
+    return documento;
   };
 }
 

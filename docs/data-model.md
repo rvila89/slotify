@@ -141,7 +141,7 @@ Los campos se agrupan en cinco bloques:
 
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
-| `condiciones` | `Json @default("{}")` | Contenido del PDF de condicions particulars. Estructura: `{ titulo: string; secciones: Array<{ titulo: string; cuerpo: string }> }`. Valor `{}` o `secciones` vacío = sin condiciones configuradas; el adaptador `PdfCondicionesRealAdapter` degrada a `null` sin error. Añadido en 6.4a (migración `20260714130000_documento_condiciones_particulares`). Expuesto en el VO `ConfiguracionDocumentoTenant` como tipo `CondicionesDocumento`. |
+| `condiciones` | `Json @default("{}")` | Contenido del PDF de condicions particulars. Estructura: `{ titulo: string; secciones: Array<{ titulo: string; cuerpo: string }> }`. Valor `{}` o `secciones` vacío = **tenant sin condicions configuradas**; `PdfCondicionesRealAdapter` devuelve `null`. En el flujo E3 (`POST /reservas/{id}/facturas/senal/enviar`) la devolución de `null` es un **requisito bloqueante**: el envío aborta con 409 `CONDICIONES_NO_CONFIGURADAS` (no se degrada a adjunto opcional). En E2 (email de presupuesto, post-commit fire-and-forget) sí se omite el adjunto sin error. Añadido en 6.4a (migración `20260714130000_documento_condiciones_particulares`). Expuesto en el VO `ConfiguracionDocumentoTenant` como tipo `CondicionesDocumento`. |
 
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
@@ -228,7 +228,7 @@ Recorre toda la máquina de estados. Incluye campos de cola, visita, sub-proceso
 | `motivo_retencion` | `String? @db.Text` | Motivo de la retención (parcial o total) de fianza. Obligatorio cuando `fianza_devuelta_eur < fianza_eur` (devolución parcial) o cuando el importe devuelto es 0 (retención total). Null en devolución completa. Persiste vía US-036 (`POST /reservas/{id}/fianza/devolucion`). |
 | `fecha_post_evento` | `DateTime? @map("fecha_post_evento")` | Timestamp del momento exacto en que la RESERVA entró en el estado `post_evento`. Poblado en la transición `evento_en_curso → post_evento` (US-034) dentro de la misma transacción all-or-nothing. Inmutable una vez fijado: ningún UPDATE posterior lo sobreescribe. El barrido de archivado automático (US-037, `POST /cron/barrido-completadas`) lo usa para calcular la antigüedad T+7d (`date(fecha_post_evento) <= date(hoy) - 7`) de forma fiable, sin depender de `fecha_actualizacion` (`@updatedAt`) que cambia con cualquier UPDATE. Nullable en RESERVA históricas anteriores a la migración. Migración aditiva: `20260710130000_us037_reserva_fecha_post_evento` (columna `fecha_post_evento TIMESTAMPTZ NULL`). |
 | `cond_part_firmadas` | `Boolean @default(false)` | `false` cuando el cliente no ha devuelto el contrato firmado. Se fija a `false` al enviar E3 (US-023) y a `true` al registrar la firma (UC-19 flujo registro). Una alerta no bloqueante A29 se emite en T-0 si sigue en `false` (US-031). |
-| `cond_part_enviadas_fecha` | `DateTime?` | Timestamp del momento en que las condicions particulars fueron enviadas al cliente adjuntas en E3 (`POST /reservas/{id}/facturas/senal/enviar`, US-023). Fijado dentro de la misma transacción atómica que emite la factura de señal. `null` si E3 no se ha disparado todavía. |
+| `cond_part_enviadas_fecha` | `DateTime?` | Timestamp de la última vez que las condicions particulars fueron enviadas al cliente en E3. Fijado en el primer envío (`POST /reservas/{id}/facturas/senal/enviar`, US-023) y actualizado en cada reenvío manual (`POST /reservas/{id}/facturas/senal/reenviar`). `null` si E3 no se ha disparado todavía. |
 | `cond_part_firmadas_fecha` | `DateTime?` | Timestamp en que el gestor registra la firma del cliente en el sistema (UC-19 flujo registro). |
 | `notas` | `String? @db.Text` | |
 | `activo` | `Boolean @default(true)` | |
@@ -528,6 +528,8 @@ Archivos adjuntos polimórficos. Discriminador `tipo`. Referenciable desde reser
 | `tamano_bytes` | `Int?` | Máx. 10 MB |
 | `fecha_creacion` | `DateTime @default(now())` | |
 
+**Persistencia de `tipo=condiciones_particulares` en E3 (US-023, change `condiciones-particulares-e3-us023`):** al ejecutar `POST /reservas/{id}/facturas/senal/enviar`, el use-case `EnviarFacturaSenalUseCase` crea o reutiliza **un único** `DOCUMENTO` con `tipo='condiciones_particulares'` dentro de la misma transacción atómica (`reservaId`, `tenantId`, `url` = clave `condiciones/{tenantId}.pdf`, `mimeType='application/pdf'`). Idempotencia: si ya existe un `DOCUMENTO` de ese tipo para la reserva (reenvíos futuros vía `POST .../reenviar`), se reutiliza sin crear una segunda fila ni registrar un segundo AUDIT_LOG `crear`. Sin migración: el enum `TipoDocumento` ya incluía `condiciones_particulares`.
+
 ### 3.16 Comunicacion
 Log de emails enviados (E1–E8 + manuales). El motor hexagonal `DespacharEmailService` (US-045) es el único responsable de registrar y actualizar las entradas de esta entidad para los emails del ciclo de vida.
 
@@ -630,7 +632,7 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 | `@@index([tenant_id, email])` | `Cliente` | Búsqueda de cliente y recurrencia |
 | Full-text (`nombre`, `codigo`, `notas`) | `Reserva` | Histórico consultable (`UC-32`) |
 | UNIQUE parcial `(tenant_id, consulta_bloqueante_id, posicion_cola) WHERE posicion_cola IS NOT NULL` | `Reserva` | Unicidad de posición en cola; defensa en profundidad D-5 / D-8 (US-004). Migración aditiva `20260628120000_us004_cola_posicion_unique`; índice activo en BD: `reserva_cola_posicion_key` |
-| `UNIQUE PARTIAL (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL` | `Comunicacion` | Idempotencia del motor de email (US-045): una `COMUNICACION` por `(reserva, codigo_email)`; emails `manual` sin reserva no aplican el constraint. Migración `20260628120000_us045_comunicacion_idempotencia_indice`. |
+| `UNIQUE PARTIAL (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL AND es_reenvio = false` | `Comunicacion` | Idempotencia del motor de email (US-045): una `COMUNICACION` de envío original por `(reserva, codigo_email)`; los reenvíos explícitos del gestor (`es_reenvio = true`) quedan fuera del predicado y pueden repetirse. Emails `manual` sin reserva no aplican el constraint. Migración `20260628120000_us045_comunicacion_idempotencia_indice`. |
 | `@@index([tenantId])` | `Pago` | Filtrado RLS directo por `tenant_id` (US-029 D-1). La policy RLS de PAGO usa `PAGO.tenant_id` directamente, sin join a FACTURA. Migración `20260704150000_us029_pago_tenant_id`. |
 | `@@index([facturaId])` | `Pago` | Búsqueda de pagos por factura (US-029). Soporta la cardinalidad FACTURA 1-N PAGO sin `UNIQUE`. Migración `20260704150000_us029_pago_tenant_id`. |
 

@@ -222,6 +222,43 @@ export class ReenviarLiquidacionResponseDto {
   comunicacion!: ComunicacionReenvioDto;
 }
 
+/** Cuerpo VACÍO del reenvío de E3 (contrato `ReenviarE3Request`, US-023 GAP 3). */
+export class ReenviarE3RequestDto {}
+
+/** Proyección de la NUEVA COMUNICACION E3 creada por el reenvío (`esReenvio=true`). */
+export class ComunicacionReenvioE3Dto {
+  @ApiProperty({ format: 'uuid' })
+  idComunicacion!: string;
+
+  @ApiPropertyOptional({ example: 'enviado' })
+  estado?: string;
+
+  @ApiPropertyOptional({ example: true })
+  esReenvio?: boolean;
+
+  @ApiPropertyOptional({ format: 'date-time', nullable: true })
+  fechaEnvio?: string | null;
+}
+
+/**
+ * Respuesta del reenvío de E3 (contrato `ReenviarE3Response`, US-023 GAP 3). Devuelve la factura
+ * de señal SIN cambios, la NUEVA COMUNICACION E3 del reenvío (`esReenvio=true`) y el nuevo
+ * timestamp `condPartEnviadasFecha`.
+ */
+export class ReenviarE3ResponseDto {
+  @ApiProperty({ type: FacturaDto })
+  factura!: FacturaDto;
+
+  @ApiProperty({ type: ComunicacionReenvioE3Dto })
+  comunicacion!: ComunicacionReenvioE3Dto;
+
+  @ApiProperty({
+    format: 'date-time',
+    description: 'Nuevo timestamp fijado en RESERVA.cond_part_enviadas_fecha al reenviar E3.',
+  })
+  condPartEnviadasFecha!: string;
+}
+
 /**
  * Cuerpo de "Registrar el cobro de la liquidación" (contrato `RegistrarCobroLiquidacionRequest`,
  * US-029 / UC-21 pasos 7-10). `importe` Decimal(10,2) como string `> 0`; `fechaCobro` DATE `<= hoy`

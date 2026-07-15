@@ -1782,20 +1782,74 @@ export interface paths {
          *     1. Guardas: existencia de `FACTURA tipo='senal'` (404), estado enviable (`borrador`; `rechazada`
          *        → 409), idempotencia de E3 (COMUNICACION E3 `enviado` previa → 409), y `pdf_url` de la señal
          *        presente (si null → se trata como fallo de emisión, 502).
-         *     2. Genera/OMITE el adjunto de condiciones (`GenerarPdfCondicionesPort.generar(...).catch(() => null)`):
-         *        su fallo o degradación a `null` **NO** tumba el envío (§D-adjunto-condiciones); se refleja en
-         *        `condPartAdjuntada=false` + AUDIT_LOG.
+         *     2. **Obtener el adjunto de condiciones — GUARDA (requisito DURO, US-023 §D-condiciones-bloqueante):**
+         *        `GenerarPdfCondicionesPort.generar(...)`. Las condiciones son un adjunto **IMPRESCINDIBLE**: si
+         *        devuelve `null` (tenant sin config/sin secciones) → **NO se envía E3, NO se persiste DOCUMENTO,
+         *        rollback total** (la señal sigue en `borrador`, `cond_part_enviadas_fecha` NULL) y se aborta con
+         *        el error de negocio `CONDICIONES_NO_CONFIGURADAS` (409) — alerta al gestor "Configura las
+         *        condiciones particulares del espacio para poder enviar E3". Una **excepción de render/subida**
+         *        (fallo transitorio) se trata como error **recuperable** (`EMISION_ENVIO_FALLIDO`, 502/503) también
+         *        con rollback. Esto **REVIERTE** la concesión tolerante de 6.4b (`.catch(() => null)`): US-023
+         *        endurece las condiciones como requisito duro.
          *     3. **Envío E3 SÍNCRONO y CONFIRMADO** por el puerto de emisión DIRECTO (propaga el fallo, NO pasa
          *        por el motor/catálogo). Si E3 falla → la tx REVIERTE (rollback total: la señal sigue en
          *        `borrador`, `cond_part_enviadas_fecha` no se fija, sin COMUNICACION E3 `enviado`) → 502.
          *     4. SOLO tras confirmar E3: emite la señal a `enviada` (fija `fechaEmision` si es null), fija
-         *        `RESERVA.cond_part_enviadas_fecha=now()`, `cond_part_firmadas=false`, crea la COMUNICACION E3
-         *        `enviado` y el AUDIT_LOG `actualizar` (FACTURA + RESERVA).
+         *        `RESERVA.cond_part_enviadas_fecha=now()`, `cond_part_firmadas=false`, **persiste el DOCUMENTO
+         *        `tipo='condiciones_particulares'` (GAP 1, idempotente: un único DOCUMENTO por reserva; si existe
+         *        se reutiliza) dentro de la MISMA tx**, crea la COMUNICACION E3 `enviado` y el AUDIT_LOG
+         *        (`actualizar` FACTURA + RESERVA, `crear` DOCUMENTO).
          *
          *     Sin body: la acción no toma parámetros (la señal no se negocia; no admite descuento). Aislada por
          *     `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
          */
         post: operations["enviarFacturaSenal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reservas/{id}/facturas/senal/reenviar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reenviar E3 (factura de señal + condiciones particulares) ya enviado (UC-19 / US-023)
+         * @description [US-023 §D-reenvio-e3, GAP 3] **Reenvío manual del Gestor** de E3 (factura de señal + condiciones
+         *     particulares) YA enviado previamente para la RESERVA `{id}` (espejo literal de
+         *     `reenviarLiquidacion` de E4). **Reutiliza los documentos existentes** (la factura de señal ya
+         *     emitida y el DOCUMENTO `tipo='condiciones_particulares'` ya persistido en GAP 1): NO regenera ni
+         *     duplica el DOCUMENTO, NO reasigna `numeroFactura`, NO cambia `FACTURA.estado` ni los status de la
+         *     RESERVA (un reenvío jamás muta la factura ni transiciona la reserva).
+         *
+         *     **Reenvío síncrono** (RLS del tenant del JWT), con el envío externo PRIMERO (espejo del patrón
+         *     aceptado de `reenviarLiquidacion` E4):
+         *     1. Precondición: debe existir E3 ya enviado previamente (COMUNICACION E3 `enviado`,
+         *        `es_reenvio=false`) y la factura de señal `enviada`; si no → 409 `E3_NO_ENVIADO_PREVIAMENTE`
+         *        (nada que reenviar).
+         *     2. **Envío E3 SÍNCRONO y CONFIRMADO** por el puerto de emisión DIRECTO, PRIMERO. Si el proveedor
+         *        falla → 502/503 y NO se crea la COMUNICACION de reenvío ni se actualiza
+         *        `cond_part_enviadas_fecha` (nada que revertir en BD: el único efecto externo —el email— es
+         *        lo primero que ocurre y no llegó a persistirse cambio alguno).
+         *     3. SOLO tras confirmar el envío de E3: crea una **NUEVA fila COMUNICACION** (`codigoEmail='E3'`,
+         *        `estado='enviado'`, `esReenvio=true`, `fechaEnvio=now()`) — excepción explícita y auditada al
+         *        índice UNIQUE parcial `(reserva_id, codigo_email) WHERE es_reenvio=false` (US-045): el reenvío
+         *        manual es intencionado y esquiva el UNIQUE al ir con `esReenvio=true`. Actualiza
+         *        `RESERVA.cond_part_enviadas_fecha=now()` (nuevo timestamp) y registra AUDIT_LOG del reenvío.
+         *
+         *     Sin body: la acción no toma parámetros. Aislada por `tenant_id` del JWT (RLS); nunca en el path.
+         *     Requiere rol Gestor.
+         */
+        post: operations["reenviarE3"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3561,17 +3615,38 @@ export interface components {
              * @description Timestamp del envío de E3, fijado en `RESERVA.cond_part_enviadas_fecha` al confirmar el envío de la factura de señal + condicions particulars.
              */
             condPartEnviadasFecha: string;
-            /** @description `true` si las condicions particulars se adjuntaron a E3; `false` si el PDF de condiciones se degradó a `null` u omitió (tenant sin condiciones configuradas o fallo de render) — E3 se envía igualmente solo con la factura de señal (§D-adjunto-condiciones). */
+            /** @description Indica si las condicions particulars se adjuntaron a E3. **Invariante US-023 (GAP 2, §D-condiciones-bloqueante):** en un 200 es SIEMPRE `true` — las condiciones son requisito duro del envío, por lo que un envío confirmado siempre las lleva adjuntas. El valor `false` queda documentado por compatibilidad histórica (6.4b, envío degradado sin condiciones) pero YA NO puede darse en un 200: si el tenant no tiene condiciones configuradas se responde 409 `CONDICIONES_NO_CONFIGURADAS` en lugar de un 200. */
             condPartAdjuntada: boolean;
         };
         FacturaSenalEnvioError: components["schemas"]["ErrorResponse"] & {
             /**
-             * @description Código de error de dominio: `FACTURA_SENAL_NO_ENCONTRADA` (404), `FACTURA_SENAL_NO_ENVIABLE`/`E3_YA_ENVIADO` (409), `EMISION_ENVIO_FALLIDO` (502).
+             * @description Código de error de dominio: `FACTURA_SENAL_NO_ENCONTRADA` (404), `FACTURA_SENAL_NO_ENVIABLE`/`E3_YA_ENVIADO`/`CONDICIONES_NO_CONFIGURADAS` (409, envío), `E3_NO_ENVIADO_PREVIAMENTE` (409, reenvío), `EMISION_ENVIO_FALLIDO` (502/503). `CONDICIONES_NO_CONFIGURADAS` (US-023 §D-condiciones-bloqueante): el tenant no tiene condiciones particulares configuradas; no se envía E3 (rollback total).
              * @enum {string}
              */
-            codigo: "FACTURA_SENAL_NO_ENCONTRADA" | "FACTURA_SENAL_NO_ENVIABLE" | "E3_YA_ENVIADO" | "EMISION_ENVIO_FALLIDO";
+            codigo: "FACTURA_SENAL_NO_ENCONTRADA" | "FACTURA_SENAL_NO_ENVIABLE" | "E3_YA_ENVIADO" | "CONDICIONES_NO_CONFIGURADAS" | "E3_NO_ENVIADO_PREVIAMENTE" | "EMISION_ENVIO_FALLIDO";
             /** @description Mensaje legible para la UI (presente en 409). */
             motivo?: string;
+        };
+        ReenviarE3Request: Record<string, never>;
+        ReenviarE3Response: {
+            /** @description Factura de señal YA emitida (sin cambios de estado, número ni desglose). */
+            factura: components["schemas"]["Factura"];
+            /** @description NUEVA COMUNICACION E3 creada por el reenvío (`esReenvio=true`, excepción auditada al UNIQUE parcial US-045). */
+            comunicacion: {
+                /** Format: uuid */
+                idComunicacion: string;
+                /** @example enviado */
+                estado?: string;
+                /** @example true */
+                esReenvio?: boolean;
+                /** Format: date-time */
+                fechaEnvio?: string | null;
+            };
+            /**
+             * Format: date-time
+             * @description Nuevo timestamp fijado en `RESERVA.cond_part_enviadas_fecha` al confirmar el reenvío de E3.
+             */
+            condPartEnviadasFecha: string;
         };
         PagoLiquidacion: {
             /**
@@ -5547,7 +5622,9 @@ export interface operations {
             /**
              * @description Factura de señal emitida y enviada por E3 con las condicions particulars. Devuelve la señal
              *     con `estado='enviada'`, `numeroFactura` y `fechaEmision`, más el timestamp del envío de E3
-             *     (`condPartEnviadasFecha`) y si las condiciones se adjuntaron (`condPartAdjuntada`).
+             *     (`condPartEnviadasFecha`) y `condPartAdjuntada`. **Invariante US-023 (GAP 2):** en un 200
+             *     `condPartAdjuntada` es SIEMPRE `true` — las condiciones son requisito duro; si no hay
+             *     condiciones no hay 200 (se responde 409 `CONDICIONES_NO_CONFIGURADAS`).
              */
             200: {
                 headers: {
@@ -5574,8 +5651,11 @@ export interface operations {
             /**
              * @description Conflicto de estado o idempotencia (F5-02: 409). La factura de señal **no es enviable** (p. ej.
              *     `rechazada`): `FACTURA_SENAL_NO_ENVIABLE`; o **E3 ya se envió** (COMUNICACION E3 `enviado`
-             *     previa): `E3_YA_ENVIADO` (no re-envía, no duplica). No se muta nada. El cuerpo añade `codigo`
-             *     y `motivo` al envelope estándar.
+             *     previa): `E3_YA_ENVIADO` (no re-envía, no duplica); o el **tenant no tiene condiciones
+             *     configuradas** (US-023 §D-condiciones-bloqueante): `CONDICIONES_NO_CONFIGURADAS` — no se envía
+             *     E3 ni se persiste DOCUMENTO, rollback total, con la alerta al gestor "Configura las condiciones
+             *     particulares del espacio para poder enviar E3". No se muta nada. El cuerpo añade `codigo` y
+             *     `motivo` al envelope estándar.
              */
             409: {
                 headers: {
@@ -5592,6 +5672,90 @@ export interface operations {
              *     `enviado`). El Gestor puede reintentar la acción.
              */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaSenalEnvioError"];
+                };
+            };
+        };
+    };
+    reenviarE3: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReenviarE3Request"];
+            };
+        };
+        responses: {
+            /**
+             * @description E3 reenviado. Devuelve la factura de señal (sin cambios de estado, número ni desglose), la
+             *     NUEVA COMUNICACION creada por el reenvío (`esReenvio=true`) y el nuevo timestamp
+             *     `condPartEnviadasFecha`. El DOCUMENTO de condiciones se reutiliza tal cual (no se duplica).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReenviarE3Response"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description La RESERVA no existe en el tenant (RLS) o **no tiene** factura de señal
+             *     (`FACTURA_SENAL_NO_ENCONTRADA`). El cuerpo añade `codigo` al envelope estándar.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaSenalEnvioError"];
+                };
+            };
+            /**
+             * @description Conflicto de estado (F5-02: 409). **E3 no se envió previamente** (no hay COMUNICACION E3
+             *     `enviado` previa): `E3_NO_ENVIADO_PREVIAMENTE` — nada que reenviar. No se muta nada. El cuerpo
+             *     añade `codigo` y `motivo` al envelope estándar.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaSenalEnvioError"];
+                };
+            };
+            /**
+             * @description **Fallo recuperable de reenvío** (`EMISION_ENVIO_FALLIDO`): el proveedor de email falló al
+             *     reenviar E3. El envío va primero, así que no se crea la COMUNICACION de reenvío ni se
+             *     actualiza `cond_part_enviadas_fecha` (nada que revertir en BD). Reintentar la acción.
+             */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaSenalEnvioError"];
+                };
+            };
+            /**
+             * @description **Fallo recuperable de reenvío** (`EMISION_ENVIO_FALLIDO`): servicio de envío no disponible
+             *     temporalmente. El envío va primero, así que nada se persistió (nada que revertir en BD).
+             *     Reintentar la acción.
+             */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

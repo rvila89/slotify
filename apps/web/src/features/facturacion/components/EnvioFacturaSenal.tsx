@@ -2,6 +2,7 @@ import { CheckCircle2, Loader2, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { useEnviarFacturaSenal } from '../api/useEnviarFacturaSenal';
 import { AvisoErrorEnvioSenal } from './AvisoErrorEnvioSenal';
+import { AccionReenviarE3 } from './AccionReenviarE3';
 
 /**
  * Bloque de la acción **Enviar factura 40%** (rebanada 6.4b) dentro de la tarjeta de factura
@@ -16,8 +17,14 @@ import { AvisoErrorEnvioSenal } from './AvisoErrorEnvioSenal';
  *    `EMISION_ENVIO_FALLIDO` → advertencia reintentable (rollback total); resto → error. El
  *    detalle inline se muestra con `AvisoErrorEnvioSenal`.
  *
- * Mobile-first: el botón ocupa el ancho completo en `<sm` y ancho automático en `sm:`, con
- * objetivo táctil de 44px (`h-11`); sin overflow horizontal.
+ * Junto a "Enviar factura 40%" se ofrece la acción dedicada **Reenviar E3** (US-023 · GAP 3,
+ * `AccionReenviarE3`), espejo de "Reenviar factura de liquidación" (E4): vuelve a remitir la
+ * factura de señal + condiciones ya emitidas. Es intencionada y explícita (el re-disparo del envío
+ * inicial devuelve 409 `E3_YA_ENVIADO`); el backend resuelve si hay un E3 previo que reenviar (si no
+ * → 409 `E3_NO_ENVIADO_PREVIAMENTE`).
+ *
+ * Mobile-first: los botones ocupan el ancho completo en `<sm` y ancho automático en `sm:`, con
+ * objetivo táctil de 44px (`h-11`); apilan en columna en `<sm` sin overflow horizontal.
  */
 type Props = {
   /** ID de la RESERVA sobre la que se envía la factura de señal (path del endpoint). */
@@ -71,7 +78,7 @@ export const EnvioFacturaSenal = ({ reservaId }: Props) => {
 
       {enviarSenal.error && <AvisoErrorEnvioSenal error={enviarSenal.error} />}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
         <button
           type="button"
           onClick={onEnviarSenal}
@@ -86,6 +93,9 @@ export const EnvioFacturaSenal = ({ reservaId }: Props) => {
           )}
           {enviarSenal.isPending ? 'Enviando…' : 'Enviar factura 40%'}
         </button>
+
+        {/* Reenvío intencionado de E3 (US-023 · GAP 3), espejo de "Reenviar liquidación" (E4). */}
+        <AccionReenviarE3 reservaId={reservaId} />
       </div>
     </div>
   );
