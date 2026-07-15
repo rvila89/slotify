@@ -824,12 +824,12 @@ Facturas de señal (40%), liquidación (60% + extras), fianza y complementarias.
 
 1. **Creación en borrador (efecto post-commit de US-021):** al confirmar la señal (`pre_reserva → reserva_confirmada`), el use-case `GenerarFacturaSenalUseCase` (capability `facturacion`) crea la FACTURA con `tipo = 'senal'`, `estado = 'borrador'`, `total = RESERVA.importe_senal` (congelado, sin recalcular tarifa ni porcentaje). El desglose fiscal (`base_imponible`, `iva_porcentaje`, `iva_importe`) se calcula en dominio puro: `base = round(total / 1,21, 2)`, `iva = total − base`. La numeración `F-YYYY-NNNN` se asigna con `MAX(NNNN) + 1` dentro del `tenant_id` y el año en curso; ante colisión `P2002` en `UNIQUE(tenant_id, numero_factura)`, el sistema recalcula y reintenta (nunca locks distribuidos — decisión D-8). Se registra `AUDIT_LOG` con `accion = 'crear'`, `entidad = 'FACTURA'`.
 2. **Generación del PDF (post-commit, idempotente):** reutiliza el puerto/adaptador de PDF de US-014 (`GenerarPdfFacturaPort`). Recibe datos fiscales del emisor (TENANT) y del receptor (CLIENTE). Si el CLIENTE tiene datos fiscales incompletos (`dni_nif` o campos de dirección nulos), la FACTURA queda en `borrador` con `pdf_url = null` (borrador inválido — no se puede aprobar). Si el servicio de PDF falla transitoriamente, ídem con reintento automático. Al completar, un UPDATE idempotente almacena `pdf_url`.
-3. **Aprobación del Gestor (borrador → enviada):** solo si `pdf_url` no nulo y datos fiscales válidos. Al aprobar: `estado = 'enviada'`, `fecha_emision = now()`. Se registra `AUDIT_LOG` con `accion = 'actualizar'`, `datos_anteriores.estado = 'borrador'`, `datos_nuevos.estado = 'enviada'`. El email E3 (al cliente) no se dispara en US-022; queda pendiente de la capability US-023 (condiciones particulares).
+3. **Aprobación y envío por el Gestor (borrador → enviada) — acción unificada US-023:** el Gestor pulsa "Enviar factura 40%" (`POST /reservas/{id}/facturas/senal/enviar`). En una única operación atómica: valida guardas (factura en `borrador`, `pdf_url` no nulo, sin COMUNICACION E3 `enviado` previa); adjunta condicions particulars si disponibles (degrada a `null` sin error); envía E3 por `EnviarEmailPort` directo (si el proveedor falla → `EmisionEnvioFallidoError` → rollback total); solo tras confirmar E3: `estado = 'enviada'`, `fecha_emision = now()`, `RESERVA.cond_part_enviadas_fecha = now()`, `RESERVA.cond_part_firmadas = false`, INSERT COMUNICACION E3 `enviado`, AUDIT_LOG. Implementado en **US-023** (change `documentos-enviar-factura-senal-e3`, 6.4b).
 4. **Rechazo del Gestor:** `estado` permanece en `'borrador'`; el motivo se registra en `AUDIT_LOG`; E3 bloqueado. El Gestor puede corregir y regenerar el PDF.
 
 **Mapa de estados de la FACTURA:**
 - `borrador` → estado inicial tras la creación automática; puede ser válido (PDF disponible) o inválido (PDF pendiente por datos fiscales incompletos o error transitorio).
-- `enviada` → el Gestor aprobó el borrador válido; `fecha_emision` fijada; lista para adjuntarse en E3.
+- `enviada` → el Gestor ejecutó "Enviar factura 40%" (US-023); `fecha_emision` fijada; E3 confirmado al cliente; `RESERVA.cond_part_enviadas_fecha` fijada.
 - `cobrada` → el pago fue registrado y conciliado contra la factura.
 
 **Concurrencia de la numeración (D-8):** dos reservas del mismo tenant confirmadas simultáneamente calculan el mismo `NNNN`; el constraint `UNIQUE(tenant_id, numero_factura)` hace que una inserción falle (`P2002`); la aplicación recalcula el siguiente número y reintenta (bucle acotado). Resultado: números consecutivos, sin duplicados ni facturas sin número. Nunca Redis ni locks distribuidos.
@@ -1153,7 +1153,7 @@ La rebanada 6.4a añade la generación del PDF de "Condicions particulars" y su 
 
 **Integración con E2:** `DispararE2Adapter` adjunta el PDF de condiciones (`clave: 'condiciones'`) junto al presupuesto en el email E2, como paso post-commit fire-and-forget. Si `GenerarPdfCondicionesPort.generar` devuelve `null`, el adjunto se omite sin error; E2 se envía igualmente.
 
-**Sin cambio de contrato OpenAPI:** E2 es una operación post-commit interna; el envío E3 (con el flujo de confirmación de reserva) es la rebanada 6.4b y aún no existe.
+**Sin cambio de contrato OpenAPI para E2:** E2 es una operación post-commit interna. El envío E3 (`POST /reservas/{id}/facturas/senal/enviar`, operationId `enviarFacturaSenal`) fue implementado en la rebanada 6.4b (change `documentos-enviar-factura-senal-e3`, US-023): acción manual del Gestor que aprueba+envía la factura de señal y adjunta las condicions particulars de forma atómica. Ver §5.11 y el diccionario de campos `cond_part_*` en §3.9.
 
 **Roadmap del épico #6:**
 
@@ -1164,11 +1164,13 @@ La rebanada 6.4a añade la generación del PDF de "Condicions particulars" y su 
 | 6.2 | Presupuesto SIN IVA + método de pago + doble numeración por régimen | Implementada |
 | 6.3 | Reutilización de la capa `documentos/presentation/` para facturas PDF reales CON/SIN IVA con referencia al nº de presupuesto | Implementada |
 | 6.4a | Condicions particulars: campo `condiciones` en `PlantillaDocumentoTenant`, plantilla react-pdf, adjunto en E2 (post-commit fire-and-forget) | Implementada |
-| 6.4b | Envío E3 de condicions particulars (endpoint y flujo de confirmación de reserva) | Pendiente |
+| 6.4b | Envío E3 de condicions particulars — `POST /reservas/{id}/facturas/senal/enviar` (US-023): acción manual del Gestor, atómica, espejo de E4; plantilla E3 activa | Implementada |
 | 6.5 | UI de ajustes de configuración del documento + subida de logo | Pendiente |
 | B1 | Adaptador cloud S3/Supabase para `AlmacenDocumentosPort` (PDF durable + URL pública permanente) | Diferido |
 
 ---
+
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.9 (15/07/2026): refleja épico #6 rebanada 6.4b (`documentos-enviar-factura-senal-e3`) — actualiza el ciclo de vida de la FACTURA de señal: paso 3 ahora describe la acción unificada "aprobar+enviar E3" (US-023, `POST /reservas/{id}/facturas/senal/enviar`) con atomicidad rollback-total, espejo de E4/US-028; actualiza mapa de estados FACTURA (`enviada` refleja E3 confirmado y `cond_part_enviadas_fecha` fijada); actualiza §5.10 para aclarar que E3 está implementado en 6.4b (ya no es futuro); actualiza el roadmap marcando 6.4b como Implementada; sin cambio de modelo de datos (campos `cond_part_*` y enum `E3` ya existían desde diseño inicial).*
 
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 4.8 (14/07/2026): refleja épico #6 rebanada 6.4a (`documentos-condiciones-particulares-pdf`) — añade campo `condiciones Json @default("{}")` al diagrama Mermaid de `PLANTILLA_DOCUMENTO_TENANT`; añade bloque condiciones en el diccionario §3.3 (estructura JSON, degradación a null, migración `20260714130000_documento_condiciones_particulares`, RLS); actualiza nota de evolución del épico en §5.7 para mencionar el VO `ConfiguracionDocumentoTenant`; añade §5.10 con la descripción completa de la rebanada 6.4a (campo `condiciones`, VO `CondicionesDocumento`/`SeccionCondiciones`, puerto `GenerarPdfCondicionesPort`, adaptador real/fake, capa de plantilla react-pdf con bloque de firma en blanco, integración con E2 fire-and-forget, sin cambio de contrato); actualiza el roadmap marcando 6.3 como Implementada y desdoblando 6.4 en 6.4a (Implementada) y 6.4b (Pendiente).*
 

@@ -5,6 +5,7 @@
  * importa SIEMPRE desde aquí (`@/features/facturacion`), nunca de archivos internos.
  */
 export { FacturaSenalCard } from './components/FacturaSenalCard';
+export { EnvioFacturaSenal } from './components/EnvioFacturaSenal';
 export { FacturaBorradorCard } from './components/FacturaBorradorCard';
 export { DocumentosLiquidacionFianza } from './components/DocumentosLiquidacionFianza';
 export { AccionesFacturacion } from './components/AccionesFacturacion';
@@ -22,6 +23,8 @@ export { useRechazarFactura } from './api/useRechazarFactura';
 export type { RechazarFacturaVars } from './api/useRechazarFactura';
 export { useRegenerarPdf } from './api/useRegenerarPdf';
 export type { RegenerarPdfVars } from './api/useRegenerarPdf';
+export { useEnviarFacturaSenal } from './api/useEnviarFacturaSenal';
+export type { EnviarFacturaSenalVars } from './api/useEnviarFacturaSenal';
 export { useRegistrarCobroFianza } from './api/useRegistrarCobroFianza';
 export type { RegistrarCobroFianzaVars } from './api/useRegistrarCobroFianza';
 export { RegistrarCobroFianzaDialog } from './components/RegistrarCobroFianzaDialog';
@@ -52,3 +55,4 @@ export { estadoVisualFactura } from './lib/estado';
 export type { EstadoVisualFactura } from './lib/estado';
 export { ETIQUETA_TIPO_FACTURA } from './lib/estado';
 export type { FacturaSenal, Factura, TipoFactura, FacturaError } from './model/types';
+export type { EnviarFacturaSenalResponse, EnvioSenalError } from './model/types';

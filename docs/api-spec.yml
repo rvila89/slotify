@@ -1845,6 +1845,80 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LiquidacionError' }
 
+  /reservas/{id}/facturas/senal/enviar:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Facturacion]
+      summary: Enviar la factura de señal (40%) + condiciones particulares por E3 (UC-18 / US-023)
+      operationId: enviarFacturaSenal
+      description: |
+        [US-023 / UC-18, 6.4b §D-endpoint] Acción ÚNICA y ATÓMICA estado↔E3 (espejo literal de E4,
+        design.md §Atomicidad): el **Gestor envía** la factura de señal (40 %) en `borrador` de la
+        RESERVA `{id}` junto con las condicions particulars, cerrando el hito de confirmación. En una
+        **única unidad de trabajo** (tx + RLS del tenant del JWT), con reintento ante colisión de
+        numeración (`P2002`, US-022; nunca locks distribuidos), all-or-nothing:
+        1. Guardas: existencia de `FACTURA tipo='senal'` (404), estado enviable (`borrador`; `rechazada`
+           → 409), idempotencia de E3 (COMUNICACION E3 `enviado` previa → 409), y `pdf_url` de la señal
+           presente (si null → se trata como fallo de emisión, 502).
+        2. Genera/OMITE el adjunto de condiciones (`GenerarPdfCondicionesPort.generar(...).catch(() => null)`):
+           su fallo o degradación a `null` **NO** tumba el envío (§D-adjunto-condiciones); se refleja en
+           `condPartAdjuntada=false` + AUDIT_LOG.
+        3. **Envío E3 SÍNCRONO y CONFIRMADO** por el puerto de emisión DIRECTO (propaga el fallo, NO pasa
+           por el motor/catálogo). Si E3 falla → la tx REVIERTE (rollback total: la señal sigue en
+           `borrador`, `cond_part_enviadas_fecha` no se fija, sin COMUNICACION E3 `enviado`) → 502.
+        4. SOLO tras confirmar E3: emite la señal a `enviada` (fija `fechaEmision` si es null), fija
+           `RESERVA.cond_part_enviadas_fecha=now()`, `cond_part_firmadas=false`, crea la COMUNICACION E3
+           `enviado` y el AUDIT_LOG `actualizar` (FACTURA + RESERVA).
+
+        Sin body: la acción no toma parámetros (la señal no se negocia; no admite descuento). Aislada por
+        `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
+      requestBody:
+        # Cuerpo VACÍO: la acción no toma parámetros (a diferencia de la liquidación, la señal no se
+        # negocia). Se declara opcional para admitir `{}` o ausencia de body.
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnviarFacturaSenalRequest' }
+      responses:
+        '200':
+          description: |
+            Factura de señal emitida y enviada por E3 con las condicions particulars. Devuelve la señal
+            con `estado='enviada'`, `numeroFactura` y `fechaEmision`, más el timestamp del envío de E3
+            (`condPartEnviadasFecha`) y si las condiciones se adjuntaron (`condPartAdjuntada`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnviarFacturaSenalResponse' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: |
+            La RESERVA no existe en el tenant (RLS) o **no tiene** factura de señal
+            (`FACTURA_SENAL_NO_ENCONTRADA`). El cuerpo añade `codigo` al envelope estándar.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FacturaSenalEnvioError' }
+        '409':
+          description: |
+            Conflicto de estado o idempotencia (F5-02: 409). La factura de señal **no es enviable** (p. ej.
+            `rechazada`): `FACTURA_SENAL_NO_ENVIABLE`; o **E3 ya se envió** (COMUNICACION E3 `enviado`
+            previa): `E3_YA_ENVIADO` (no re-envía, no duplica). No se muta nada. El cuerpo añade `codigo`
+            y `motivo` al envelope estándar.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FacturaSenalEnvioError' }
+        '502':
+          description: |
+            **Fallo recuperable de emisión/envío** (`EMISION_ENVIO_FALLIDO`): el proveedor de email o el
+            servicio de PDF de la señal falló al enviar E3 (incluye `pdf_url` de la señal ausente). La
+            transacción REVIERTE por completo (la señal sigue en `borrador`, sin COMUNICACION E3
+            `enviado`). El Gestor puede reintentar la acción.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FacturaSenalEnvioError' }
+
   /reservas/{id}/facturas/liquidacion/reenviar:
     parameters:
       - { $ref: '#/components/parameters/IdReserva' }
@@ -4251,6 +4325,58 @@ components:
             motivo:
               type: string
               description: 'Mensaje legible para la UI (presente en 409/422).'
+
+    # -------- 6.4b / US-023: Envío de la factura de señal (40%) + condiciones por E3 (facturacion) --------
+    # [US-023 / UC-18] Request/response del envío atómico de la factura de señal. El cuerpo es VACÍO (la
+    # señal no se negocia). La respuesta reutiliza el schema `Factura` para la factura emitida y añade los
+    # metadatos del envío de condiciones E3 (`condPartEnviadasFecha`, `condPartAdjuntada`). Los errores
+    # reutilizan el envelope NestJS (ErrorResponse) + `codigo`/`motivo`, mismo patrón que US-028
+    # (LiquidacionError). No se inventan formatos, wrappers ni paginación.
+    EnviarFacturaSenalRequest:
+      # Cuerpo VACÍO: la acción no toma parámetros (la señal no admite descuento, a diferencia de la
+      # liquidación). Se admite `{}` o ausencia de body (requestBody.required=false).
+      type: object
+      additionalProperties: false
+    EnviarFacturaSenalResponse:
+      type: object
+      required: [factura, condPartEnviadasFecha, condPartAdjuntada]
+      properties:
+        factura:
+          allOf: [{ $ref: '#/components/schemas/Factura' }]
+          description: 'Factura de señal emitida (`estado=enviada`, `numeroFactura`, `fechaEmision`).'
+        condPartEnviadasFecha:
+          type: string
+          format: date-time
+          description: >-
+            Timestamp del envío de E3, fijado en `RESERVA.cond_part_enviadas_fecha` al confirmar el envío
+            de la factura de señal + condicions particulars.
+        condPartAdjuntada:
+          type: boolean
+          description: >-
+            `true` si las condicions particulars se adjuntaron a E3; `false` si el PDF de condiciones se
+            degradó a `null` u omitió (tenant sin condiciones configuradas o fallo de render) — E3 se
+            envía igualmente solo con la factura de señal (§D-adjunto-condiciones).
+    FacturaSenalEnvioError:
+      # Envelope estándar NestJS (ErrorResponse: statusCode/message/error) + `codigo` de dominio y
+      # `motivo` legible. Cubre 404/409/502 del envío de la factura de señal (6.4b / US-023).
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo]
+          properties:
+            codigo:
+              type: string
+              enum:
+                - FACTURA_SENAL_NO_ENCONTRADA
+                - FACTURA_SENAL_NO_ENVIABLE
+                - E3_YA_ENVIADO
+                - EMISION_ENVIO_FALLIDO
+              description: >-
+                Código de error de dominio: `FACTURA_SENAL_NO_ENCONTRADA` (404),
+                `FACTURA_SENAL_NO_ENVIABLE`/`E3_YA_ENVIADO` (409), `EMISION_ENVIO_FALLIDO` (502).
+            motivo:
+              type: string
+              description: 'Mensaje legible para la UI (presente en 409).'
 
     # -------- US-029: Registro del cobro de la liquidación (facturacion) --------
     # [US-029 / UC-21 pasos 7-10] Request/response de la acción dedicada de registrar el cobro de la

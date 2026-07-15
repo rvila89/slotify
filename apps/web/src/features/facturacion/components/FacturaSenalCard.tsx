@@ -15,6 +15,7 @@ import { estadoVisualFactura, puedeAprobar, puedeRechazar } from '../lib/estado'
 import { AprobarFacturaDialog } from './AprobarFacturaDialog';
 import { RechazarFacturaDialog } from './RechazarFacturaDialog';
 import { AvisoErrorFactura } from './AvisoErrorFactura';
+import { EnvioFacturaSenal } from './EnvioFacturaSenal';
 import { EstadoFacturaBadge } from './EstadoFacturaBadge';
 import type { FacturaSenal } from '../model/types';
 
@@ -29,7 +30,13 @@ import type { FacturaSenal } from '../model/types';
  *    con los `camposFaltantes`, sin Aprobar, con Rechazar.
  *  - `pdf-pendiente` (`pdfPendiente`): aviso de PDF en proceso + Regenerar PDF, sin
  *    Aprobar.
- *  - `enviada`: badge verde, enlace al PDF, sin acciones.
+ *  - `enviada`: badge verde, enlace al PDF y acción **Enviar factura 40%** (rebanada 6.4b):
+ *    remite al cliente la factura de señal emitida + las condicions particulars por email E3.
+ *
+ * La acción "Enviar factura 40%" (`useEnviarFacturaSenal`) es idempotente en backend: tras el
+ * primer envío un re-disparo devuelve 409 `E3_YA_ENVIADO` (se avisa sin alarmar), y un fallo de
+ * envío 502 `EMISION_ENVIO_FALLIDO` es recuperable/reintentable (rollback total). Si el email
+ * salió sin las condiciones (`condPartAdjuntada=false`) se avisa al Gestor.
  *
  * Estado de servidor con TanStack Query sobre el SDK generado. Diseño adaptado con
  * los tokens del proyecto (sin frame propio en Figma "Slotify"); mobile-first: el
@@ -236,17 +243,8 @@ export const FacturaSenalCard = ({ reservaId }: Props) => {
         </div>
       )}
 
-      {/* Enviada: factura lista para adjuntarse (sin acciones). */}
-      {estadoVisual === 'enviada' && (
-        <p
-          role="status"
-          data-testid="aviso-factura-enviada"
-          className="flex items-start gap-2 rounded-[16px] border border-emerald-200 bg-emerald-50 p-4 font-body text-sm text-emerald-800"
-        >
-          <CheckCircle2 aria-hidden className="mt-0.5 size-4 shrink-0 text-emerald-600" />
-          Factura aprobada y lista para adjuntarse al cliente.
-        </p>
-      )}
+      {/* Enviada (emitida): factura lista para remitir al cliente por email E3 (6.4b). */}
+      {estadoVisual === 'enviada' && <EnvioFacturaSenal reservaId={reservaId} />}
 
       {regenerar.error && <AvisoErrorFactura error={regenerar.error} />}
 

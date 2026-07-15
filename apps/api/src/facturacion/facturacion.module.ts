@@ -14,8 +14,12 @@ import { ComunicacionesModule } from '../comunicaciones/comunicaciones.module';
 import { ENVIAR_EMAIL_PORT } from '../comunicaciones/comunicaciones.tokens';
 import type { EnviarEmailPort } from '../comunicaciones/domain/enviar-email.port';
 import { DocumentosModule } from '../documentos/documentos.module';
-import { ALMACEN_DOCUMENTOS_PORT } from '../documentos/documentos.tokens';
+import {
+  ALMACEN_DOCUMENTOS_PORT,
+  GENERAR_PDF_CONDICIONES_PORT,
+} from '../documentos/documentos.tokens';
 import type { AlmacenDocumentosPort } from '../documentos/domain/almacen-documentos.port';
+import type { GenerarPdfCondicionesPort } from '../documentos/domain/generar-pdf-condiciones.port';
 import { renderizarDocumentoFacturaABytes } from '../documentos/presentation/documento-factura.render';
 import {
   GenerarFacturaSenalUseCase,
@@ -66,6 +70,14 @@ import {
   type UnidadDeTrabajoFianzaPort,
 } from './application/enviar-recibo-fianza-separado.use-case';
 import {
+  EnviarFacturaSenalUseCase,
+  type CargarReservaSenalEmisionPort,
+  type ClockPort as ClockSenalPort,
+  type EnviarE3EmisionPort,
+  type GenerarCondicionesPort,
+  type UnidadDeTrabajoSenalEmisionPort,
+} from './application/enviar-factura-senal.use-case';
+import {
   ReenviarLiquidacionUseCase,
   type CargarLiquidacionReenvioPort,
   type CargarReservaReenvioPort,
@@ -93,14 +105,17 @@ import type { FacturaSenal } from './application/generar-factura-senal.use-case'
 import {
   EmisionUoWPrismaAdapter,
   FianzaSeparadaUoWPrismaAdapter,
+  SenalEmisionUoWPrismaAdapter,
 } from './infrastructure/emision-uow.prisma.adapter';
 import {
   CargarLiquidacionReenvioPrismaAdapter,
   CargarReservaEmisionPrismaAdapter,
   CargarReservaFianzaPrismaAdapter,
   CargarReservaReenvioPrismaAdapter,
+  CargarReservaSenalEmisionPrismaAdapter,
 } from './infrastructure/lecturas-emision.prisma.adapter';
 import {
+  EnviarE3EmisionAdapter,
   EnviarE4EmisionAdapter,
   EnviarReciboFianzaAdapter,
   ReenviarE4Adapter,
@@ -166,6 +181,9 @@ import {
   UNIDAD_DE_TRABAJO_COBRO_PORT,
   UNIDAD_DE_TRABAJO_COBRO_FIANZA_PORT,
   UNIDAD_DE_TRABAJO_DEVOLUCION_FIANZA_PORT,
+  UNIDAD_DE_TRABAJO_SENAL_EMISION_PORT,
+  CARGAR_RESERVA_SENAL_EMISION_PORT,
+  ENVIAR_E3_EMISION_PORT,
 } from './facturacion.tokens';
 
 /** Firma del puerto de auditoría de aprobación/rechazo (acepta ambos registros). */
@@ -361,6 +379,25 @@ type CargarFacturaFn = (params: {
       inject: [PrismaService],
       useFactory: (prisma: PrismaService): RegistrarAuditoriaReenvioPort =>
         new RegistrarAuditoriaReenvioPrismaAdapter(prisma).registrar,
+    },
+
+    // --- 6.4b / US-023: adaptadores del envío de la factura de señal (40%) + E3 ---
+    {
+      provide: UNIDAD_DE_TRABAJO_SENAL_EMISION_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) => new SenalEmisionUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: CARGAR_RESERVA_SENAL_EMISION_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarReservaSenalEmisionPort =>
+        new CargarReservaSenalEmisionPrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: ENVIAR_E3_EMISION_PORT,
+      inject: [ENVIAR_EMAIL_PORT],
+      useFactory: (enviarEmail: EnviarEmailPort): EnviarE3EmisionPort =>
+        new EnviarE3EmisionAdapter(enviarEmail).enviar,
     },
 
     // --- US-029: unidad de trabajo del cobro de la liquidación (FOR UPDATE sobre RESERVA) ---
@@ -592,6 +629,33 @@ type CargarFacturaFn = (params: {
         }),
     },
     {
+      provide: EnviarFacturaSenalUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_SENAL_EMISION_PORT,
+        CARGAR_RESERVA_SENAL_EMISION_PORT,
+        ENVIAR_E3_EMISION_PORT,
+        GENERAR_PDF_CONDICIONES_PORT,
+        FACTURACION_CLOCK_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoSenalEmisionPort,
+        cargarReserva: CargarReservaSenalEmisionPort,
+        enviarE3: EnviarE3EmisionPort,
+        generarPdfCondiciones: GenerarPdfCondicionesPort,
+        clock: ClockSenalPort,
+      ) => {
+        const generarCondiciones: GenerarCondicionesPort = (params) =>
+          generarPdfCondiciones.generar(params);
+        return new EnviarFacturaSenalUseCase({
+          unidadDeTrabajo,
+          cargarReserva,
+          enviarE3,
+          generarCondiciones,
+          clock,
+        });
+      },
+    },
+    {
       provide: RegistrarCobroLiquidacionUseCase,
       inject: [UNIDAD_DE_TRABAJO_COBRO_PORT, FACTURACION_CLOCK_PORT],
       useFactory: (unidadDeTrabajo: UnidadDeTrabajoCobroPort, clock: ClockPort) =>
@@ -615,6 +679,7 @@ type CargarFacturaFn = (params: {
     GenerarBorradoresLiquidacionFianzaUseCase,
     AprobarYEnviarLiquidacionUseCase,
     EnviarReciboFianzaSeparadoUseCase,
+    EnviarFacturaSenalUseCase,
     ReenviarLiquidacionUseCase,
     RegistrarCobroLiquidacionUseCase,
     RegistrarCobroFianzaUseCase,

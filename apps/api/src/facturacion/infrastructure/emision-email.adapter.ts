@@ -15,6 +15,10 @@ import type {
   EnviarE4EmisionPort,
 } from '../application/aprobar-y-enviar-liquidacion.use-case';
 import type {
+  EnviarE3EmisionParams,
+  EnviarE3EmisionPort,
+} from '../application/enviar-factura-senal.use-case';
+import type {
   EnviarReciboFianzaParams,
   EnviarReciboFianzaPort,
 } from '../application/enviar-recibo-fianza-separado.use-case';
@@ -40,6 +44,29 @@ export class EnviarE4EmisionAdapter {
       asunto: `Factura de liquidación y recibo de fianza — reserva ${params.codigoReserva}`,
       cuerpo: 'Adjuntamos la documentación de cobro de tu evento.',
       codigoEmail: 'E4',
+      tenantId: params.tenantId,
+      adjuntos: aAdjuntosRef(params.adjuntos),
+    });
+    return { idComunicacion: '', estado: 'enviado' as const, fechaEnvio: new Date() };
+  };
+}
+
+/**
+ * Adaptador del envío de E3 (enviar la factura de señal 40% + condicions particulars). Espejo
+ * literal de `EnviarE4EmisionAdapter`: usa `EnviarEmailPort` DIRECTO con `codigoEmail: 'E3'` (NO
+ * pasa por el motor/catálogo, §D-ruta-email). SÍNCRONO y CONFIRMADO: si el proveedor falla, el
+ * error PROPAGA para que la unidad de trabajo de la emisión REVIERTA.
+ */
+@Injectable()
+export class EnviarE3EmisionAdapter {
+  constructor(private readonly enviarEmail: EnviarEmailPort) {}
+
+  readonly enviar: EnviarE3EmisionPort = async (params: EnviarE3EmisionParams) => {
+    await this.enviarEmail.enviar({
+      destinatario: params.destinatario,
+      asunto: `Confirmación de tu reserva y factura de señal — reserva ${params.codigoReserva}`,
+      cuerpo: 'Adjuntamos la factura de la señal y las condicions particulars de tu evento.',
+      codigoEmail: 'E3',
       tenantId: params.tenantId,
       adjuntos: aAdjuntosRef(params.adjuntos),
     });

@@ -21,6 +21,10 @@ import type {
   FacturaEmitida,
   ReservaReenvio,
 } from '../application/reenviar-liquidacion.use-case';
+import type {
+  CargarReservaSenalEmisionPort,
+  ReservaSenalEmision,
+} from '../application/enviar-factura-senal.use-case';
 
 /** Carga la RESERVA para la emisión (email del cliente incluido). */
 @Injectable()
@@ -57,6 +61,43 @@ export class CargarReservaEmisionPrismaAdapter {
       importeLiquidacion:
         fila.importeLiquidacion === null ? '0.00' : fila.importeLiquidacion.toFixed(2),
       clienteEmail: fila.cliente.email ?? '',
+    };
+    return reserva;
+  };
+}
+
+/** Carga la RESERVA para el envío de la factura de señal + E3 (email cliente + cond_part_*). */
+@Injectable()
+export class CargarReservaSenalEmisionPrismaAdapter {
+  constructor(private readonly prisma: PrismaService) {}
+
+  readonly cargar: CargarReservaSenalEmisionPort = async (params) => {
+    const fila = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.fijarTenant(tx, params.tenantId);
+      return tx.reserva.findFirst({
+        where: { idReserva: params.reservaId, tenantId: params.tenantId },
+        select: {
+          idReserva: true,
+          tenantId: true,
+          clienteId: true,
+          codigo: true,
+          condPartEnviadasFecha: true,
+          condPartFirmadas: true,
+          cliente: { select: { email: true } },
+        },
+      });
+    });
+    if (fila === null) {
+      return null;
+    }
+    const reserva: ReservaSenalEmision = {
+      idReserva: fila.idReserva,
+      tenantId: fila.tenantId,
+      clienteId: fila.clienteId,
+      codigo: fila.codigo,
+      clienteEmail: fila.cliente.email ?? '',
+      condPartEnviadasFecha: fila.condPartEnviadasFecha,
+      condPartFirmadas: fila.condPartFirmadas,
     };
     return reserva;
   };
