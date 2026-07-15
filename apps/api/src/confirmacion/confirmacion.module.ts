@@ -20,8 +20,16 @@ import { MulterModule } from '@nestjs/platform-express';
 import { PrismaModule } from '../shared/prisma/prisma.module';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { FacturacionModule } from '../facturacion/facturacion.module';
+import { DocumentosModule } from '../documentos/documentos.module';
+import { ALMACEN_DOCUMENTOS_PORT } from '../documentos/documentos.tokens';
+import type { AlmacenDocumentosPort } from '../documentos/domain/almacen-documentos.port';
 import { GenerarFacturaSenalUseCase } from '../facturacion/application/generar-factura-senal.use-case';
 import { GenerarBorradoresLiquidacionFianzaUseCase } from '../facturacion/application/generar-borradores-liquidacion-fianza.use-case';
+import {
+  ObtenerReservaUseCase,
+  type ReservaDetalleQueryPort,
+} from '../reservas/application/obtener-reserva.query';
+import { ReservaDetalleQueryPrismaAdapter } from '../reservas/infrastructure/reserva-detalle-query.prisma.adapter';
 import {
   ConfirmarPagoSenalUseCase,
   type AlmacenarJustificantePort,
@@ -49,6 +57,25 @@ import {
   TENANT_SETTINGS_CONFIRMACION_PORT,
   UNIDAD_DE_TRABAJO_CONFIRMACION_PORT,
 } from './confirmacion.tokens';
+// US-024: registro de la firma de las condiciones particulares (UC-19 segundo flujo).
+import {
+  RegistrarFirmaCondicionesUseCase,
+  type AlmacenarCondicionesFirmadasPort,
+  type CargarReservaFirmaCondicionesPort,
+  type ClockPort as FirmaCondicionesClockPort,
+  type UnidadDeTrabajoFirmaCondicionesPort,
+} from './application/registrar-firma-condiciones.use-case';
+import { RegistrarFirmaCondicionesUoWPrismaAdapter } from './infrastructure/registrar-firma-condiciones-uow.prisma.adapter';
+import { CargarReservaFirmaCondicionesPrismaAdapter } from './infrastructure/cargar-reserva-firma-condiciones.prisma.adapter';
+import { AlmacenarCondicionesFirmadasAdapter } from './infrastructure/almacenar-condiciones-firmadas.adapter';
+import { RegistrarFirmaCondicionesController } from './interface/registrar-firma-condiciones.controller';
+import {
+  ALMACENAR_CONDICIONES_FIRMADAS_PORT,
+  CARGAR_RESERVA_FIRMA_CONDICIONES_PORT,
+  FIRMA_CONDICIONES_CLOCK_PORT,
+  RESERVA_DETALLE_FIRMA_CONDICIONES_PORT,
+  UNIDAD_DE_TRABAJO_FIRMA_CONDICIONES_PORT,
+} from './registrar-firma-condiciones.tokens';
 
 @Module({
   imports: [
@@ -56,11 +83,14 @@ import {
     // US-022: el disparo post-commit de la factura de señal reutiliza el
     // GenerarFacturaSenalUseCase que exporta FacturacionModule.
     FacturacionModule,
+    // US-024: expone `ALMACEN_DOCUMENTOS_PORT` (almacén de objetos, épico #6) para
+    // subir la copia firmada con clave versionada por reserva.
+    DocumentosModule,
     // Sin `dest`/`storage`: multer usa MemoryStorage por defecto y expone `file.buffer`
     // (autoritativo para validar formato/tamaño y almacenar el binario en el use-case).
     MulterModule.register({}),
   ],
-  controllers: [ConfirmarPagoSenalController],
+  controllers: [ConfirmarPagoSenalController, RegistrarFirmaCondicionesController],
   providers: [
     {
       provide: UNIDAD_DE_TRABAJO_CONFIRMACION_PORT,
@@ -100,6 +130,59 @@ import {
         new GenerarBorradoresLiquidacionFianzaFacturacionAdapter(generarBorradores).generar,
     },
     { provide: CONFIRMACION_CLOCK_PORT, useClass: SistemaClockAdapter },
+    // ----------------------------------------------------------------------
+    // US-024: registro de la firma de las condiciones particulares.
+    // ----------------------------------------------------------------------
+    {
+      provide: UNIDAD_DE_TRABAJO_FIRMA_CONDICIONES_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new RegistrarFirmaCondicionesUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: CARGAR_RESERVA_FIRMA_CONDICIONES_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarReservaFirmaCondicionesPort =>
+        new CargarReservaFirmaCondicionesPrismaAdapter(prisma).cargar,
+    },
+    {
+      provide: ALMACENAR_CONDICIONES_FIRMADAS_PORT,
+      inject: [ALMACEN_DOCUMENTOS_PORT],
+      useFactory: (almacen: AlmacenDocumentosPort): AlmacenarCondicionesFirmadasPort =>
+        new AlmacenarCondicionesFirmadasAdapter(almacen).almacenar,
+    },
+    { provide: FIRMA_CONDICIONES_CLOCK_PORT, useClass: SistemaClockAdapter },
+    {
+      provide: RESERVA_DETALLE_FIRMA_CONDICIONES_PORT,
+      useClass: ReservaDetalleQueryPrismaAdapter,
+    },
+    {
+      provide: ObtenerReservaUseCase,
+      inject: [RESERVA_DETALLE_FIRMA_CONDICIONES_PORT],
+      useFactory: (reservaDetalle: ReservaDetalleQueryPort) =>
+        new ObtenerReservaUseCase({ reservaDetalle }),
+    },
+    {
+      provide: RegistrarFirmaCondicionesUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_FIRMA_CONDICIONES_PORT,
+        CARGAR_RESERVA_FIRMA_CONDICIONES_PORT,
+        ALMACENAR_CONDICIONES_FIRMADAS_PORT,
+        FIRMA_CONDICIONES_CLOCK_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoFirmaCondicionesPort,
+        cargarReserva: CargarReservaFirmaCondicionesPort,
+        almacenarCondiciones: AlmacenarCondicionesFirmadasPort,
+        clock: FirmaCondicionesClockPort,
+      ) =>
+        new RegistrarFirmaCondicionesUseCase({
+          unidadDeTrabajo,
+          cargarReserva,
+          almacenarCondiciones,
+          clock,
+        }),
+    },
     {
       provide: ConfirmarPagoSenalUseCase,
       inject: [

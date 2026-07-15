@@ -1102,14 +1102,14 @@ flowchart TD
 | **Nombre** | Gestionar Condiciones Particulares |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema, Cliente |
-| **Descripción** | El gestor gestiona el ciclo de vida del documento de condicions particulars: aprobación y envío manual al cliente, seguimiento de recepción y registro de firma. El envío se realiza mediante la acción "Enviar factura 40%" (E3), que en una única operación atómica aprueba la factura de señal y la despacha al cliente junto con el PDF de condicions particulars. Las condicions particulars son un **requisito duro** del envío E3: si el tenant no las tiene configuradas el envío es bloqueado (409). Implementado en **US-023** (changes `documentos-enviar-factura-senal-e3` 6.4b + `condiciones-particulares-e3-us023`). |
-| **Precondiciones** | - Reserva en estado `reserva_confirmada`<br>- Factura de señal (`tipo='senal'`) existente en `estado='borrador'` con `pdf_url` no nulo<br>- Tenant con condicions particulars configuradas (`PlantillaDocumentoTenant.condiciones` con secciones no vacías)<br>- Gestor autenticado con rol gestor sobre el tenant |
-| **Postcondiciones** | - `FACTURA(senal).estado = 'enviada'`; `RESERVA.cond_part_enviadas_fecha` fijada a `now()`; `RESERVA.cond_part_firmadas = false`; `COMUNICACION E3` con `estado='enviado'`; `DOCUMENTO(tipo='condiciones_particulares')` creado o reutilizado (idempotente); `AUDIT_LOG` de los cambios |
+| **Descripción** | El gestor gestiona el ciclo de vida del documento de condicions particulars: aprobación y envío manual al cliente (primer flujo, US-023) y registro de la copia firmada (segundo flujo, US-024). El envío se realiza mediante la acción "Enviar factura 40%" (E3), que en una única operación atómica aprueba la factura de señal y la despacha al cliente junto con el PDF de condicions particulars. Las condicions particulars son un **requisito duro** del envío E3: si el tenant no las tiene configuradas el envío es bloqueado (409). El registro de la firma se realiza subiendo la copia firmada mediante `POST /reservas/{id}/condiciones-firmadas`; no transiciona estado. Implementado en **US-023** (changes `documentos-enviar-factura-senal-e3` 6.4b + `condiciones-particulares-e3-us023`) y **US-024** (change `firma-condiciones-particulares-us024`). |
+| **Precondiciones** | Primer flujo (US-023): reserva en `reserva_confirmada`; factura de señal (`tipo='senal'`) en `estado='borrador'` con `pdf_url` no nulo; tenant con condicions particulars configuradas; Gestor autenticado con rol gestor. Segundo flujo (US-024): `RESERVA.cond_part_enviadas_fecha` no nulo (E3 enviado); `RESERVA.estado ∈ {reserva_confirmada, evento_en_curso, post_evento}`; Gestor autenticado con rol gestor. |
+| **Postcondiciones** | Primer flujo: `FACTURA(senal).estado = 'enviada'`; `RESERVA.cond_part_enviadas_fecha = now()`; `RESERVA.cond_part_firmadas = false`; `COMUNICACION E3` con `estado='enviado'`; `DOCUMENTO(tipo='condiciones_particulares')` creado o reutilizado (idempotente); `AUDIT_LOG`. Segundo flujo: nueva fila `DOCUMENTO(tipo='condiciones_particulares')` firmada; `RESERVA.cond_part_firmadas = true`; `RESERVA.cond_part_firmadas_fecha = now()`; `AUDIT_LOG accion='actualizar'`; `RESERVA.estado` sin cambio. |
 | **Prioridad** | Alta |
 | **Frecuencia** | Alta |
-| **US** | US-023 |
-| **Endpoints** | `POST /reservas/{id}/facturas/senal/enviar` (operationId `enviarFacturaSenal`) — primer envío; `POST /reservas/{id}/facturas/senal/reenviar` (operationId `reenviarE3`) — reenvío manual del gestor; ambos body vacío `{}`; respuesta 200 con `FacturaSenalEnvioResponse` (`factura`, `condPartEnviadasFecha`, `condPartAdjuntada`) |
-| **Entidades afectadas** | FACTURA (UPDATE estado borrador→enviada, fecha_emision), RESERVA (UPDATE cond_part_enviadas_fecha, cond_part_firmadas), COMUNICACION (INSERT E3 enviado), DOCUMENTO (INSERT o SELECT idempotente tipo=condiciones_particulares), AUDIT_LOG — sin migración BD |
+| **US** | US-023 (primer flujo), US-024 (segundo flujo) |
+| **Endpoints** | `POST /reservas/{id}/facturas/senal/enviar` (operationId `enviarFacturaSenal`) — primer envío; `POST /reservas/{id}/facturas/senal/reenviar` (operationId `reenviarE3`) — reenvío manual del gestor; ambos body vacío `{}`; respuesta 200 con `FacturaSenalEnvioResponse` (`factura`, `condPartEnviadasFecha`, `condPartAdjuntada`). `POST /reservas/{id}/condiciones-firmadas` (operationId `registrarCondicionesFirmadas`) — registro de firma; `multipart/form-data`, campo binario `condicionesFirmadas`; `@Roles('gestor')`; respuesta 200 con `RegistrarCondicionesFirmadasResponse` (RESERVA con `condPartFirmadas=true`, `condPartFechaFirma`, DOCUMENTO firmado creado). Ver `docs/api-spec.yml` para la especificación completa de responses y códigos de error. |
+| **Entidades afectadas** | Primer flujo: FACTURA (UPDATE estado borrador→enviada, fecha_emision), RESERVA (UPDATE cond_part_enviadas_fecha, cond_part_firmadas), COMUNICACION (INSERT E3 enviado), DOCUMENTO (INSERT o SELECT idempotente tipo=condiciones_particulares), AUDIT_LOG. Segundo flujo: DOCUMENTO (INSERT tipo=condiciones_particulares, copia firmada — no idempotente), RESERVA (UPDATE cond_part_firmadas, cond_part_firmadas_fecha), AUDIT_LOG. Sin migración BD en ambos flujos. |
 
 **Flujo Básico — aprobación y envío de E3 (US-023):**
 1. La factura de señal fue generada en borrador por US-022 como efecto post-commit de la confirmación de la reserva (UC-18)
@@ -1128,23 +1128,34 @@ flowchart TD
 5. Tras confirmar: crea nueva COMUNICACION E3 `es_reenvio=true, estado='enviado'` (esquiva el índice UNIQUE parcial); actualiza `RESERVA.cond_part_enviadas_fecha = now()`; registra AUDIT_LOG. NO transiciona factura ni reserva
 6. El sistema responde 200
 
-**Flujo Básico — registro de firma:**
-1. El cliente devuelve el documento firmado (email o físico)
-2. El gestor abre la ficha de reserva
-3. El gestor selecciona "Registrar condiciones firmadas"
-4. El gestor sube el documento firmado
-5. El sistema actualiza:
-   - `cond_part_firmadas = true`
-   - `cond_part_firmadas_fecha`
-   - `cond_part_firmadas_url` (URL del documento firmado subido)
-6. El sistema registra en AUDIT_LOG
+**Flujo Básico — registro de la firma de condiciones particulares (US-024):**
+1. El cliente devuelve el documento firmado (vía email o físicamente)
+2. El gestor abre la ficha de la reserva y pulsa "Registrar condiciones firmadas"
+3. El sistema valida (guardas de precondición, autoritativas, antes de mutar):
+   - `RESERVA.cond_part_enviadas_fecha` no nulo (E3 enviado). Si es nulo → 409 `CONDICIONES_NO_ENVIADAS` "Las condiciones particulares no han sido enviadas al cliente aún"; sin efectos
+   - `RESERVA.estado ∈ {reserva_confirmada, evento_en_curso, post_evento}`. Si es terminal (`reserva_completada`, `reserva_cancelada`) o cualquier otro → 422; sin efectos
+   - Fichero presente con `mimeType ∈ {image/jpeg, image/png, application/pdf}` y tamaño ≤ 10 MB. Si no → 422; sin efectos
+4. El sistema sube el fichero firmado al almacén de documentos con clave `condiciones-firmadas/{tenantId}/{reservaId}/{uuid}.{ext}` (todas las versiones se conservan)
+5. En una única transacción atómica all-or-nothing (`tx + RLS`): crea una nueva fila `DOCUMENTO` con `tipo = 'condiciones_particulares'`, `reservaId`, `tenantId`, `url`, `mimeType`, `nombreArchivo`, `tamanoBytes`; actualiza `RESERVA.cond_part_firmadas = true` y `RESERVA.cond_part_firmadas_fecha = now()`; registra `AUDIT_LOG accion = 'actualizar'`, `entidad = 'RESERVA'`, `datos_anteriores.cond_part_firmadas` (valor previo), `datos_nuevos.cond_part_firmadas = true`, `datos_nuevos.cond_part_firmadas_fecha`. Si alguna escritura falla → rollback total, sin efectos en BD
+6. El DOCUMENTO original no firmado de US-023 permanece en BD; la copia firmada se añade como fila nueva (no hay unicidad por `(reserva_id, tipo)`)
+7. `RESERVA.estado` y los sub-procesos (`pre_evento_status`, `liquidacion_status`, `fianza_status`) no cambian. La firma es una actualización de campos, **no una transición de la máquina de estados** (mismo patrón que la prórroga de TTL de US-006; `AUDIT_LOG accion = 'actualizar'`, nunca `'transicion'`)
+8. El sistema responde 200 con la RESERVA (`condPartFirmadas=true`, `condPartFechaFirma`) y el DOCUMENTO firmado creado
 
-**Flujos Alternativos:**
-- **FA-01**: Día del evento sin firma (`cond_part_firmadas = false` en T-0) → Sistema emite alerta no bloqueante A29 al gestor (US-031); el evento puede iniciarse igualmente (la firma puede hacerse presencialmente)
+**Re-firma (no idempotente por diseño — N2):** si `cond_part_firmadas` ya es `true` (p. ej. subir una versión más legible), la operación no se rechaza. El sistema crea otra fila `DOCUMENTO` de `tipo = 'condiciones_particulares'` (nueva versión), actualiza `cond_part_firmadas_fecha` al nuevo timestamp, mantiene `cond_part_firmadas = true` y conserva todas las versiones anteriores de `DOCUMENTO` y de binarios. `AUDIT_LOG.datos_anteriores.cond_part_firmadas = true` en este caso. Contraste con US-023: el DOCUMENTO no firmado es único por reserva (idempotente); la copia firmada es versionable (una por registro de firma).
+
+**Señal consultable de firma pendiente (FA-01, en alcance):** la API expone `condPartFirmadas` y `condPartFechaFirma` en la respuesta de la reserva. El frontend muestra la alerta informativa no bloqueante "Condiciones particulares pendientes de firma" cuando `condPartFirmadas = false`. Esta alerta no bloquea la reserva ni impide su progreso (incluida la futura transición a `evento_en_curso`). El disparo automático por cron el día del evento es responsabilidad de **UC-23 (Iniciar Evento)** y queda fuera del alcance de US-024; no existe ningún endpoint `/cron/...` en este change.
+
+**Flujos Alternativos (primer flujo — US-023):**
 - **FA-02** (idempotencia — E3 ya enviado): COMUNICACION E3 `enviado` previa → 409 `E3_YA_ENVIADO`; ni re-envío ni duplicado de COMUNICACION. Una COMUNICACION E3 en `fallido` sí permite reintento.
 - **FA-03** (PDF de señal ausente): `FACTURA.pdf_url = null` → 502 `EMISION_ENVIO_FALLIDO`; el gestor regenera el PDF antes de reintentar.
 - **FA-04** (condiciones no configuradas): tenant sin condicions particulars configuradas (`secciones` vacías) → 409 `CONDICIONES_NO_CONFIGURADAS`; E3 **no se envía**; el gestor debe configurar las condiciones del espacio antes de poder despachar E3.
 - **FA-05** (factura rechazada): `FACTURA.estado = 'rechazada'` → 409 `FACTURA_SENAL_NO_ENVIABLE`; hay que regenerar/aprobar el borrador antes.
+
+**Flujos Alternativos (segundo flujo — US-024):**
+- **FA-01** (condiciones no enviadas): `cond_part_enviadas_fecha` nulo → 409 `CONDICIONES_NO_ENVIADAS`; sin efectos en BD. La acción "Registrar condiciones firmadas" no está disponible hasta que E3 sea enviado.
+- **FA-02** (estado terminal): `RESERVA.estado ∈ {reserva_completada, reserva_cancelada}` o cualquier otro fuera del set válido → 422; sin efectos en BD.
+- **FA-03** (fichero ausente, formato no permitido o tamaño excedido): fichero `.docx`, fichero > 10 MB, o ningún fichero → 422 con mensaje específico; sin efectos en BD.
+- **FA-04** (re-firma permitida): `cond_part_firmadas = true` no bloquea la operación. Ver descripción de re-firma arriba.
 
 ---
 

@@ -473,6 +473,42 @@ export const esEstadoConBloqueoBlandoExtensible = (
   );
 
 // ---------------------------------------------------------------------------
+// Guarda de PRECONDICIÓN «registrar firma de condiciones particulares»
+// (US-024 / UC-19 segundo flujo / §D-no-transicion)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tabla declarativa de ESTADOS válidos para REGISTRAR la firma de las condiciones
+ * particulares (US-024, skill `state-machine`, NO condicionales dispersos). A
+ * diferencia de las tablas `OrigenTransicion`/`MAPA_*` (orígenes/aristas de una
+ * transición origen→destino), esta es una PRECONDICIÓN sobre el estado ACTUAL del
+ * agregado —análoga a `ESTADOS_BLOQUEO_BLANDO_EXTENSIBLE` de US-006—: la firma
+ * ACTUALIZA campos (`cond_part_firmadas`/`cond_part_firmadas_fecha`) y NO transiciona
+ * la máquina de estados (§D-no-transicion), por eso NO se añade ninguna transición al
+ * grafo. Regla firme del Gate 1: válido ⇔ `estado ∈ {reserva_confirmada,
+ * evento_en_curso, post_evento}` (la firma exige el E3 ya enviado, lo que ocurre a
+ * partir de `reserva_confirmada`, y hasta el cierre del post-evento). NO son válidos
+ * `consulta` (todos sus sub-estados) ni `pre_reserva` (previos al envío de E3), ni los
+ * terminales `reserva_completada`/`reserva_cancelada` (inmutables) → 422 sin efectos.
+ */
+const ESTADOS_VALIDOS_REGISTRAR_FIRMA_CONDICIONES: ReadonlyArray<EstadoReserva> = [
+  'reserva_confirmada',
+  'evento_en_curso',
+  'post_evento',
+];
+
+/**
+ * Guarda declarativa de PRECONDICIÓN: ¿es `estado` un estado VÁLIDO para registrar la
+ * firma de las condiciones particulares (US-024)? Consulta la tabla
+ * `ESTADOS_VALIDOS_REGISTRAR_FIRMA_CONDICIONES`: `reserva_confirmada`,
+ * `evento_en_curso` y `post_evento` lo son; el resto (incluidos los terminales) no. Se
+ * evalúa ANTES de tocar la BD para rechazar sin efectos con 422 (`ESTADO_INVALIDO`).
+ */
+export const esEstadoValidoParaRegistrarFirmaCondiciones = (
+  estado: EstadoReserva,
+): boolean => ESTADOS_VALIDOS_REGISTRAR_FIRMA_CONDICIONES.includes(estado);
+
+// ---------------------------------------------------------------------------
 // Transición TERMINAL por EXPIRACIÓN de TTL (US-012 / UC-09 / §D-3)
 // ---------------------------------------------------------------------------
 

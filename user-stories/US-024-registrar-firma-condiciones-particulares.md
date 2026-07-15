@@ -1,7 +1,7 @@
 ---
 id: US-024
-estado: backlog
-branch: null
+estado: sdd
+branch: feature/firma-condiciones-particulares-us024
 pr: null
 ---
 

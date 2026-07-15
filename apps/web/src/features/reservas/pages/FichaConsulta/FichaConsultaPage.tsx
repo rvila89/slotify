@@ -9,6 +9,7 @@ import {
   DevolucionFianzaCard,
 } from '@/features/facturacion';
 import { FichaOperativaCard } from '@/features/ficha-operativa';
+import { CondicionesFirmadasCard, debeMostrarSeccionCondiciones } from '@/features/condiciones-firmadas';
 import { useReserva } from '../../api/useReserva';
 import { formatearFecha } from '../../lib/fecha';
 import { Badge } from './components/Badge';
@@ -262,6 +263,20 @@ export const FichaConsultaPage = () => {
         (reserva.estado === 'reserva_confirmada' ||
           reserva.estado === 'evento_en_curso' ||
           reserva.estado === 'post_evento') && <FichaOperativaCard reservaId={id} />}
+
+      {/* US-024: registrar la firma de las condiciones particulares. Visible en los
+          tres estados válidos del ciclo (`reserva_confirmada`, `evento_en_curso`,
+          `post_evento`). La tarjeta resuelve internamente los estados de la UI:
+          E3 no enviado (acción no disponible), pendiente de firma (alerta FA-01 +
+          acción), firmada (resumen) y re-firma. El backend revalida (409/422). */}
+      {id && debeMostrarSeccionCondiciones(reserva) && (
+        <CondicionesFirmadasCard
+          reservaId={id}
+          condPartFechaEnvio={reserva.condPartFechaEnvio}
+          condPartFirmadas={reserva.condPartFirmadas}
+          condPartFechaFirma={reserva.condPartFechaFirma}
+        />
+      )}
 
       {/* US-035: registrar el IBAN de devolución. Solo visible en `post_evento` con
           fianza cobrada (`fianzaEur > 0`) — FA-04; precarga el IBAN existente del
