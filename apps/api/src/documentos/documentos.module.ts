@@ -10,6 +10,7 @@
  * Provee `ObtenerConfiguracionDocumentoService` (dominio de aplicación puro) vía
  * factory, inyectando su puerto de repositorio. Sin endpoint HTTP en 6.1a.
  */
+import * as path from 'node:path';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaModule } from '../shared/prisma/prisma.module';
@@ -28,8 +29,18 @@ import {
 } from './documentos.tokens';
 
 /**
+ * Directorio ABSOLUTO donde el almacén local persiste los ficheros (6.5). Deriva
+ * de `ALMACEN_LOCAL_DIR` (default `.almacen`), resuelto contra `process.cwd()`
+ * (raíz de `apps/api` en runtime). Es la MISMA ruta que sirve la ruta estática
+ * `GET /almacen/*` (design.md §A).
+ */
+export const resolverAlmacenLocalDir = (config: ConfigService): string =>
+  path.resolve(config.get<string>('ALMACEN_LOCAL_DIR', '.almacen'));
+
+/**
  * Selecciona el adaptador de almacén por env. Decisión B1: en 6.1a solo hay
- * `local`; `s3` no está implementado todavía y falla explícito si se pide.
+ * `local`; `s3` no está implementado todavía y falla explícito si se pide. Desde
+ * 6.5 el adaptador local es DURABLE (persiste a disco en `ALMACEN_LOCAL_DIR`).
  */
 const crearAlmacenDocumentos = (config: ConfigService): AlmacenDocumentosPort => {
   const proveedor = config.get<string>('ALMACEN_PROVIDER', 'local');
@@ -38,10 +49,10 @@ const crearAlmacenDocumentos = (config: ConfigService): AlmacenDocumentosPort =>
       'ALMACEN_LOCAL_BASE_URL',
       'http://localhost:3000/almacen',
     );
-    return new AlmacenDocumentosLocalAdapter(baseUrl);
+    return new AlmacenDocumentosLocalAdapter(resolverAlmacenLocalDir(config), baseUrl);
   }
   throw new Error(
-    `ALMACEN_PROVIDER="${proveedor}" no está implementado en 6.1a (solo "local").`,
+    `ALMACEN_PROVIDER="${proveedor}" no está implementado (solo "local").`,
   );
 };
 
@@ -77,7 +88,8 @@ const crearAlmacenDocumentos = (config: ConfigService): AlmacenDocumentosPort =>
         new PdfCondicionesRealAdapter(
           configService,
           almacen,
-          renderizarDocumentoCondicionesABytes,
+          // 6.5: el render resuelve el logo por bytes/data-URI desde el mismo almacén.
+          (config) => renderizarDocumentoCondicionesABytes(config, almacen),
         ),
     },
   ],

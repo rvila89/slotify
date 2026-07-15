@@ -8,9 +8,15 @@
  * épico se puede verificar por unit test sin Postgres.
  *
  * REGLA DURA del épico: `plantillaConceptoFiscal` es EXACTAMENTE
- * "Gestió de l'ús espai de {nombreComercial} per esdeveniment" y NUNCA contiene
- * la palabra "lloguer". Datos reales del dossier del piloto (decisión A1: la
- * config duplica sus propios datos fiscales, razón social ≠ nombre comercial).
+ * "Gestió ús espai de {nombreComercial} per esdeveniment" (6.5, alineado a la
+ * referencia real `P2026023`) y NUNCA contiene la palabra "lloguer". Datos reales
+ * del dossier del piloto (decisión A1: la config duplica sus propios datos
+ * fiscales, razón social ≠ nombre comercial).
+ *
+ * 6.5: `logoUrl` sigue `null` en el factory PURO (determinista y testeable sin
+ * side-effects); el seed (`prisma/seed.ts`) sube `masia-logo.jpg` al almacén y
+ * SOBRESCRIBE `logoUrl` con la URL resultante. `colorPrimario` es el turquesa de
+ * marca `#5edada`.
  */
 import type { ConfiguracionDocumentoTenant } from '../../domain/configuracion-documento';
 
@@ -20,7 +26,7 @@ export const construirConfiguracionDocumentoPiloto = (
   tenantId,
   branding: {
     logoUrl: null,
-    colorPrimario: '#1A1A1A',
+    colorPrimario: '#5edada',
     colorTexto: '#333333',
   },
   identidadFiscal: {
@@ -38,7 +44,7 @@ export const construirConfiguracionDocumentoPiloto = (
   },
   textos: {
     plantillaConceptoFiscal:
-      "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
+      'Gestió ús espai de {nombreComercial} per esdeveniment',
     validesaTexto: '10 DIES',
     pieLegal:
       "Aquest document té una validesa de 10 dies des de la seva emissió. " +

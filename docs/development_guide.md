@@ -64,10 +64,10 @@ CRON_TOKEN=<token-de-servicio>
 EMAIL_API_KEY=<api-key>
 EMAIL_FROM="reservas@tu-espacio.com"
 
-# Storage de ficheros (Supabase Storage / Railway)
-STORAGE_BUCKET=slotify-docs
-STORAGE_URL=<url-storage>
-STORAGE_KEY=<key-storage>
+# Storage de ficheros (adaptador local — durable en disco)
+ALMACEN_PROVIDER=local
+ALMACEN_LOCAL_DIR=.almacen
+ALMACEN_LOCAL_BASE_URL=http://localhost:3000/almacen
 ```
 
 **Frontend** (`apps/web/.env`):

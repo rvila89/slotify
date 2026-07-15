@@ -489,8 +489,8 @@ Los campos se agrupan en cuatro bloques:
 |----------|------|-------------|
 | id_plantilla | UUID PK | Identificador único |
 | tenant_id | UUID FK UNIQUE | Tenant propietario (garantía 1-1 en BD) |
-| logo_url | TEXT nullable | Clave o URL del logo en el object storage. `null` hasta que el gestor lo suba (fase 6.5) |
-| color_primario | TEXT | Color primario del tenant en hexadecimal (`#RRGGBB`) |
+| logo_url | TEXT nullable | URL pública del logo en el almacén. Poblado por el seed desde la rebanada 6.5 (`logos/{tenantId}.jpg`); null si no se ha subido |
+| color_primario | TEXT | Color primario del tenant en hexadecimal (`#RRGGBB`). Valor del piloto: `#5edada` (turquesa, actualizado en 6.5) |
 | color_texto | TEXT | Color de texto en hexadecimal |
 
 **Bloque identidad fiscal:**
@@ -1108,7 +1108,7 @@ Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de res
 
 **Evolución del épico:** en 6.1a solo existe la entidad y el servicio de lectura (`ObtenerConfiguracionDocumentoService`). No hay endpoint HTTP propio. Las rebanadas siguientes consumirán esta config para generar los PDFs (6.1b y siguientes) y la UI de ajustes de la configuración (6.5). El campo `logo_url` permanece `null` hasta que la rebanada 6.5 implemente la subida del logo. La rebanada 6.4a añade el campo `condiciones` (JSON) para almacenar el contenido del PDF de condicions particulars; el VO `ConfiguracionDocumentoTenant` del dominio expone el bloque `condiciones` como `CondicionesDocumento`.
 
-### 5.8 Generación de PDF real del presupuesto (épico #6, rebanadas 6.1b y 6.2)
+### 5.8 Generación de PDF real del presupuesto (épico #6, rebanadas 6.1b, 6.2 y 6.5)
 
 La rebanada 6.1b cierra el flujo de generación del PDF del presupuesto sustituyendo el `PdfPresupuestoFakeAdapter` por el `PdfPresupuestoRealAdapter`, cableado en el token `GENERAR_PDF_PRESUPUESTO_PORT` de `PresupuestosModule` (el módulo importa `DocumentosModule` para consumir el `AlmacenDocumentosPort` y el `ObtenerConfiguracionDocumentoService`).
 
@@ -1117,7 +1117,8 @@ La rebanada 6.2 añade la **variante SIN IVA** del PDF (hoja "PRESSUPOST SENSE I
 **Capa de plantilla react-pdf (`documentos/presentation/`):** librería de renderización basada en `@react-pdf/renderer` (ESM puro; se carga con `import()` nativo). La capa está formada por:
 - `construirModeloDocumentoPresupuesto` — función pura que transforma datos de la config, de la reserva y del régimen en un modelo de vista limpio (sin lógica de layout). Desde 6.2 incluye los flags `cabecera.mostrarIdentidadFiscal` y `totales.mostrarDesgloseIva` según `regimen`.
 - `renderizarDocumentoPresupuestoABytes` — función que invoca `@react-pdf/renderer` y devuelve los bytes del PDF.
-- Componentes `.tsx` reutilizables: `DocumentoLayout`, `Cabecera` (solo-texto cuando `logoUrl = null`; omite razón social fiscal y NIF cuando `mostrarIdentidadFiscal = false`), `BloqueCliente`, `TablaConcepto`, `BloqueTotales` (base / IVA / total en variante CON IVA; solo total en variante SIN IVA), `PieBancario`. Esta capa está pensada para reutilizarse en facturas (rebanada 6.3). No importa de la capability `presupuestos` (el `regimen` llega como dato del modelo de vista).
+- Componentes `.tsx` reutilizables: `DocumentoLayout`, `Cabecera` (logo arriba-izquierda + identidad fiscal arriba-derecha; solo-texto cuando `logoUrl = null`; omite razón social fiscal y NIF cuando `mostrarIdentidadFiscal = false`), `BloqueCliente`, `TablaConcepto` (barra turquesa con cabecera blanca, concepto en negrita + líneas indentadas), `BloqueTotales` (base / IVA / total en variante CON IVA; solo total en variante SIN IVA), `PieBancario` (pie centrado). Esta capa se reutiliza en facturas (6.3) y condicions (6.4a). No importa de la capability `presupuestos` (el `regimen` llega como dato del modelo de vista). Desde la rebanada 6.5, la plantilla está **rediseñada fielmente al documento real de Masia l'Encís** (turquesa `#5edada`, acento amarillo `#ffd978` como constante de presentación); el logo se resuelve por `AlmacenDocumentosPort.obtener` y se pasa a la `Cabecera` como data-URI, no como URL remota.
+- `resolver-logo-data-uri.ts` — helper de presentación que obtiene los bytes del logo desde `AlmacenDocumentosPort` y devuelve un data-URI (o `null` si la clave no existe).
 
 **Numeración de presupuesto — función de dominio `siguienteNumeroPresupuesto`:** derivada de forma pura (sin estado), formato `AAAANNN` (p. ej. `2026001`, `2026002`…), reinicio anual por tenant. Se asigna en la **transacción de confirmación** con reintento ante colisión de unicidad. En 6.1b la unicidad era `@@unique([tenantId, numeroPresupuesto])`; en 6.2 pasa a `@@unique([tenantId, regimenIva, numeroPresupuesto])` para permitir que CON y SIN tengan el mismo literal sin colisionar. La función de dominio `siguienteNumeroPresupuesto` no cambia; el filtro por régimen en la consulta `MAX` es responsabilidad de la capa infra (`ultimoNumeroDelAnio(tenantId, anio, regimen)`). La unicidad de la numeración es la única razón de la existencia del campo `tenant_id` en `PRESUPUESTO`; el aislamiento RLS continúa siendo la policy preexistente por subconsulta a `RESERVA`.
 
@@ -1127,7 +1128,7 @@ La rebanada 6.2 añade la **variante SIN IVA** del PDF (hoja "PRESSUPOST SENSE I
 
 **Toolchain en tests:** `@react-pdf/renderer` es ESM puro y requiere `NODE_OPTIONS=--experimental-vm-modules` bajo Jest. El script `test` de `apps/api` lo inyecta vía `cross-env`. En producción (`node dist/main.js`) el `import()` nativo funciona sin flags adicionales.
 
-**Limitaciones del almacenamiento local (adaptador `local`, `ALMACEN_PROVIDER=local`):** los bytes del PDF se guardan en memoria del proceso (no durable: se pierden al reiniciar el servidor) y la URL generada no está accesible externamente sin el servidor en marcha. Esta es una limitación de diseño conocida y documentada. El PDF durable, adjuntable en emails reales y accesible con URL pública permanente llega con el **adaptador cloud S3/Supabase** (decisión B1, diferida — deuda B1).
+**Almacenamiento durable (adaptador `local`, desde 6.5):** los bytes del PDF (y del logo) se persisten en disco (`ALMACEN_LOCAL_DIR`, por defecto `.almacen`): son durables entre reinicios y la URL pública resuelve desde el navegador gracias a la ruta estática `GET /almacen/*` (`ServeStaticModule`, fuera del prefijo `/api`). La deuda de almacenamiento no durable (deuda B1) queda cerrada para el MVP de un solo tenant. El adaptador cloud S3/Supabase sigue diferido; cuando se implemente, se añadirá como clase hermana en `infrastructure/` sin tocar el dominio.
 
 ### 5.9 Presupuesto SIN IVA, método de pago y doble numeración por régimen (épico #6, rebanada 6.2)
 
@@ -1165,8 +1166,8 @@ La rebanada 6.4a añade la generación del PDF de "Condicions particulars" y su 
 | 6.3 | Reutilización de la capa `documentos/presentation/` para facturas PDF reales CON/SIN IVA con referencia al nº de presupuesto | Implementada |
 | 6.4a | Condicions particulars: campo `condiciones` en `PlantillaDocumentoTenant`, plantilla react-pdf, adjunto en E2 (post-commit fire-and-forget) | Implementada |
 | 6.4b | Envío E3 de condicions particulars — `POST /reservas/{id}/facturas/senal/enviar` (US-023): acción manual del Gestor, atómica, espejo de E4; plantilla E3 activa | Implementada |
-| 6.5 | UI de ajustes de configuración del documento + subida de logo | Pendiente |
-| B1 | Adaptador cloud S3/Supabase para `AlmacenDocumentosPort` (PDF durable + URL pública permanente) | Diferido |
+| 6.5 | Storage durable en disco + ruta estática `GET /almacen/*` + logo en seed + rediseño de plantilla fiel al documento real de Masia | Implementada |
+| B1 | Adaptador cloud S3/Supabase para `AlmacenDocumentosPort` | Diferido |
 
 ---
 

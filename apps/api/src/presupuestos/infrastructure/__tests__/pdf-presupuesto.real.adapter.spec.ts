@@ -103,6 +103,7 @@ const cargarDatosQueDevuelve = (
 
 const almacenFalso = (): jest.Mocked<AlmacenDocumentosPort> => ({
   subir: jest.fn(async (_bytes: Uint8Array, clave: string) => `https://storage.local/${clave}`),
+  obtener: jest.fn(async (_clave: string) => null),
   urlPublica: jest.fn((clave: string) => `https://storage.local/${clave}`),
 });
 

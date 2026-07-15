@@ -16,8 +16,10 @@
  */
 import { createElement } from 'react';
 import type { ModeloDocumentoFactura } from './modelo-documento-factura';
+import { resolverCabeceraConLogoDataUri } from './resolver-logo-data-uri';
 import { DocumentoFacturaLayout } from './componentes/DocumentoFacturaLayout';
 import type { KitReactPdf } from './kit-react-pdf';
+import type { AlmacenDocumentosPort } from '../domain/almacen-documentos.port';
 
 /** Módulo react-pdf cargado dinámicamente (subconjunto que usamos). */
 interface ModuloReactPdf extends KitReactPdf {
@@ -30,7 +32,12 @@ const importarNativo = (especificador: string): Promise<unknown> =>
 
 export const renderizarDocumentoFacturaABytes = async (
   modelo: ModeloDocumentoFactura,
+  almacen?: AlmacenDocumentosPort,
 ): Promise<Buffer> => {
+  // 6.5: resuelve el logo de la cabecera a data-URI desde el almacén (bytes, no HTTP);
+  // sin almacén/sin logo/clave inexistente → cabecera solo-texto.
+  const cabecera = await resolverCabeceraConLogoDataUri(modelo.cabecera, almacen);
+  const modeloConLogo: ModeloDocumentoFactura = { ...modelo, cabecera };
   const reactPdf = (await importarNativo('@react-pdf/renderer')) as ModuloReactPdf;
   const kit: KitReactPdf = {
     Document: reactPdf.Document,
@@ -40,5 +47,7 @@ export const renderizarDocumentoFacturaABytes = async (
     Image: reactPdf.Image,
     StyleSheet: reactPdf.StyleSheet,
   };
-  return reactPdf.renderToBuffer(createElement(DocumentoFacturaLayout, { kit, modelo }));
+  return reactPdf.renderToBuffer(
+    createElement(DocumentoFacturaLayout, { kit, modelo: modeloConLogo }),
+  );
 };

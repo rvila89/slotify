@@ -15,6 +15,13 @@ export interface AlmacenDocumentosPort {
    */
   subir(bytes: Uint8Array, clave: string): Promise<string>;
 
+  /**
+   * Lee los bytes previamente subidos bajo `clave`; `null` si la clave no existe
+   * (épico #6, 6.5). El storage lee y escribe: se usa para cargar los bytes del
+   * logo en el render por data-URI, sin auto-request HTTP.
+   */
+  obtener(clave: string): Promise<Uint8Array | null>;
+
   /** Devuelve la URL pública/accesible de una `clave` existente. */
   urlPublica(clave: string): string;
 }

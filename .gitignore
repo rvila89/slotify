@@ -28,6 +28,10 @@ playwright/.cache/
 # Prisma cliente generado
 apps/api/node_modules/.prisma/
 
+# Almacén local durable de documentos (épico #6, 6.5): ficheros subidos en dev
+# (logos, PDFs). No se versiona; el seed regenera el logo del piloto.
+apps/api/.almacen/
+
 # Logs
 *.log
 npm-debug.log*

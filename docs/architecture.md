@@ -88,8 +88,8 @@ graph TB
 | **Auth** | JWT (access en memoria + refresh en cookie httpOnly), NestJS + Passport | Access token de vida corta en memoria; refresh token en cookie httpOnly a salvo de XSS. Tenant y rol en el payload firmado. Ver §2.8 |
 | **Jobs** | Cron simple → endpoint de barrido | TTLs como campo `ttl_expiracion` + barrido periódico; robusto e idempotente |
 | **Email** | Resend SDK (`ResendEmailAdapter`) + `FakeEmailAdapter` en test/CI/dev; motor `DespacharEmailService` (`comunicaciones/application/`) + puerto `EnviarEmailPort` (`comunicaciones/domain/`); catálogo de plantillas en `comunicaciones/infrastructure/plantillas/` | Motor hexagonal reutilizable (US-045): selecciona plantilla → sustituye variables → resuelve adjuntos → envía por el puerto → registra en `COMUNICACION` + `AUDIT_LOG`. `FakeEmailAdapter` forzado en test/CI/dev (cero envíos reales); `ResendEmailAdapter` en producción. Configuración validada con zod: `EMAIL_TRANSPORT` (`resend`\|`fake`), `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_SANDBOX`; en producción se exige `EMAIL_TRANSPORT=resend`. **E1 y E3 activas**; E3 usa `EnviarEmailPort` directo (rollback atómico, espejo de E4); E2, E4–E8 inactivas (cableado diferido a cada US). |
-| **PDF** | `@react-pdf/renderer` (presupuestos 6.1b/6.2, facturas 6.3, condicions particulars 6.4a) | Generación server-side con componentes `.tsx` reutilizables; librería ESM pura cargada con `import()` nativo; en tests requiere `NODE_OPTIONS=--experimental-vm-modules` (inyectado por `cross-env` en el script `test`); en producción funciona sin flags adicionales |
-| **Storage** | Puerto `AlmacenDocumentosPort` seleccionable por env (`ALMACEN_PROVIDER`). Adaptador `local` (dev/tests, bytes en memoria) en 6.1a; adaptador S3/Supabase cuando haya credenciales (decisión B1). Ver §2.19 | Abstracción hexagonal que desacopla los módulos de documentos/PDF del proveedor de object storage concreto |
+| **PDF** | `@react-pdf/renderer` (presupuestos 6.1b/6.2, facturas 6.3, condicions particulars 6.4a; plantilla rediseñada fiel al documento real de Masia en 6.5) | Generación server-side con componentes `.tsx` reutilizables; librería ESM pura cargada con `import()` nativo; en tests requiere `NODE_OPTIONS=--experimental-vm-modules` (inyectado por `cross-env` en el script `test`); en producción funciona sin flags adicionales. En 6.5 el logo se carga como data-URI/bytes (no por HTTP) vía `presentation/resolver-logo-data-uri.ts` |
+| **Storage** | Puerto `AlmacenDocumentosPort` seleccionable por env (`ALMACEN_PROVIDER`). Adaptador `local` (bytes en disco, URL determinista) desde 6.5; adaptador S3/Supabase cuando haya credenciales (decisión B1). Ruta estática `GET /almacen/*` servida por `ServeStaticModule` (fuera del prefijo `/api`). Ver §2.19 | Abstracción hexagonal que desacopla los módulos de documentos/PDF del proveedor de object storage concreto |
 | **Hosting** | Railway (recomendado) o Render free + Postgres gestionada | Ver análisis de coste en §5 |
 | **Observabilidad** | Sentry (errores) | Útil y barato; PostHog y analytics quedan post-TFM |
 
@@ -987,13 +987,15 @@ US-034 debe poblar `fecha_post_evento = now()` en la misma transacción de final
 | Alerta FA-01 en barridos sucesivos (misma RESERVA, fianza sin cambio) | Anti-duplicación por AUDIT_LOG (Opción 4.2): si ya existe alerta `fianza_pendiente_t7d` posterior al último cambio de `fianza_status`, no se inserta nueva alerta |
 | Fallo de una transición dentro del lote | Rollback individual; las demás candidatas del mismo pase continúan sin afectarse |
 
-### 2.19 Módulo `documentos` — épico #6 (rebanadas 6.1a y 6.1b)
+### 2.19 Módulo `documentos` — épico #6 (rebanadas 6.1a – 6.5, épico completado)
 
-Las dos primeras rebanadas del épico #6 construyen los cimientos y el primer PDF real de Slotify.
+Las rebanadas del épico #6 construyen los cimientos y los PDFs reales de Slotify.
 
 **Rebanada 6.1a (`documentos-config-tenant-storage`):** establece los **dos pilares de infraestructura** que las rebanadas siguientes del épico #6 necesitan para generar PDFs por tenant: la configuración de documento por tenant (`PlantillaDocumentoTenant`) y el puerto de object storage (`AlmacenDocumentosPort`). En esta rebanada no hay endpoint HTTP, no hay generación de PDF y no hay interfaz de usuario.
 
 **Rebanada 6.1b (`documentos-presupuesto-pdf-con-iva`):** implementa la **generación de PDF real del presupuesto** usando los pilares de 6.1a. Introduce la capa de plantilla react-pdf en `documentos/presentation/`, reutilizable por facturas (6.3). Ver §2.13 para el detalle del adaptador, la numeración y la RLS. Ver `er-diagram.md §5.8` para el roadmap completo del épico.
+
+**Rebanada 6.5 (`documentos-rediseno-pdf-logo-storage`):** cierra el épico con tres mejoras integradas: (1) **storage durable en disco** — el adaptador `local` persiste los bytes en el sistema de ficheros (`ALMACEN_LOCAL_DIR`); (2) **ruta estática `GET /almacen/*`** servida por `@nestjs/serve-static` (`ServeStaticModule`, fuera del prefijo `/api`) para que `logoUrl`/`pdf_url` resuelvan desde el navegador; (3) **rediseño de la plantilla** fiel al documento real de Masia l'Encís (turquesa `#5edada`, acento amarillo `#ffd978` como constante de presentación, cabecera con logo, barra de concepto, franja de totales, mini-tabla de condicions, pie centrado), aplicado a todas las variantes; (4) **logo del tenant** subido por el puerto en el seed e insertado en el PDF por data-URI/bytes (no por HTTP) vía `presentation/resolver-logo-data-uri.ts`. Sin frontend, sin endpoints de negocio nuevos, sin cambio de contrato OpenAPI.
 
 #### Puerto de dominio `AlmacenDocumentosPort`
 
@@ -1003,6 +1005,7 @@ Define la abstracción de almacenamiento de objetos binarios (bytes → URL) que
 AlmacenDocumentosPort
   subir(bytes: Uint8Array, clave: string): Promise<string>   // persiste y devuelve la URL
   urlPublica(clave: string): string                          // URL pública de una clave ya subida
+  obtener(clave: string): Promise<Uint8Array | null>         // bytes de una clave; null si no existe (añadido en 6.5)
 ```
 
 #### Selección de adaptador por variable de entorno (decisión B1)
@@ -1011,10 +1014,10 @@ El adaptador concreto se selecciona en `DocumentosModule` mediante la variable d
 
 | `ALMACEN_PROVIDER` | Adaptador | Estado | Variables adicionales |
 |--------------------|-----------|--------|----------------------|
-| `local` (valor por defecto) | `AlmacenDocumentosLocalAdapter` | Implementado en 6.1a | `ALMACEN_LOCAL_BASE_URL` (default: `http://localhost:3000/almacen`) |
+| `local` (valor por defecto) | `AlmacenDocumentosLocalAdapter` | Implementado en 6.1a; durable en disco desde 6.5 | `ALMACEN_LOCAL_BASE_URL` (default: `http://localhost:3000/almacen`), `ALMACEN_LOCAL_DIR` (default: `.almacen`) |
 | `s3` | Pendiente | Se añade en una rebanada futura cuando haya bucket/credenciales | `AWS_S3_BUCKET`, `AWS_REGION`, etc. |
 
-El adaptador `local` guarda los bytes en memoria del proceso (dev/tests) y construye la URL de forma determinista (`baseUrl/clave`). Si se configura `ALMACEN_PROVIDER=s3` antes de implementar el adaptador S3, el módulo falla explícito al arrancar con un mensaje claro (fallo rápido deliberado). Cuando se implemente el adaptador S3/Supabase, se añadirá como clase hermana de `AlmacenDocumentosLocalAdapter` en `infrastructure/`; el dominio y los casos de uso no se tocarán.
+El adaptador `local` **persiste los bytes en disco** (`ALMACEN_LOCAL_DIR`, con subdirectorios por tipo de clave: `logos/`, `presupuestos/`, `facturas/`, `condiciones/`) y construye la URL de forma determinista (`baseUrl/clave`). Los ficheros son durables entre reinicios del servidor. La ruta estática `GET /almacen/*` (`ServeStaticModule`, fuera del prefijo `/api`) sirve el contenido de `ALMACEN_LOCAL_DIR` para que las URLs resuelvan desde el navegador. Si se configura `ALMACEN_PROVIDER=s3` antes de implementar el adaptador S3, el módulo falla explícito al arrancar con un mensaje claro (fallo rápido deliberado). Cuando se implemente el adaptador S3/Supabase, se añadirá como clase hermana de `AlmacenDocumentosLocalAdapter` en `infrastructure/`; el dominio y los casos de uso no se tocarán.
 
 #### Configuración de documento por tenant
 
@@ -1037,24 +1040,28 @@ apps/api/src/documentos/
     __tests__/
       obtener-configuracion-documento.service.spec.ts
   infrastructure/
-    almacen-documentos-local.adapter.ts          Adaptador local (bytes en memoria, URL determinista)
+    almacen-documentos-local.adapter.ts          Adaptador local (bytes en disco, URL determinista; durable desde 6.5)
     configuracion-documento.prisma.adapter.ts    Adaptador Prisma + RLS
     seed/
-      configuracion-documento-piloto.ts          Seed idempotente del piloto Masia l'Encís
+      configuracion-documento-piloto.ts          Seed idempotente del piloto Masia l'Encís (colorPrimario #5edada, logo subido por puerto desde 6.5)
     __tests__/
       almacen-documentos-local.adapter.spec.ts
       configuracion-documento-piloto.spec.ts     Verifica "espai nunca lloguer"
       configuracion-documento-integracion.spec.ts  Integración SQL real (tabla+UNIQUE+RLS+seed)
-  presentation/                                  Capa de plantilla react-pdf (añadida en 6.1b; reutilizable por facturas 6.3)
+  presentation/                                  Capa de plantilla react-pdf (añadida en 6.1b; rediseñada en 6.5 fiel a referencia real de Masia)
     construir-modelo-documento-presupuesto.ts    Función pura: datos → modelo de vista (sin layout)
     renderizar-documento-presupuesto.ts          Función que invoca @react-pdf/renderer → bytes PDF
+    resolver-logo-data-uri.ts                    Resuelve bytes del logo desde AlmacenDocumentosPort → data-URI (añadido en 6.5)
+    estilos.ts                                   Paleta y layout compartidos (turquesa #5edada, acento #ffd978 como constante; actualizado en 6.5)
     components/
-      DocumentoLayout.tsx                        Wrapper de página (márgenes, fuentes)
-      Cabecera.tsx                               Logo (si logoUrl) o solo-texto
-      BloqueCliente.tsx                          Datos fiscales del destinatario
-      TablaConcepto.tsx                          Conceptos + duración "(N hores)"
-      BloqueTotales.tsx                          Base / %IVA / total + reparto 40/60/fianza
-      PieBancario.tsx                            IBAN, beneficiario, concepto, validesa
+      DocumentoLayout.tsx                        Wrapper de página (márgenes, fuentes, título grande turquesa)
+      DocumentoFacturaLayout.tsx                 Layout variante factura 40/60
+      DocumentoCondicionesLayout.tsx             Layout variante condicions particulars
+      Cabecera.tsx                               Logo arriba-izquierda + identidad fiscal arriba-derecha
+      BloqueCliente.tsx                          Dades client + mini-tabla Pressupost/Data
+      TablaConcepto.tsx                          Barra turquesa cabecera blanca + concepto en negrita + líneas indentadas
+      BloqueTotales.tsx                          Franja Validesa / Base imp. / % Iva / Total
+      PieBancario.tsx                            Pie centrado con IBAN
     __tests__/
       render-plantilla.spec.ts                   Unit: produce bytes no vacíos; contiene textos clave
   documentos.module.ts                           Wiring de puertos + factory ALMACEN_PROVIDER; exporta DocumentosModule
@@ -1063,11 +1070,11 @@ apps/api/src/documentos/
 
 #### Relación con el contrato OpenAPI y casos de uso
 
-Las rebanadas 6.1a y 6.1b **no introducen ningún endpoint HTTP** en el contrato OpenAPI y **no añaden casos de uso** en `use-cases.md`. El contrato permanece inalterado. La rebanada 6.5 (UI de ajustes) añadirá endpoints; en ese momento intervendrá el `contract-engineer`. La numeración de presupuesto (`numero_presupuesto`) aparece en el PDF generado pero no se expone por API en 6.1b.
+Las rebanadas del épico #6 **no introducen endpoints de negocio nuevos** en el contrato OpenAPI y **no añaden casos de uso** en `use-cases.md`. La ruta estática `GET /almacen/*` (6.5) es un file server de assets, no API de negocio: no expone recursos del dominio, no viaja por el SDK generado del frontend, y no se documenta en `docs/api-spec.yml`. La numeración de presupuesto (`numero_presupuesto`) aparece en el PDF generado pero no se expone por API.
 
-#### Limitación de almacenamiento del adaptador `local` (deuda B1)
+#### Almacenamiento durable del adaptador `local` (6.5)
 
-El adaptador `local` (`ALMACEN_PROVIDER=local`) guarda los bytes del PDF en memoria del proceso: no son durables (se pierden al reiniciar el servidor) y la URL generada solo es accesible mientras el servidor está en marcha. Esta limitación es conocida y aceptada para dev/tests. El PDF durable, adjuntable en emails reales y accesible con URL pública permanente se habilitará con el **adaptador S3/Supabase** (decisión B1, diferida). Cuando se implemente, se añadirá como clase hermana de `AlmacenDocumentosLocalAdapter` en `infrastructure/`; el dominio y los casos de uso no se tocarán.
+Desde la rebanada 6.5 el adaptador `local` (`ALMACEN_PROVIDER=local`) **persiste los bytes en disco** (directorio `ALMACEN_LOCAL_DIR`, por defecto `.almacen`): los ficheros son durables entre reinicios y la URL pública (`ALMACEN_LOCAL_BASE_URL/clave`) resuelve desde el navegador gracias a la ruta estática `GET /almacen/*`. La deuda B1 (storage no durable) queda cerrada para el MVP de un solo tenant. El adaptador S3/Supabase (decisión B1 diferida) se añadirá en el futuro como clase hermana en `infrastructure/` sin tocar el dominio ni los casos de uso.
 
 #### Migraciones de esquema
 

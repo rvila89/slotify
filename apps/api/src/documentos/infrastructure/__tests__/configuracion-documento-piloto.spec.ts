@@ -1,25 +1,27 @@
 /**
  * TESTS del factory de datos del seed del piloto Masia l'Encís
  * `construirConfiguracionDocumentoPiloto` (épico #6, rebanada 6.1a
- * `documentos-config-tenant-storage`) — fase TDD RED. tasks.md Fase 2: 2.3.
+ * `documentos-config-tenant-storage`; actualizado en 6.5
+ * `documentos-rediseno-pdf-logo-storage`) — fase TDD RED. tasks.md Fase 2: 2.4.
  *
- * Trazabilidad: spec-delta `documentos` (Requirement "Seed idempotente de la
- * configuración de documento del tenant piloto"; Scenarios "El seed crea la
- * configuración del piloto con los datos reales" y "El concepto fiscal usa 'espai'
- * y nunca 'lloguer'"), design.md §Matiz razón social fiscal ≠ nombre comercial.
+ * Trazabilidad: proposal.md 6.5 "Valores concretos cerrados" y design.md §C:
+ *  - `branding.colorPrimario` pasa de `#1A1A1A` → **turquesa `#5edada`**.
+ *  - `textos.plantillaConceptoFiscal` pasa de
+ *    "Gestió de l'ús espai de {nombreComercial} per esdeveniment" →
+ *    **"Gestió ús espai de {nombreComercial} per esdeveniment"** (alinear a la
+ *    referencia real). Se MANTIENE el placeholder `{nombreComercial}`.
  *
- * REGLA DURA del épico: el `plantillaConceptoFiscal` debe expresar
- * "Gestió de l'ús espai de {nombreComercial} per esdeveniment" y **nunca** contener
- * la palabra "lloguer". Para probar esto sin Postgres, el seed delega la
- * construcción de la fila en un factory PURO reusable
+ * REGLA DURA del épico (se mantiene VERDE): el `plantillaConceptoFiscal` expresa
+ * "espai" y **nunca** contiene la palabra "lloguer". Para probar esto sin
+ * Postgres, el seed delega la construcción de la fila en un factory PURO reusable
  * (`construirConfiguracionDocumentoPiloto(tenantId)`); el test lo ejerce
  * directamente. La verificación de que ESA fila queda en BD (idempotencia, UNIQUE,
- * RLS) es de la fase 4 de QA contra Postgres (test de integración esbozado, NO
- * ejecutado aquí).
+ * RLS) y la subida real del logo (side-effect del seed) son de la fase 4 de QA
+ * contra Postgres (NO aquí).
  *
- * RED: aún no existe
- *   - `documentos/infrastructure/seed/configuracion-documento-piloto.ts`
- * El import falla (TS2307) y la batería está en ROJO. GREEN = `backend-developer`.
+ * RED 6.5: el factory todavía devuelve `colorPrimario = '#1A1A1A'` y el concepto
+ * con "de l'ús"; estos asertos fallan hasta que `backend-developer` fije los
+ * nuevos valores. GREEN = actualizar `configuracion-documento-piloto.ts`.
  */
 import { construirConfiguracionDocumentoPiloto } from '../seed/configuracion-documento-piloto';
 
@@ -39,11 +41,19 @@ describe('construirConfiguracionDocumentoPiloto — datos reales del piloto (2.3
     // Arrange / Act
     const config = construirConfiguracionDocumentoPiloto(TENANT_PILOTO);
 
-    // Assert — usa el placeholder, nunca la razón social ni "lloguer".
+    // Assert — texto 6.5 alineado a la referencia real, con placeholder.
     expect(config.textos.plantillaConceptoFiscal).toBe(
-      "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
+      'Gestió ús espai de {nombreComercial} per esdeveniment',
     );
     expect(config.textos.plantillaConceptoFiscal).toContain('{nombreComercial}');
+  });
+
+  it('debe_fijar_el_color_primario_turquesa_del_rediseno_6_5', () => {
+    // Arrange / Act
+    const config = construirConfiguracionDocumentoPiloto(TENANT_PILOTO);
+
+    // Assert — turquesa de la marca (antes '#1A1A1A' neutro).
+    expect(config.branding.colorPrimario).toBe('#5edada');
   });
 
   it('debe_sembrar_la_identidad_fiscal_real_con_razon_social_distinta_del_nombre_comercial', () => {
