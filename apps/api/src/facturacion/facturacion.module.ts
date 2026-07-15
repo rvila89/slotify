@@ -267,7 +267,8 @@ type CargarFacturaFn = (params: {
         new PdfFacturaRealAdapter(
           cargarDatos,
           almacen,
-          renderizarDocumentoFacturaABytes,
+          // 6.5: el render resuelve el logo por bytes/data-URI desde el mismo almacén.
+          (modelo) => renderizarDocumentoFacturaABytes(modelo, almacen),
         ).generar,
     },
     {

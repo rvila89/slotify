@@ -1,38 +1,72 @@
 /**
- * Adaptador dev/local de `AlmacenDocumentosPort` (épico #6, rebanada 6.1a
- * `documentos-config-tenant-storage`).
+ * Adaptador dev/local DURABLE de `AlmacenDocumentosPort` (épico #6, rebanada 6.1a
+ * `documentos-config-tenant-storage`; hecho durable en 6.5
+ * `documentos-rediseno-pdf-logo-storage`).
  *
  * Decisión B1: implementación sin credenciales cloud, seleccionable por env
- * (`ALMACEN_PROVIDER=local`). Guarda los bytes en memoria (dev/tests) y deriva
- * la URL pública de forma determinista a partir de la clave: tras `subir`,
- * `urlPublica(clave)` devuelve la MISMA URL; claves distintas → URLs distintas.
- * El adaptador cloud real (S3/Supabase) se añadirá como hermano cuando haya
- * bucket, sin tocar el dominio.
+ * (`ALMACEN_PROVIDER=local`). Desde 6.5 PERSISTE a DISCO bajo un directorio
+ * configurable (`ALMACEN_LOCAL_DIR`), no en memoria: `subir(bytes, clave)`
+ * escribe el fichero creando los subdirectorios de la clave; `obtener(clave)`
+ * relee los MISMOS bytes del disco (o `null` si no existe), y la durabilidad
+ * sobrevive a reinicios y a instancias distintas apuntando al mismo dir.
+ * `urlPublica(clave)` sigue derivando la URL de forma determinista desde
+ * `baseUrl` (`ALMACEN_LOCAL_BASE_URL`), coherente con la ruta estática
+ * `GET /almacen/*` (design.md §A). El adaptador cloud real (S3/Supabase) se
+ * añadirá como hermano cuando haya bucket, sin tocar el dominio.
  *
- * `baseUrl` es opcional para que los tests instancien sin configuración
- * (`new AlmacenDocumentosLocalAdapter()`); en runtime el módulo inyecta la base
- * desde `ALMACEN_LOCAL_BASE_URL`.
+ * `baseUrl` es opcional para que los tests instancien sin configuración de URL;
+ * `dir` es obligatorio (el almacén escribe en algún sitio del disco). En runtime
+ * el módulo inyecta ambos desde `ALMACEN_LOCAL_DIR` y `ALMACEN_LOCAL_BASE_URL`.
  */
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
+
 import type { AlmacenDocumentosPort } from '../domain/almacen-documentos.port';
 
 const BASE_URL_POR_DEFECTO = 'http://localhost:3000/almacen';
 
 export class AlmacenDocumentosLocalAdapter implements AlmacenDocumentosPort {
+  private readonly dir: string;
   private readonly baseUrl: string;
-  private readonly objetos = new Map<string, Uint8Array>();
 
-  constructor(baseUrl: string = BASE_URL_POR_DEFECTO) {
+  constructor(dir: string, baseUrl: string = BASE_URL_POR_DEFECTO) {
+    this.dir = dir;
     // Normaliza sin barra final para componer la URL de forma estable.
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
 
   async subir(bytes: Uint8Array, clave: string): Promise<string> {
-    this.objetos.set(clave, bytes);
+    const ruta = this.rutaDeClave(clave);
+    await fs.mkdir(path.dirname(ruta), { recursive: true });
+    await fs.writeFile(ruta, bytes);
     return this.urlPublica(clave);
   }
 
+  async obtener(clave: string): Promise<Uint8Array | null> {
+    try {
+      const contenido = await fs.readFile(this.rutaDeClave(clave));
+      return new Uint8Array(contenido);
+    } catch (error) {
+      // Clave inexistente → null (no es un error del almacén). Cualquier otro
+      // fallo de E/S se propaga.
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   urlPublica(clave: string): string {
-    const claveNormalizada = clave.replace(/^\/+/, '');
-    return `${this.baseUrl}/${claveNormalizada}`;
+    return `${this.baseUrl}/${this.claveNormalizada(clave)}`;
+  }
+
+  /** Ruta física del fichero para una clave (bajo el dir del almacén). */
+  private rutaDeClave(clave: string): string {
+    return path.join(this.dir, this.claveNormalizada(clave));
+  }
+
+  /** Clave sin barra inicial (evita rutas/URLs con barra duplicada). */
+  private claveNormalizada(clave: string): string {
+    return clave.replace(/^\/+/, '');
   }
 }

@@ -106,8 +106,8 @@ Los campos se agrupan en cinco bloques:
 |---|---|---|
 | `id_plantilla` | `String @id @default(uuid())` | |
 | `tenant_id` | `String @unique` | FK → `Tenant` (garantía 1:1 en BD) |
-| `logo_url` | `String?` | Clave o URL del logo en object storage. `null` hasta que se suba (fase 6.5) |
-| `color_primario` | `String` | Color primario en hexadecimal (`#RRGGBB`) |
+| `logo_url` | `String?` | URL pública del logo en el almacén. Poblado por el seed en 6.5 (`logos/{tenantId}.jpg`); null si no se ha subido |
+| `color_primario` | `String` | Color primario en hexadecimal (`#RRGGBB`). Valor del piloto: `#5edada` (turquesa, actualizado en 6.5) |
 | `color_texto` | `String` | Color de texto en hexadecimal |
 
 **Bloque identidad fiscal:**

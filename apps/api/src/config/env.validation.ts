@@ -43,6 +43,10 @@ const esquemaEntorno = z
     ALMACEN_PROVIDER: z.enum(['local', 's3']).default('local'),
     // Base URL pública del adaptador local (dev). Las claves cuelgan de aquí.
     ALMACEN_LOCAL_BASE_URL: z.string().default('http://localhost:3000/almacen'),
+    // Épico #6 (6.5) — directorio en disco donde el adaptador local DURABLE
+    // persiste los ficheros (logos/, presupuestos/, facturas/, condiciones/).
+    // La ruta estática `GET /almacen/*` (@nestjs/serve-static) lo sirve.
+    ALMACEN_LOCAL_DIR: z.string().default('.almacen'),
   })
   .superRefine((entorno, ctx) => {
     // En PRODUCCIÓN el transporte DEBE ser `resend`: un deploy no puede arrancar con

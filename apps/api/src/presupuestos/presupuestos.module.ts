@@ -110,7 +110,9 @@ import {
           configService,
           cargarDatos,
           almacen,
-          renderizarDocumentoPresupuestoABytes,
+          // 6.5: el render resuelve el logo por bytes/data-URI desde el mismo almacén.
+          (config, datos) =>
+            renderizarDocumentoPresupuestoABytes(config, datos, almacen),
         ).generar,
     },
     {

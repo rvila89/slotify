@@ -1,18 +1,22 @@
 /**
- * Layout FIJO del documento (épico #6, 6.1b): compone cabecera, meta (número + fecha),
- * dades client, concepte + extras, totales CON IVA + condicions + validesa, y pie
- * bancario. El layout es neutro; TODO el contenido llega del `ModeloDocumentoPresupuesto`
- * (config del tenant + datos). Las primitivas react-pdf llegan inyectadas en `kit` (no se
- * importan estáticamente; ver `kit-react-pdf.ts`), y los estilos se construyen con el
- * `StyleSheet` del kit. Pensado para reutilizarse en la factura (6.3).
+ * Layout FIJO del documento de PRESUPUESTO (épico #6, 6.1b; REDISEÑADO en 6.5 fiel a
+ * `P2026023`): cabecera (logo + identidad fiscal), franja de título ("PRESSUPOST" +
+ * "Dades client" + mini-tabla `Pressupost | Data`), tabla de concepto (barra turquesa
+ * `CONCEPTE | PREU` + cuerpo), franja de totales (`Validesa | Base imp. | % Iva |
+ * Total`), bloque "Condicions" (mini-tabla 40/60/fiança + acento amarillo), pie
+ * bancario centrado (solo CON IVA) y pie legal (SIEMPRE). El layout es neutro; TODO
+ * el contenido llega del `ModeloDocumentoPresupuesto`. Las primitivas react-pdf llegan
+ * inyectadas en `kit`; los estilos se construyen con el `StyleSheet` del kit.
  */
 import type { ModeloDocumentoPresupuesto } from '../modelo-documento-presupuesto';
 import type { KitReactPdf } from '../kit-react-pdf';
 import { construirEstilos } from '../estilos';
 import { Cabecera } from './Cabecera';
 import { BloqueCliente } from './BloqueCliente';
+import { BloqueTitulo } from './BloqueTitulo';
 import { TablaConcepto } from './TablaConcepto';
 import { BloqueTotales } from './BloqueTotales';
+import { BloqueCondicions } from './BloqueCondicions';
 import { PieBancario } from './PieBancario';
 
 export interface DocumentoLayoutProps {
@@ -30,29 +34,36 @@ const formatearFecha = (fecha: Date): string => {
 export const DocumentoLayout = ({ kit, modelo }: DocumentoLayoutProps) => {
   const { Document, Page, View, Text } = kit;
   const estilos = construirEstilos(kit.StyleSheet);
+  const colorPrimario = modelo.cabecera.colorPrimario;
   return (
     <Document>
       <Page size="A4" style={[estilos.pagina, { color: modelo.cabecera.colorTexto }]}>
         <Cabecera kit={kit} estilos={estilos} cabecera={modelo.cabecera} />
 
-        <View style={estilos.seccion}>
-          <View style={estilos.filaMeta}>
-            <Text style={estilos.negrita}>
-              Pressupost núm. {modelo.numeroPresupuesto}
-            </Text>
-            <Text>Data: {formatearFecha(modelo.fecha)}</Text>
+        <View style={estilos.filaTitulo}>
+          <View style={estilos.columnaCliente}>
+            <BloqueCliente kit={kit} estilos={estilos} cliente={modelo.cliente} />
           </View>
+          <BloqueTitulo
+            kit={kit}
+            estilos={estilos}
+            colorPrimario={colorPrimario}
+            titulo="PRESSUPOST"
+            etiquetaNumero="Pressupost"
+            numero={modelo.numeroPresupuesto}
+            fecha={formatearFecha(modelo.fecha)}
+          />
         </View>
-
-        <BloqueCliente kit={kit} estilos={estilos} cliente={modelo.cliente} />
 
         <TablaConcepto
           kit={kit}
           estilos={estilos}
+          colorPrimario={colorPrimario}
           conceptoPrincipal={modelo.conceptoPrincipal}
           duracionTexto={modelo.duracionTexto}
           fechaEvento={modelo.fechaEvento}
           numPersonas={modelo.numPersonas}
+          precioTotal={modelo.totales.total}
           extras={modelo.extras}
         />
 
@@ -60,16 +71,22 @@ export const DocumentoLayout = ({ kit, modelo }: DocumentoLayoutProps) => {
           kit={kit}
           estilos={estilos}
           totales={modelo.totales}
-          reparto={modelo.reparto}
           validesaTexto={modelo.validesaTexto}
         />
 
+        <BloqueCondicions kit={kit} estilos={estilos} reparto={modelo.reparto} />
+
         {modelo.pieBancario.mostrar && (
-          <PieBancario kit={kit} estilos={estilos} pieBancario={modelo.pieBancario} />
+          <PieBancario
+            kit={kit}
+            estilos={estilos}
+            pieBancario={modelo.pieBancario}
+            email={modelo.cabecera.email}
+          />
         )}
 
-        <View style={estilos.pieLegal}>
-          <Text style={estilos.linea}>{modelo.pieLegal}</Text>
+        <View style={{ marginTop: 12 }}>
+          <Text style={estilos.pieLinea}>{modelo.pieLegal}</Text>
         </View>
       </Page>
     </Document>

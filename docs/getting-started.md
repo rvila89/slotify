@@ -49,8 +49,9 @@ Variables principales:
 | `NODE_ENV` | `development` | |
 | `RESEND_API_KEY` | `re_xxxx` | API key de Resend (email transaccional) |
 | `EMAIL_FROM` | `hola@slotify.app` | Remitente de emails |
-| `STORAGE_BUCKET_URL` | `https://xxxxx.supabase.co/...` | Storage de ficheros |
-| `STORAGE_SERVICE_KEY` | `changeme` | Clave del storage |
+| `ALMACEN_PROVIDER` | `local` | Adaptador de object storage (`local` usa disco; `s3` diferido) |
+| `ALMACEN_LOCAL_DIR` | `.almacen` | Directorio en disco donde el adaptador local persiste logos y PDFs |
+| `ALMACEN_LOCAL_BASE_URL` | `http://localhost:3000/almacen` | Base URL pública del almacén local (ruta estática `GET /almacen/*`) |
 
 ### 3. Arrancar PostgreSQL (Docker)
 

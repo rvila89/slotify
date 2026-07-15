@@ -5,9 +5,12 @@
  *
  * Usa un tenantId fijo conocido para que los tests puedan referenciarlo.
  */
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
 import { PrismaClient, Prisma, Temporada, Rol } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { construirConfiguracionDocumentoPiloto } from '../src/documentos/infrastructure/seed/configuracion-documento-piloto';
+import { AlmacenDocumentosLocalAdapter } from '../src/documentos/infrastructure/almacen-documentos-local.adapter';
 
 const prisma = new PrismaClient();
 
@@ -242,15 +245,32 @@ async function main(): Promise<void> {
     ],
   });
 
-  // --- PlantillaDocumentoTenant del piloto (épico #6, 6.1a) ---
+  // --- PlantillaDocumentoTenant del piloto (épico #6, 6.1a / 6.5) ---
   // Idempotente: deleteMany + create. El factory PURO construye los datos reales
   // (razón social ≠ nombre comercial; concepto "espai", nunca "lloguer").
   const configDocumento = construirConfiguracionDocumentoPiloto(TENANT_ID);
+
+  // 6.5: sube el logo real del piloto al almacén DURABLE (mismo dir/baseUrl que
+  // el runtime, resueltos desde env con los mismos defaults del módulo) y fija
+  // `logoUrl` a la URL resultante (el factory PURO lo deja `null`). Idempotente:
+  // `subir` sobrescribe el fichero; la clave es fija por tenant.
+  const almacen = new AlmacenDocumentosLocalAdapter(
+    path.resolve(process.env.ALMACEN_LOCAL_DIR ?? '.almacen'),
+    process.env.ALMACEN_LOCAL_BASE_URL ?? 'http://localhost:3000/almacen',
+  );
+  const logoBytes = await fs.readFile(
+    path.join(__dirname, 'seed-assets', 'masia-logo.jpg'),
+  );
+  const logoUrl = await almacen.subir(
+    new Uint8Array(logoBytes),
+    `logos/${TENANT_ID}.jpg`,
+  );
+
   await prisma.plantillaDocumentoTenant.deleteMany({ where: { tenantId: TENANT_ID } });
   await prisma.plantillaDocumentoTenant.create({
     data: {
       tenantId: configDocumento.tenantId,
-      logoUrl: configDocumento.branding.logoUrl,
+      logoUrl,
       colorPrimario: configDocumento.branding.colorPrimario,
       colorTexto: configDocumento.branding.colorTexto,
       razonSocialFiscal: configDocumento.identidadFiscal.razonSocialFiscal,

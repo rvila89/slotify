@@ -1,16 +1,20 @@
 /**
- * Layout FIJO del documento de FACTURA (épico #6, 6.3): compone cabecera, meta (número de
- * factura + fecha de emisión), dades client, concepte (sin horas) + extras, totales CON/SIN
- * IVA y pie bancario. El layout es neutro; TODO el contenido llega del `ModeloDocumentoFactura`
- * (config del tenant + datos de la factura). Reutiliza los componentes y estilos compartidos
- * del presupuesto (6.1b); NO pinta el reparto 40/60/fiança (no aplica a la factura).
+ * Layout FIJO del documento de FACTURA (épico #6, 6.3; REDISEÑADO en 6.5 fiel al
+ * lenguaje visual de `P2026023`): cabecera (logo + identidad fiscal), franja de título
+ * ("FACTURA" + "Dades client" + mini-tabla `Factura | Data`), tabla de concepto (barra
+ * turquesa `CONCEPTE | PREU`), franja de totales (`Validesa | Base imp. | % Iva |
+ * Total`), pie bancario centrado (solo CON IVA) y pie legal (SIEMPRE). Reutiliza los
+ * componentes y estilos compartidos del presupuesto; NO pinta el bloque "Condicions"
+ * 40/60/fiança (no aplica a la factura).
  */
 import type { ModeloDocumentoFactura } from '../modelo-documento-factura';
 import type { KitReactPdf } from '../kit-react-pdf';
 import { construirEstilos } from '../estilos';
 import { Cabecera } from './Cabecera';
 import { BloqueCliente } from './BloqueCliente';
+import { BloqueTitulo } from './BloqueTitulo';
 import { BloqueConceptoFactura } from './BloqueConceptoFactura';
+import { BloqueTotales } from './BloqueTotales';
 import { PieBancario } from './PieBancario';
 
 export interface DocumentoFacturaLayoutProps {
@@ -18,11 +22,18 @@ export interface DocumentoFacturaLayoutProps {
   modelo: ModeloDocumentoFactura;
 }
 
-/** Título de la factura según el tipo (§D-2). */
+/** Título grande de la factura según el tipo (§D-2). */
 const TITULO_POR_TIPO: Record<ModeloDocumentoFactura['tipo'], string> = {
-  senal: 'Factura de senyal',
-  liquidacion: 'Factura de liquidació',
-  fianza: 'Rebut de fiança',
+  senal: 'FACTURA',
+  liquidacion: 'FACTURA',
+  fianza: 'REBUT',
+};
+
+/** Rótulo de la primera columna de la mini-tabla meta según el tipo. */
+const ETIQUETA_META_POR_TIPO: Record<ModeloDocumentoFactura['tipo'], string> = {
+  senal: 'Factura',
+  liquidacion: 'Factura',
+  fianza: 'Rebut',
 };
 
 /** Formatea una fecha a `dd/mm/aaaa` en UTC (determinista para el documento). */
@@ -35,63 +46,54 @@ const formatearFecha = (fecha: Date): string => {
 export const DocumentoFacturaLayout = ({ kit, modelo }: DocumentoFacturaLayoutProps) => {
   const { Document, Page, View, Text } = kit;
   const estilos = construirEstilos(kit.StyleSheet);
+  const colorPrimario = modelo.cabecera.colorPrimario;
   return (
     <Document>
       <Page size="A4" style={[estilos.pagina, { color: modelo.cabecera.colorTexto }]}>
         <Cabecera kit={kit} estilos={estilos} cabecera={modelo.cabecera} />
 
-        <View style={estilos.seccion}>
-          <View style={estilos.filaMeta}>
-            <Text style={estilos.negrita}>
-              {TITULO_POR_TIPO[modelo.tipo]}
-              {modelo.numeroFactura === null ? '' : ` núm. ${modelo.numeroFactura}`}
-            </Text>
-            {modelo.fechaEmision === null ? null : (
-              <Text>Data: {formatearFecha(modelo.fechaEmision)}</Text>
-            )}
+        <View style={estilos.filaTitulo}>
+          <View style={estilos.columnaCliente}>
+            <BloqueCliente kit={kit} estilos={estilos} cliente={modelo.cliente} />
           </View>
+          <BloqueTitulo
+            kit={kit}
+            estilos={estilos}
+            colorPrimario={colorPrimario}
+            titulo={TITULO_POR_TIPO[modelo.tipo]}
+            etiquetaNumero={ETIQUETA_META_POR_TIPO[modelo.tipo]}
+            numero={modelo.numeroFactura ?? ''}
+            fecha={modelo.fechaEmision === null ? '' : formatearFecha(modelo.fechaEmision)}
+          />
         </View>
-
-        <BloqueCliente kit={kit} estilos={estilos} cliente={modelo.cliente} />
 
         <BloqueConceptoFactura
           kit={kit}
           estilos={estilos}
+          colorPrimario={colorPrimario}
           concepto={modelo.concepto}
+          precioTotal={modelo.totales.total}
           extras={modelo.extras}
         />
 
-        <View style={estilos.seccion}>
-          <View style={estilos.totalesBloque}>
-            {modelo.totales.mostrarDesgloseIva ? (
-              <>
-                <View style={estilos.totalesFila}>
-                  <Text style={estilos.totalesEtiqueta}>Base imposable</Text>
-                  <Text style={estilos.totalesValor}>{modelo.totales.baseImponible} €</Text>
-                </View>
-                <View style={estilos.totalesFila}>
-                  <Text style={estilos.totalesEtiqueta}>
-                    IVA ({modelo.totales.ivaPorcentaje} %)
-                  </Text>
-                  <Text style={estilos.totalesValor}>{modelo.totales.ivaImporte} €</Text>
-                </View>
-              </>
-            ) : null}
-            <View style={estilos.totalesFila}>
-              <Text style={[estilos.totalesEtiqueta, estilos.totalDestacado]}>Total</Text>
-              <Text style={[estilos.totalesValor, estilos.totalDestacado]}>
-                {modelo.totales.total} €
-              </Text>
-            </View>
-          </View>
-        </View>
+        <BloqueTotales
+          kit={kit}
+          estilos={estilos}
+          totales={modelo.totales}
+          validesaTexto=""
+        />
 
         {modelo.pieBancario.mostrar && (
-          <PieBancario kit={kit} estilos={estilos} pieBancario={modelo.pieBancario} />
+          <PieBancario
+            kit={kit}
+            estilos={estilos}
+            pieBancario={modelo.pieBancario}
+            email={modelo.cabecera.email}
+          />
         )}
 
-        <View style={estilos.pieLegal}>
-          <Text style={estilos.linea}>{modelo.pieLegal}</Text>
+        <View style={{ marginTop: 12 }}>
+          <Text style={estilos.pieLinea}>{modelo.pieLegal}</Text>
         </View>
       </Page>
     </Document>

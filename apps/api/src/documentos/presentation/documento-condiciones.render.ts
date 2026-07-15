@@ -16,9 +16,11 @@
  */
 import { createElement } from 'react';
 import { construirModeloDocumentoCondiciones } from './modelo-documento-condiciones';
+import { resolverConfigConLogoDataUri } from './resolver-logo-data-uri';
 import { DocumentoCondicionesLayout } from './componentes/DocumentoCondicionesLayout';
 import type { KitReactPdf } from './kit-react-pdf';
 import type { ConfiguracionDocumentoTenant } from '../domain/configuracion-documento';
+import type { AlmacenDocumentosPort } from '../domain/almacen-documentos.port';
 
 /** Módulo react-pdf cargado dinámicamente (subconjunto que usamos). */
 interface ModuloReactPdf extends KitReactPdf {
@@ -31,8 +33,11 @@ const importarNativo = (especificador: string): Promise<unknown> =>
 
 export const renderizarDocumentoCondicionesABytes = async (
   config: ConfiguracionDocumentoTenant,
+  almacen?: AlmacenDocumentosPort,
 ): Promise<Uint8Array> => {
-  const modelo = construirModeloDocumentoCondiciones(config);
+  // 6.5: logo a data-URI desde el almacén (bytes, no HTTP); sin logo → solo-texto.
+  const configConLogo = await resolverConfigConLogoDataUri(config, almacen);
+  const modelo = construirModeloDocumentoCondiciones(configConLogo);
   const reactPdf = (await importarNativo('@react-pdf/renderer')) as ModuloReactPdf;
   const kit: KitReactPdf = {
     Document: reactPdf.Document,

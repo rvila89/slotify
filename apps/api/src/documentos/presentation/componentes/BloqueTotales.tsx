@@ -1,21 +1,19 @@
 /**
- * Bloque de totales + condicions de pagament 40/60/fiança + validesa (épico #6, 6.1b).
- * 6.2: la variante SIN IVA (`mostrarDesgloseIva === false`) pinta SOLO el Total, sin las
- * filas "Base imposable" e "IVA"; CON IVA conserva el desglose completo. Layout fijo,
- * contenido 100% del modelo. Primitivas react-pdf inyectadas en `kit`. Reutilizable por
- * factura (6.3).
+ * Franja de totales del documento (épico #6, 6.1b; REDISEÑADA en 6.5 fiel a
+ * `P2026023`): fila de etiquetas `Validesa Pressupost | Base imp. | % Iva | Total`
+ * con sus valores debajo, separada por líneas. 6.2: la variante SIN IVA
+ * (`mostrarDesgloseIva === false`) OMITE las columnas "Base imp." y "% Iva",
+ * dejando `Validesa Pressupost` + `Total`; CON IVA conserva el desglose completo.
+ * Layout fijo, contenido 100% del modelo. Primitivas react-pdf inyectadas en `kit`.
+ * Reutilizable por factura (6.3).
  */
-import type {
-  TotalesModelo,
-  RepartoDocumento,
-} from '../modelo-documento-presupuesto';
+import type { TotalesModelo } from '../modelo-documento-presupuesto';
 import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
 
 export interface BloqueTotalesProps {
   kit: KitReactPdf;
   estilos: EstilosReactPdf;
   totales: TotalesModelo;
-  reparto: RepartoDocumento;
   validesaTexto: string;
 }
 
@@ -23,41 +21,41 @@ export const BloqueTotales = ({
   kit,
   estilos,
   totales,
-  reparto,
   validesaTexto,
 }: BloqueTotalesProps) => {
   const { View, Text } = kit;
   return (
-    <View style={estilos.seccion}>
-      <View style={estilos.totalesBloque}>
+    <View style={estilos.totalesTabla}>
+      <View style={estilos.totalesFilaEtiquetas}>
+        <Text style={[estilos.totalesCeldaIzquierda, estilos.totalesEtiqueta]}>
+          Validesa Pressupost
+        </Text>
         {totales.mostrarDesgloseIva ? (
           <>
-            <View style={estilos.totalesFila}>
-              <Text style={estilos.totalesEtiqueta}>Base imposable</Text>
-              <Text style={estilos.totalesValor}>{totales.baseImponible} €</Text>
-            </View>
-            <View style={estilos.totalesFila}>
-              <Text style={estilos.totalesEtiqueta}>
-                IVA ({totales.ivaPorcentaje} %)
-              </Text>
-              <Text style={estilos.totalesValor}>{totales.ivaImporte} €</Text>
-            </View>
+            <Text style={[estilos.totalesCeldaDerecha, estilos.totalesEtiqueta]}>
+              Base imp.
+            </Text>
+            <Text style={[estilos.totalesCeldaDerecha, estilos.totalesEtiqueta]}>
+              % Iva
+            </Text>
           </>
         ) : null}
-        <View style={estilos.totalesFila}>
-          <Text style={[estilos.totalesEtiqueta, estilos.totalDestacado]}>Total</Text>
-          <Text style={[estilos.totalesValor, estilos.totalDestacado]}>
-            {totales.total} €
-          </Text>
-        </View>
+        <Text style={[estilos.totalesCeldaDerecha, estilos.totalesEtiquetaDestacada]}>
+          Total
+        </Text>
       </View>
-      <View style={{ marginTop: 12 }}>
-        <Text style={estilos.seccionTitulo}>Condicions de pagament</Text>
-        <Text style={estilos.linea}>Senyal (a la reserva): {reparto.senalEur} €</Text>
-        <Text style={estilos.linea}>Liquidació: {reparto.liquidacionEur} €</Text>
-        <Text style={estilos.linea}>Fiança (a part): {reparto.fianzaEur} €</Text>
+      <View style={estilos.totalesFilaValores}>
+        <Text style={estilos.totalesCeldaIzquierda}>{validesaTexto}</Text>
+        {totales.mostrarDesgloseIva ? (
+          <>
+            <Text style={estilos.totalesCeldaDerecha}>{totales.baseImponible} €</Text>
+            <Text style={estilos.totalesCeldaDerecha}>{totales.ivaImporte} €</Text>
+          </>
+        ) : null}
+        <Text style={[estilos.totalesCeldaDerecha, estilos.totalesValorDestacado]}>
+          {totales.total} €
+        </Text>
       </View>
-      <Text style={estilos.validesa}>Validesa: {validesaTexto}</Text>
     </View>
   );
 };
