@@ -43,7 +43,7 @@ const renderE1 = (variables: Record<string, unknown>): RenderPlantilla => {
 };
 
 /**
- * Render genérico de un email aún DISEÑADO/INACTIVO (E2–E8). No se dispara en este
+ * Render genérico de un email aún DISEÑADO/INACTIVO (E2, E4–E8). No se dispara en este
  * change; su contenido definitivo llega con la US que cablea el trigger.
  */
 const renderInactivo = (codigo: CodigoEmail) => (
@@ -53,6 +53,44 @@ const renderInactivo = (codigo: CodigoEmail) => (
   cuerpoHtml: `<p>Plantilla ${codigo} diseñada pero inactiva.</p>`,
   cuerpoTexto: `Plantilla ${codigo} diseñada pero inactiva.`,
 });
+
+/**
+ * Render real de la plantilla E3 (factura de señal 40% + condicions particulars). Se activa en
+ * la rebanada 6.4b (`documentos-enviar-factura-senal-e3`): cierra el hito de confirmación con la
+ * factura de señal adjunta y anuncia al cliente los próximos hitos del evento.
+ */
+const renderE3 = (variables: Record<string, unknown>): RenderPlantilla => {
+  const nombre = texto(variables.nombre);
+  const codigoReserva = texto(variables.codigoReserva);
+  const referencia = codigoReserva === '' ? '' : ` (reserva ${codigoReserva})`;
+  const asunto = `Confirmación de tu reserva y factura de señal${referencia}`;
+  const cuerpoTexto = [
+    `Hola ${nombre},`,
+    '',
+    'Hemos confirmado tu reserva. Adjuntamos la factura de la señal (40%) y las',
+    'condicions particulars de tu evento.',
+    '',
+    'Próximos hitos:',
+    '- Revisa y firma las condicions particulars adjuntas.',
+    '- Coordinaremos contigo los detalles del evento en las próximas semanas.',
+    '- La liquidación del importe restante se emitirá tras el evento.',
+    '',
+    'Un saludo.',
+  ].join('\n');
+  const cuerpoHtml = [
+    `<p>Hola ${nombre},</p>`,
+    '<p>Hemos confirmado tu reserva. Adjuntamos la factura de la señal (40%) y las ' +
+      'condicions particulars de tu evento.</p>',
+    '<p>Próximos hitos:</p>',
+    '<ul>',
+    '<li>Revisa y firma las condicions particulars adjuntas.</li>',
+    '<li>Coordinaremos contigo los detalles del evento en las próximas semanas.</li>',
+    '<li>La liquidación del importe restante se emitirá tras el evento.</li>',
+    '</ul>',
+    '<p>Un saludo.</p>',
+  ].join('');
+  return { asunto, cuerpoHtml, cuerpoTexto };
+};
 
 /** Plantilla E1 ACTIVA en `es` con su contrato de variables requeridas. */
 const PLANTILLA_E1_ES: Plantilla = {
@@ -64,10 +102,23 @@ const PLANTILLA_E1_ES: Plantilla = {
   render: renderE1,
 };
 
+/**
+ * Plantilla E3 ACTIVA en `es` (factura de señal + condicions particulars, 6.4b). La factura de
+ * señal es el adjunto REQUERIDO; las condicions particulars son OPCIONALES (degradan sin tumbar
+ * el envío, §D-adjunto-condiciones), por eso NO figuran en `adjuntosRequeridos`.
+ */
+const PLANTILLA_E3_ES: Plantilla = {
+  codigoEmail: 'E3',
+  idioma: 'es',
+  activa: true,
+  variablesRequeridas: ['nombre', 'email', 'codigoReserva'],
+  adjuntosRequeridos: ['senal'],
+  render: renderE3,
+};
+
 /** Códigos diferidos: declarados como diseñados/inactivos (sin trigger). */
 const CODIGOS_DIFERIDOS: ReadonlyArray<CodigoEmail> = [
   'E2',
-  'E3',
   'E4',
   'E5',
   'E6',
@@ -93,6 +144,7 @@ export class CatalogoPlantillasEnCodigo implements CatalogoPlantillasPort {
     Plantilla
   >([
     ['E1', PLANTILLA_E1_ES],
+    ['E3', PLANTILLA_E3_ES],
     ...CODIGOS_DIFERIDOS.map(
       (codigo): [CodigoEmail, Plantilla] => [codigo, plantillaInactivaEs(codigo)],
     ),

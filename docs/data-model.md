@@ -227,9 +227,9 @@ Recorre toda la máquina de estados. Incluye campos de cola, visita, sub-proceso
 | `fianza_devuelta_eur` | `Decimal? @db.Decimal(10,2)` | Importe devuelto (parcial por desperfectos) |
 | `motivo_retencion` | `String? @db.Text` | Motivo de la retención (parcial o total) de fianza. Obligatorio cuando `fianza_devuelta_eur < fianza_eur` (devolución parcial) o cuando el importe devuelto es 0 (retención total). Null en devolución completa. Persiste vía US-036 (`POST /reservas/{id}/fianza/devolucion`). |
 | `fecha_post_evento` | `DateTime? @map("fecha_post_evento")` | Timestamp del momento exacto en que la RESERVA entró en el estado `post_evento`. Poblado en la transición `evento_en_curso → post_evento` (US-034) dentro de la misma transacción all-or-nothing. Inmutable una vez fijado: ningún UPDATE posterior lo sobreescribe. El barrido de archivado automático (US-037, `POST /cron/barrido-completadas`) lo usa para calcular la antigüedad T+7d (`date(fecha_post_evento) <= date(hoy) - 7`) de forma fiable, sin depender de `fecha_actualizacion` (`@updatedAt`) que cambia con cualquier UPDATE. Nullable en RESERVA históricas anteriores a la migración. Migración aditiva: `20260710130000_us037_reserva_fecha_post_evento` (columna `fecha_post_evento TIMESTAMPTZ NULL`). |
-| `cond_part_firmadas` | `Boolean @default(false)` | |
-| `cond_part_enviadas_fecha` | `DateTime?` | |
-| `cond_part_firmadas_fecha` | `DateTime?` | |
+| `cond_part_firmadas` | `Boolean @default(false)` | `false` cuando el cliente no ha devuelto el contrato firmado. Se fija a `false` al enviar E3 (US-023) y a `true` al registrar la firma (UC-19 flujo registro). Una alerta no bloqueante A29 se emite en T-0 si sigue en `false` (US-031). |
+| `cond_part_enviadas_fecha` | `DateTime?` | Timestamp del momento en que las condicions particulars fueron enviadas al cliente adjuntas en E3 (`POST /reservas/{id}/facturas/senal/enviar`, US-023). Fijado dentro de la misma transacción atómica que emite la factura de señal. `null` si E3 no se ha disparado todavía. |
+| `cond_part_firmadas_fecha` | `DateTime?` | Timestamp en que el gestor registra la firma del cliente en el sistema (UC-19 flujo registro). |
 | `notas` | `String? @db.Text` | |
 | `activo` | `Boolean @default(true)` | |
 | `fecha_creacion` / `fecha_actualizacion` | `DateTime` | Auditoría |

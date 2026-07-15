@@ -1760,6 +1760,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/facturas/senal/enviar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enviar la factura de señal (40%) + condiciones particulares por E3 (UC-18 / US-023)
+         * @description [US-023 / UC-18, 6.4b §D-endpoint] Acción ÚNICA y ATÓMICA estado↔E3 (espejo literal de E4,
+         *     design.md §Atomicidad): el **Gestor envía** la factura de señal (40 %) en `borrador` de la
+         *     RESERVA `{id}` junto con las condicions particulars, cerrando el hito de confirmación. En una
+         *     **única unidad de trabajo** (tx + RLS del tenant del JWT), con reintento ante colisión de
+         *     numeración (`P2002`, US-022; nunca locks distribuidos), all-or-nothing:
+         *     1. Guardas: existencia de `FACTURA tipo='senal'` (404), estado enviable (`borrador`; `rechazada`
+         *        → 409), idempotencia de E3 (COMUNICACION E3 `enviado` previa → 409), y `pdf_url` de la señal
+         *        presente (si null → se trata como fallo de emisión, 502).
+         *     2. Genera/OMITE el adjunto de condiciones (`GenerarPdfCondicionesPort.generar(...).catch(() => null)`):
+         *        su fallo o degradación a `null` **NO** tumba el envío (§D-adjunto-condiciones); se refleja en
+         *        `condPartAdjuntada=false` + AUDIT_LOG.
+         *     3. **Envío E3 SÍNCRONO y CONFIRMADO** por el puerto de emisión DIRECTO (propaga el fallo, NO pasa
+         *        por el motor/catálogo). Si E3 falla → la tx REVIERTE (rollback total: la señal sigue en
+         *        `borrador`, `cond_part_enviadas_fecha` no se fija, sin COMUNICACION E3 `enviado`) → 502.
+         *     4. SOLO tras confirmar E3: emite la señal a `enviada` (fija `fechaEmision` si es null), fija
+         *        `RESERVA.cond_part_enviadas_fecha=now()`, `cond_part_firmadas=false`, crea la COMUNICACION E3
+         *        `enviado` y el AUDIT_LOG `actualizar` (FACTURA + RESERVA).
+         *
+         *     Sin body: la acción no toma parámetros (la señal no se negocia; no admite descuento). Aislada por
+         *     `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
+         */
+        post: operations["enviarFacturaSenal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/facturas/liquidacion/reenviar": {
         parameters: {
             query?: never;
@@ -3508,6 +3550,27 @@ export interface components {
              */
             codigo: "FACTURA_LIQUIDACION_NO_ENCONTRADA" | "FACTURA_FIANZA_NO_ENCONTRADA" | "FACTURA_NO_BORRADOR" | "FACTURA_NO_ENVIADA" | "DESCUENTO_INVALIDO" | "EMISION_ENVIO_FALLIDO";
             /** @description Mensaje legible para la UI (presente en 409/422). */
+            motivo?: string;
+        };
+        EnviarFacturaSenalRequest: Record<string, never>;
+        EnviarFacturaSenalResponse: {
+            /** @description Factura de señal emitida (`estado=enviada`, `numeroFactura`, `fechaEmision`). */
+            factura: components["schemas"]["Factura"];
+            /**
+             * Format: date-time
+             * @description Timestamp del envío de E3, fijado en `RESERVA.cond_part_enviadas_fecha` al confirmar el envío de la factura de señal + condicions particulars.
+             */
+            condPartEnviadasFecha: string;
+            /** @description `true` si las condicions particulars se adjuntaron a E3; `false` si el PDF de condiciones se degradó a `null` u omitió (tenant sin condiciones configuradas o fallo de render) — E3 se envía igualmente solo con la factura de señal (§D-adjunto-condiciones). */
+            condPartAdjuntada: boolean;
+        };
+        FacturaSenalEnvioError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Código de error de dominio: `FACTURA_SENAL_NO_ENCONTRADA` (404), `FACTURA_SENAL_NO_ENVIABLE`/`E3_YA_ENVIADO` (409), `EMISION_ENVIO_FALLIDO` (502).
+             * @enum {string}
+             */
+            codigo: "FACTURA_SENAL_NO_ENCONTRADA" | "FACTURA_SENAL_NO_ENVIABLE" | "E3_YA_ENVIADO" | "EMISION_ENVIO_FALLIDO";
+            /** @description Mensaje legible para la UI (presente en 409). */
             motivo?: string;
         };
         PagoLiquidacion: {
@@ -5461,6 +5524,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiquidacionError"];
+                };
+            };
+        };
+    };
+    enviarFacturaSenal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EnviarFacturaSenalRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Factura de señal emitida y enviada por E3 con las condicions particulars. Devuelve la señal
+             *     con `estado='enviada'`, `numeroFactura` y `fechaEmision`, más el timestamp del envío de E3
+             *     (`condPartEnviadasFecha`) y si las condiciones se adjuntaron (`condPartAdjuntada`).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnviarFacturaSenalResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description La RESERVA no existe en el tenant (RLS) o **no tiene** factura de señal
+             *     (`FACTURA_SENAL_NO_ENCONTRADA`). El cuerpo añade `codigo` al envelope estándar.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaSenalEnvioError"];
+                };
+            };
+            /**
+             * @description Conflicto de estado o idempotencia (F5-02: 409). La factura de señal **no es enviable** (p. ej.
+             *     `rechazada`): `FACTURA_SENAL_NO_ENVIABLE`; o **E3 ya se envió** (COMUNICACION E3 `enviado`
+             *     previa): `E3_YA_ENVIADO` (no re-envía, no duplica). No se muta nada. El cuerpo añade `codigo`
+             *     y `motivo` al envelope estándar.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaSenalEnvioError"];
+                };
+            };
+            /**
+             * @description **Fallo recuperable de emisión/envío** (`EMISION_ENVIO_FALLIDO`): el proveedor de email o el
+             *     servicio de PDF de la señal falló al enviar E3 (incluye `pdf_url` de la señal ausente). La
+             *     transacción REVIERTE por completo (la señal sigue en `borrador`, sin COMUNICACION E3
+             *     `enviado`). El Gestor puede reintentar la acción.
+             */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacturaSenalEnvioError"];
                 };
             };
         };

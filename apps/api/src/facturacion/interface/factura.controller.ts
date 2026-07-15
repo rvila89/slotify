@@ -68,6 +68,13 @@ import {
   FacturaNoBorradorError as FianzaNoBorradorError,
 } from '../application/enviar-recibo-fianza-separado.use-case';
 import {
+  EnviarFacturaSenalUseCase,
+  FacturaSenalNoEncontradaError as EnviarSenalNoEncontradaError,
+  FacturaSenalNoEnviableError,
+  E3YaEnviadoError,
+  EmisionEnvioFallidoError as SenalEmisionEnvioFallidoError,
+} from '../application/enviar-factura-senal.use-case';
+import {
   ReenviarLiquidacionUseCase,
   FacturaNoEnviadaError,
   FacturaLiquidacionNoEncontradaError as LiquidacionReenvioNoEncontradaError,
@@ -91,6 +98,8 @@ import {
   AprobarEnviarLiquidacionDto,
   AprobarEnviarLiquidacionResponseDto,
   AprobarFacturaRequestDto,
+  EnviarFacturaSenalDto,
+  EnviarFacturaSenalResponseDto,
   EnviarReciboFianzaResponseDto,
   FacturaDto,
   FacturaSenalDto,
@@ -192,6 +201,7 @@ export class FacturaController {
     private readonly listarFacturasReserva: ListarFacturasReservaUseCase,
     private readonly aprobarYEnviarLiquidacion: AprobarYEnviarLiquidacionUseCase,
     private readonly enviarReciboFianzaSeparado: EnviarReciboFianzaSeparadoUseCase,
+    private readonly enviarFacturaSenal: EnviarFacturaSenalUseCase,
     private readonly reenviarLiquidacion: ReenviarLiquidacionUseCase,
     private readonly registrarCobroLiquidacion: RegistrarCobroLiquidacionUseCase,
     private readonly registrarCobroFianza: RegistrarCobroFianzaUseCase,
@@ -357,6 +367,45 @@ export class FacturaController {
       return {
         fianza: aFacturaEmitidaDto(resultado.fianza),
         fianzaStatus: resultado.fianzaStatus,
+      };
+    } catch (error) {
+      this.aHttp(error);
+    }
+  }
+
+  @Post('reservas/:id/facturas/senal/enviar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Enviar la factura de señal (40%) + condicions particulars por E3 (UC-18 / US-023)',
+  })
+  async enviarSenal(
+    @Param('id') id: string,
+    @Body() _body: EnviarFacturaSenalDto,
+    @CurrentUser() usuario: UsuarioAutenticado,
+  ): Promise<EnviarFacturaSenalResponseDto> {
+    try {
+      const resultado = await this.enviarFacturaSenal.ejecutar({
+        tenantId: usuario.tenantId,
+        usuarioId: usuario.sub,
+        reservaId: id,
+      });
+      const senal = resultado.senal;
+      return {
+        factura: aFacturaEmitidaDto({
+          idFactura: senal.idFactura,
+          reservaId: senal.reservaId,
+          numeroFactura: senal.numeroFactura,
+          tipo: senal.tipo,
+          total: senal.total,
+          baseImponible: senal.baseImponible,
+          ivaPorcentaje: senal.ivaPorcentaje,
+          ivaImporte: senal.ivaImporte,
+          estado: 'enviada',
+          pdfUrl: senal.pdfUrl,
+          fechaEmision: senal.fechaEmision,
+        }),
+        condPartEnviadasFecha: resultado.condPartEnviadasFecha.toISOString(),
+        condPartAdjuntada: resultado.condPartAdjuntada,
       };
     } catch (error) {
       this.aHttp(error);
@@ -555,7 +604,8 @@ export class FacturaController {
       error instanceof CobroLiquidacionNoEncontradaError ||
       error instanceof JustificanteNoEncontradoError ||
       error instanceof CobroFianzaNoEncontradaError ||
-      error instanceof JustificanteFianzaNoEncontradoError
+      error instanceof JustificanteFianzaNoEncontradoError ||
+      error instanceof EnviarSenalNoEncontradaError
     ) {
       throw new NotFoundException({
         statusCode: HttpStatus.NOT_FOUND,
@@ -579,7 +629,8 @@ export class FacturaController {
       error instanceof FacturaNoEnviadaError ||
       error instanceof LiquidacionYaCobradaError ||
       error instanceof LiquidacionNoFacturadaError ||
-      error instanceof FianzaYaCobradaError
+      error instanceof FianzaYaCobradaError ||
+      error instanceof FacturaSenalNoEnviableError
     ) {
       throw new ConflictException({
         statusCode: HttpStatus.CONFLICT,
@@ -606,7 +657,18 @@ export class FacturaController {
         codigo: error.codigo,
       });
     }
-    if (error instanceof EmisionEnvioFallidoError) {
+    if (error instanceof E3YaEnviadoError) {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        error: 'Conflict',
+        message: error.message,
+        codigo: error.codigo,
+      });
+    }
+    if (
+      error instanceof EmisionEnvioFallidoError ||
+      error instanceof SenalEmisionEnvioFallidoError
+    ) {
       throw new HttpException(
         {
           statusCode: HttpStatus.BAD_GATEWAY,

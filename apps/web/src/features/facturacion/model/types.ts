@@ -50,6 +50,35 @@ export type AprobarEnviarLiquidacionRequest =
   components['schemas']['AprobarEnviarLiquidacionRequest'];
 
 /**
+ * Tipos del **envío de la factura de señal 40% + condicions particulars por email E3**
+ * (rebanada 6.4b), sobre el SDK generado:
+ *  - `EnviarFacturaSenalResponse`: `{ factura, condPartEnviadasFecha, condPartAdjuntada }`;
+ *    la factura de señal emitida, el timestamp de envío de E3 fijado en la RESERVA y si
+ *    las condicions particulars se adjuntaron (`false` → E3 se envió solo con la señal).
+ */
+export type EnviarFacturaSenalResponse =
+  components['schemas']['EnviarFacturaSenalResponse'];
+
+/** Envelope de error CRUDO del envío de la factura de señal (`ErrorResponse` + `codigo` + `motivo`). */
+export type FacturaSenalEnvioErrorResponse =
+  components['schemas']['FacturaSenalEnvioError'];
+
+/**
+ * Error NORMALIZADO del envío de la factura de señal por E3 (6.4b), para que la UI ramifique
+ * en español sin volver a mirar códigos HTTP. Cada `tipo` mapea 1:1 con un `codigo` del
+ * contrato OpenAPI (via `normalizarErrorEnvioSenal`):
+ *  - `no-encontrada` (404 `FACTURA_SENAL_NO_ENCONTRADA`): no hay factura de señal.
+ *  - `ya-enviado` (409 `E3_YA_ENVIADO`): idempotencia; el email E3 ya se envió (sin re-envío).
+ *  - `no-enviable` (409 `FACTURA_SENAL_NO_ENVIABLE`): la factura no está en estado enviable.
+ *  - `envio-fallido` (502 `EMISION_ENVIO_FALLIDO`): fallo RECUPERABLE, reintentable.
+ *  - `generico` (401/403/otros/red).
+ */
+export type EnvioSenalError = {
+  tipo: 'no-encontrada' | 'ya-enviado' | 'no-enviable' | 'envio-fallido' | 'generico';
+  mensaje: string;
+};
+
+/**
  * Tipos del **cobro de fianza** (US-030 · UC-22), sobre el SDK generado:
  *  - `RegistrarCobroFianzaRequest`: body `{ importe, fechaCobro, justificanteDocId?, confirmarSinRecibo }`.
  *  - `RegistrarCobroFianzaResponse`: unión discriminada por `resultado`:

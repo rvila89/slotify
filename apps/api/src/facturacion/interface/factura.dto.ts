@@ -93,6 +93,34 @@ export class FacturaSenalDto extends FacturaDto {}
 /** Cuerpo vacío de la aprobación (contrato `AprobarFacturaRequest`). */
 export class AprobarFacturaRequestDto {}
 
+/** Cuerpo VACÍO del envío de la factura de señal (contrato `EnviarFacturaSenalRequest`, 6.4b). */
+export class EnviarFacturaSenalDto {}
+
+/**
+ * Respuesta del envío de la factura de señal + condicions particulars por E3 (contrato
+ * `EnviarFacturaSenalResponse`, 6.4b / US-023). Devuelve la factura de señal emitida
+ * (`estado=enviada`, `numeroFactura`, `fechaEmision`), el timestamp del envío de E3
+ * (`condPartEnviadasFecha`) y si las condicions particulars se adjuntaron (`condPartAdjuntada`).
+ */
+export class EnviarFacturaSenalResponseDto {
+  @ApiProperty({
+    type: FacturaDto,
+    description: 'Factura de señal emitida (estado=enviada, numeroFactura, fechaEmision).',
+  })
+  factura!: FacturaDto;
+
+  @ApiProperty({
+    format: 'date-time',
+    description: 'Timestamp del envío de E3 (RESERVA.cond_part_enviadas_fecha).',
+  })
+  condPartEnviadasFecha!: string;
+
+  @ApiProperty({
+    description: 'true si las condicions particulars se adjuntaron a E3; false si se omitieron.',
+  })
+  condPartAdjuntada!: boolean;
+}
+
 /** Cuerpo del rechazo: motivo obligatorio (contrato `RechazarFacturaRequest`). */
 export class RechazarFacturaRequestDto {
   @ApiProperty({ minLength: 1, maxLength: 2000 })

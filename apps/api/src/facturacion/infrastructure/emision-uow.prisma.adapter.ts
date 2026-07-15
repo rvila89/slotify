@@ -17,6 +17,10 @@ import type {
   RepositoriosFianzaSeparada,
   UnidadDeTrabajoFianzaPort,
 } from '../application/enviar-recibo-fianza-separado.use-case';
+import type {
+  RepositoriosSenalEmision,
+  UnidadDeTrabajoSenalEmisionPort,
+} from '../application/enviar-factura-senal.use-case';
 import {
   AuditoriaEmisionPrismaRepository,
   ComunicacionEmisionPrismaRepository,
@@ -30,6 +34,12 @@ import {
   FacturaFianzaPrismaRepository,
   ReservaFianzaPrismaRepository,
 } from './fianza-separada-repository.prisma.adapter';
+import {
+  AuditoriaSenalEmisionPrismaRepository,
+  ComunicacionSenalEmisionPrismaRepository,
+  FacturaSenalEmisionPrismaRepository,
+  ReservaSenalEmisionPrismaRepository,
+} from './senal-emision-repository.prisma.adapter';
 
 @Injectable()
 export class EmisionUoWPrismaAdapter implements UnidadDeTrabajoEmisionPort {
@@ -47,6 +57,27 @@ export class EmisionUoWPrismaAdapter implements UnidadDeTrabajoEmisionPort {
         extras: new ExtraEmisionPrismaRepository(tx),
         comunicaciones: new ComunicacionEmisionPrismaRepository(tx),
         auditoria: new AuditoriaEmisionPrismaRepository(tx),
+      };
+      return trabajo(repos);
+    });
+  }
+}
+
+@Injectable()
+export class SenalEmisionUoWPrismaAdapter implements UnidadDeTrabajoSenalEmisionPort {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async ejecutar(
+    tenantId: string,
+    trabajo: (repos: RepositoriosSenalEmision) => Promise<unknown>,
+  ): Promise<unknown> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.prisma.fijarTenant(tx, tenantId);
+      const repos: RepositoriosSenalEmision = {
+        facturas: new FacturaSenalEmisionPrismaRepository(tx),
+        reservas: new ReservaSenalEmisionPrismaRepository(tx),
+        comunicaciones: new ComunicacionSenalEmisionPrismaRepository(tx),
+        auditoria: new AuditoriaSenalEmisionPrismaRepository(tx),
       };
       return trabajo(repos);
     });

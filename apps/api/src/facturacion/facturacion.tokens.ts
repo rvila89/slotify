@@ -72,6 +72,14 @@ export const REGISTRAR_COMUNICACION_REENVIO_PORT = Symbol('RegistrarComunicacion
 /** Registro de auditoría del reenvío. */
 export const REGISTRAR_AUDITORIA_REENVIO_PORT = Symbol('RegistrarAuditoriaReenvioPort');
 
+// --- 6.4b / US-023: envío de la factura de señal (40%) + condicions particulars por E3 ---
+/** Unidad de trabajo transaccional del envío de la señal (tx + RLS). */
+export const UNIDAD_DE_TRABAJO_SENAL_EMISION_PORT = Symbol('UnidadDeTrabajoSenalEmisionPort');
+/** Lectura de la RESERVA para el envío de la señal (email cliente + cond_part_*). */
+export const CARGAR_RESERVA_SENAL_EMISION_PORT = Symbol('CargarReservaSenalEmisionPort');
+/** Envío SÍNCRONO/CONFIRMADO de E3 (factura de señal + condicions particulars, puerto directo). */
+export const ENVIAR_E3_EMISION_PORT = Symbol('EnviarE3EmisionPort');
+
 // --- US-029: registro del cobro de la liquidación (UC-21 pasos 7-10, D-2) ---
 /** Unidad de trabajo transaccional del cobro (tx + RLS + SELECT ... FOR UPDATE sobre RESERVA). */
 export const UNIDAD_DE_TRABAJO_COBRO_PORT = Symbol('UnidadDeTrabajoCobroPort');
