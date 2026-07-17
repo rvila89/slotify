@@ -3675,36 +3675,201 @@ paths:
           $ref: '#/components/responses/Forbidden'
 
   # ============================ COMUNICACIONES ============================
+  # [US-046 / UC-36] Primera superficie HTTP del módulo `comunicaciones` (motor US-045).
+  # Sub-recurso de la RESERVA (Gate 1 D-2, Opción A): coherente con `/reservas/{id}/presupuesto/...`.
+  # Acciones sobre borradores como verbos POST. Todo scoped por el tenant del JWT (RLS); el
+  # `tenant_id` NUNCA viaja en el path. El gestor edita SOLO `asunto`/`cuerpo`; `codigoEmail` y
+  # `destinatarioEmail` NO son editables.
   /reservas/{id}/comunicaciones:
     parameters:
       - { $ref: '#/components/parameters/IdReserva' }
     get:
       tags: [Comunicaciones]
-      summary: Log de comunicaciones de la reserva
+      summary: Listar las comunicaciones de una reserva (UC-36 / US-046)
+      operationId: listarComunicacionesReserva
+      description: |
+        [US-046] Lista TODAS las `COMUNICACION` de la RESERVA `{id}` (sección "Comunicaciones" de la
+        ficha), ordenadas por `fechaCreacion` descendente. Cada ítem trae `codigoEmail`, `estado`
+        (`borrador`/`enviado`/`fallido`), `asunto`, `destinatarioEmail`, `fechaCreacion`, `fechaEnvio`
+        (nullable), `esReenvio` y el flag derivado `accionable` (`true` solo si `estado='borrador'`:
+        la fila puede enviarse o descartarse; `enviado`/`fallido` son de solo lectura). Scoped por el
+        tenant del JWT (RLS); nunca cross-tenant.
       responses:
         '200':
-          description: Comunicaciones
+          description: Comunicaciones de la reserva (posiblemente vacío).
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Comunicacion' }
+                items: { $ref: '#/components/schemas/ComunicacionListItem' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reservas/{id}/comunicaciones/{idComunicacion}/enviar:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+      - { $ref: '#/components/parameters/IdComunicacion' }
     post:
       tags: [Comunicaciones]
-      summary: Enviar email manual o automático (UC-35, UC-36)
-      description: Crea y envía (o guarda como borrador para revisión, UC-36) un email vinculado a la reserva.
+      summary: Revisar y confirmar el envío de un borrador (UC-36 / US-046)
+      operationId: enviarBorradorComunicacion
+      description: |
+        [US-046] Confirma el envío de la `COMUNICACION` `{idComunicacion}` de la RESERVA `{id}`, que debe
+        estar en `estado='borrador'`. Reutiliza el camino de envío del motor de `comunicaciones`
+        (US-045: `EnviarEmailPort` → `actualizarEstado`). El body es **opcional** y solo admite `asunto`
+        y `cuerpo` editados por el gestor; el `asunto`/`cuerpo` **persistido refleja lo efectivamente
+        enviado**. `codigoEmail` y `destinatarioEmail` NO son editables.
+
+        **Orden de guardas (Gate 1 D-2)**:
+        - `409` — la fila NO está en `borrador` (ya `enviado`/`fallido`): idempotencia de la acción
+          manual, sin efectos (`enviado` es terminal, no se revierte).
+        - `422` — `destinatarioEmail`/`CLIENTE.email` inválido (RFC 5321) o nulo: **NO se intenta el
+          envío**, la fila **permanece en `borrador`**; el mensaje invita a completar el email del cliente.
+        - `502` — el proveedor de email falla: la fila queda persistida en `estado='fallido'` (sin
+          `fechaEnvio`) + `AUDIT_LOG`, y el endpoint responde `502` (sin reintento automático; el gestor
+          puede reintentar). El fallo del proveedor se expresa como error HTTP para que el `onError` del
+          frontend lo capture por status.
+
+        **Invariantes**: no muta `RESERVA.estado` ni `FECHA_BLOQUEADA` (solo lee cliente/reserva).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnviarBorradorRequest' }
+      responses:
+        '200':
+          description: |
+            Borrador enviado. Devuelve la `COMUNICACION` resultante (`estado='enviado'`, `fechaEnvio` no
+            nulo, con el `asunto`/`cuerpo` efectivamente enviado).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Comunicacion' }
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            Conflicto de estado (409). La `COMUNICACION` no está en `borrador` (ya `enviado`/`fallido`):
+            no es enviable. Sin efectos.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComunicacionEstadoConflictoError' }
+        '422':
+          description: |
+            Destinatario inválido (422). `destinatarioEmail`/`CLIENTE.email` no es válido (RFC 5321) o es
+            nulo: no se intenta el envío y la fila **permanece en `borrador`**.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComunicacionDestinatarioInvalidoError' }
+        '502':
+          description: |
+            Fallo del proveedor de email (502). Se intentó el envío y el proveedor falló: la
+            `COMUNICACION` queda persistida en `estado='fallido'` (sin `fechaEnvio`) + `AUDIT_LOG`. Sin
+            reintento automático.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComunicacionProveedorError' }
+
+  /reservas/{id}/comunicaciones/{idComunicacion}/descartar:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+      - { $ref: '#/components/parameters/IdComunicacion' }
+    post:
+      tags: [Comunicaciones]
+      summary: Descartar un borrador sin enviarlo (UC-36 / US-046)
+      operationId: descartarBorradorComunicacion
+      description: |
+        [US-046] Descarta la `COMUNICACION` `{idComunicacion}` de la RESERVA `{id}`, que debe estar en
+        `estado='borrador'`. Transición `borrador → fallido` **sin envío** (no existe estado
+        "descartado" en el enum); se registra `AUDIT_LOG` con causa `"descartado por gestor"`. El
+        borrador desaparece de la bandeja de pendientes. Sin body.
+
+        `409` si la fila no está en `borrador`. No muta `RESERVA.estado` ni `FECHA_BLOQUEADA`.
+      responses:
+        '200':
+          description: |
+            Borrador descartado. Devuelve la `COMUNICACION` resultante (`estado='fallido'`, `fechaEnvio`
+            nulo).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Comunicacion' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            Conflicto de estado (409). La `COMUNICACION` no está en `borrador` (ya `enviado`/`fallido`):
+            no es descartable. Sin efectos.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComunicacionEstadoConflictoError' }
+
+  /reservas/{id}/comunicaciones/manual:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Comunicaciones]
+      summary: Crear y enviar un email manual desde la ficha (UC-36 / US-046)
+      operationId: crearEmailManual
+      description: |
+        [US-046] Crea y **envía** un email manual (`codigoEmail='manual'`) desde la ficha de la RESERVA
+        `{id}` al `CLIENTE.email` de la reserva. `asunto` y `cuerpo` son **obligatorios** (redactados por
+        el gestor). La nueva `COMUNICACION` lleva `reservaId`/`clienteId` correctos, `estado='enviado'`,
+        `fechaEnvio` no nulo, `esReenvio=false` (semántica honesta: no es un reenvío) + `AUDIT_LOG`. Los
+        emails `manual` quedan fuera del índice UNIQUE parcial de idempotencia (predicado
+        `codigoEmail <> 'manual'`, Gate 1 D-5), de modo que caben varios `manual` por reserva sin colisión.
+
+        Errores:
+        - `422` — `CLIENTE.email` inválido (RFC 5321) o nulo: no se intenta el envío ni se crea la fila.
+        - `502` — el proveedor de email falla: la `COMUNICACION` queda persistida en `estado='fallido'`
+          (sin `fechaEnvio`) + `AUDIT_LOG`, y el endpoint responde `502`.
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/CreateComunicacionRequest'
+            schema: { $ref: '#/components/schemas/CrearEmailManualRequest' }
       responses:
         '201':
-          description: Comunicación creada/enviada
+          description: |
+            Email manual creado y enviado. Devuelve la `COMUNICACION` creada (`codigoEmail='manual'`,
+            `estado='enviado'`, `fechaEnvio` no nulo).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Comunicacion' }
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: |
+            Destinatario inválido (422). `CLIENTE.email` no es válido (RFC 5321) o es nulo: no se intenta
+            el envío ni se crea la `COMUNICACION`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComunicacionDestinatarioInvalidoError' }
+        '502':
+          description: |
+            Fallo del proveedor de email (502). Se intentó el envío y el proveedor falló: la
+            `COMUNICACION` queda persistida en `estado='fallido'` (sin `fechaEnvio`) + `AUDIT_LOG`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComunicacionProveedorError' }
 
   # ============================ DOCUMENTOS ============================
   /documentos:
@@ -3994,6 +4159,14 @@ components:
       required: true
       schema: { type: string, format: uuid }
       description: ID de la reserva
+    IdComunicacion:
+      # [US-046] ID de la COMUNICACION en las acciones de comunicaciones de una reserva
+      # (enviar/descartar borrador). Scoped por la RESERVA y el tenant del JWT (RLS).
+      in: path
+      name: idComunicacion
+      required: true
+      schema: { type: string, format: uuid }
+      description: ID de la comunicación (COMUNICACION) sobre la que se actúa
     IdGenerico:
       in: path
       name: id
@@ -6840,26 +7013,109 @@ components:
         tipoBloqueo: { $ref: '#/components/schemas/TipoBloqueo' }
 
     # -------- Comunicaciones --------
+    # [US-045 motor / US-046 acción manual] Proyección de una COMUNICACION (er-diagram §3.17).
+    # `estado` (EstadoComunicacion): borrador|enviado|fallido; `codigoEmail` (CodigoEmail): E1..E8|manual.
+    # El descarte de un borrador por el gestor se modela como `estado='fallido'` (no hay estado
+    # "descartado" en el enum); se distingue por el AUDIT_LOG con causa "descartado por gestor".
+    EstadoComunicacion:
+      type: string
+      enum: [borrador, enviado, fallido]
+      description: >-
+        Estado de la COMUNICACION (US-045). `borrador` = pendiente de revisión/envío (accionable);
+        `enviado` = terminal (no se revierte ni re-envía); `fallido` = el proveedor falló o el gestor
+        la descartó (distinguible por AUDIT_LOG).
     Comunicacion:
       type: object
+      required: [idComunicacion, clienteId, codigoEmail, asunto, estado, esReenvio, fechaCreacion]
       properties:
         idComunicacion: { type: string, format: uuid }
         reservaId: { type: string, format: uuid, nullable: true }
         clienteId: { type: string, format: uuid }
         codigoEmail: { $ref: '#/components/schemas/CodigoEmail' }
         asunto: { type: string }
-        destinatarioEmail: { type: string, format: email }
-        estado: { type: string, enum: [borrador, enviado, fallido] }
+        cuerpo:
+          type: string
+          nullable: true
+          description: 'Cuerpo del email efectivamente enviado/guardado (puede ser nulo en borradores E1..E8).'
+        destinatarioEmail:
+          type: string
+          format: email
+          nullable: true
+          description: 'Email del destinatario heredado del CLIENTE. No editable por el gestor; puede ser nulo/ inválido (bloquea el envío con 422).'
+        estado: { $ref: '#/components/schemas/EstadoComunicacion' }
+        esReenvio:
+          type: boolean
+          description: >-
+            `true` cuando la fila es un reenvío (excepción auditada a la idempotencia UNIQUE parcial,
+            US-023/US-028). Los emails `manual` de US-046 son `false` (quedan fuera del índice por el
+            predicado `codigoEmail <> 'manual'`, no por `esReenvio`).
+        fechaCreacion: { type: string, format: date-time }
         fechaEnvio: { type: string, format: date-time, nullable: true }
-    CreateComunicacionRequest:
+    ComunicacionListItem:
+      # [US-046 D-3] Proyección de listado enriquecida para la ficha de la RESERVA. Extiende
+      # Comunicacion con el flag derivado `accionable` (solo-lectura vs. accionable).
+      allOf:
+        - $ref: '#/components/schemas/Comunicacion'
+        - type: object
+          required: [accionable]
+          properties:
+            accionable:
+              type: boolean
+              description: >-
+                Derivado de solo-lectura: `true` sii `estado='borrador'` (la fila puede enviarse o
+                descartarse). `enviado`/`fallido` son de solo lectura (`accionable=false`).
+    EnviarBorradorRequest:
+      # [US-046] Edición OPCIONAL al confirmar el envío. Solo `asunto`/`cuerpo` son editables por el
+      # gestor; `codigoEmail` y `destinatarioEmail` NO. Ausencia de campos => se envía el borrador tal cual.
       type: object
-      required: [codigoEmail, destinatarioEmail, asunto]
       properties:
-        codigoEmail: { $ref: '#/components/schemas/CodigoEmail' }
-        destinatarioEmail: { type: string, format: email }
-        asunto: { type: string }
-        cuerpo: { type: string }
-        guardarComoBorrador: { type: boolean, description: 'UC-36: guarda para revisión antes de enviar' }
+        asunto:
+          type: string
+          minLength: 1
+          description: 'Asunto editado por el gestor. Si se omite, se envía el asunto original del borrador.'
+        cuerpo:
+          type: string
+          minLength: 1
+          description: 'Cuerpo editado por el gestor. Si se omite, se envía el cuerpo original del borrador.'
+    CrearEmailManualRequest:
+      # [US-046] Email manual desde la ficha. `asunto` y `cuerpo` OBLIGATORIOS. El destinatario es el
+      # CLIENTE.email de la RESERVA (no se pasa en el body); `codigoEmail='manual'` lo fija el server.
+      type: object
+      required: [asunto, cuerpo]
+      properties:
+        asunto: { type: string, minLength: 1 }
+        cuerpo: { type: string, minLength: 1 }
+    ComunicacionEstadoConflictoError:
+      # 409: la COMUNICACION no está en `borrador` (ya `enviado`/`fallido`); no es enviable/descartable.
+      # Sin efectos. Mismo patrón allOf ErrorResponse + `codigo` que el resto del contrato (US-014/US-015).
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo, estadoActual]
+          properties:
+            codigo: { type: string, enum: [ESTADO_NO_BORRADOR] }
+            estadoActual:
+              allOf: [{ $ref: '#/components/schemas/EstadoComunicacion' }]
+              description: 'Estado actual de la COMUNICACION que impide la acción (p. ej. `enviado`/`fallido`).'
+    ComunicacionDestinatarioInvalidoError:
+      # 422: destinatario (CLIENTE.email) inválido (RFC 5321) o nulo. Al enviar un borrador, la fila
+      # PERMANECE en `borrador` (no `fallido`): no se intentó el envío. En el manual, no se crea la fila.
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo]
+          properties:
+            codigo: { type: string, enum: [DESTINATARIO_INVALIDO] }
+    ComunicacionProveedorError:
+      # 502: el proveedor de email falló al enviar (Gate 1 D-2). La COMUNICACION queda persistida en
+      # `fallido` (sin fechaEnvio) + AUDIT_LOG; sin reintento automático. Se expone como error HTTP para
+      # que el frontend lo capture por status. Mismo envelope NestJS + `codigo` de dominio.
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo]
+          properties:
+            codigo: { type: string, enum: [PROVEEDOR_EMAIL_FALLIDO] }
 
     # -------- Documento --------
     Documento:

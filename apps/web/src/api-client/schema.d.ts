@@ -3117,62 +3117,122 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Log de comunicaciones de la reserva */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description ID de la reserva */
-                    id: components["parameters"]["IdReserva"];
-                };
-                cookie?: never;
+        /**
+         * Listar las comunicaciones de una reserva (UC-36 / US-046)
+         * @description [US-046] Lista TODAS las `COMUNICACION` de la RESERVA `{id}` (sección "Comunicaciones" de la
+         *     ficha), ordenadas por `fechaCreacion` descendente. Cada ítem trae `codigoEmail`, `estado`
+         *     (`borrador`/`enviado`/`fallido`), `asunto`, `destinatarioEmail`, `fechaCreacion`, `fechaEnvio`
+         *     (nullable), `esReenvio` y el flag derivado `accionable` (`true` solo si `estado='borrador'`:
+         *     la fila puede enviarse o descartarse; `enviado`/`fallido` son de solo lectura). Scoped por el
+         *     tenant del JWT (RLS); nunca cross-tenant.
+         */
+        get: operations["listarComunicacionesReserva"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reservas/{id}/comunicaciones/{idComunicacion}/enviar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+                /** @description ID de la comunicación (COMUNICACION) sobre la que se actúa */
+                idComunicacion: components["parameters"]["IdComunicacion"];
             };
-            requestBody?: never;
-            responses: {
-                /** @description Comunicaciones */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Comunicacion"][];
-                    };
-                };
-            };
+            cookie?: never;
         };
+        get?: never;
         put?: never;
         /**
-         * Enviar email manual o automático (UC-35, UC-36)
-         * @description Crea y envía (o guarda como borrador para revisión, UC-36) un email vinculado a la reserva.
+         * Revisar y confirmar el envío de un borrador (UC-36 / US-046)
+         * @description [US-046] Confirma el envío de la `COMUNICACION` `{idComunicacion}` de la RESERVA `{id}`, que debe
+         *     estar en `estado='borrador'`. Reutiliza el camino de envío del motor de `comunicaciones`
+         *     (US-045: `EnviarEmailPort` → `actualizarEstado`). El body es **opcional** y solo admite `asunto`
+         *     y `cuerpo` editados por el gestor; el `asunto`/`cuerpo` **persistido refleja lo efectivamente
+         *     enviado**. `codigoEmail` y `destinatarioEmail` NO son editables.
+         *
+         *     **Orden de guardas (Gate 1 D-2)**:
+         *     - `409` — la fila NO está en `borrador` (ya `enviado`/`fallido`): idempotencia de la acción
+         *       manual, sin efectos (`enviado` es terminal, no se revierte).
+         *     - `422` — `destinatarioEmail`/`CLIENTE.email` inválido (RFC 5321) o nulo: **NO se intenta el
+         *       envío**, la fila **permanece en `borrador`**; el mensaje invita a completar el email del cliente.
+         *     - `502` — el proveedor de email falla: la fila queda persistida en `estado='fallido'` (sin
+         *       `fechaEnvio`) + `AUDIT_LOG`, y el endpoint responde `502` (sin reintento automático; el gestor
+         *       puede reintentar). El fallo del proveedor se expresa como error HTTP para que el `onError` del
+         *       frontend lo capture por status.
+         *
+         *     **Invariantes**: no muta `RESERVA.estado` ni `FECHA_BLOQUEADA` (solo lee cliente/reserva).
          */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description ID de la reserva */
-                    id: components["parameters"]["IdReserva"];
-                };
-                cookie?: never;
+        post: operations["enviarBorradorComunicacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reservas/{id}/comunicaciones/{idComunicacion}/descartar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+                /** @description ID de la comunicación (COMUNICACION) sobre la que se actúa */
+                idComunicacion: components["parameters"]["IdComunicacion"];
             };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["CreateComunicacionRequest"];
-                };
-            };
-            responses: {
-                /** @description Comunicación creada/enviada */
-                201: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Comunicacion"];
-                    };
-                };
-            };
+            cookie?: never;
         };
+        get?: never;
+        put?: never;
+        /**
+         * Descartar un borrador sin enviarlo (UC-36 / US-046)
+         * @description [US-046] Descarta la `COMUNICACION` `{idComunicacion}` de la RESERVA `{id}`, que debe estar en
+         *     `estado='borrador'`. Transición `borrador → fallido` **sin envío** (no existe estado
+         *     "descartado" en el enum); se registra `AUDIT_LOG` con causa `"descartado por gestor"`. El
+         *     borrador desaparece de la bandeja de pendientes. Sin body.
+         *
+         *     `409` si la fila no está en `borrador`. No muta `RESERVA.estado` ni `FECHA_BLOQUEADA`.
+         */
+        post: operations["descartarBorradorComunicacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reservas/{id}/comunicaciones/manual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Crear y enviar un email manual desde la ficha (UC-36 / US-046)
+         * @description [US-046] Crea y **envía** un email manual (`codigoEmail='manual'`) desde la ficha de la RESERVA
+         *     `{id}` al `CLIENTE.email` de la reserva. `asunto` y `cuerpo` son **obligatorios** (redactados por
+         *     el gestor). La nueva `COMUNICACION` lleva `reservaId`/`clienteId` correctos, `estado='enviado'`,
+         *     `fechaEnvio` no nulo, `esReenvio=false` (semántica honesta: no es un reenvío) + `AUDIT_LOG`. Los
+         *     emails `manual` quedan fuera del índice UNIQUE parcial de idempotencia (predicado
+         *     `codigoEmail <> 'manual'`, Gate 1 D-5), de modo que caben varios `manual` por reserva sin colisión.
+         *
+         *     Errores:
+         *     - `422` — `CLIENTE.email` inválido (RFC 5321) o nulo: no se intenta el envío ni se crea la fila.
+         *     - `502` — el proveedor de email falla: la `COMUNICACION` queda persistida en `estado='fallido'`
+         *       (sin `fechaEnvio`) + `AUDIT_LOG`, y el endpoint responde `502`.
+         */
+        post: operations["crearEmailManual"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4978,30 +5038,62 @@ export interface components {
             reservaId: string;
             tipoBloqueo: components["schemas"]["TipoBloqueo"];
         };
+        /**
+         * @description Estado de la COMUNICACION (US-045). `borrador` = pendiente de revisión/envío (accionable); `enviado` = terminal (no se revierte ni re-envía); `fallido` = el proveedor falló o el gestor la descartó (distinguible por AUDIT_LOG).
+         * @enum {string}
+         */
+        EstadoComunicacion: "borrador" | "enviado" | "fallido";
         Comunicacion: {
             /** Format: uuid */
-            idComunicacion?: string;
+            idComunicacion: string;
             /** Format: uuid */
             reservaId?: string | null;
             /** Format: uuid */
-            clienteId?: string;
-            codigoEmail?: components["schemas"]["CodigoEmail"];
-            asunto?: string;
-            /** Format: email */
-            destinatarioEmail?: string;
-            /** @enum {string} */
-            estado?: "borrador" | "enviado" | "fallido";
+            clienteId: string;
+            codigoEmail: components["schemas"]["CodigoEmail"];
+            asunto: string;
+            /** @description Cuerpo del email efectivamente enviado/guardado (puede ser nulo en borradores E1..E8). */
+            cuerpo?: string | null;
+            /**
+             * Format: email
+             * @description Email del destinatario heredado del CLIENTE. No editable por el gestor; puede ser nulo/ inválido (bloquea el envío con 422).
+             */
+            destinatarioEmail?: string | null;
+            estado: components["schemas"]["EstadoComunicacion"];
+            /** @description `true` cuando la fila es un reenvío (excepción auditada a la idempotencia UNIQUE parcial, US-023/US-028). Los emails `manual` de US-046 son `false` (quedan fuera del índice por el predicado `codigoEmail <> 'manual'`, no por `esReenvio`). */
+            esReenvio: boolean;
+            /** Format: date-time */
+            fechaCreacion: string;
             /** Format: date-time */
             fechaEnvio?: string | null;
         };
-        CreateComunicacionRequest: {
-            codigoEmail: components["schemas"]["CodigoEmail"];
-            /** Format: email */
-            destinatarioEmail: string;
-            asunto: string;
+        ComunicacionListItem: components["schemas"]["Comunicacion"] & {
+            /** @description Derivado de solo-lectura: `true` sii `estado='borrador'` (la fila puede enviarse o descartarse). `enviado`/`fallido` son de solo lectura (`accionable=false`). */
+            accionable: boolean;
+        };
+        EnviarBorradorRequest: {
+            /** @description Asunto editado por el gestor. Si se omite, se envía el asunto original del borrador. */
+            asunto?: string;
+            /** @description Cuerpo editado por el gestor. Si se omite, se envía el cuerpo original del borrador. */
             cuerpo?: string;
-            /** @description UC-36: guarda para revisión antes de enviar */
-            guardarComoBorrador?: boolean;
+        };
+        CrearEmailManualRequest: {
+            asunto: string;
+            cuerpo: string;
+        };
+        ComunicacionEstadoConflictoError: components["schemas"]["ErrorResponse"] & {
+            /** @enum {string} */
+            codigo: "ESTADO_NO_BORRADOR";
+            /** @description Estado actual de la COMUNICACION que impide la acción (p. ej. `enviado`/`fallido`). */
+            estadoActual: components["schemas"]["EstadoComunicacion"];
+        };
+        ComunicacionDestinatarioInvalidoError: components["schemas"]["ErrorResponse"] & {
+            /** @enum {string} */
+            codigo: "DESTINATARIO_INVALIDO";
+        };
+        ComunicacionProveedorError: components["schemas"]["ErrorResponse"] & {
+            /** @enum {string} */
+            codigo: "PROVEEDOR_EMAIL_FALLIDO";
         };
         Documento: {
             /** Format: uuid */
@@ -5234,6 +5326,8 @@ export interface components {
         Limit: number;
         /** @description ID de la reserva */
         IdReserva: string;
+        /** @description ID de la comunicación (COMUNICACION) sobre la que se actúa */
+        IdComunicacion: string;
         /** @description Identificador del recurso */
         IdGenerico: string;
     };
@@ -7466,6 +7560,206 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listarComunicacionesReserva: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Comunicaciones de la reserva (posiblemente vacío). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComunicacionListItem"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    enviarBorradorComunicacion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+                /** @description ID de la comunicación (COMUNICACION) sobre la que se actúa */
+                idComunicacion: components["parameters"]["IdComunicacion"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EnviarBorradorRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Borrador enviado. Devuelve la `COMUNICACION` resultante (`estado='enviado'`, `fechaEnvio` no
+             *     nulo, con el `asunto`/`cuerpo` efectivamente enviado).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comunicacion"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado (409). La `COMUNICACION` no está en `borrador` (ya `enviado`/`fallido`):
+             *     no es enviable. Sin efectos.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComunicacionEstadoConflictoError"];
+                };
+            };
+            /**
+             * @description Destinatario inválido (422). `destinatarioEmail`/`CLIENTE.email` no es válido (RFC 5321) o es
+             *     nulo: no se intenta el envío y la fila **permanece en `borrador`**.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComunicacionDestinatarioInvalidoError"];
+                };
+            };
+            /**
+             * @description Fallo del proveedor de email (502). Se intentó el envío y el proveedor falló: la
+             *     `COMUNICACION` queda persistida en `estado='fallido'` (sin `fechaEnvio`) + `AUDIT_LOG`. Sin
+             *     reintento automático.
+             */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComunicacionProveedorError"];
+                };
+            };
+        };
+    };
+    descartarBorradorComunicacion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+                /** @description ID de la comunicación (COMUNICACION) sobre la que se actúa */
+                idComunicacion: components["parameters"]["IdComunicacion"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description Borrador descartado. Devuelve la `COMUNICACION` resultante (`estado='fallido'`, `fechaEnvio`
+             *     nulo).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comunicacion"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado (409). La `COMUNICACION` no está en `borrador` (ya `enviado`/`fallido`):
+             *     no es descartable. Sin efectos.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComunicacionEstadoConflictoError"];
+                };
+            };
+        };
+    };
+    crearEmailManual: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CrearEmailManualRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Email manual creado y enviado. Devuelve la `COMUNICACION` creada (`codigoEmail='manual'`,
+             *     `estado='enviado'`, `fechaEnvio` no nulo).
+             */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comunicacion"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Destinatario inválido (422). `CLIENTE.email` no es válido (RFC 5321) o es nulo: no se intenta
+             *     el envío ni se crea la `COMUNICACION`.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComunicacionDestinatarioInvalidoError"];
+                };
+            };
+            /**
+             * @description Fallo del proveedor de email (502). Se intentó el envío y el proveedor falló: la
+             *     `COMUNICACION` queda persistida en `estado='fallido'` (sin `fechaEnvio`) + `AUDIT_LOG`.
+             */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComunicacionProveedorError"];
+                };
+            };
         };
     };
     barridoExpiracion: {

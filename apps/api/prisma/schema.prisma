@@ -644,9 +644,12 @@ model Comunicacion {
 
   // US-045 — Idempotencia de un email por (reserva, código). Índice UNIQUE PARCIAL
   // `uq_comunicacion_reserva_codigo (reserva_id, codigo_email) WHERE reserva_id IS
-  // NOT NULL AND es_reenvio = false` creado por SQL crudo (Prisma no modela el predicado
-  // WHERE de índices parciales). Los emails `manual` (reserva_id NULL, US-046) y los
-  // reenvíos manuales (es_reenvio = true, US-028 D-4) quedan excluidos del constraint.
+  // NOT NULL AND es_reenvio = false AND codigo_email <> 'manual'` creado por SQL crudo
+  // (Prisma no modela el predicado WHERE de índices parciales). Quedan EXCLUIDOS del
+  // constraint: los reenvíos manuales (es_reenvio = true, US-028 D-4) y los emails
+  // `manual` (US-046 D-5 Opción C), que llevan reserva_id NO nulo y es_reenvio = false
+  // (semántica honesta: no son reenvíos) y quedan fuera por el predicado
+  // `codigo_email <> 'manual'`, permitiendo varios `manual` por reserva sin colisión.
   @@map("comunicacion")
 }
 

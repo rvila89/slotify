@@ -4,6 +4,7 @@ import {
   DevolucionFianzaCard,
 } from '@/features/facturacion';
 import { FichaOperativaCard } from '@/features/ficha-operativa';
+import { ComunicacionesCard } from '@/features/comunicaciones';
 import { CondicionesFirmadasCard, debeMostrarSeccionCondiciones } from '@/features/condiciones-firmadas';
 import { DocumentacionEventoCard, debeMostrarSeccionDocumentacion } from '@/features/documentacion-evento';
 import { IbanDevolucionCard } from '../../../components/IbanDevolucionCard';
@@ -23,6 +24,12 @@ type Props = {
 
 export const SeccionesFicha = ({ reservaId, reserva }: Props) => (
   <>
+    {/* US-046 · UC-36: sección "Comunicaciones" de la ficha. Lista las COMUNICACION de
+        la reserva y permite revisar/editar/enviar o descartar un borrador y crear un
+        email manual. Visible en TODA RESERVA (self-contained: resuelve cargando/error/
+        vacío); no depende del estado. */}
+    <ComunicacionesCard reservaId={reservaId} />
+
     {reserva.estado === 'reserva_confirmada' && <FacturaSenalCard reservaId={reservaId} />}
 
     {reserva.estado === 'reserva_confirmada' && (

@@ -18,3 +18,9 @@ export const COMUNICACION_REPOSITORY_PORT = Symbol('ComunicacionRepositoryPort')
 export const TENANT_SETTINGS_IDIOMA_PORT = Symbol('TenantSettingsIdiomaPort');
 /** Reloj del motor (fecha_envio testeable). */
 export const COMUNICACIONES_CLOCK_PORT = Symbol('ComunicacionesClockPort');
+
+// US-046 — acción manual de comunicaciones de una reserva
+/** Carga de la COMUNICACION para enviar/descartar (scoped por tenant, RLS). */
+export const CARGAR_COMUNICACION_PORT = Symbol('CargarComunicacionPort');
+/** Carga de la RESERVA + CLIENTE para el email manual (scoped por tenant, RLS). */
+export const CARGAR_RESERVA_CONTEXTO_PORT = Symbol('CargarReservaContextoPort');
