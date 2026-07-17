@@ -155,6 +155,15 @@ import { DispararE5Adapter } from './infrastructure/disparar-e5.adapter';
 import { DocumentacionEventoStubAdapter } from './infrastructure/documentacion-evento.stub.adapter';
 import { FinalizarEventoController } from './interface/finalizar-evento.controller';
 import {
+  ForzarInicioEventoUseCase,
+  type ForzarInicioEventoComando,
+  type ReservaForzarInicio,
+  type UnidadDeTrabajoForzarInicioPort,
+} from './application/forzar-inicio-evento.use-case';
+import { CargarReservaForzarInicioPrismaAdapter } from './infrastructure/cargar-reserva-forzar-inicio.prisma.adapter';
+import { UnidadDeTrabajoForzarInicioPrismaAdapter } from './infrastructure/forzar-inicio-evento-uow.prisma.adapter';
+import { ForzarInicioEventoController } from './interface/forzar-inicio-evento.controller';
+import {
   RegistrarIbanDevolucionUseCase,
   type DispararE8Port,
   type RegistrarIbanDevolucionComando,
@@ -226,6 +235,8 @@ import {
   UNIDAD_DE_TRABAJO_FINALIZACION_PORT,
   DISPARAR_E5_PORT,
   DOCUMENTACION_EVENTO_PORT,
+  CARGAR_RESERVA_FORZAR_INICIO_PORT,
+  UNIDAD_DE_TRABAJO_FORZAR_INICIO_PORT,
   CARGAR_RESERVA_IBAN_DEVOLUCION_PORT,
   UNIDAD_DE_TRABAJO_IBAN_DEVOLUCION_PORT,
   DISPARAR_E8_PORT,
@@ -261,6 +272,7 @@ import {
     BarridoCompletadasController,
     PromoverManualController,
     FinalizarEventoController,
+    ForzarInicioEventoController,
     RegistrarIbanDevolucionController,
     ActualizarDatosFiscalesClienteController,
     ArchivarReservaManualController,
@@ -741,6 +753,51 @@ import {
           documentacion,
         }),
     },
+    // US-032 — forzado manual del inicio de evento (reserva_confirmada → evento_en_curso).
+    // Reutiliza las guardas de dominio de US-031 (resolverInicioEvento + precondiciones), añade
+    // la guarda de fecha esDiaDelEvento y FUERZA la transición aunque haya precondiciones
+    // incumplidas. La transición + AUDIT_LOG (origen Usuario, forzado_por_gestor +
+    // precondiciones_incumplidas) van en una transacción bajo SELECT … FOR UPDATE de la fila
+    // RESERVA (sin locks distribuidos). Muta EXCLUSIVAMENTE `estado` (D-5). Relectura
+    // POST-COMMIT reusando GET /reservas/{id} para hidratar allOf(Reserva).
+    {
+      provide: CARGAR_RESERVA_FORZAR_INICIO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CargarReservaForzarInicioPrismaAdapter(prisma),
+    },
+    {
+      provide: UNIDAD_DE_TRABAJO_FORZAR_INICIO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new UnidadDeTrabajoForzarInicioPrismaAdapter(prisma),
+    },
+    {
+      provide: ForzarInicioEventoUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_FORZAR_INICIO_PORT,
+        CARGAR_RESERVA_FORZAR_INICIO_PORT,
+        RESERVA_DETALLE_QUERY_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoForzarInicioPort,
+        cargador: CargarReservaForzarInicioPrismaAdapter,
+        reservaDetalle: ReservaDetalleQueryPort,
+      ) =>
+        new ForzarInicioEventoUseCase({
+          unidadDeTrabajo,
+          cargarReserva: (
+            comando: ForzarInicioEventoComando,
+          ): Promise<ReservaForzarInicio | null> => cargador.cargar(comando),
+          // Relectura POST-COMMIT de la RESERVA completa reusando la MISMA lectura de
+          // GET /reservas/{id} (bajo RLS del tenant) para hidratar `allOf(Reserva)` (US-032 D-1).
+          cargarReservaDetalle: (comando: ForzarInicioEventoComando) =>
+            reservaDetalle.buscarDetalle({
+              tenantId: comando.tenantId,
+              reservaId: comando.reservaId,
+            }),
+        }),
+    },
     // US-035 — registro del IBAN de devolución (post_evento + fianza > 0 →
     // CLIENTE.iban_devolucion + E8). Validación mod-97 (dominio) previa a la escritura; el
     // UPDATE CLIENTE + AUDIT_LOG (entidad CLIENTE, origen Usuario) van en una transacción
@@ -902,6 +959,7 @@ import {
     PromoverManualEnColaService,
     IniciarEventosDelDiaService,
     FinalizarEventoUseCase,
+    ForzarInicioEventoUseCase,
     RegistrarIbanDevolucionUseCase,
     ActualizarDatosFiscalesClienteUseCase,
     ArchivarReservasCompletadasService,

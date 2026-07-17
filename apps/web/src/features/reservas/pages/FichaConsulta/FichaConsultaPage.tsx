@@ -8,21 +8,14 @@ import { formatearFecha } from '../../lib/fecha';
 import { Badge } from './components/Badge';
 import { Dato } from './components/Dato';
 import { AccionesConsulta } from './components/AccionesConsulta';
-import { AvisosTransicion } from './components/AvisosTransicion';
-import { AvisoPendienteInvitados } from './components/AvisoPendienteInvitados';
-import { AvisoVisitaProgramada } from './components/AvisoVisitaProgramada';
-import { AvisoResultadoVisita } from './components/AvisoResultadoVisita';
-import { AvisoReservaInmediata } from './components/AvisoReservaInmediata';
-import { AvisoBloqueoExtendido } from './components/AvisoBloqueoExtendido';
+import { AvisosFicha } from './components/AvisosFicha';
 import { DialogosFicha } from './components/DialogosFicha';
-import {
-  AvisosEdicionPresupuesto,
-  type ResultadoEdicion,
-} from './components/AvisosEdicionPresupuesto';
+import type { ResultadoEdicion } from './components/AvisosEdicionPresupuesto';
 import { SeccionesFicha } from './components/SeccionesFicha';
 import type { PendienteInvitadosResultado, Reserva } from '../../model/types';
 import type { components } from '@/api-client';
 type FinalizarEventoResponse = components['schemas']['FinalizarEventoResponse'];
+type ForzarInicioEventoResponse = components['schemas']['ForzarInicioEventoResponse'];
 
 const claseSeccion =
   'flex flex-col gap-6 rounded-[20px] border border-border-default/20 bg-surface-subtle/30 p-4 sm:p-6 lg:p-8';
@@ -44,6 +37,7 @@ export const FichaConsultaPage = () => {
   const [dialogoPresupuestoAbierto, setDialogoPresupuestoAbierto] = useState(false);
   const [dialogoEditarPresupuestoAbierto, setDialogoEditarPresupuestoAbierto] = useState(false);
   const [dialogoSenalAbierto, setDialogoSenalAbierto] = useState(false);
+  const [dialogoForzarInicioAbierto, setDialogoForzarInicioAbierto] = useState(false);
   const [dialogoFinalizarAbierto, setDialogoFinalizarAbierto] = useState(false);
   const [dialogoArchivarAbierto, setDialogoArchivarAbierto] = useState(false);
   const [dialogoDescartarAbierto, setDialogoDescartarAbierto] = useState(false);
@@ -69,6 +63,8 @@ export const FichaConsultaPage = () => {
   const [resultadoEdicion, setResultadoEdicion] = useState<ResultadoEdicion | null>(null);
   // Resultado de la confirmación de señal (US-021): alimenta su aviso (reserva_confirmada).
   const [resultadoSenal, setResultadoSenal] = useState<ConfirmarSenalResponse | null>(null);
+  // Resultado del forzado del inicio de evento (US-032, evento_en_curso + precondiciones).
+  const [resultadoForzar, setResultadoForzar] = useState<ForzarInicioEventoResponse | null>(null);
   // Resultado de la finalización del evento (US-034, post_evento + E5 + docs pendiente).
   const [resultadoFinalizar, setResultadoFinalizar] = useState<FinalizarEventoResponse | null>(null);
   if (isLoading) {
@@ -111,42 +107,28 @@ export const FichaConsultaPage = () => {
         </p>
       </header>
 
-      {resultado && <AvisosTransicion resultado={resultado} onCerrar={() => setResultado(null)} />}
-      {resultadoInvitados && (
-        <AvisoPendienteInvitados
-          resultado={resultadoInvitados}
-          onCerrar={() => setResultadoInvitados(null)}
-        />
-      )}
-      {resultadoVisita && (
-        <AvisoVisitaProgramada reserva={resultadoVisita} onCerrar={() => setResultadoVisita(null)} />
-      )}
-      {resultadoInteresado && (
-        <AvisoResultadoVisita
-          reserva={resultadoInteresado}
-          onCerrar={() => setResultadoInteresado(null)}
-        />
-      )}
-      {resultadoReservaInmediata && (
-        <AvisoReservaInmediata
-          reserva={resultadoReservaInmediata}
-          onCerrar={() => setResultadoReservaInmediata(null)}
-        />
-      )}
-      {resultadoExtension && (
-        <AvisoBloqueoExtendido
-          reserva={resultadoExtension}
-          onCerrar={() => setResultadoExtension(null)}
-        />
-      )}
-      <AvisosEdicionPresupuesto
+      <AvisosFicha
+        resultado={resultado}
+        invitados={resultadoInvitados}
+        visita={resultadoVisita}
+        interesado={resultadoInteresado}
+        reservaInmediata={resultadoReservaInmediata}
+        extension={resultadoExtension}
         presupuesto={resultadoPresupuesto}
         edicion={resultadoEdicion}
         senal={resultadoSenal}
+        forzar={resultadoForzar}
         finalizar={resultadoFinalizar}
+        onCerrarResultado={() => setResultado(null)}
+        onCerrarInvitados={() => setResultadoInvitados(null)}
+        onCerrarVisita={() => setResultadoVisita(null)}
+        onCerrarInteresado={() => setResultadoInteresado(null)}
+        onCerrarReservaInmediata={() => setResultadoReservaInmediata(null)}
+        onCerrarExtension={() => setResultadoExtension(null)}
         onCerrarPresupuesto={() => setResultadoPresupuesto(null)}
         onCerrarEdicion={() => setResultadoEdicion(null)}
         onCerrarSenal={() => setResultadoSenal(null)}
+        onCerrarForzar={() => setResultadoForzar(null)}
         onCerrarFinalizar={() => setResultadoFinalizar(null)}
       />
 
@@ -226,6 +208,10 @@ export const FichaConsultaPage = () => {
             setResultadoSenal(null);
             setDialogoSenalAbierto(true);
           }}
+          onForzarInicioEvento={() => {
+            setResultadoForzar(null);
+            setDialogoForzarInicioAbierto(true);
+          }}
           onFinalizarEvento={() => {
             setResultadoFinalizar(null);
             setDialogoFinalizarAbierto(true);
@@ -250,6 +236,7 @@ export const FichaConsultaPage = () => {
             presupuesto: [dialogoPresupuestoAbierto, setDialogoPresupuestoAbierto],
             editarPresupuesto: [dialogoEditarPresupuestoAbierto, setDialogoEditarPresupuestoAbierto],
             senal: [dialogoSenalAbierto, setDialogoSenalAbierto],
+            forzarInicio: [dialogoForzarInicioAbierto, setDialogoForzarInicioAbierto],
             finalizar: [dialogoFinalizarAbierto, setDialogoFinalizarAbierto],
             archivar: [dialogoArchivarAbierto, setDialogoArchivarAbierto],
             descartar: [dialogoDescartarAbierto, setDialogoDescartarAbierto],
@@ -264,6 +251,7 @@ export const FichaConsultaPage = () => {
           onEditadoPresupuesto={(datos) => setResultadoEdicion({ clase: 'edicion', datos })}
           onReenviadoPresupuesto={(datos) => setResultadoEdicion({ clase: 'reenvio', datos })}
           onConfirmadoSenal={setResultadoSenal}
+          onForzado={setResultadoForzar}
           onFinalizado={setResultadoFinalizar}
           // Desenlaces terminales (archivado US-038 / descarte US-013): toast +
           // refetch en el diálogo; la página no guarda estado.

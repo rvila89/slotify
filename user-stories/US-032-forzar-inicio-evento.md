@@ -1,8 +1,8 @@
 ---
 id: US-032
-estado: backlog
-branch: null
-pr: null
+estado: en-revision
+branch: feature/us-032-forzar-inicio-evento
+pr: https://github.com/rvila89/slotify/pull/75
 ---
 
 # 🧾 Historia de Usuario: Gestor fuerza el inicio del evento cuando alguna precondición está incumplida

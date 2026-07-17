@@ -43,6 +43,7 @@ const renderAcciones = (r: Reserva) =>
       onGenerarPresupuesto={noop}
       onEditarPresupuesto={noop}
       onConfirmarSenal={noop}
+      onForzarInicioEvento={noop}
       onFinalizarEvento={noop}
       onArchivarReserva={noop}
       onDescartarConsulta={noop}

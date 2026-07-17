@@ -938,6 +938,29 @@ export const preconditionesEventoCumplidas = (
 };
 
 // ---------------------------------------------------------------------------
+// Guarda PURA de FECHA del FORZADO MANUAL del inicio de evento (US-032 / §D-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guarda de PRECONDICIÓN pura del FORZADO MANUAL del inicio de evento (US-032, §D-2):
+ * ¿coincide `fechaEvento` con `hoy` por FECHA DE CALENDARIO (año-mes-día), NO por
+ * instante? El forzado por el Gestor solo está disponible el DÍA del evento
+ * (`date(fecha_evento) = date(hoy)`); fuera de él el use-case rechaza con 422
+ * (`fecha_evento_no_es_hoy`).
+ *
+ * Es una guarda de precondición sobre el estado actual del agregado (como
+ * `esEstadoValidoParaEditarPresupuesto`), NO una arista de la máquina de estados: no se
+ * añade tabla ni transición. Compara por año-mes-día para blindar el off-by-one horario:
+ * un evento de hoy a las 23:59 (o a las 00:00) sigue siendo "hoy"; el cambio de día de
+ * calendario (ayer/mañana) da `false` con independencia de la hora. Función determinista y
+ * sin efectos; el `hoy` lo calcula UNA vez el use-case y se pasa como argumento.
+ */
+export const esDiaDelEvento = (fechaEvento: Date, hoy: Date): boolean =>
+  fechaEvento.getFullYear() === hoy.getFullYear() &&
+  fechaEvento.getMonth() === hoy.getMonth() &&
+  fechaEvento.getDate() === hoy.getDate();
+
+// ---------------------------------------------------------------------------
 // Transición de FINALIZACIÓN MANUAL de EVENTO (US-034 / UC-25 / §D-2/§D-9)
 // ---------------------------------------------------------------------------
 
