@@ -12,7 +12,9 @@ import { PendienteInvitadosDialog } from '../../../components/PendienteInvitados
 import { ProgramarVisitaDialog } from '../../../components/ProgramarVisitaDialog';
 import { RegistrarResultadoVisitaDialog } from '../../../components/RegistrarResultadoVisitaDialog';
 import { ExtenderBloqueoDialog } from '../../../components/ExtenderBloqueoDialog';
+import { ForzarInicioEventoDialog } from '../../../components/ForzarInicioEventoDialog';
 import { FinalizarEventoDialog } from '../../../components/FinalizarEventoDialog';
+import { precondicionesIncumplidas } from '../../../lib/forzarInicioEvento';
 import { ArchivarReservaDialog } from '../../../components/ArchivarReservaDialog';
 import { DescartarConsultaDialog } from '../../../components/DescartarConsultaDialog';
 import { MAX_DIAS_PROGRAMAR_VISITA_DEFAULT } from '../../../lib/fecha';
@@ -20,6 +22,7 @@ import type { PendienteInvitadosResultado, Reserva } from '../../../model/types'
 import type { components } from '@/api-client';
 
 type FinalizarEventoResponse = components['schemas']['FinalizarEventoResponse'];
+type ForzarInicioEventoResponse = components['schemas']['ForzarInicioEventoResponse'];
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 
@@ -41,6 +44,7 @@ type Props = {
     presupuesto: [boolean, Setter<boolean>];
     editarPresupuesto: [boolean, Setter<boolean>];
     senal: [boolean, Setter<boolean>];
+    forzarInicio: [boolean, Setter<boolean>];
     finalizar: [boolean, Setter<boolean>];
     archivar: [boolean, Setter<boolean>];
     descartar: [boolean, Setter<boolean>];
@@ -55,6 +59,7 @@ type Props = {
   onEditadoPresupuesto: (resultado: EdicionPresupuestoResponse) => void;
   onReenviadoPresupuesto: (resultado: ReenviarPresupuestoResponse) => void;
   onConfirmadoSenal: Setter<ConfirmarSenalResponse | null>;
+  onForzado: Setter<ForzarInicioEventoResponse | null>;
   onFinalizado: Setter<FinalizarEventoResponse | null>;
   /** Desenlaces terminales (archivado US-038 / descarte US-013): la página no guarda
       estado (toast + refetch en el diálogo), así que basta con un callback. */
@@ -76,6 +81,7 @@ export const DialogosFicha = ({
   onEditadoPresupuesto,
   onReenviadoPresupuesto,
   onConfirmadoSenal,
+  onForzado,
   onFinalizado,
   onArchivado,
   onDescartado,
@@ -132,6 +138,13 @@ export const DialogosFicha = ({
       abierto={dialogos.senal[0]}
       onAbiertoChange={dialogos.senal[1]}
       onConfirmado={onConfirmadoSenal}
+    />
+    <ForzarInicioEventoDialog
+      reservaId={reservaId}
+      precondiciones={precondicionesIncumplidas(reserva)}
+      abierto={dialogos.forzarInicio[0]}
+      onAbiertoChange={dialogos.forzarInicio[1]}
+      onForzado={onForzado}
     />
     <FinalizarEventoDialog
       reservaId={reservaId}
