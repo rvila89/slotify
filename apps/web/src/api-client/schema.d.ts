@@ -1406,6 +1406,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/documentos-evento": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Subir un documento obligatorio del evento y refrescar el checklist (UC-24 / US-033)
+         * @description [US-033] El **Gestor** sube uno de los tres documentos obligatorios del evento
+         *     (`dni_anverso`, `dni_reverso`, `clausula_responsabilidad`) para una RESERVA. En una **única
+         *     transacción de BD** (bajo el contexto RLS del tenant del JWT), all-or-nothing:
+         *     1. **Guardas de servidor** (autoritativas, ANTES de subir al almacén o escribir en BD):
+         *        - `RESERVA.estado='evento_en_curso'`. Si está en cualquier otro estado (anterior/posterior,
+         *          incluidos terminales) → **422** (`ESTADO_NO_PERMITE_DOCUMENTACION`) "La documentación del
+         *          evento solo puede capturarse mientras el evento está en curso"; sin efectos.
+         *        - Se adjunta **exactamente un** fichero con `mimeType ∈ {image/jpeg, image/png,
+         *          application/pdf}`, `tamanoBytes > 0` (no vacío/corrupto) y tamaño ≤ 10 MB. Si falta /
+         *          formato no permitido / vacío o corrupto / > 10 MB → **422** (`ARCHIVO_REQUERIDO` /
+         *          `FORMATO_NO_PERMITIDO` / `ARCHIVO_INVALIDO` / `TAMANO_EXCEDIDO`); sin efectos.
+         *        - El `tipo` pertenece a `{dni_anverso, dni_reverso, clausula_responsabilidad}`. Si no →
+         *          **422** (`TIPO_DOCUMENTO_NO_PERMITIDO`); sin efectos.
+         *     2. Sube los bytes al almacén de documentos **durable** (clave con `tenant_id`/`reserva_id`/
+         *        `tipo`/`uuid`, versionada: se conservan todas las versiones) y **crea una nueva fila
+         *        DOCUMENTO** con el `tipo` indicado, `reservaId`, `tenantId` (heredado de la RESERVA, nunca
+         *        del input), `url`, `mimeType`, `nombreArchivo` y `tamanoBytes > 0`. **No transiciona
+         *        `estado`** ni ningún sub-proceso.
+         *     3. `AUDIT_LOG accion='crear'`, `entidad='DOCUMENTO'`, `datos_nuevos` (tipo, reservaId, url,
+         *        mimeType, tamanoBytes), con el usuario del Gestor.
+         *
+         *     **No idempotente por diseño** (design.md §D-no-idempotencia): si ya existe un DOCUMENTO del
+         *     mismo `tipo` para la reserva (p. ej. foto borrosa), NO se rechaza ni se sobrescribe — se crea
+         *     otra fila y se conserva el histórico. El checklist marca el ítem `completado` por existencia
+         *     de ≥ 1 documento del tipo y toma el más reciente por `fechaCreacion` como referencia. Si la
+         *     subida al almacén o cualquier escritura falla, la transacción **revierte por completo** (sin
+         *     DOCUMENTO huérfano ni fichero referenciado por una fila inexistente). La respuesta incluye el
+         *     DOCUMENTO creado y el **checklist actualizado** para refresco en tiempo real (sin round-trip).
+         */
+        post: operations["subirDocumentoEvento"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reservas/{id}/documentos-evento/checklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Consultar el checklist de la documentación obligatoria del evento (UC-24 / US-033)
+         * @description [US-033] Devuelve el **checklist** de la documentación obligatoria del evento de la RESERVA,
+         *     con los **tres ítems** `dni_anverso`, `dni_reverso` y `clausula_responsabilidad`. Para cada
+         *     ítem, `completado = existe ≥ 1 DOCUMENTO de ese tipo + reservaId bajo RLS del tenant`; cuando
+         *     está completado se incluye el `documento` más reciente (por `fechaCreacion`) como referencia.
+         *     El checklist se **deriva por lectura** (no se materializa como estado agregado en la RESERVA)
+         *     y filtra por `tenant_id` del JWT (RLS): nunca incluye documentos de otro tenant. Es una señal
+         *     **informativa, no bloqueante** (FA-01). Consultable tanto en `evento_en_curso` como en
+         *     `post_evento` (para mostrar pendientes tras finalizar y permitir subida tardía).
+         */
+        get: operations["obtenerChecklistDocumentacionEvento"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/presupuestos": {
         parameters: {
             query?: never;
@@ -3432,6 +3512,8 @@ export interface components {
         /** @enum {string} */
         TipoDocumento: "dni_anverso" | "dni_reverso" | "clausula_responsabilidad" | "condiciones_particulares" | "justificante_pago" | "presupuesto" | "factura" | "otro";
         /** @enum {string} */
+        TipoDocumentoEvento: "dni_anverso" | "dni_reverso" | "clausula_responsabilidad";
+        /** @enum {string} */
         CodigoEmail: "E1" | "E2" | "E3" | "E4" | "E5" | "E6" | "E7" | "E8" | "manual";
         LoginRequest: {
             /** Format: email */
@@ -3798,6 +3880,51 @@ export interface components {
              * @enum {string}
              */
             codigo: "CONDICIONES_NO_ENVIADAS";
+        };
+        /** @description DOCUMENTO obligatorio del evento (er-diagram §DOCUMENTO). `reservaId` es obligatorio para la documentación del evento; `tipo` es uno de los tres tipos obligatorios. */
+        DocumentoEvento: {
+            /** Format: uuid */
+            idDocumento: string;
+            tipo: components["schemas"]["TipoDocumentoEvento"];
+            /** Format: uuid */
+            reservaId: string;
+            /** @description URL del fichero en el almacén de documentos durable. */
+            url: string;
+            /** @example image/jpeg */
+            mimeType: string;
+            nombreArchivo: string;
+            /** @description Tamaño del fichero en bytes; siempre > 0 (rechazo de vacío/corrupto). */
+            tamanoBytes: number;
+            /**
+             * Format: date-time
+             * @description Instante de creación de la fila DOCUMENTO; ordena el "más reciente" del checklist.
+             */
+            fechaCreacion: string;
+        };
+        /** @description Estado de uno de los tres tipos obligatorios. `completado = existe ≥ 1 DOCUMENTO de ese tipo para la reserva (bajo RLS)`. `documento` (opcional) es el más reciente por `fechaCreacion`. */
+        ChecklistItemDocumentacionEvento: {
+            tipo: components["schemas"]["TipoDocumentoEvento"];
+            /** @description true si existe al menos un DOCUMENTO de este tipo para la reserva. */
+            completado: boolean;
+            /** @description Documento más reciente (por `fechaCreacion`) de este tipo, cuando `completado=true`. Se omite/`null` si el ítem está pendiente. */
+            documento?: components["schemas"]["DocumentoEvento"] | null;
+        };
+        /** @description Checklist derivado por lectura del estado de la documentación obligatoria del evento. Siempre contiene los tres ítems (`dni_anverso`, `dni_reverso`, `clausula_responsabilidad`). */
+        ChecklistDocumentacionEvento: {
+            items: components["schemas"]["ChecklistItemDocumentacionEvento"][];
+        };
+        SubirDocumentoEventoResponse: {
+            /** @description DOCUMENTO recién creado con el `tipo` subido, `url` y `mimeType` del fichero. */
+            documento: components["schemas"]["DocumentoEvento"];
+            /** @description Checklist tras la subida: el ítem del `tipo` subido queda `completado=true`. */
+            checklist: components["schemas"]["ChecklistDocumentacionEvento"];
+        };
+        SubirDocumentoEventoValidacionError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description `ESTADO_NO_PERMITE_DOCUMENTACION` → la RESERVA no está en `evento_en_curso` ("La documentación del evento solo puede capturarse mientras el evento está en curso"); `TIPO_DOCUMENTO_NO_PERMITIDO` → `tipo` fuera de {dni_anverso, dni_reverso, clausula_responsabilidad}; `ARCHIVO_REQUERIDO` → no se adjuntó fichero; `FORMATO_NO_PERMITIDO` → mime no permitido ("Formato no admitido. Por favor, usa JPEG, PNG o PDF."); `ARCHIVO_INVALIDO` → fichero vacío o corrupto (`tamanoBytes = 0`) ("El archivo no pudo procesarse. Por favor, inténtalo de nuevo con un archivo válido."); `TAMANO_EXCEDIDO` → fichero > 10 MB.
+             * @enum {string}
+             */
+            codigo: "ESTADO_NO_PERMITE_DOCUMENTACION" | "TIPO_DOCUMENTO_NO_PERMITIDO" | "ARCHIVO_REQUERIDO" | "FORMATO_NO_PERMITIDO" | "ARCHIVO_INVALIDO" | "TAMANO_EXCEDIDO";
         };
         /**
          * @description FACTURA de una reserva (`tipo` ∈ {`senal`, `liquidacion`, `fianza`, `complementaria`}), con
@@ -5919,6 +6046,88 @@ export interface operations {
                     "application/json": components["schemas"]["CondicionesFirmadasValidacionError"];
                 };
             };
+        };
+    };
+    subirDocumentoEvento: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Fichero del documento del evento. Formatos permitidos: `image/jpeg`, `image/png`, `application/pdf`. Tamaño máximo 10 MB, `tamanoBytes > 0`. Obligatorio.
+                     */
+                    archivo: string;
+                    /** @description Tipo del documento obligatorio del evento: `dni_anverso`, `dni_reverso` o `clausula_responsabilidad`. Obligatorio. */
+                    tipo: components["schemas"]["TipoDocumentoEvento"];
+                };
+            };
+        };
+        responses: {
+            /**
+             * @description DOCUMENTO del evento creado. Devuelve el DOCUMENTO recién creado y el checklist de la
+             *     documentación obligatoria del evento con el ítem del `tipo` subido ya `completado=true`.
+             *     `RESERVA.estado` y sus sub-procesos no cambian.
+             */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubirDocumentoEventoResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Validación de negocio sin efectos (guarda de estado, tipo no permitido o validación de
+             *     fichero). No se crea DOCUMENTO, no se sube al almacén y no se registra AUDIT_LOG. Un
+             *     `codigo` de dominio discrimina el caso.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubirDocumentoEventoValidacionError"];
+                };
+            };
+        };
+    };
+    obtenerChecklistDocumentacionEvento: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Checklist de la documentación obligatoria del evento (tres ítems). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChecklistDocumentacionEvento"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listarFacturasReserva: {

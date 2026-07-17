@@ -3,13 +3,6 @@ import { useParams } from 'react-router-dom';
 import { CalendarPlus, User } from 'lucide-react';
 import type { ConfirmarPresupuestoResponse } from '@/features/presupuestos';
 import type { ConfirmarSenalResponse } from '@/features/confirmacion';
-import {
-  FacturaSenalCard,
-  DocumentosLiquidacionFianza,
-  DevolucionFianzaCard,
-} from '@/features/facturacion';
-import { FichaOperativaCard } from '@/features/ficha-operativa';
-import { CondicionesFirmadasCard, debeMostrarSeccionCondiciones } from '@/features/condiciones-firmadas';
 import { useReserva } from '../../api/useReserva';
 import { formatearFecha } from '../../lib/fecha';
 import { Badge } from './components/Badge';
@@ -18,8 +11,7 @@ import { AccionesConsulta } from './components/AccionesConsulta';
 import { AvisosFicha } from './components/AvisosFicha';
 import { DialogosFicha } from './components/DialogosFicha';
 import type { ResultadoEdicion } from './components/AvisosEdicionPresupuesto';
-import { IbanDevolucionCard } from '../../components/IbanDevolucionCard';
-import { puedeRegistrarIban } from '../../lib/ibanDevolucion';
+import { SeccionesFicha } from './components/SeccionesFicha';
 import type { PendienteInvitadosResultado, Reserva } from '../../model/types';
 import type { components } from '@/api-client';
 type FinalizarEventoResponse = components['schemas']['FinalizarEventoResponse'];
@@ -229,65 +221,7 @@ export const FichaConsultaPage = () => {
         />
       </section>
 
-      {id && reserva.estado === 'reserva_confirmada' && <FacturaSenalCard reservaId={id} />}
-
-      {id && reserva.estado === 'reserva_confirmada' && (
-        <DocumentosLiquidacionFianza
-          reservaId={id}
-          liquidacionStatus={reserva.liquidacionStatus}
-          fianzaStatus={reserva.fianzaStatus}
-          fechaEvento={reserva.fechaEvento}
-          fianzaEur={reserva.fianzaEur}
-          fianzaCobradaFecha={reserva.fianzaCobradaFecha}
-        />
-      )}
-
-      {/* Ficha operativa del evento (US-025): editable desde `reserva_confirmada`
-          y fases posteriores. El propio componente resuelve el 409
-          `ficha_no_disponible` mostrando el mensaje contextual. */}
-      {id &&
-        (reserva.estado === 'reserva_confirmada' ||
-          reserva.estado === 'evento_en_curso' ||
-          reserva.estado === 'post_evento') && <FichaOperativaCard reservaId={id} />}
-
-      {/* US-024: registrar la firma de las condiciones particulares. Visible en los
-          tres estados válidos del ciclo (`reserva_confirmada`, `evento_en_curso`,
-          `post_evento`). La tarjeta resuelve internamente los estados de la UI:
-          E3 no enviado (acción no disponible), pendiente de firma (alerta FA-01 +
-          acción), firmada (resumen) y re-firma. El backend revalida (409/422). */}
-      {id && debeMostrarSeccionCondiciones(reserva) && (
-        <CondicionesFirmadasCard
-          reservaId={id}
-          condPartFechaEnvio={reserva.condPartFechaEnvio}
-          condPartFirmadas={reserva.condPartFirmadas}
-          condPartFechaFirma={reserva.condPartFechaFirma}
-        />
-      )}
-
-      {/* US-035: registrar el IBAN de devolución. Solo visible en `post_evento` con
-          fianza cobrada (`fianzaEur > 0`) — FA-04; precarga el IBAN existente del
-          cliente en corrección — FA-02. El backend revalida la precondición (409). */}
-      {id && puedeRegistrarIban(reserva.estado, reserva.fianzaEur) && (
-        <IbanDevolucionCard reservaId={id} ibanExistente={reserva.cliente?.ibanDevolucion} />
-      )}
-
-      {/* US-036: registrar la devolución de la fianza. Visible en `post_evento` con fianza cobrada
-          (`fianzaEur > 0`). La tarjeta habilita la acción solo cuando además hay IBAN de devolución
-          (precondición triple), muestra el resumen final si ya está devuelta/retenida_parcial y el
-          aviso de FA-04 si se registró sin justificante. El backend revalida (409). */}
-      {id && reserva.estado === 'post_evento' && puedeRegistrarIban(reserva.estado, reserva.fianzaEur) && (
-        <DevolucionFianzaCard
-          reservaId={id}
-          estado={reserva.estado}
-          fianzaStatus={reserva.fianzaStatus}
-          fianzaEur={reserva.fianzaEur}
-          fianzaCobradaFecha={reserva.fianzaCobradaFecha}
-          fianzaDevueltaEur={reserva.fianzaDevueltaEur}
-          fianzaDevueltaFecha={reserva.fianzaDevueltaFecha}
-          motivoRetencion={reserva.motivoRetencion}
-          ibanDevolucion={reserva.cliente?.ibanDevolucion}
-        />
-      )}
+      {id && <SeccionesFicha reservaId={id} reserva={reserva} />}
 
       {id && (
         <DialogosFicha

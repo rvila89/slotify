@@ -29,6 +29,7 @@ import { TareasModule } from './tareas/tareas.module';
 import { DashboardsModule } from './dashboards/dashboards.module';
 import { ConfiguracionModule } from './configuracion/configuracion.module';
 import { DocumentosModule } from './documentos/documentos.module';
+import { DocumentacionEventoModule } from './documentacion-evento/documentacion-evento.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { DocumentosModule } from './documentos/documentos.module';
     DashboardsModule,
     ConfiguracionModule,
     DocumentosModule,
+    DocumentacionEventoModule,
   ],
   providers: [
     {

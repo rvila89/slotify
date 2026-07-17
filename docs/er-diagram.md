@@ -929,6 +929,8 @@ Archivos adjuntos polimórficos. Discriminador `tipo`. Referenciable desde reser
 
 **Nota sobre múltiples filas `condiciones_particulares` por reserva (UC-19, segundo flujo — US-024):** la tabla **no impone unicidad por `(reserva_id, tipo)`**. Para el tipo `condiciones_particulares` pueden coexistir dos o más filas en la misma reserva sin conflicto: la fila original no firmada (creada/reutilizada de forma idempotente en US-023 al enviar E3) y las copias firmadas añadidas posteriormente (US-024, una por cada registro de firma o re-firma). Esto es intencional y no requiere migración. El DOCUMENTO original no firmado persiste siempre; la copia firmada más reciente es la de referencia. Ver §5.5 y §5.10.
 
+**Uso para documentación del evento (UC-24 — US-033):** los tipos `dni_anverso`, `dni_reverso` y `clausula_responsabilidad` se usan exclusivamente en el flujo de captura de documentación obligatoria del evento (`POST /reservas/{id}/documentos-evento`). La subida es **no idempotente por diseño**: cada llamada crea una fila `DOCUMENTO` nueva sin buscar-antes-de-crear (contraste con US-023). Múltiples filas del mismo tipo para la misma reserva conviven sin conflicto; el documento de referencia del checklist es el **más reciente** por `fechaCreacion`. Guarda de escritura: solo `RESERVA.estado = evento_en_curso`. El checklist (`GET /reservas/{id}/documentos-evento/checklist`) es consultable también en `post_evento` (lectura, no escritura). `AUDIT_LOG accion='crear'`, `entidad='DOCUMENTO'`. Sin migración de esquema (enum `TipoDocumento` y tabla `DOCUMENTO` ya existían). Ver §5.11.
+
 ### 3.17 COMUNICACION
 Log de emails del ciclo de vida de la reserva (E1–E8) y emails manuales. El motor hexagonal `DespacharEmailService` (US-045) es el único responsable de registrar y actualizar estas entradas para los emails automáticos.
 
@@ -1205,9 +1207,30 @@ La rebanada 6.4a añade la generación del PDF de "Condicions particulars" y su 
 | 6.5 | Storage durable en disco + ruta estática `GET /almacen/*` + logo en seed + rediseño de plantilla fiel al documento real de Masia | Implementada |
 | US-023 | Persistencia de `DOCUMENTO(tipo='condiciones_particulares')` en la tx E3 (GAP 1); condiciones como requisito duro de E3 —revierte degradación de 6.4b— (GAP 2); nuevo endpoint `POST /reservas/{id}/facturas/senal/reenviar` — `reenviarE3` (GAP 3) | Implementada |
 | US-024 | Registro de la firma de condiciones particulares — `POST /reservas/{id}/condiciones-firmadas` (segundo flujo de UC-19): crea `DOCUMENTO(tipo='condiciones_particulares')` firmado, actualiza `cond_part_firmadas=true` + `cond_part_firmadas_fecha`, AUDIT_LOG `actualizar`. Re-firma permitida (no idempotente). Sin migración. | Implementada |
+| US-033 | Captura de documentación del evento — `POST /reservas/{id}/documentos-evento` + `GET /reservas/{id}/documentos-evento/checklist` (UC-24): subida no idempotente de `dni_anverso`, `dni_reverso`, `clausula_responsabilidad` en `evento_en_curso`; checklist derivado en tiempo real; `AlmacenDocumentosPort` durable reutilizado; `DocumentoRepositoryPort` generalizado a `TipoDocumentoDominio` + `listarPorReservaYTipos`. Sin migración. | Implementada |
 | B1 | Adaptador cloud S3/Supabase para `AlmacenDocumentosPort` | Diferido |
 
 ---
+
+### 5.11 Captura de documentación del evento (US-033 / UC-24)
+
+US-033 implementa el flujo de captura de documentación obligatoria durante el evento. Reutiliza la tabla `DOCUMENTO` y el `AlmacenDocumentosPort` sin migración de esquema.
+
+**Tipos de documento del evento:** los valores `dni_anverso`, `dni_reverso` y `clausula_responsabilidad` del enum `TipoDocumento` (ya existente en `schema.prisma`) se usan exclusivamente para la documentación del evento. El resto de valores del enum tienen sus propios flujos: `condiciones_particulares` (UC-19, US-023/024), `justificante_pago` (UC-17/21), `presupuesto` y `factura` (épico #6).
+
+**No-idempotencia (contraste con US-023):** cada llamada a `POST /reservas/{id}/documentos-evento` crea una fila `DOCUMENTO` nueva sin comprobar filas previas del mismo tipo. La tabla no impone unicidad por `(reserva_id, tipo)`, de modo que múltiples versiones del mismo tipo conviven para la misma reserva. El documento de referencia del checklist es el más reciente por `fechaCreacion`. Contrasta con US-023 (condiciones particulares), donde el use-case hace buscar-antes-de-crear para idempotencia. Las dos políticas conviven porque la decisión de idempotencia es responsabilidad del use-case, no del puerto ni de la tabla.
+
+**Almacenamiento:** clave `documentos-evento/{tenantId}/{reservaId}/{tipo}/{uuid}.{ext}` en el adaptador durable (`local` por defecto; extensible a S3/Supabase sin tocar el dominio).
+
+**Generalización de `DocumentoRepositoryPort`:** el puerto de persistencia de `DOCUMENTO` (capability `documentos`) se amplía de forma aditiva y compatible hacia atrás: (1) el tipo del campo `tipo` pasa del literal `'condiciones_particulares'` al union de dominio `TipoDocumentoDominio` (declara todos los valores sin importar Prisma); (2) se añade el método `listarPorReservaYTipos({ reservaId, tenantId, tipos })` para construir el checklist (ordenado por `fechaCreacion` desc, bajo RLS). US-023 sigue funcionando igual: pasa `'condiciones_particulares'` (subconjunto válido del union).
+
+**Guarda de escritura:** `esEstadoQuePermiteDocumentacionEvento(estado)` → solo `evento_en_curso`. No es una transición del grafo `maquina-estados.ts`; es una guarda de precondición declarativa (patrón de US-006/US-024). El checklist (GET) es consultable también en `post_evento` para subidas tardías y para la advertencia informativa de UC-25.
+
+**Auditoría:** `AUDIT_LOG accion='crear'`, `entidad='DOCUMENTO'`, `usuario_id` del Gestor (acción de usuario, no de Sistema). Sin impacto en `RESERVA` ni en `FECHA_BLOQUEADA`; sin locks distribuidos.
+
+---
+
+*Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 5.2 (17/07/2026): refleja change `us-033-capturar-documentacion-evento` (US-033, UC-24) — añade nota en §3.16 DOCUMENTO sobre el uso de `dni_anverso`, `dni_reverso` y `clausula_responsabilidad` para la documentación del evento (no-idempotencia, guarda `evento_en_curso`, checklist consultable también en `post_evento`, referencia a §5.11); añade §5.11 con la descripción completa de US-033 (tipos de documento del evento, no-idempotencia vs. US-023, clave de almacenamiento versionada, generalización de `DocumentoRepositoryPort` a `TipoDocumentoDominio` + `listarPorReservaYTipos`, guarda de precondición declarativa, auditoría, sin locks distribuidos); añade US-033 al roadmap del épico #6. Sin cambio de modelo de datos (cero migraciones; enum `TipoDocumento` y tabla `DOCUMENTO` ya existían desde el diseño inicial).*
 
 *Documento generado el 24/05/2026 como parte del modelado de datos del TFM de Slotify. Versión 5.1 (15/07/2026): refleja change `firma-condiciones-particulares-us024` (US-024, segundo flujo de UC-19) — amplía las descripciones de `cond_part_firmadas`, `cond_part_enviadas_fecha` y `cond_part_firmadas_fecha` en §3.9 (naming wire `condPartFirmadas`/`condPartFechaFirma`); añade nota en §3.16 DOCUMENTO sobre la no-unicidad de `(reserva_id, tipo)` y la convivencia de filas `condiciones_particulares` firmadas y no firmadas; amplía §5.5 con el segundo flujo de UC-19 completo (guardas, atomicidad, re-firma, señal FA-01, cron fuera de alcance); añade US-024 al roadmap del épico #6. Sin cambio de modelo de datos (cero migraciones).*
 
