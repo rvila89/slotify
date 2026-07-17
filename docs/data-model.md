@@ -2,8 +2,8 @@
 
 > **Documento**: Modelo de Datos (definición de entidades, campos y reglas)
 > **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados
-> **Versión**: 1.4
-> **Fecha**: 14/07/2026
+> **Versión**: 1.5
+> **Fecha**: 17/07/2026
 > **Fuente canónica del ERD**: [er-diagram.md](./er-diagram.md) · **Arquitectura**: [architecture.md](./architecture.md) · **Casos de uso**: [use-cases.md](./use-cases.md)
 
 ---
@@ -554,6 +554,8 @@ Archivos adjuntos polimórficos. Discriminador `tipo`. Referenciable desde reser
 | `fecha_creacion` | `DateTime @default(now())` | |
 
 **Persistencia de `tipo=condiciones_particulares` en E3 (US-023, change `condiciones-particulares-e3-us023`):** al ejecutar `POST /reservas/{id}/facturas/senal/enviar`, el use-case `EnviarFacturaSenalUseCase` crea o reutiliza **un único** `DOCUMENTO` con `tipo='condiciones_particulares'` dentro de la misma transacción atómica (`reservaId`, `tenantId`, `url` = clave `condiciones/{tenantId}.pdf`, `mimeType='application/pdf'`). Idempotencia: si ya existe un `DOCUMENTO` de ese tipo para la reserva (reenvíos futuros vía `POST .../reenviar`), se reutiliza sin crear una segunda fila ni registrar un segundo AUDIT_LOG `crear`. Sin migración: el enum `TipoDocumento` ya incluía `condiciones_particulares`.
+
+**Persistencia de `tipo ∈ {dni_anverso, dni_reverso, clausula_responsabilidad}` para la documentación del evento (US-033, UC-24):** al ejecutar `POST /reservas/{id}/documentos-evento`, el use-case crea **siempre una fila nueva** (sin buscar-antes-de-crear; **no idempotente**). La tabla no impone unicidad por `(reserva_id, tipo)`, de modo que conviven múltiples versiones del mismo tipo para la misma reserva. El documento de referencia del checklist (`GET /reservas/{id}/documentos-evento/checklist`) es el **más reciente** por `fechaCreacion`. Guarda de escritura: solo `RESERVA.estado = evento_en_curso`. El checklist es consultable también en `post_evento`. `AUDIT_LOG accion='crear'`, `entidad='DOCUMENTO'`. Sin migración: el enum `TipoDocumento` ya incluía estos valores. Clave de almacén durable: `documentos-evento/{tenantId}/{reservaId}/{tipo}/{uuid}.{ext}`. Contrasta con la idempotencia de `condiciones_particulares` en US-023; las dos políticas conviven porque la decisión de idempotencia es del use-case, no del puerto ni de la tabla. Ver [er-diagram.md §3.16 y §5.11](./er-diagram.md).
 
 ### 3.16 Comunicacion
 Log de emails enviados (E1–E8 + manuales). El motor hexagonal `DespacharEmailService` (US-045) es el único responsable de registrar y actualizar las entradas de esta entidad para los emails del ciclo de vida.

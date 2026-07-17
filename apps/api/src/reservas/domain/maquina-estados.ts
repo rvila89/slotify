@@ -547,6 +547,43 @@ export const esEstadoValidoParaEditarPresupuesto = (
 ): boolean => ESTADOS_VALIDOS_EDITAR_PRESUPUESTO.includes(estado);
 
 // ---------------------------------------------------------------------------
+// Guarda de PRECONDICIÓN «capturar documentación obligatoria del evento»
+// (US-033 / UC-24 / design.md §D-no-transicion)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tabla declarativa de ESTADOS válidos para CAPTURAR (escribir) la documentación
+ * obligatoria del evento (US-033, skill `state-machine`, NO condicionales dispersos).
+ * Como `ESTADOS_VALIDOS_REGISTRAR_FIRMA_CONDICIONES` (US-024) y
+ * `ESTADOS_BLOQUEO_BLANDO_EXTENSIBLE` (US-006), es una PRECONDICIÓN sobre el estado
+ * ACTUAL del agregado —NO una transición origen→destino—: la subida CREA una fila
+ * DOCUMENTO pero la RESERVA NO transiciona (§D-no-transicion), por eso NO se añade
+ * ninguna arista al grafo. Regla ESTRICTA MONO-estado del Gate 1: válido ⇔ `estado =
+ * 'evento_en_curso'` (a diferencia de US-024, multi-estado `{reserva_confirmada,
+ * evento_en_curso, post_evento}`). NO son válidos `consulta` (todos sus sub-estados),
+ * `pre_reserva`, `reserva_confirmada` (aún no ha empezado el evento), `post_evento`
+ * (evento ya finalizado — la ESCRITURA se cierra; el checklist GET sí es consultable,
+ * pero eso lo decide la query, no esta guarda) ni los terminales
+ * `reserva_completada`/`reserva_cancelada` (inmutables) → 422 sin efectos.
+ */
+const ESTADOS_VALIDOS_DOCUMENTACION_EVENTO: ReadonlyArray<EstadoReserva> = [
+  'evento_en_curso',
+];
+
+/**
+ * Guarda declarativa de PRECONDICIÓN: ¿es `estado` un estado VÁLIDO para capturar
+ * (escribir) la documentación obligatoria del evento (US-033)? Consulta la tabla
+ * `ESTADOS_VALIDOS_DOCUMENTACION_EVENTO`: solo `evento_en_curso` lo es. Se evalúa ANTES
+ * de subir al almacén y de abrir la transacción para rechazar sin efectos con 422
+ * (`ESTADO_NO_PERMITE_DOCUMENTACION`) cualquier otro estado. El checklist GET es más
+ * permisivo (consultable también en `post_evento`, FA-01): esa permisividad la decide la
+ * query de checklist, NO esta guarda de escritura.
+ */
+export const esEstadoQuePermiteDocumentacionEvento = (
+  estado: EstadoReserva,
+): boolean => ESTADOS_VALIDOS_DOCUMENTACION_EVENTO.includes(estado);
+
+// ---------------------------------------------------------------------------
 // Transición TERMINAL por EXPIRACIÓN de TTL (US-012 / UC-09 / §D-3)
 // ---------------------------------------------------------------------------
 

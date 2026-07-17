@@ -1,7 +1,7 @@
 ---
 id: US-033
-estado: backlog
-branch: null
+estado: en_curso
+branch: feature/us-033-capturar-documentacion-evento
 pr: null
 ---
 

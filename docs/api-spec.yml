@@ -79,6 +79,12 @@ tags:
     description: Envío y log de emails E1–E8 y manuales (UC-35, UC-36)
   - name: Documentos
     description: Subida y descarga de documentos polimórficos (UC-19, UC-24)
+  - name: DocumentacionEvento
+    description: >-
+      Captura de la documentación obligatoria del evento (DNI anverso/reverso, cláusula de
+      responsabilidad firmada) y su checklist en tiempo real (UC-24 / US-033). La subida solo se
+      admite con `RESERVA.estado='evento_en_curso'`; el checklist es consultable también en
+      `post_evento`.
   - name: Cron
     description: Endpoint protegido de barrido periódico (TTLs, cola, recordatorios)
 
@@ -1639,6 +1645,130 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CondicionesFirmadasValidacionError' }
+
+  # [US-033 / UC-24] Captura de la documentación obligatoria del evento. Espejo del patrón multipart
+  # de `confirmar-senal` (US-021) y `condiciones-firmadas` (US-024): multipart/form-data, campo
+  # binario obligatorio (`archivo`), mime whitelist {image/jpeg, image/png, application/pdf}, ≤ 10 MB,
+  # validación autoritativa en servidor. A diferencia de `confirmar-senal`, NO transiciona el estado
+  # (design.md §D-no-transicion): crea una fila DOCUMENTO (`accion='crear'`) del `tipo` indicado
+  # (dni_anverso | dni_reverso | clausula_responsabilidad) y devuelve el checklist actualizado. La
+  # subida es NO idempotente (design.md §D-no-idempotencia): re-subir el mismo tipo crea una fila
+  # nueva y conserva el histórico. @Roles('gestor'), @HttpCode(201) (creación de recurso, Gate 1).
+  # Guarda de escritura: `RESERVA.estado='evento_en_curso'` (design.md §D-no-transicion). Rutas y
+  # campos fijados en el Gate 1 humano: `/reservas/{id}/documentos-evento` + campos `archivo`/`tipo`.
+  /reservas/{id}/documentos-evento:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [DocumentacionEvento]
+      summary: Subir un documento obligatorio del evento y refrescar el checklist (UC-24 / US-033)
+      operationId: subirDocumentoEvento
+      description: |
+        [US-033] El **Gestor** sube uno de los tres documentos obligatorios del evento
+        (`dni_anverso`, `dni_reverso`, `clausula_responsabilidad`) para una RESERVA. En una **única
+        transacción de BD** (bajo el contexto RLS del tenant del JWT), all-or-nothing:
+        1. **Guardas de servidor** (autoritativas, ANTES de subir al almacén o escribir en BD):
+           - `RESERVA.estado='evento_en_curso'`. Si está en cualquier otro estado (anterior/posterior,
+             incluidos terminales) → **422** (`ESTADO_NO_PERMITE_DOCUMENTACION`) "La documentación del
+             evento solo puede capturarse mientras el evento está en curso"; sin efectos.
+           - Se adjunta **exactamente un** fichero con `mimeType ∈ {image/jpeg, image/png,
+             application/pdf}`, `tamanoBytes > 0` (no vacío/corrupto) y tamaño ≤ 10 MB. Si falta /
+             formato no permitido / vacío o corrupto / > 10 MB → **422** (`ARCHIVO_REQUERIDO` /
+             `FORMATO_NO_PERMITIDO` / `ARCHIVO_INVALIDO` / `TAMANO_EXCEDIDO`); sin efectos.
+           - El `tipo` pertenece a `{dni_anverso, dni_reverso, clausula_responsabilidad}`. Si no →
+             **422** (`TIPO_DOCUMENTO_NO_PERMITIDO`); sin efectos.
+        2. Sube los bytes al almacén de documentos **durable** (clave con `tenant_id`/`reserva_id`/
+           `tipo`/`uuid`, versionada: se conservan todas las versiones) y **crea una nueva fila
+           DOCUMENTO** con el `tipo` indicado, `reservaId`, `tenantId` (heredado de la RESERVA, nunca
+           del input), `url`, `mimeType`, `nombreArchivo` y `tamanoBytes > 0`. **No transiciona
+           `estado`** ni ningún sub-proceso.
+        3. `AUDIT_LOG accion='crear'`, `entidad='DOCUMENTO'`, `datos_nuevos` (tipo, reservaId, url,
+           mimeType, tamanoBytes), con el usuario del Gestor.
+
+        **No idempotente por diseño** (design.md §D-no-idempotencia): si ya existe un DOCUMENTO del
+        mismo `tipo` para la reserva (p. ej. foto borrosa), NO se rechaza ni se sobrescribe — se crea
+        otra fila y se conserva el histórico. El checklist marca el ítem `completado` por existencia
+        de ≥ 1 documento del tipo y toma el más reciente por `fechaCreacion` como referencia. Si la
+        subida al almacén o cualquier escritura falla, la transacción **revierte por completo** (sin
+        DOCUMENTO huérfano ni fichero referenciado por una fila inexistente). La respuesta incluye el
+        DOCUMENTO creado y el **checklist actualizado** para refresco en tiempo real (sin round-trip).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [archivo, tipo]
+              properties:
+                archivo:
+                  type: string
+                  format: binary
+                  description: >-
+                    Fichero del documento del evento. Formatos permitidos: `image/jpeg`, `image/png`,
+                    `application/pdf`. Tamaño máximo 10 MB, `tamanoBytes > 0`. Obligatorio.
+                tipo:
+                  allOf: [{ $ref: '#/components/schemas/TipoDocumentoEvento' }]
+                  description: >-
+                    Tipo del documento obligatorio del evento: `dni_anverso`, `dni_reverso` o
+                    `clausula_responsabilidad`. Obligatorio.
+      responses:
+        '201':
+          description: |
+            DOCUMENTO del evento creado. Devuelve el DOCUMENTO recién creado y el checklist de la
+            documentación obligatoria del evento con el ítem del `tipo` subido ya `completado=true`.
+            `RESERVA.estado` y sus sub-procesos no cambian.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubirDocumentoEventoResponse' }
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: |
+            Validación de negocio sin efectos (guarda de estado, tipo no permitido o validación de
+            fichero). No se crea DOCUMENTO, no se sube al almacén y no se registra AUDIT_LOG. Un
+            `codigo` de dominio discrimina el caso.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubirDocumentoEventoValidacionError' }
+
+  # [US-033 / UC-24] Checklist consultable del estado de la documentación obligatoria del evento.
+  # Derivado por lectura de las filas DOCUMENTO (design.md §D-checklist), no materializado. @Roles
+  # ('gestor'). Más permisivo que la escritura: consultable también en `post_evento` (FA-01, subida
+  # tardía). RLS por tenant del JWT.
+  /reservas/{id}/documentos-evento/checklist:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    get:
+      tags: [DocumentacionEvento]
+      summary: Consultar el checklist de la documentación obligatoria del evento (UC-24 / US-033)
+      operationId: obtenerChecklistDocumentacionEvento
+      description: |
+        [US-033] Devuelve el **checklist** de la documentación obligatoria del evento de la RESERVA,
+        con los **tres ítems** `dni_anverso`, `dni_reverso` y `clausula_responsabilidad`. Para cada
+        ítem, `completado = existe ≥ 1 DOCUMENTO de ese tipo + reservaId bajo RLS del tenant`; cuando
+        está completado se incluye el `documento` más reciente (por `fechaCreacion`) como referencia.
+        El checklist se **deriva por lectura** (no se materializa como estado agregado en la RESERVA)
+        y filtra por `tenant_id` del JWT (RLS): nunca incluye documentos de otro tenant. Es una señal
+        **informativa, no bloqueante** (FA-01). Consultable tanto en `evento_en_curso` como en
+        `post_evento` (para mostrar pendientes tras finalizar y permitir subida tardía).
+      responses:
+        '200':
+          description: Checklist de la documentación obligatoria del evento (tres ítems).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChecklistDocumentacionEvento' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /reservas/{id}/presupuestos:
     parameters:
@@ -3876,6 +4006,12 @@ components:
     TipoDocumento:
       type: string
       enum: [dni_anverso, dni_reverso, clausula_responsabilidad, condiciones_particulares, justificante_pago, presupuesto, factura, otro]
+    # [US-033] Subconjunto de TipoDocumento con los tres documentos OBLIGATORIOS del evento. Se
+    # declara aparte para que el multipart `tipo` y el checklist validen solo estos tres por enum
+    # (design.md §D-endpoints); el enum completo TipoDocumento sigue siendo el del schema Documento.
+    TipoDocumentoEvento:
+      type: string
+      enum: [dni_anverso, dni_reverso, clausula_responsabilidad]
     CodigoEmail:
       type: string
       enum: [E1, E2, E3, E4, E5, E6, E7, E8, manual]
@@ -4618,6 +4754,104 @@ components:
                 `CONDICIONES_NO_ENVIADAS` → `RESERVA.cond_part_enviadas_fecha` es nulo: las condiciones
                 particulares aún no se han enviado al cliente por E3 (US-023) → "Las condiciones
                 particulares no han sido enviadas al cliente aún".
+
+    # -------- US-033: Documentación obligatoria del evento (documentacion-evento) --------
+    # Schemas del POST /reservas/{id}/documentos-evento y GET .../checklist. La respuesta reutiliza
+    # el envelope ErrorResponse + `codigo` (mismo patrón que ConfirmarSenal/CondicionesFirmadas). Se
+    # define un DocumentoEvento dedicado (no se reutiliza el schema Documento genérico) porque US-033
+    # necesita exponer `fechaCreacion` (referencia del "más reciente" del checklist) y `reservaId`
+    # obligatorio, campos que el schema Documento genérico no modela; su `tipo` se acota al enum
+    # TipoDocumentoEvento (design.md §D-checklist / §D-no-idempotencia).
+    DocumentoEvento:
+      type: object
+      description: >-
+        DOCUMENTO obligatorio del evento (er-diagram §DOCUMENTO). `reservaId` es obligatorio para la
+        documentación del evento; `tipo` es uno de los tres tipos obligatorios.
+      required: [idDocumento, tipo, reservaId, url, mimeType, nombreArchivo, tamanoBytes, fechaCreacion]
+      properties:
+        idDocumento: { type: string, format: uuid }
+        tipo: { $ref: '#/components/schemas/TipoDocumentoEvento' }
+        reservaId: { type: string, format: uuid }
+        url: { type: string, description: 'URL del fichero en el almacén de documentos durable.' }
+        mimeType: { type: string, example: image/jpeg }
+        nombreArchivo: { type: string }
+        tamanoBytes:
+          type: integer
+          minimum: 1
+          description: 'Tamaño del fichero en bytes; siempre > 0 (rechazo de vacío/corrupto).'
+        fechaCreacion:
+          type: string
+          format: date-time
+          description: 'Instante de creación de la fila DOCUMENTO; ordena el "más reciente" del checklist.'
+    ChecklistItemDocumentacionEvento:
+      type: object
+      description: >-
+        Estado de uno de los tres tipos obligatorios. `completado = existe ≥ 1 DOCUMENTO de ese tipo
+        para la reserva (bajo RLS)`. `documento` (opcional) es el más reciente por `fechaCreacion`.
+      required: [tipo, completado]
+      properties:
+        tipo: { $ref: '#/components/schemas/TipoDocumentoEvento' }
+        completado:
+          type: boolean
+          description: 'true si existe al menos un DOCUMENTO de este tipo para la reserva.'
+        documento:
+          allOf: [{ $ref: '#/components/schemas/DocumentoEvento' }]
+          nullable: true
+          description: >-
+            Documento más reciente (por `fechaCreacion`) de este tipo, cuando `completado=true`. Se
+            omite/`null` si el ítem está pendiente.
+    ChecklistDocumentacionEvento:
+      type: object
+      description: >-
+        Checklist derivado por lectura del estado de la documentación obligatoria del evento. Siempre
+        contiene los tres ítems (`dni_anverso`, `dni_reverso`, `clausula_responsabilidad`).
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: { $ref: '#/components/schemas/ChecklistItemDocumentacionEvento' }
+    SubirDocumentoEventoResponse:
+      # 201: el DOCUMENTO creado + el checklist actualizado (refresco en tiempo real, sin round-trip).
+      type: object
+      required: [documento, checklist]
+      properties:
+        documento:
+          allOf: [{ $ref: '#/components/schemas/DocumentoEvento' }]
+          description: 'DOCUMENTO recién creado con el `tipo` subido, `url` y `mimeType` del fichero.'
+        checklist:
+          allOf: [{ $ref: '#/components/schemas/ChecklistDocumentacionEvento' }]
+          description: 'Checklist tras la subida: el ítem del `tipo` subido queda `completado=true`.'
+    SubirDocumentoEventoValidacionError:
+      # 422 (guarda de estado / tipo no permitido / validación de fichero, sin efectos). Un `codigo` de
+      # dominio discrimina el caso. Sin DOCUMENTO, sin subida al almacén, sin AUDIT_LOG. Mismo patrón
+      # allOf(ErrorResponse) + `codigo` que ConfirmarSenalValidacionError (US-021).
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo]
+          properties:
+            codigo:
+              type: string
+              enum:
+                - ESTADO_NO_PERMITE_DOCUMENTACION
+                - TIPO_DOCUMENTO_NO_PERMITIDO
+                - ARCHIVO_REQUERIDO
+                - FORMATO_NO_PERMITIDO
+                - ARCHIVO_INVALIDO
+                - TAMANO_EXCEDIDO
+              description: >-
+                `ESTADO_NO_PERMITE_DOCUMENTACION` → la RESERVA no está en `evento_en_curso` ("La
+                documentación del evento solo puede capturarse mientras el evento está en curso");
+                `TIPO_DOCUMENTO_NO_PERMITIDO` → `tipo` fuera de {dni_anverso, dni_reverso,
+                clausula_responsabilidad};
+                `ARCHIVO_REQUERIDO` → no se adjuntó fichero;
+                `FORMATO_NO_PERMITIDO` → mime no permitido ("Formato no admitido. Por favor, usa JPEG,
+                PNG o PDF.");
+                `ARCHIVO_INVALIDO` → fichero vacío o corrupto (`tamanoBytes = 0`) ("El archivo no pudo
+                procesarse. Por favor, inténtalo de nuevo con un archivo válido.");
+                `TAMANO_EXCEDIDO` → fichero > 10 MB.
 
     # -------- US-022: Factura de señal (facturacion) --------
     # [US-022 / UC-18] La FACTURA es el agregado raíz de la capability `facturacion`. FacturaSenalDto
