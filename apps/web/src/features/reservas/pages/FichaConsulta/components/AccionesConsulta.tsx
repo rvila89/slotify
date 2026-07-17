@@ -3,24 +3,22 @@ import {
   CalendarPlus,
   ClipboardCheck,
   Flag,
-  FileText,
   Info,
   Mail,
   Timer,
   Users,
 } from 'lucide-react';
-import {
-  motivoNoPuedeGenerar,
-  puedeEditarPresupuesto,
-  puedeGenerarPresupuesto,
-} from '@/features/presupuestos';
+import { puedeEditarPresupuesto } from '@/features/presupuestos';
 import { puedeConfirmarSenal } from '@/features/confirmacion';
 import { aforoDeReserva } from '../../../lib/aforo';
 import { bloqueoVigente, puedeExtenderBloqueo } from '../../../lib/fecha';
 import { puedeFinalizarEvento } from '../../../lib/finalizarEvento';
+import { puedeForzarInicioEvento } from '../../../lib/forzarInicioEvento';
 import { puedeArchivarReserva } from '../../../lib/archivarReserva';
 import { AccionArchivar } from './AccionArchivar';
 import { AccionDescartar } from './AccionDescartar';
+import { AccionForzarInicio } from './AccionForzarInicio';
+import { AccionPresupuesto } from './AccionPresupuesto';
 import { AccionesPreReserva } from './AccionesPreReserva';
 import type { Reserva } from '../../../model/types';
 
@@ -45,11 +43,6 @@ import type { Reserva } from '../../../model/types';
 const claseBotonAccion =
   'inline-flex h-14 w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-10 font-display text-base text-brand-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-16';
 
-// "Generar presupuesto" es el CTA principal para avanzar de estado → verde del
-// sistema de diseño (token semántico `accent-success`), a diferencia del resto.
-const claseBotonPresupuesto =
-  'inline-flex h-14 w-full items-center justify-center gap-2 rounded-full bg-accent-success px-10 font-display text-base text-accent-success-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-16';
-
 const claseTextoInfo = 'flex items-start gap-3 font-body text-sm text-text-secondary';
 
 type Props = {
@@ -62,6 +55,7 @@ type Props = {
   onGenerarPresupuesto: () => void;
   onEditarPresupuesto: () => void;
   onConfirmarSenal: () => void;
+  onForzarInicioEvento: () => void;
   onFinalizarEvento: () => void;
   onArchivarReserva: () => void;
   onDescartarConsulta: () => void;
@@ -77,6 +71,7 @@ export const AccionesConsulta = ({
   onGenerarPresupuesto,
   onEditarPresupuesto,
   onConfirmarSenal,
+  onForzarInicioEvento,
   onFinalizarEvento,
   onArchivarReserva,
   onDescartarConsulta,
@@ -105,14 +100,8 @@ export const AccionesConsulta = ({
     subEstado: reserva.subEstado,
     ttlExpiracion: reserva.ttlExpiracion,
   });
-  // US-014 (§5.1): "Generar presupuesto" habilitado en `consulta` con
-  // `subEstado ∈ {2a,2b,2c,2v}`; deshabilitado en `2d`/terminales/`pre_reserva`+.
-  const puedePresupuesto = puedeGenerarPresupuesto({
-    estado: reserva.estado,
-    subEstado: reserva.subEstado,
-  });
-  // Solo se muestra la acción (habilitada o bloqueada) mientras la reserva sigue
-  // en fase de consulta; en `pre_reserva`+ desaparece (ya hay presupuesto/UC-15).
+  // US-014 (§5.1): "Generar presupuesto" (bloque en `AccionPresupuesto`) solo se
+  // muestra en fase `consulta`; alimenta el fallback "sin acciones".
   const mostrarPresupuesto = reserva.estado === 'consulta';
   // US-015 (UC-15): "Editar presupuesto" SOLO cuando la RESERVA está en `pre_reserva`
   // (un presupuesto aceptado/rechazado la saca de ese estado). El backend revalida el
@@ -124,6 +113,11 @@ export const AccionesConsulta = ({
   // US-034 (UC-25): "Marcar evento como finalizado" SOLO cuando la RESERVA está en
   // `evento_en_curso`. La transición a `post_evento` es irreversible.
   const puedeFinalizar = puedeFinalizarEvento(reserva.estado);
+  // US-032 (UC-23 FA-01): "Forzar inicio del evento" SOLO en `reserva_confirmada` +
+  // `fechaEvento` de hoy (guarda de origen + fecha). El bloque vive en
+  // `AccionForzarInicio` (max-lines); la guarda solo alimenta el fallback "sin
+  // acciones". El backend revalida (409 `conflicto_estado` / 422 `fecha_evento_no_es_hoy`).
+  const puedeForzarInicio = puedeForzarInicioEvento(reserva.estado, reserva.fechaEvento, new Date());
   // US-038 (UC-28, flujo manual): "Archivar reserva" SOLO cuando la RESERVA está en
   // `post_evento`. El bloque de la acción (deshabilitado con la razón si la fianza no
   // está resuelta) vive en `AccionArchivar` para no superar `max-lines`.
@@ -148,47 +142,9 @@ export const AccionesConsulta = ({
 
   return (
     <div className="flex flex-col gap-5">
-      {/* US-014: "Generar presupuesto" — acción PRINCIPAL para avanzar de estado, por
-          eso se muestra la primera y en verde. Habilitada en 2a/2b/2c/2v; bloqueada
-          (con motivo) en 2d/terminales. Solo visible en fase de consulta. */}
-      {mostrarPresupuesto && (
-        <div className="flex flex-col gap-3">
-          {puedePresupuesto ? (
-            <>
-              <p className="font-body text-sm text-text-secondary">
-                Genera el presupuesto con la tarifa vigente y activa la pre-reserva: se creará el
-                presupuesto, la fecha quedará bloqueada 7 días y se enviará al cliente por email.
-              </p>
-              <button
-                type="button"
-                data-testid="boton-generar-presupuesto"
-                onClick={onGenerarPresupuesto}
-                className={claseBotonPresupuesto}
-              >
-                <FileText aria-hidden className="size-5" />
-                Generar presupuesto
-              </button>
-            </>
-          ) : (
-            <>
-              <p data-testid="aviso-presupuesto-bloqueado" className={claseTextoInfo}>
-                <Info aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
-                {motivoNoPuedeGenerar({ estado: reserva.estado, subEstado: reserva.subEstado })}
-              </p>
-              <button
-                type="button"
-                data-testid="boton-generar-presupuesto"
-                disabled
-                aria-disabled="true"
-                className={claseBotonPresupuesto}
-              >
-                <FileText aria-hidden className="size-5" />
-                Generar presupuesto
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      {/* US-014: "Generar presupuesto" — CTA principal para avanzar de estado (verde),
+          visible solo en `consulta`. El bloque vive en `AccionPresupuesto` (max-lines). */}
+      <AccionPresupuesto reserva={reserva} onGenerarPresupuesto={onGenerarPresupuesto} />
 
       {esExploratoria && (
         <div className="flex flex-col gap-3">
@@ -313,6 +269,11 @@ export const AccionesConsulta = ({
         onConfirmarSenal={onConfirmarSenal}
       />
 
+      {/* US-032: "Forzar inicio del evento" — solo en `reserva_confirmada` + fecha de
+          hoy. El bloque (lista de precondiciones + botón) vive en `AccionForzarInicio`
+          para respetar max-lines; dispara la doble confirmación (POST en el diálogo). */}
+      <AccionForzarInicio reserva={reserva} onForzarInicioEvento={onForzarInicioEvento} />
+
       {/* US-034: "Marcar evento como finalizado" — solo en `evento_en_curso`. */}
       {puedeFinalizar && (
         <div className="flex flex-col gap-3">
@@ -354,6 +315,7 @@ export const AccionesConsulta = ({
         !mostrarPresupuesto &&
         !puedeEditar &&
         !puedeConfirmar &&
+        !puedeForzarInicio &&
         !puedeFinalizar &&
         !puedeArchivar &&
         !mostrarDescartar && (

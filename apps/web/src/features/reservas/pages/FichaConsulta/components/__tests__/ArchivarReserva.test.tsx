@@ -46,6 +46,7 @@ const renderAcciones = (r: Reserva, onArchivarReserva = vi.fn()) =>
       onGenerarPresupuesto={noop}
       onEditarPresupuesto={noop}
       onConfirmarSenal={noop}
+      onForzarInicioEvento={noop}
       onFinalizarEvento={noop}
       onArchivarReserva={onArchivarReserva}
       onDescartarConsulta={noop}
