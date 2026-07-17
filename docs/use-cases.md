@@ -48,6 +48,7 @@ Menú de navegación principal ubicado en el lateral izquierdo, siempre visible:
 | **Dashboard** | Panel operativo con widgets de resumen y alertas. Primera entrada del sidebar (posición 1). La landing post-login sigue siendo `/calendario`. Implementado en US-044. |
 | **Calendario** | Vista principal del calendario de disponibilidad y reservas. Es la página de inicio tras el login. |
 | **Reservas** | Hub del pipeline activo — dos tabs: "Flujo de Reserva" (Kanban por fase) y "Listado" (tabla de activas). Clic en cualquier reserva navega a su FichaConsulta. Implementado en US-049 (backend) y US-050 (frontend). |
+| **Histórico** | Vista de búsqueda y filtrado del histórico de reservas cerradas (`reserva_completada` / `reserva_cancelada`). Ruta `/historico`. Implementado en US-042. |
 | **Métricas** | KPIs y estadísticas del negocio (diferido a V1; entrada visible pero sin contenido en MVP). |
 
 #### Header (Cabecera fija)
@@ -1729,8 +1730,8 @@ flowchart TD
 Si el barrido de Sistema y el gestor intentan transicionar simultáneamente la misma RESERVA de `post_evento` a `reserva_completada`, exactamente una operación gana; la segunda observa bajo el `SELECT … FOR UPDATE` que el estado ya no es `post_evento` — no-op para el cron, **409** `transicion_no_permitida` para el gestor — sin doble transición ni doble `AUDIT_LOG`. La serialización la da PostgreSQL sobre la fila RESERVA, sin locks distribuidos (prohibidos por `no-distributed-lock`).
 
 **Notas de alcance:**
-- La "indexación" de la reserva en Histórico es **visibilidad y filtrabilidad** por estado terminal, no un índice full-text técnico (decisión D-5 de US-037: índice full-text/TSVECTOR fuera de alcance).
-- La construcción del módulo Histórico (UC-32) y su UI de consulta/filtrado son responsabilidad de otra US.
+- La "indexación" de la reserva en Histórico es **visibilidad y filtrabilidad** por estado terminal. La búsqueda full-text (TSVECTOR/GIN) que US-037 consideraba fuera de alcance fue implementada posteriormente en **US-042** (UC-32), creando los índices GIN funcionales `idx_reserva_fts_historico` e `idx_cliente_fts_historico`.
+- La construcción del módulo Histórico (UC-32) y su UI de consulta/filtrado fueron implementados en **US-042** (endpoint `GET /historico`, schema `ReservaHistorico`, vista `/historico` en el frontend).
 - Sin email al cliente ni al gestor en ninguno de los dos flujos.
 - US-038 no añade aristas nuevas a la máquina de estados; reutiliza la guarda `resolverArchivadoAutomatico` (`MAPA_ARCHIVADO_AUTOMATICO`: `post_evento → reserva_completada`, terminal) y la guarda `fianzaResuelta`, ambas introducidas por US-037.
 
@@ -1894,27 +1895,47 @@ Si dos workers liberan la misma `(tenant_id, fecha)` simultáneamente, el motor 
 | **Nombre** | Buscar en Histórico |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor busca y filtra reservas pasadas en el histórico consultable |
-| **Precondiciones** | - El gestor está autenticado |
-| **Postcondiciones** | - Resultados mostrados según criterios |
+| **Descripción** | El gestor busca y filtra reservas pasadas en el histórico consultable. Por defecto devuelve solo `reserva_completada`; `reserva_cancelada` es opt-in explícito mediante el filtro `estadoFinal`. Nunca devuelve estados activos ni terminales de consulta (`2x`/`2y`/`2z`). Implementado en **US-042** (endpoint dedicado `GET /historico`, schema ligero `ReservaHistorico`). |
+| **Precondiciones** | - El gestor está autenticado (JWT de usuario, rol gestor) |
+| **Postcondiciones** | - Resultados paginados mostrados según criterios; cada fila es de solo lectura (`ReservaHistorico`); el detalle completo se accede a través de `GET /reservas/{id}` (`ReservaDetalle`) sin endpoint de detalle nuevo |
 | **Prioridad** | Alta |
 | **Frecuencia** | Alta |
+| **US** | US-042 |
+| **Endpoint** | `GET /historico` — operationId `listarHistorico`; responde `ReservaHistoricoListResponse { data: ReservaHistorico[], metadata: PaginationMetadata }` |
+| **Entidades afectadas** | RESERVA + CLIENTE (lectura; join para proyectar `clienteNombre`/`clienteApellidos`). Sin mutación de estado ni de bloqueo. |
+
+**Parámetros de consulta:**
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `q` | string (opcional) | Búsqueda full-text: por `codigo` de reserva, `notas`; nombre, apellidos y email del cliente. Apoyado en dos índices GIN funcionales (ver `data-model.md §5`) |
+| `estadoFinal` | enum (opcional) | `reserva_completada` \| `reserva_cancelada`. Sin valor devuelve solo `reserva_completada` |
+| `fechaDesde` / `fechaHasta` | date (opcionales) | Rango sobre `fecha_evento` de la reserva |
+| `tipoEvento` | enum (opcional) | `boda \| corporativo \| privado \| otro` |
+| `importeMin` / `importeMax` | decimal-string (opcionales) | Rango sobre `importeTotal` (`Decimal(10,2)` representado como string) |
+| `page` / `limit` | integer (opcionales) | Paginación; por defecto `page=1, limit=20` |
 
 **Flujo Básico:**
-1. El gestor accede a la sección Histórico
-2. El sistema muestra la tabla maestra de reservas completadas
-3. El gestor puede aplicar filtros:
-   - Rango de fechas
-   - Tipo de evento
-   - Estado final
-   - Importe
-4. El gestor puede usar búsqueda full-text:
-   - Por nombre del cliente
-   - Por número de reserva
-   - Por email
-   - Por observaciones
-5. El sistema muestra resultados paginados
-6. El gestor puede acceder al detalle de cualquier reserva (modo lectura)
+1. El gestor accede a la vista "Histórico" en el sidebar (ruta `/historico`)
+2. El sistema llama a `GET /historico` (sin filtros) y muestra la tabla de reservas completadas más recientes, ordenadas por `fecha_evento` descendente
+3. El gestor puede aplicar filtros combinables: rango de fechas de evento, tipo de evento, estado final y rango de importe total
+4. El gestor puede introducir texto libre en el buscador (`q`), que aplica búsqueda full-text sobre el código de reserva, notas, nombre, apellidos y email del cliente gracias a los índices GIN funcionales creados en la migración de US-042
+5. El sistema devuelve resultados paginados con la forma ligera `ReservaHistorico` (idReserva, codigo, clienteId, clienteNombre, clienteApellidos, estado, fechaEvento, tipoEvento, importeTotal)
+6. El gestor puede hacer clic en una fila para acceder al detalle completo de la reserva (modo lectura), que navega a la misma ficha de `GET /reservas/{id}` (`ReservaDetalle`) sin endpoint de detalle nuevo
+7. El sistema aísla siempre los resultados por `tenant_id` del JWT (reforzado por RLS); nunca aparecen reservas de otro tenant
+
+**Flujos Alternativos:**
+- **FA-01 (sin resultados):** el sistema responde 200 con `data: []` y `metadata.total = 0`; la UI muestra el estado vacío sin error.
+- **FA-02 (opt-in `reserva_cancelada`):** el gestor selecciona `estadoFinal = reserva_cancelada` o ambos valores; el sistema filtra exactamente por los estados solicitados.
+- **FA-03 (parámetros inválidos):** rango de fechas inconsistente (`fechaDesde > fechaHasta`), valor de `tipoEvento` fuera del enum, o `importeMin > importeMax` → el sistema responde 400 `ValidationError` sin ejecutar la consulta.
+- **FA-04 (sin sesión):** el sistema responde 401; el frontend redirige al login.
+
+**Notas de alcance:**
+- El schema `ReservaHistorico` es propio de este endpoint y no reutiliza el schema `Reserva` del pipeline (`GET /reservas`). Decisión de desacople: las filas cerradas no necesitan los campos derivados del pipeline (`progressLogistica`, `progressLiquidacion`, `ttlExpiracion`, `posicionCola`, `visitaProgramada*`). Ver `api-spec.yml` §ReservaHistorico.
+- El endpoint anterior `GET /historico/reservas` queda marcado como `deprecated` (sustituido por US-042). Los clientes nuevos deben usar `GET /historico`.
+- La búsqueda full-text se implementa mediante dos índices GIN funcionales creados en la migración de US-042 (ver `data-model.md §5`): `idx_reserva_fts_historico` sobre `codigo || ' ' || notas` de RESERVA; `idx_cliente_fts_historico` sobre `nombre || ' ' || apellidos || ' ' || email` de CLIENTE con normalización de separadores (`translate('@._-', '    ')`).
+- El detalle de la reserva en modo lectura reutiliza `GET /reservas/{id}` (`ReservaDetalle`); no se añade un endpoint `/historico/{id}` nuevo.
+- Módulo: M8 (Slotify Histórico). Capability OpenSpec: `historico`.
 
 ---
 

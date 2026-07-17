@@ -3588,11 +3588,96 @@ paths:
               schema: { $ref: '#/components/schemas/Cliente' }
 
   # ============================ HISTÓRICO ============================
+  # [US-042 / UC-32] Endpoint dedicado de búsqueda/filtrado del histórico de reservas CERRADAS.
+  # Reemplaza el placeholder previo `GET /historico/reservas` (skeleton pre-US-042). Es una
+  # capability propia (`historico`), NO se reutiliza `GET /reservas` (pipeline, US-049): el
+  # pipeline excluye SIEMPRE `reserva_completada`/`reserva_cancelada` (invariante duro de su
+  # spec) y el histórico necesita justo el complemento cerrado (design.md §D-1). Lectura pura:
+  # NO muta estado, NO produce bloqueos. Aislado por `tenant_id` del JWT (RLS); el `tenant_id`
+  # NUNCA viaja en el path. El detalle en modo lectura reutiliza `GET /reservas/{id}`
+  # (`ReservaDetalle`), sin endpoint de detalle nuevo (design.md §D-1/§D-4).
+  /historico:
+    get:
+      tags: [Historico]
+      operationId: listarHistorico
+      summary: Buscar y filtrar en el histórico (UC-32 / US-042)
+      description: |
+        [US-042] Lista **paginada** de reservas en **estado cerrado** del tenant autenticado.
+        Por defecto (sin `estadoFinal`) devuelve **solo** `reserva_completada`; `reserva_cancelada`
+        es **opt-in** explícito. Nunca devuelve estados activos ni los terminales de consulta
+        `2x`/`2y`/`2z` (esos se consultan desde el Pipeline). Resultados ordenados por
+        `fechaEvento` **descendente** por defecto (no se expone parámetro de orden en este change).
+
+        Filtros estructurados (todos opcionales, combinados con **AND lógico** sobre el conjunto
+        cerrado del tenant): `q` (full-text), `estadoFinal`, `fechaDesde`/`fechaHasta` (rango
+        inclusivo sobre `fecha_evento`), `tipoEvento`, `importeMin`/`importeMax` (rango sobre
+        `importe_total`). La búsqueda `q` opera sobre `CLIENTE.nombre`, `CLIENTE.apellidos`,
+        `CLIENTE.email`, `RESERVA.codigo` y `RESERVA.notas` (y solo esos), de forma parametrizada
+        (sin SQL raw ni inyección). Un rango sin coincidencias o un término sin match devuelven
+        `200` con `data: []`.
+
+        Paginación obligatoria (`page >= 1`, `limit` 1..100; por defecto `page=1`, `limit=20`).
+        `limit` fuera de rango → `400`. Aislado por `tenant_id` del JWT + RLS; sin JWT → `401`.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - in: query
+          name: q
+          schema: { type: string }
+          description: >-
+            Búsqueda full-text sobre nombre/apellidos/email del cliente, código y notas de la
+            reserva. Sin coincidencias → `200` con `data: []`.
+        - in: query
+          name: estadoFinal
+          schema:
+            type: string
+            enum: [reserva_completada, reserva_cancelada]
+          description: >-
+            Estado cerrado a listar. Ausente → **solo** `reserva_completada`. Opt-in explícito de
+            `reserva_cancelada`. Nunca se mezclan por defecto.
+        - in: query
+          name: fechaDesde
+          schema: { type: string, format: date }
+          description: Límite inferior inclusivo del rango sobre `fechaEvento`.
+        - in: query
+          name: fechaHasta
+          schema: { type: string, format: date }
+          description: Límite superior inclusivo del rango sobre `fechaEvento`.
+        - in: query
+          name: tipoEvento
+          schema: { $ref: '#/components/schemas/TipoEvento' }
+          description: Filtro exacto sobre `RESERVA.tipo_evento`.
+        - in: query
+          name: importeMin
+          schema: { $ref: '#/components/schemas/Importe' }
+          description: Límite inferior del rango sobre `importeTotal` (Decimal(10,2) como string).
+        - in: query
+          name: importeMax
+          schema: { $ref: '#/components/schemas/Importe' }
+          description: Límite superior del rango sobre `importeTotal` (Decimal(10,2) como string).
+      responses:
+        '200':
+          description: >-
+            Histórico paginado del tenant. `data` son filas ligeras de solo lectura
+            (`ReservaHistorico`); `metadata` sigue el patrón de paginación del pipeline.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaHistoricoListResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /historico/reservas:
     get:
       tags: [Historico]
-      summary: Buscar en histórico (UC-32)
-      description: Búsqueda full-text sobre reservas archivadas (código, cliente, notas).
+      deprecated: true
+      summary: '[DEPRECADO US-042] Usa GET /historico'
+      description: >-
+        [DEPRECADO US-042] Placeholder previo (skeleton pre-US-042). Sustituido por el endpoint
+        dedicado `GET /historico` (`operationId: listarHistorico`), que añade filtros estructurados,
+        paginación validada y una fila ligera `ReservaHistorico`. No usar en clientes nuevos.
       parameters:
         - in: query
           name: q
@@ -4413,6 +4498,40 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/Reserva' }
+        metadata: { $ref: '#/components/schemas/PaginationMetadata' }
+    # [US-042] Fila LIGERA del histórico (GET /historico). Schema propio (NO reutiliza `Reserva`)
+    # a propósito (design.md §D-1/§D-4): las filas cerradas no necesitan los campos derivados del
+    # pipeline (`progressLogistica`/`progressLiquidacion`, US-049) ni los transitorios de consulta/
+    # cola/visita (`ttlExpiracion`, `posicionCola`, `consultaBloqueanteId`, `visitaProgramada*`).
+    # Un schema dedicado mantiene los contratos de `pipeline` e `historico` desacoplados. Incluye
+    # el subconjunto de presentación que la tabla del histórico consume (US-042 §Happy Path:
+    # código, cliente nombre+apellidos, fechaEvento, tipoEvento, importeTotal, estado). El detalle
+    # completo se obtiene aparte con `GET /reservas/{id}` (`ReservaDetalle`).
+    ReservaHistorico:
+      type: object
+      required: [idReserva, codigo, clienteId, estado, fechaEvento]
+      properties:
+        idReserva: { type: string, format: uuid }
+        codigo: { type: string, example: 'SLO-2026-0001' }
+        clienteId: { type: string, format: uuid }
+        clienteNombre: { type: string, nullable: true, description: 'Nombre del cliente (presentación).' }
+        clienteApellidos: { type: string, nullable: true, description: 'Apellidos del cliente (presentación).' }
+        estado:
+          # Solo estados cerrados en el histórico; se restringe el enum a los dos válidos aquí.
+          type: string
+          enum: [reserva_completada, reserva_cancelada]
+        fechaEvento: { type: string, format: date, nullable: true }
+        tipoEvento: { allOf: [{ $ref: '#/components/schemas/TipoEvento' }], nullable: true }
+        importeTotal: { allOf: [{ $ref: '#/components/schemas/Importe' }], nullable: true }
+    ReservaHistoricoListResponse:
+      # [US-042] Envoltorio paginado del histórico. Mismo patrón que `ReservaListResponse` del
+      # pipeline; reutiliza `PaginationMetadata` (design.md §D-1: patrón `{ data[], metadata }`).
+      type: object
+      required: [data, metadata]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ReservaHistorico' }
         metadata: { $ref: '#/components/schemas/PaginationMetadata' }
     # [US-004] Respuesta del alta (POST /reservas). Extiende `Reserva` con campos transitorios,
     # NO persistidos en la RESERVA, derivados del sub-estado resultante del alta con fecha. Todos

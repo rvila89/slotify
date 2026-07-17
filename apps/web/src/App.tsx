@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginPage } from './pages/LoginPage';
 import { AppShell, SectionPlaceholder, NotFound } from './components/layout';
 import { NuevaConsultaPage, FichaConsultaPage, ReservasPage } from './features/reservas';
+import { HistoricoPage, DetalleHistoricoPage } from './features/historico';
 import { CalendarioPage } from './features/calendario';
 import { ColaEsperaPage } from './features/cola-espera';
 import { DashboardPage } from './features/dashboard';
@@ -48,6 +49,10 @@ const App = () => (
             el indicador 🔁 del calendario (US-039), que navega con el reservaId
             de la bloqueante (helper `rutaCola`). */}
         <Route path="/reservas/:id/cola" element={<ColaEsperaPage />} />
+        {/* US-042 — Histórico de reservas cerradas (búsqueda + filtros, lectura
+            pura). El detalle reutiliza `GET /reservas/{id}` en MODO LECTURA. */}
+        <Route path="/historico" element={<HistoricoPage />} />
+        <Route path="/historico/:id" element={<DetalleHistoricoPage />} />
         <Route path="/metricas" element={<SectionPlaceholder nombre="Métricas" />} />
         <Route path="*" element={<NotFound />} />
       </Route>

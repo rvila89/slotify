@@ -1,7 +1,7 @@
 ---
 id: US-042
-estado: backlog
-branch: null
+estado: in_progress
+branch: feature/us-042-buscar-en-historico
 pr: null
 ---
 
