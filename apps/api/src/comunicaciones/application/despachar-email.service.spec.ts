@@ -112,6 +112,8 @@ const crearComunicacionesFake = (
         estado: p.estado,
         destinatarioEmail: p.destinatarioEmail,
         fechaEnvio: p.fechaEnvio,
+        fechaCreacion: new Date('2026-06-28T09:00:00.000Z'),
+        esReenvio: p.esReenvio ?? false,
       };
       return creado;
     }),
@@ -125,6 +127,8 @@ const crearComunicacionesFake = (
         return creado;
       },
     ),
+    // US-046 D-3: método de listado ajeno al motor (no se ejercita en estas suites).
+    listarPorReserva: jest.fn(async () => []),
   };
 };
 
@@ -358,6 +362,8 @@ describe('DespacharEmailService — idempotencia por (reserva, código) (2.3)', 
       estado: 'enviado',
       destinatarioEmail: EMAIL,
       fechaEnvio: new Date('2026-06-28T09:00:00.000Z'),
+      fechaCreacion: new Date('2026-06-28T09:00:00.000Z'),
+      esReenvio: false,
     };
     const comunicaciones = crearComunicacionesFake(existente);
     const { motor, enviarEmail } = montar({ comunicaciones });
@@ -396,10 +402,13 @@ describe('DespacharEmailService — idempotencia por (reserva, código) (2.3)', 
           estado: p.estado,
           destinatarioEmail: p.destinatarioEmail,
           fechaEnvio: p.fechaEnvio,
+          fechaCreacion: new Date('2026-06-28T09:00:00.000Z'),
+          esReenvio: p.esReenvio ?? false,
         };
         return primerCreado;
       }),
       actualizarEstado: jest.fn(async () => primerCreado as ComunicacionRegistrada),
+      listarPorReserva: jest.fn(async () => []),
     };
     const fake = new FakeEmailAdapter();
     const { motor } = montar({ comunicaciones, enviarEmail: fake });
@@ -569,6 +578,8 @@ describe('DespacharEmailService — finalizarEnvio (envío post-commit de fila y
     estado: 'borrador',
     destinatarioEmail: EMAIL,
     fechaEnvio: null,
+    fechaCreacion: new Date('2026-06-28T09:00:00.000Z'),
+    esReenvio: false,
   };
 
   const paramsBase = () => ({
@@ -596,6 +607,7 @@ describe('DespacharEmailService — finalizarEnvio (envío post-commit de fila y
         fechaEnvio: p.fechaEnvio,
       }),
     ),
+    listarPorReserva: jest.fn(async () => []),
   });
 
   it('debe_enviar_y_promover_la_fila_a_enviado_con_fecha_fijando_el_tenant_y_auditar', async () => {

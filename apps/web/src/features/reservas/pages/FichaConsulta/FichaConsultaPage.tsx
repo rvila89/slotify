@@ -9,23 +9,16 @@ import {
   DevolucionFianzaCard,
 } from '@/features/facturacion';
 import { FichaOperativaCard } from '@/features/ficha-operativa';
+import { ComunicacionesCard } from '@/features/comunicaciones';
 import { CondicionesFirmadasCard, debeMostrarSeccionCondiciones } from '@/features/condiciones-firmadas';
 import { useReserva } from '../../api/useReserva';
 import { formatearFecha } from '../../lib/fecha';
 import { Badge } from './components/Badge';
 import { Dato } from './components/Dato';
 import { AccionesConsulta } from './components/AccionesConsulta';
-import { AvisosTransicion } from './components/AvisosTransicion';
-import { AvisoPendienteInvitados } from './components/AvisoPendienteInvitados';
-import { AvisoVisitaProgramada } from './components/AvisoVisitaProgramada';
-import { AvisoResultadoVisita } from './components/AvisoResultadoVisita';
-import { AvisoReservaInmediata } from './components/AvisoReservaInmediata';
-import { AvisoBloqueoExtendido } from './components/AvisoBloqueoExtendido';
+import { AvisosResultadoTransicion } from './components/AvisosResultadoTransicion';
 import { DialogosFicha } from './components/DialogosFicha';
-import {
-  AvisosEdicionPresupuesto,
-  type ResultadoEdicion,
-} from './components/AvisosEdicionPresupuesto';
+import type { ResultadoEdicion } from './components/AvisosEdicionPresupuesto';
 import { IbanDevolucionCard } from '../../components/IbanDevolucionCard';
 import { puedeRegistrarIban } from '../../lib/ibanDevolucion';
 import type { PendienteInvitadosResultado, Reserva } from '../../model/types';
@@ -119,39 +112,23 @@ export const FichaConsultaPage = () => {
         </p>
       </header>
 
-      {resultado && <AvisosTransicion resultado={resultado} onCerrar={() => setResultado(null)} />}
-      {resultadoInvitados && (
-        <AvisoPendienteInvitados
-          resultado={resultadoInvitados}
-          onCerrar={() => setResultadoInvitados(null)}
-        />
-      )}
-      {resultadoVisita && (
-        <AvisoVisitaProgramada reserva={resultadoVisita} onCerrar={() => setResultadoVisita(null)} />
-      )}
-      {resultadoInteresado && (
-        <AvisoResultadoVisita
-          reserva={resultadoInteresado}
-          onCerrar={() => setResultadoInteresado(null)}
-        />
-      )}
-      {resultadoReservaInmediata && (
-        <AvisoReservaInmediata
-          reserva={resultadoReservaInmediata}
-          onCerrar={() => setResultadoReservaInmediata(null)}
-        />
-      )}
-      {resultadoExtension && (
-        <AvisoBloqueoExtendido
-          reserva={resultadoExtension}
-          onCerrar={() => setResultadoExtension(null)}
-        />
-      )}
-      <AvisosEdicionPresupuesto
-        presupuesto={resultadoPresupuesto}
-        edicion={resultadoEdicion}
-        senal={resultadoSenal}
-        finalizar={resultadoFinalizar}
+      <AvisosResultadoTransicion
+        resultado={resultado}
+        resultadoInvitados={resultadoInvitados}
+        resultadoVisita={resultadoVisita}
+        resultadoInteresado={resultadoInteresado}
+        resultadoReservaInmediata={resultadoReservaInmediata}
+        resultadoExtension={resultadoExtension}
+        resultadoPresupuesto={resultadoPresupuesto}
+        resultadoEdicion={resultadoEdicion}
+        resultadoSenal={resultadoSenal}
+        resultadoFinalizar={resultadoFinalizar}
+        onCerrarResultado={() => setResultado(null)}
+        onCerrarInvitados={() => setResultadoInvitados(null)}
+        onCerrarVisita={() => setResultadoVisita(null)}
+        onCerrarInteresado={() => setResultadoInteresado(null)}
+        onCerrarReservaInmediata={() => setResultadoReservaInmediata(null)}
+        onCerrarExtension={() => setResultadoExtension(null)}
         onCerrarPresupuesto={() => setResultadoPresupuesto(null)}
         onCerrarEdicion={() => setResultadoEdicion(null)}
         onCerrarSenal={() => setResultadoSenal(null)}
@@ -242,6 +219,12 @@ export const FichaConsultaPage = () => {
           onDescartarConsulta={() => setDialogoDescartarAbierto(true)}
         />
       </section>
+
+      {/* US-046 · UC-36: sección "Comunicaciones" de la ficha. Lista las COMUNICACION
+          de la reserva y permite revisar/editar/enviar o descartar un borrador y crear
+          un email manual. La propia card resuelve sus estados (cargando/error/vacío);
+          se muestra en toda RESERVA con id. */}
+      {id && <ComunicacionesCard reservaId={id} />}
 
       {id && reserva.estado === 'reserva_confirmada' && <FacturaSenalCard reservaId={id} />}
 

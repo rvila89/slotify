@@ -43,6 +43,8 @@ describe('ComunicacionRepositoryPort — contrato del puerto de dominio', () => 
           estado: p.estado,
           destinatarioEmail: p.destinatarioEmail,
           fechaEnvio: p.fechaEnvio,
+          fechaCreacion: new Date('2026-06-28T10:00:00.000Z'),
+          esReenvio: p.esReenvio ?? false,
         };
         return almacenado;
       },
@@ -50,6 +52,8 @@ describe('ComunicacionRepositoryPort — contrato del puerto de dominio', () => 
         almacenado = { ...(almacenado as ComunicacionRegistrada), estado: p.estado, fechaEnvio: p.fechaEnvio };
         return almacenado;
       },
+      // US-046 D-3: método de listado añadido al puerto (no ejercitado en este contrato).
+      listarPorReserva: async () => [],
     };
 
     expect(

@@ -25,15 +25,30 @@ import { CatalogoPlantillasEnCodigo } from './infrastructure/plantillas/catalogo
 import { ComunicacionRepositoryPrismaAdapter } from './infrastructure/comunicacion.repository.prisma.adapter';
 import { TenantSettingsIdiomaPrismaAdapter } from './infrastructure/tenant-settings.prisma.adapter';
 import { SistemaClockAdapter } from './infrastructure/sistema-clock.adapter';
+import { CargarComunicacionPrismaAdapter } from './infrastructure/cargar-comunicacion.prisma.adapter';
+import { CargarReservaContextoPrismaAdapter } from './infrastructure/cargar-reserva-contexto.prisma.adapter';
 import {
   DespacharEmailService,
   type ClockPort,
 } from './application/despachar-email.service';
+import {
+  EnviarBorradorUseCase,
+  type CargarComunicacionPort,
+} from './application/enviar-borrador.use-case';
+import { DescartarBorradorUseCase } from './application/descartar-borrador.use-case';
+import {
+  CrearEmailManualUseCase,
+  type CargarReservaContextoPort,
+} from './application/crear-email-manual.use-case';
+import { ComunicacionesController } from './interface/comunicaciones.controller';
 import type { CatalogoPlantillasPort } from './domain/catalogo-plantillas.port';
 import type { ComunicacionRepositoryPort } from './domain/comunicacion.repository.port';
 import type { TenantSettingsPort } from './domain/tenant-settings.port';
 import type { EnviarEmailPort } from './domain/enviar-email.port';
+import type { AuditLogPort as AuditLogPortAlias } from '../shared/audit/audit-log.port';
 import {
+  CARGAR_COMUNICACION_PORT,
+  CARGAR_RESERVA_CONTEXTO_PORT,
   CATALOGO_PLANTILLAS_PORT,
   COMUNICACION_REPOSITORY_PORT,
   COMUNICACIONES_CLOCK_PORT,
@@ -43,6 +58,7 @@ import {
 
 @Module({
   imports: [PrismaModule],
+  controllers: [ComunicacionesController],
   providers: [
     // Transporte: real (Resend) o fake según EMAIL_TRANSPORT. En test/CI → fake.
     {
@@ -112,6 +128,86 @@ import {
           tenantSettings,
           auditoria,
           enviarEmail,
+          clock,
+        }),
+    },
+    // US-046 — carga de la COMUNICACION (enviar/descartar) scoped por tenant (RLS).
+    {
+      provide: CARGAR_COMUNICACION_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CargarComunicacionPrismaAdapter(prisma),
+    },
+    // US-046 — carga de la RESERVA + CLIENTE (email manual) scoped por tenant (RLS).
+    {
+      provide: CARGAR_RESERVA_CONTEXTO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CargarReservaContextoPrismaAdapter(prisma),
+    },
+    // US-046 — confirmar el envío de un borrador (delega en `finalizarEnvio`, D-1).
+    {
+      provide: EnviarBorradorUseCase,
+      inject: [
+        CARGAR_COMUNICACION_PORT,
+        COMUNICACION_REPOSITORY_PORT,
+        DespacharEmailService,
+        AuditLogPrismaAdapter,
+      ],
+      useFactory: (
+        cargarComunicacion: CargarComunicacionPort,
+        comunicaciones: ComunicacionRepositoryPort,
+        motor: DespacharEmailService,
+        auditoria: AuditLogPortAlias,
+      ) =>
+        new EnviarBorradorUseCase({
+          cargarComunicacion,
+          comunicaciones,
+          motor,
+          auditoria,
+        }),
+    },
+    // US-046 — descartar un borrador (borrador→fallido sin envío + AUDIT_LOG, D-5).
+    {
+      provide: DescartarBorradorUseCase,
+      inject: [
+        CARGAR_COMUNICACION_PORT,
+        COMUNICACION_REPOSITORY_PORT,
+        AuditLogPrismaAdapter,
+      ],
+      useFactory: (
+        cargarComunicacion: CargarComunicacionPort,
+        comunicaciones: ComunicacionRepositoryPort,
+        auditoria: AuditLogPortAlias,
+      ) =>
+        new DescartarBorradorUseCase({
+          cargarComunicacion,
+          comunicaciones,
+          auditoria,
+        }),
+    },
+    // US-046 — crear y enviar un email manual (codigo=manual, es_reenvio=false, D-5 C).
+    {
+      provide: CrearEmailManualUseCase,
+      inject: [
+        CARGAR_RESERVA_CONTEXTO_PORT,
+        COMUNICACION_REPOSITORY_PORT,
+        ENVIAR_EMAIL_PORT,
+        AuditLogPrismaAdapter,
+        COMUNICACIONES_CLOCK_PORT,
+      ],
+      useFactory: (
+        cargarReserva: CargarReservaContextoPort,
+        comunicaciones: ComunicacionRepositoryPort,
+        enviarEmail: EnviarEmailPort,
+        auditoria: AuditLogPortAlias,
+        clock: ClockPort,
+      ) =>
+        new CrearEmailManualUseCase({
+          cargarReserva,
+          comunicaciones,
+          enviarEmail,
+          auditoria,
           clock,
         }),
     },

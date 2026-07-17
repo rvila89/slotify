@@ -556,13 +556,13 @@ Archivos adjuntos polimórficos. Discriminador `tipo`. Referenciable desde reser
 **Persistencia de `tipo=condiciones_particulares` en E3 (US-023, change `condiciones-particulares-e3-us023`):** al ejecutar `POST /reservas/{id}/facturas/senal/enviar`, el use-case `EnviarFacturaSenalUseCase` crea o reutiliza **un único** `DOCUMENTO` con `tipo='condiciones_particulares'` dentro de la misma transacción atómica (`reservaId`, `tenantId`, `url` = clave `condiciones/{tenantId}.pdf`, `mimeType='application/pdf'`). Idempotencia: si ya existe un `DOCUMENTO` de ese tipo para la reserva (reenvíos futuros vía `POST .../reenviar`), se reutiliza sin crear una segunda fila ni registrar un segundo AUDIT_LOG `crear`. Sin migración: el enum `TipoDocumento` ya incluía `condiciones_particulares`.
 
 ### 3.16 Comunicacion
-Log de emails enviados (E1–E8 + manuales). El motor hexagonal `DespacharEmailService` (US-045) es el único responsable de registrar y actualizar las entradas de esta entidad para los emails del ciclo de vida.
+Log de emails enviados (E1–E8 + manuales). El motor hexagonal `DespacharEmailService` (US-045) es el único responsable de registrar y actualizar las entradas de esta entidad para los emails del ciclo de vida. La primera superficie HTTP del módulo (US-046) expone las acciones manuales del Gestor (listar, enviar borrador, descartar, email manual) como sub-recurso de la RESERVA.
 
 | Campo | Tipo | Reglas / Notas |
 |---|---|---|
 | `id_comunicacion` | `String @id @default(uuid())` | |
 | `tenant_id` | `String` | FK → `Tenant` |
-| `reserva_id` | `String?` | FK → `Reserva` (nullable — emails `manual` sin reserva asociada, UC-36) |
+| `reserva_id` | `String?` | FK → `Reserva` (nullable — solo NULL cuando el email `manual` se crea fuera del contexto de una RESERVA; los emails `manual` creados desde la ficha de la reserva en US-046 llevan `reserva_id` NOT NULL) |
 | `cliente_id` | `String` | FK → `Cliente` (destinatario) |
 | `codigo_email` | `CodigoEmail` | `E1 … E8 \| manual` |
 | `asunto` | `String` | Máx. 255 |
@@ -572,7 +572,10 @@ Log de emails enviados (E1–E8 + manuales). El motor hexagonal `DespacharEmailS
 | `fecha_envio` | `DateTime?` | No nulo **solo** si `estado = 'enviado'`; nulo en `borrador` y `fallido` |
 | `fecha_creacion` | `DateTime @default(now())` | |
 
-**Idempotencia (US-045 — migración `20260628120000_us045_comunicacion_idempotencia_indice`):** índice UNIQUE parcial `comunicacion (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL`. Garantiza una sola entrada por `(reserva, codigo_email)`. Es parcial porque `reserva_id` es nullable (emails `manual` sin reserva no aplican el constraint). El motor consulta la existencia antes de insertar; el índice actúa como red de seguridad ante carreras concurrentes (violación → `ComunicacionDuplicadaError`, no 500). Ver también §5.
+**Idempotencia (US-045 / US-028 / US-046 — migración `20260628120000_us045_comunicacion_idempotencia_indice`):** índice UNIQUE parcial `uq_comunicacion_reserva_codigo` sobre `(reserva_id, codigo_email) WHERE reserva_id IS NOT NULL AND es_reenvio = false AND codigo_email <> 'manual'`. Garantiza una sola entrada por `(reserva, codigo_email)` para envíos originales E1–E8. Es parcial para que los reenvíos explícitos (`es_reenvio = true`) y los emails `manual` queden fuera del constraint:
+- `es_reenvio = true` → fuera del predicado (permite múltiples `COMUNICACION E4` para la misma reserva cuando el Gestor reenvía la factura, US-028 D-4).
+- `codigo_email = 'manual'` → excluidos por el predicado `AND codigo_email <> 'manual'` (permite varios emails manuales por reserva, US-046 D-5 Opción C). Los emails `manual` llevan `reserva_id` NOT NULL y `es_reenvio = false` (semántica honesta: no son reenvíos).
+El motor consulta la existencia antes de insertar; el índice actúa como red de seguridad ante carreras concurrentes (violación → `ComunicacionDuplicadaError`, no 500). La migración D-5 de US-046 recreó el índice añadiendo `AND codigo_email <> 'manual'`; la D-4 de US-028 había añadido `AND es_reenvio = false`. Ambas son aditivas; E1–E8 conservan su idempotencia. Ver también §5.
 
 **Email E1 en el alta de consulta (UC-03 / US-003/004 + US-045 motor real):** el alta crea siempre la `COMUNICACION` E1 dentro de la `$transaction` con `estado = 'borrador'` (estado no final, sin `fecha_envio`). Post-commit, el motor `DespacharEmailService.finalizarEnvio` la promueve:
 - Sin comentarios → `estado = 'enviado'` + `fecha_envio = now()` (envío real vía `ResendEmailAdapter` en producción; `FakeEmailAdapter` en test/CI/dev).
@@ -592,8 +595,10 @@ Log de emails enviados (E1–E8 + manuales). El motor hexagonal `DespacharEmailS
 
 **Reglas de validación del estado:**
 - `tenant_id` y `cliente_id` siempre no nulos.
-- `reserva_id` no nulo para E1–E8; nullable para `manual`.
+- `reserva_id` no nulo para E1–E8 y para emails `manual` creados desde la ficha de una RESERVA (US-046); solo nullable para emails `manual` creados fuera del contexto de una reserva.
+- `es_reenvio = false` para todos los emails originales, incluidos los `manual` de US-046 (no son reenvíos); `es_reenvio = true` para reenvíos explícitos del Gestor (US-028, US-035 D-3).
 - `fecha_envio` no nulo si y solo si `estado = 'enviado'`.
+- **Convención de descarte (US-046):** el descarte de un borrador por el Gestor se modela como `estado = 'fallido'` (no existe un estado "descartado" en `EstadoComunicacion`) + `AUDIT_LOG` con causa "descartado por gestor". Esta causa distingue el descarte del fallo real del proveedor.
 
 ### 3.17 AuditLog
 Registro de auditoría de las acciones sobre reservas, facturas, bloqueos de fecha y autenticación.
@@ -657,7 +662,7 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 | `@@index([tenant_id, email])` | `Cliente` | Búsqueda de cliente y recurrencia |
 | Full-text (`nombre`, `codigo`, `notas`) | `Reserva` | Histórico consultable (`UC-32`) |
 | UNIQUE parcial `(tenant_id, consulta_bloqueante_id, posicion_cola) WHERE posicion_cola IS NOT NULL` | `Reserva` | Unicidad de posición en cola; defensa en profundidad D-5 / D-8 (US-004). Migración aditiva `20260628120000_us004_cola_posicion_unique`; índice activo en BD: `reserva_cola_posicion_key` |
-| `UNIQUE PARTIAL (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL AND es_reenvio = false` | `Comunicacion` | Idempotencia del motor de email (US-045): una `COMUNICACION` de envío original por `(reserva, codigo_email)`; los reenvíos explícitos del gestor (`es_reenvio = true`) quedan fuera del predicado y pueden repetirse. Emails `manual` sin reserva no aplican el constraint. Migración `20260628120000_us045_comunicacion_idempotencia_indice`. |
+| `UNIQUE PARTIAL (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL AND es_reenvio = false AND codigo_email <> 'manual'` | `Comunicacion` | Idempotencia del motor de email (US-045, D-4 US-028, D-5 US-046): una `COMUNICACION` de envío original por `(reserva, codigo_email)` para E1–E8; reenvíos explícitos (`es_reenvio = true`) quedan fuera del predicado; emails `manual` quedan excluidos por `AND codigo_email <> 'manual'`, permitiendo varios manuales por reserva. Los `manual` llevan `reserva_id` NOT NULL y `es_reenvio = false`. Migración `20260628120000_us045_comunicacion_idempotencia_indice`; predicado ampliado por D-4 US-028 y D-5 US-046. |
 | `@@index([tenantId])` | `Pago` | Filtrado RLS directo por `tenant_id` (US-029 D-1). La policy RLS de PAGO usa `PAGO.tenant_id` directamente, sin join a FACTURA. Migración `20260704150000_us029_pago_tenant_id`. |
 | `@@index([facturaId])` | `Pago` | Búsqueda de pagos por factura (US-029). Soporta la cardinalidad FACTURA 1-N PAGO sin `UNIQUE`. Migración `20260704150000_us029_pago_tenant_id`. |
 

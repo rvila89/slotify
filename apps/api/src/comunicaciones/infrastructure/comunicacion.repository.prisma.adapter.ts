@@ -25,8 +25,10 @@ import {
   ActualizarEstadoComunicacionParams,
   BuscarComunicacionParams,
   ComunicacionDuplicadaError,
+  ComunicacionListItem,
   ComunicacionRegistrada,
   ComunicacionRepositoryPort,
+  ListarPorReservaParams,
   RegistrarComunicacionParams,
 } from '../domain/comunicacion.repository.port';
 import type { CodigoEmail, EstadoComunicacion } from '../domain/codigo-email';
@@ -41,6 +43,25 @@ interface FilaComunicacion {
   estado: EstadoComunicacionPrisma;
   destinatarioEmail: string;
   fechaEnvio: Date | null;
+  fechaCreacion: Date;
+  esReenvio: boolean;
+}
+
+/**
+ * Fila de listado de la ficha (US-046 D-3): añade `clienteId`, `asunto`, `cuerpo`,
+ * `fechaCreacion`, `esReenvio` a la proyección base.
+ */
+interface FilaComunicacionListado {
+  idComunicacion: string;
+  clienteId: string;
+  codigoEmail: CodigoEmailPrisma;
+  estado: EstadoComunicacionPrisma;
+  asunto: string;
+  cuerpo: string | null;
+  destinatarioEmail: string;
+  fechaCreacion: Date;
+  fechaEnvio: Date | null;
+  esReenvio: boolean;
 }
 
 /** Cliente Prisma o cualquier extensión suya (p. ej. `PrismaService`). */
@@ -56,6 +77,22 @@ const SELECCION = {
   estado: true,
   destinatarioEmail: true,
   fechaEnvio: true,
+  fechaCreacion: true,
+  esReenvio: true,
+} as const;
+
+/** Proyección de listado enriquecida para la ficha (US-046 D-3). */
+const SELECCION_LISTADO = {
+  idComunicacion: true,
+  clienteId: true,
+  codigoEmail: true,
+  estado: true,
+  asunto: true,
+  cuerpo: true,
+  destinatarioEmail: true,
+  fechaCreacion: true,
+  fechaEnvio: true,
+  esReenvio: true,
 } as const;
 
 @Injectable()
@@ -141,6 +178,48 @@ export class ComunicacionRepositoryPrismaAdapter
     return this.aRegistro(fila);
   }
 
+  /**
+   * Lista TODAS las `COMUNICACION` de una RESERVA (sección "Comunicaciones" de la ficha,
+   * US-046 D-3), scoped por el tenant del JWT: además de fijar `app.tenant_id` para las
+   * policies RLS, filtra EXPLÍCITAMENTE por `tenant_id` en el `WHERE` (defensa en
+   * profundidad, igual que los adaptadores `cargar-comunicacion`/`cargar-reserva-contexto`
+   * de US-046). Esto garantiza el aislamiento del listado aunque el rol de BD no fuerce
+   * RLS (en dev/test la app conecta como superusuario `BYPASSRLS`), evitando fugas
+   * cross-tenant en una superficie de LECTURA. Ordena por `fecha_creacion` descendente y
+   * deriva `accionable = estado === 'borrador'`.
+   */
+  async listarPorReserva(
+    params: ListarPorReservaParams,
+  ): Promise<ComunicacionListItem[]> {
+    const filas = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${params.tenantId}, true)`;
+      return tx.comunicacion.findMany({
+        where: { reservaId: params.reservaId, tenantId: params.tenantId },
+        orderBy: { fechaCreacion: 'desc' },
+        select: SELECCION_LISTADO,
+      });
+    });
+    return filas.map((fila) => this.aListItem(fila));
+  }
+
+  /** Normaliza una fila de listado a la proyección de la ficha (`ComunicacionListItem`). */
+  private aListItem(fila: FilaComunicacionListado): ComunicacionListItem {
+    const estado = fila.estado as EstadoComunicacion;
+    return {
+      idComunicacion: fila.idComunicacion,
+      clienteId: fila.clienteId,
+      codigoEmail: fila.codigoEmail as CodigoEmail,
+      estado,
+      asunto: fila.asunto,
+      cuerpo: fila.cuerpo,
+      destinatarioEmail: fila.destinatarioEmail,
+      fechaCreacion: fila.fechaCreacion,
+      fechaEnvio: fila.fechaEnvio,
+      esReenvio: fila.esReenvio,
+      accionable: estado === 'borrador',
+    };
+  }
+
   /** Normaliza la fila de Prisma a la proyección de dominio. */
   private aRegistro(fila: FilaComunicacion): ComunicacionRegistrada {
     return {
@@ -152,6 +231,8 @@ export class ComunicacionRepositoryPrismaAdapter
       estado: fila.estado as EstadoComunicacion,
       destinatarioEmail: fila.destinatarioEmail,
       fechaEnvio: fila.fechaEnvio,
+      fechaCreacion: fila.fechaCreacion,
+      esReenvio: fila.esReenvio,
     };
   }
 }

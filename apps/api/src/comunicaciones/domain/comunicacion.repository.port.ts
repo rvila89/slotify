@@ -21,6 +21,10 @@ export interface ComunicacionRegistrada {
   estado: EstadoComunicacion;
   destinatarioEmail: string;
   fechaEnvio: Date | null;
+  /** Fecha real de creación de la fila (US-046: respuestas de mutación fieles). */
+  fechaCreacion: Date;
+  /** Marca de reenvío (US-028 D-4); los `manual` de US-046 son `false` (D-5). */
+  esReenvio: boolean;
 }
 
 /** Parámetros de creación de una `COMUNICACION`. */
@@ -61,6 +65,40 @@ export interface ActualizarEstadoComunicacionParams {
   fechaEnvio: Date | null;
 }
 
+/**
+ * Parámetros del listado de comunicaciones de una RESERVA para la ficha (US-046 D-3).
+ * Scoped por el `tenant_id` del JWT (RLS); nunca cross-tenant.
+ */
+export interface ListarPorReservaParams {
+  /** Tenant del JWT: se fija como contexto RLS en la lectura. */
+  tenantId: string;
+  /** RESERVA cuya sección "Comunicaciones" se consulta. */
+  reservaId: string;
+}
+
+/**
+ * Proyección de LISTADO enriquecida de una `COMUNICACION` para la ficha de la RESERVA
+ * (US-046 D-3). Añade a la proyección del motor los campos que la ficha necesita
+ * (`asunto`, `codigoEmail`, `fechaCreacion`, `esReenvio`) y el flag derivado
+ * `accionable` (`true` sii `estado === 'borrador'`: la fila puede enviarse/descartarse;
+ * `enviado`/`fallido` son de solo lectura).
+ */
+export interface ComunicacionListItem {
+  idComunicacion: string;
+  clienteId: string;
+  codigoEmail: CodigoEmail;
+  estado: EstadoComunicacion;
+  asunto: string;
+  /** Cuerpo real de la fila (lo precarga el diálogo de revisión del frontend). */
+  cuerpo: string | null;
+  destinatarioEmail: string;
+  fechaCreacion: Date;
+  fechaEnvio: Date | null;
+  esReenvio: boolean;
+  /** Derivado: `true` sii `estado === 'borrador'` (accionable). */
+  accionable: boolean;
+}
+
 /** Repositorio de la trazabilidad de comunicaciones. */
 export interface ComunicacionRepositoryPort {
   /** Comunicación existente para `(reservaId, codigoEmail)` o `null` (idempotencia). */
@@ -73,6 +111,14 @@ export interface ComunicacionRepositoryPort {
   actualizarEstado(
     params: ActualizarEstadoComunicacionParams,
   ): Promise<ComunicacionRegistrada>;
+  /**
+   * Lista TODAS las `COMUNICACION` de una RESERVA (sección "Comunicaciones" de la ficha,
+   * US-046 D-3), scoped por el `tenant_id` del JWT (RLS), con la proyección de listado
+   * enriquecida `ComunicacionListItem` (ordenadas por `fechaCreacion` descendente).
+   */
+  listarPorReserva(
+    params: ListarPorReservaParams,
+  ): Promise<ComunicacionListItem[]>;
 }
 
 /**

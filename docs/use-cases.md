@@ -2014,25 +2014,62 @@ flowchart TD
 | Campo | Descripción |
 |-------|-------------|
 | **ID** | UC-36 |
-| **Nombre** | Revisar y Enviar Email Borrador |
+| **Nombre** | Revisar y Enviar Email Borrador (+ Email Manual del Gestor) |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor revisa, edita y confirma el envío de un email generado como borrador |
-| **Precondiciones** | - Email en estado borrador<br>- Generado automáticamente con comentarios o manualmente |
-| **Postcondiciones** | - Email enviado<br>- Registro en log |
+| **Descripción** | El gestor lista las comunicaciones de una RESERVA, revisa y opcionalmente edita un email en estado `borrador` generado por el sistema (E1 con comentarios, US-045), confirma su envío o lo descarta, y puede crear y enviar un email manual desde la ficha. Implementado en **US-046** (change `us-046-revisar-enviar-email-borrador`). Introduce la primera superficie HTTP del módulo `comunicaciones`. |
+| **Precondiciones** | - Gestor autenticado con `tenant_id` en el JWT<br>- RESERVA activa del tenant con al menos una `COMUNICACION` en `estado = 'borrador'` (para enviar/descartar) o con `CLIENTE.email` válido (para email manual)<br>- Motor de email US-045 operativo (`EnviarEmailPort`, `ComunicacionRepositoryPort`, `AuditLogPort`) |
+| **Postcondiciones** | **Enviar borrador:** `COMUNICACION` pasa a `estado = 'enviado'` con `fecha_envio`; si se editó `asunto`/`cuerpo`, el contenido persistido refleja lo efectivamente enviado; `AUDIT_LOG` con `accion = 'actualizar'`, `entidad = 'COMUNICACION'`. **Descartar borrador:** `COMUNICACION` pasa a `estado = 'fallido'` sin `fecha_envio` y sin envío; `AUDIT_LOG` con causa "descartado por gestor". **Email manual:** nueva `COMUNICACION` con `codigo_email = 'manual'`, `estado = 'enviado'`, `fecha_envio` no nulo, `reserva_id` y `cliente_id` correctos; `AUDIT_LOG` con `accion = 'crear'`. En todos los casos el `tenant_id` y `cliente_id` provienen del JWT y de la RESERVA, nunca del body. |
 | **Prioridad** | Alta |
 | **Frecuencia** | Alta |
+| **US** | US-046 |
+| **Endpoints** | `GET /reservas/{id}/comunicaciones` (listar); `POST /reservas/{id}/comunicaciones/{idComunicacion}/enviar` (confirmar envío, body opcional `{ asunto?, cuerpo? }`); `POST /reservas/{id}/comunicaciones/{idComunicacion}/descartar`; `POST /reservas/{id}/comunicaciones/manual` (crea + envía, body `{ asunto, cuerpo }`) |
+| **Entidades afectadas** | COMUNICACION (UPDATE estado/asunto/cuerpo + INSERT para manual); AUDIT_LOG. RESERVA, CLIENTE y FECHA_BLOQUEADA solo se leen; no se mutan. |
 
-**Flujo Básico:**
-1. El sistema genera email como borrador (ej: lead con comentarios)
-2. El sistema notifica al gestor
-3. El gestor accede a la ficha de la reserva
-4. El gestor abre el borrador de email
-5. El gestor revisa el contenido
-6. El gestor puede editar texto
-7. El gestor confirma el envío
-8. El sistema envía el email
-9. El sistema registra en logs
+**Flujo Básico A — Listar comunicaciones de la ficha:**
+1. El gestor abre la ficha de la RESERVA y accede a la sección "Comunicaciones"
+2. El frontend llama a `GET /reservas/{id}/comunicaciones`
+3. El sistema devuelve todas las `COMUNICACION` de esa RESERVA (filtradas por `tenant_id` del JWT y por `reserva_id`), con `codigo_email`, `estado`, `asunto`, `destinatario_email`, `fecha_creacion`, `fecha_envio` y `es_reenvio`
+4. Las de `estado = 'enviado'`/`'fallido'` se presentan como solo lectura; las de `estado = 'borrador'` como accionables (enviar / descartar)
+
+**Flujo Básico B — Revisar y confirmar el envío de un borrador:**
+1. El gestor selecciona una `COMUNICACION` en `estado = 'borrador'` y elige "Enviar"
+2. Opcionalmente, el gestor edita `asunto` y/o `cuerpo`
+3. El gestor confirma el envío
+4. El sistema (`EnviarBorradorUseCase`) valida: (a) guarda de estado: solo `borrador` es enviable; (b) validación del `destinatario_email` (RFC 5321, no nulo) antes de llamar al proveedor
+5. El sistema edita `asunto`/`cuerpo` si fueron modificados, llama a `finalizarEnvio` del motor de US-045 y actualiza la fila a `estado = 'enviado'` + `fecha_envio = now()`; el contenido persistido refleja lo efectivamente enviado
+6. El sistema registra `AUDIT_LOG` con `accion = 'actualizar'`
+7. El sistema responde `200` con la `COMUNICACION` actualizada
+
+**Flujo Básico C — Descartar un borrador:**
+1. El gestor selecciona una `COMUNICACION` en `estado = 'borrador'` y elige "Descartar"
+2. El gestor confirma la acción
+3. El sistema (`DescartarBorradorUseCase`) valida la guarda de estado: solo `borrador` es descartable
+4. El sistema actualiza la fila a `estado = 'fallido'` **sin** `fecha_envio` y **sin** llamar al proveedor de email; registra `AUDIT_LOG` con causa "descartado por gestor"
+5. El borrador desaparece de la bandeja de pendientes; la RESERVA continúa su ciclo de vida sin cambios
+6. El sistema responde `200` con la `COMUNICACION` actualizada
+
+**Flujo Básico D — Crear y enviar un email manual:**
+1. El gestor selecciona "Nuevo email manual" en la sección de comunicaciones de la ficha
+2. El gestor redacta `asunto` y `cuerpo` y confirma el envío
+3. El sistema (`CrearEmailManualUseCase`) valida el `CLIENTE.email` (RFC 5321, no nulo) antes de enviar
+4. El sistema envía el email al `CLIENTE.email` reutilizando el puerto de envío del motor de US-045; crea una `COMUNICACION` con `codigo_email = 'manual'`, `estado = 'enviado'`, `fecha_envio` no nulo, `reserva_id`, `cliente_id` y `tenant_id` correctos, `es_reenvio = false`
+5. El sistema registra `AUDIT_LOG` con `accion = 'crear'`
+6. El sistema responde `201` con la nueva `COMUNICACION`
+
+**Flujos Alternativos:**
+- **FA-01** (guarda de estado — intento de enviar/descartar una `COMUNICACION` no en `borrador`): el sistema devuelve **409** sin efectos; la fila no se modifica.
+- **FA-02** (destinatario inválido — `CLIENTE.email` nulo o con formato inválido): el sistema devuelve **422** ("El cliente no tiene un email válido registrado") y la `COMUNICACION` permanece en `estado = 'borrador'` (no pasa a `fallido`; el envío ni siquiera se intentó). El gestor debe actualizar el email del cliente.
+- **FA-03** (fallo del proveedor de email al confirmar el envío): el sistema actualiza la `COMUNICACION` a `estado = 'fallido'` sin `fecha_envio` + `AUDIT_LOG`; devuelve **502 Bad Gateway** para que el frontend lo capture. Sin reintento automático en MVP; el gestor puede reintentar.
+- **FA-04** (cross-tenant — `COMUNICACION`/RESERVA de otro tenant): el sistema rechaza la acción por RLS; **403** sin efectos.
+- **FA-05** (varios emails manuales sobre la misma reserva): no colisionan; los `manual` quedan fuera del índice UNIQUE parcial de idempotencia por el predicado `codigo_email <> 'manual'` (D-5 Opción C, US-046).
+
+**Reglas de Negocio:**
+- Solo `estado = 'borrador'` es enviable o descartable; `enviado` es terminal (no se revierte, no se re-envía la misma fila); `fallido` es de solo lectura para esta acción.
+- El gestor edita únicamente `asunto` y `cuerpo`; `codigo_email` y `destinatario_email` no son editables.
+- `tenant_id` y `cliente_id` se toman del JWT y de la RESERVA, nunca del body (multi-tenancy).
+- La validación del destinatario es defensiva en servidor (no confía en la UI): un email inválido bloquea el envío y conserva el borrador, sin llamar al proveedor.
+- El descarte usa `estado = 'fallido'` (no existe "descartado" en el enum); la causa "descartado por gestor" en `AUDIT_LOG` distingue el descarte del fallo del proveedor.
 
 ---
 
