@@ -1,8 +1,8 @@
 ---
 id: US-042
-estado: in_progress
+estado: en_revision
 branch: feature/us-042-buscar-en-historico
-pr: null
+pr: https://github.com/rvila89/slotify/pull/78
 ---
 
 # 🧾 Historia de Usuario: Buscar y Filtrar en el Histórico de Reservas
