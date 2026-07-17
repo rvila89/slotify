@@ -43,6 +43,7 @@ import { ExtenderBloqueoController } from './interface/extender-bloqueo.controll
 import { ObtenerReservaController } from './interface/obtener-reserva.controller';
 import { ObtenerColaEsperaController } from './interface/obtener-cola-espera.controller';
 import { ListarReservasController } from './interface/listar-reservas.controller';
+import { ListarHistoricoController } from './interface/listar-historico.controller';
 import {
   TransicionFechaUseCase,
   type ConfirmacionBloqueoEmailPort,
@@ -62,6 +63,11 @@ import {
   type PipelineQueryPort,
 } from './application/listar-reservas.use-case';
 import { ListarReservasPrismaAdapter } from './infrastructure/listar-reservas.prisma.adapter';
+import {
+  ListarHistoricoUseCase,
+  type HistoricoQueryPort,
+} from './application/listar-historico.use-case';
+import { ListarHistoricoPrismaAdapter } from './infrastructure/listar-historico.prisma.adapter';
 import {
   TransicionPendienteInvitadosUseCase,
   type UnidadDeTrabajoPendienteInvitadosPort,
@@ -228,6 +234,7 @@ import {
   PROMOCION_MANUAL_COLA_UOW_PORT,
   COLA_ESPERA_QUERY_PORT,
   PIPELINE_QUERY_PORT,
+  HISTORICO_QUERY_PORT,
   CANDIDATAS_INICIO_EVENTO_PORT,
   INICIO_EVENTO_PORT,
   ALERTA_INICIO_EVENTO_PORT,
@@ -267,6 +274,7 @@ import {
     ObtenerReservaController,
     ObtenerColaEsperaController,
     ListarReservasController,
+    ListarHistoricoController,
     BarridoExpiracionController,
     BarridoEventosController,
     BarridoCompletadasController,
@@ -503,6 +511,19 @@ import {
       inject: [PIPELINE_QUERY_PORT],
       useFactory: (pipeline: PipelineQueryPort) =>
         new ListarReservasUseCase({ pipeline }),
+    },
+    // US-042 — histórico de reservas cerradas (GET /historico → ReservaHistoricoListResponse).
+    {
+      provide: HISTORICO_QUERY_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new ListarHistoricoPrismaAdapter(prisma),
+    },
+    {
+      provide: ListarHistoricoUseCase,
+      inject: [HISTORICO_QUERY_PORT],
+      useFactory: (historico: HistoricoQueryPort) =>
+        new ListarHistoricoUseCase({ historico }),
     },
     {
       provide: FECHA_BLOQUEADA_REPOSITORY_PORT,
@@ -954,6 +975,7 @@ import {
     ObtenerReservaUseCase,
     ObtenerColaEsperaUseCase,
     ListarReservasUseCase,
+    ListarHistoricoUseCase,
     ExpirarConsultasVencidasService,
     PromoverPrimeroEnColaService,
     PromoverManualEnColaService,

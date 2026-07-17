@@ -2971,6 +2971,41 @@ export interface paths {
         };
         trace?: never;
     };
+    "/historico": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Buscar y filtrar en el histórico (UC-32 / US-042)
+         * @description [US-042] Lista **paginada** de reservas en **estado cerrado** del tenant autenticado.
+         *     Por defecto (sin `estadoFinal`) devuelve **solo** `reserva_completada`; `reserva_cancelada`
+         *     es **opt-in** explícito. Nunca devuelve estados activos ni los terminales de consulta
+         *     `2x`/`2y`/`2z` (esos se consultan desde el Pipeline). Resultados ordenados por
+         *     `fechaEvento` **descendente** por defecto (no se expone parámetro de orden en este change).
+         *
+         *     Filtros estructurados (todos opcionales, combinados con **AND lógico** sobre el conjunto
+         *     cerrado del tenant): `q` (full-text), `estadoFinal`, `fechaDesde`/`fechaHasta` (rango
+         *     inclusivo sobre `fecha_evento`), `tipoEvento`, `importeMin`/`importeMax` (rango sobre
+         *     `importe_total`). La búsqueda `q` opera sobre `CLIENTE.nombre`, `CLIENTE.apellidos`,
+         *     `CLIENTE.email`, `RESERVA.codigo` y `RESERVA.notas` (y solo esos), de forma parametrizada
+         *     (sin SQL raw ni inyección). Un rango sin coincidencias o un término sin match devuelven
+         *     `200` con `data: []`.
+         *
+         *     Paginación obligatoria (`page >= 1`, `limit` 1..100; por defecto `page=1`, `limit=20`).
+         *     `limit` fuera de rango → `400`. Aislado por `tenant_id` del JWT + RLS; sin JWT → `401`.
+         */
+        get: operations["listarHistorico"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/historico/reservas": {
         parameters: {
             query?: never;
@@ -2979,8 +3014,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Buscar en histórico (UC-32)
-         * @description Búsqueda full-text sobre reservas archivadas (código, cliente, notas).
+         * [DEPRECADO US-042] Usa GET /historico
+         * @deprecated
+         * @description [DEPRECADO US-042] Placeholder previo (skeleton pre-US-042). Sustituido por el endpoint dedicado `GET /historico` (`operationId: listarHistorico`), que añade filtros estructurados, paginación validada y una fila ligera `ReservaHistorico`. No usar en clientes nuevos.
          */
         get: {
             parameters: {
@@ -3660,6 +3696,28 @@ export interface components {
         };
         ReservaListResponse: {
             data: components["schemas"]["Reserva"][];
+            metadata: components["schemas"]["PaginationMetadata"];
+        };
+        ReservaHistorico: {
+            /** Format: uuid */
+            idReserva: string;
+            /** @example SLO-2026-0001 */
+            codigo: string;
+            /** Format: uuid */
+            clienteId: string;
+            /** @description Nombre del cliente (presentación). */
+            clienteNombre?: string | null;
+            /** @description Apellidos del cliente (presentación). */
+            clienteApellidos?: string | null;
+            /** @enum {string} */
+            estado: "reserva_completada" | "reserva_cancelada";
+            /** Format: date */
+            fechaEvento: string | null;
+            tipoEvento?: components["schemas"]["TipoEvento"] | null;
+            importeTotal?: components["schemas"]["Importe"] | null;
+        };
+        ReservaHistoricoListResponse: {
+            data: components["schemas"]["ReservaHistorico"][];
             metadata: components["schemas"]["PaginationMetadata"];
         };
         CreateReservaResponse: components["schemas"]["Reserva"] & {
@@ -7534,6 +7592,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CalendarioResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listarHistorico: {
+        parameters: {
+            query?: {
+                /** @description Número de página */
+                page?: components["parameters"]["Page"];
+                /** @description Elementos por página */
+                limit?: components["parameters"]["Limit"];
+                /** @description Búsqueda full-text sobre nombre/apellidos/email del cliente, código y notas de la reserva. Sin coincidencias → `200` con `data: []`. */
+                q?: string;
+                /** @description Estado cerrado a listar. Ausente → **solo** `reserva_completada`. Opt-in explícito de `reserva_cancelada`. Nunca se mezclan por defecto. */
+                estadoFinal?: "reserva_completada" | "reserva_cancelada";
+                /** @description Límite inferior inclusivo del rango sobre `fechaEvento`. */
+                fechaDesde?: string;
+                /** @description Límite superior inclusivo del rango sobre `fechaEvento`. */
+                fechaHasta?: string;
+                /** @description Filtro exacto sobre `RESERVA.tipo_evento`. */
+                tipoEvento?: components["schemas"]["TipoEvento"];
+                /** @description Límite inferior del rango sobre `importeTotal` (Decimal(10,2) como string). */
+                importeMin?: components["schemas"]["Importe"];
+                /** @description Límite superior del rango sobre `importeTotal` (Decimal(10,2) como string). */
+                importeMax?: components["schemas"]["Importe"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Histórico paginado del tenant. `data` son filas ligeras de solo lectura (`ReservaHistorico`); `metadata` sigue el patrón de paginación del pipeline. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReservaHistoricoListResponse"];
                 };
             };
             400: components["responses"]["ValidationError"];

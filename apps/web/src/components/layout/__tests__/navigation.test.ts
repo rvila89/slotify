@@ -13,7 +13,12 @@ describe('resolveSectionMeta', () => {
       subtitle: 'Vista general de la operación',
     });
     expect(resolveSectionMeta('/calendario').title).toBe('Calendario');
+    expect(resolveSectionMeta('/historico').title).toBe('Histórico');
     expect(resolveSectionMeta('/metricas').title).toBe('Métricas');
+  });
+
+  it('hace que el detalle del histórico herede la meta de su sección padre', () => {
+    expect(resolveSectionMeta('/historico/abc-123').title).toBe('Histórico');
   });
 
   it('hace que las sub-rutas hereden la meta de su sección padre', () => {

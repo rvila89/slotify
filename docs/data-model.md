@@ -2,7 +2,7 @@
 
 > **Documento**: Modelo de Datos (definición de entidades, campos y reglas)
 > **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados
-> **Versión**: 1.5
+> **Versión**: 2.7
 > **Fecha**: 17/07/2026
 > **Fuente canónica del ERD**: [er-diagram.md](./er-diagram.md) · **Arquitectura**: [architecture.md](./architecture.md) · **Casos de uso**: [use-cases.md](./use-cases.md)
 
@@ -665,7 +665,8 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 | `@@index([estado, fechaPostEvento])` | `Reserva` | Selección eficiente de candidatas al barrido de archivado automático (US-037): filtra por `estado = 'post_evento'` y compara `fechaPostEvento` con el umbral T+7d. Migración aditiva `20260710130000_us037_reserva_fecha_post_evento`. |
 | `@@index([tenant_id, consulta_bloqueante_id, posicion_cola])` | `Reserva` | Promoción y reordenación de cola |
 | `@@index([tenant_id, email])` | `Cliente` | Búsqueda de cliente y recurrencia |
-| Full-text (`nombre`, `codigo`, `notas`) | `Reserva` | Histórico consultable (`UC-32`) |
+| `idx_reserva_fts_historico` GIN funcional sobre `to_tsvector('spanish', coalesce(codigo,'') \|\| ' ' \|\| coalesce(notas,''))` | `Reserva` | Búsqueda full-text en el histórico (US-042 / UC-32): permite localizar por código de reserva y texto libre de notas. Migración aditiva `20260717140000_us042_historico_fts_gin`. |
+| `idx_cliente_fts_historico` GIN funcional sobre `to_tsvector('spanish', translate(coalesce(nombre,'') \|\| ' ' \|\| coalesce(apellidos,'') \|\| ' ' \|\| coalesce(email,''), '@._-', '    '))` | `Cliente` | Búsqueda full-text en el histórico (US-042 / UC-32): permite localizar por nombre, apellidos y email del cliente, normalizando separadores comunes de email (`@`, `.`, `_`, `-` → espacio). Migración aditiva `20260717140000_us042_historico_fts_gin`. |
 | UNIQUE parcial `(tenant_id, consulta_bloqueante_id, posicion_cola) WHERE posicion_cola IS NOT NULL` | `Reserva` | Unicidad de posición en cola; defensa en profundidad D-5 / D-8 (US-004). Migración aditiva `20260628120000_us004_cola_posicion_unique`; índice activo en BD: `reserva_cola_posicion_key` |
 | `UNIQUE PARTIAL (reserva_id, codigo_email) WHERE reserva_id IS NOT NULL AND es_reenvio = false AND codigo_email <> 'manual'` | `Comunicacion` | Idempotencia del motor de email (US-045, D-4 US-028, D-5 US-046): una `COMUNICACION` de envío original por `(reserva, codigo_email)` para E1–E8; reenvíos explícitos (`es_reenvio = true`) quedan fuera del predicado; emails `manual` quedan excluidos por `AND codigo_email <> 'manual'`, permitiendo varios manuales por reserva. Los `manual` llevan `reserva_id` NOT NULL y `es_reenvio = false`. Migración `20260628120000_us045_comunicacion_idempotencia_indice`; predicado ampliado por D-4 US-028 y D-5 US-046. |
 | `@@index([tenantId])` | `Pago` | Filtrado RLS directo por `tenant_id` (US-029 D-1). La policy RLS de PAGO usa `PAGO.tenant_id` directamente, sin join a FACTURA. Migración `20260704150000_us029_pago_tenant_id`. |
@@ -684,6 +685,8 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 - **Auditoría:** toda transición de estado de `Reserva` y toda emisión de `Factura` genera un `AuditLog`.
 
 ---
+
+*Documento de modelo de datos v2.7 (17/07/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v4.5. v2.7: refleja US-042 — Buscar y filtrar en el histórico (UC-32): añade nota de lectura en el histórico en §3.5 Reserva (`GET /historico`, schema `ReservaHistorico`, desacople del pipeline, join a CLIENTE, detalle vía `GET /reservas/{id}`); añade dos índices GIN funcionales en §5 (`idx_reserva_fts_historico` sobre `codigo`+`notas` de RESERVA; `idx_cliente_fts_historico` sobre `nombre`+`apellidos`+`email` de CLIENTE con `translate` de separadores; migración aditiva `20260717140000_us042_historico_fts_gin`). Sin columnas nuevas en ninguna entidad.*
 
 *Documento de modelo de datos v2.6 (10/07/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v4.4. v2.6: refleja US-037 — Archivado Automático a `reserva_completada` en T+7d (UC-28): añade campo `fecha_post_evento DateTime? @map("fecha_post_evento")` en la tabla de campos de §3.5 Reserva (migración aditiva `20260710130000_us037_reserva_fecha_post_evento`); añade nota de flujo completo de US-037 en §3.5 (transición terminal `post_evento → reserva_completada`, guarda de fianza resuelta, barrido `POST /cron/barrido-completadas`, idempotencia, concurrencia con US-038, alerta FA-01 anti-duplicada en AUDIT_LOG); añade índice `@@index([estado, fechaPostEvento])` en §5; amplía §3.17 AuditLog con la convención de Sistema para archivado (transición T+7d y alerta FA-01 `fianza_pendiente_t7d`).*
 

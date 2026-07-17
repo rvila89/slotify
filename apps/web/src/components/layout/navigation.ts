@@ -1,4 +1,11 @@
-import { BarChart3, CalendarDays, ClipboardList, LayoutDashboard, type LucideIcon } from 'lucide-react';
+import {
+  Archive,
+  BarChart3,
+  CalendarDays,
+  ClipboardList,
+  LayoutDashboard,
+  type LucideIcon,
+} from 'lucide-react';
 
 /**
  * Navegación del App Shell: única fuente de verdad de las secciones del MVP.
@@ -37,6 +44,13 @@ export const navItems: readonly NavItem[] = [
     icon: ClipboardList,
     title: 'Reservas',
     subtitle: 'Gestión de solicitudes',
+  },
+  {
+    to: '/historico',
+    label: 'Histórico',
+    icon: Archive,
+    title: 'Histórico',
+    subtitle: 'Reservas completadas y canceladas',
   },
   {
     to: '/metricas',
