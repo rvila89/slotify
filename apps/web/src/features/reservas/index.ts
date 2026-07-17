@@ -46,6 +46,17 @@ export {
   puedeFinalizarEvento,
   etiquetaDocumentacionPendiente,
 } from './lib/finalizarEvento';
+export { useForzarInicioEvento } from './api/useForzarInicioEvento';
+export type {
+  ForzarInicioEventoError,
+  ForzarInicioEventoVars,
+} from './api/useForzarInicioEvento';
+export {
+  puedeForzarInicioEvento,
+  precondicionesIncumplidas,
+  etiquetaPrecondicionIncumplida,
+} from './lib/forzarInicioEvento';
+export type { PrecondicionInicioEvento } from './lib/forzarInicioEvento';
 export { useArchivarReserva } from './api/useArchivarReserva';
 export type {
   ArchivarReservaError,

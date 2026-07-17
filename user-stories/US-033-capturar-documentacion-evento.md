@@ -1,8 +1,8 @@
 ---
 id: US-033
-estado: backlog
-branch: null
-pr: null
+estado: en_revision
+branch: feature/us-033-capturar-documentacion-evento
+pr: 76
 ---
 
 # 🧾 Historia de Usuario: Gestor/Equipo captura la documentación obligatoria durante el evento

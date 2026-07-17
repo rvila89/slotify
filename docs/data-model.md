@@ -2,8 +2,8 @@
 
 > **Documento**: Modelo de Datos (definición de entidades, campos y reglas)
 > **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados
-> **Versión**: 1.4
-> **Fecha**: 14/07/2026
+> **Versión**: 1.5
+> **Fecha**: 17/07/2026
 > **Fuente canónica del ERD**: [er-diagram.md](./er-diagram.md) · **Arquitectura**: [architecture.md](./architecture.md) · **Casos de uso**: [use-cases.md](./use-cases.md)
 
 ---
@@ -555,6 +555,8 @@ Archivos adjuntos polimórficos. Discriminador `tipo`. Referenciable desde reser
 
 **Persistencia de `tipo=condiciones_particulares` en E3 (US-023, change `condiciones-particulares-e3-us023`):** al ejecutar `POST /reservas/{id}/facturas/senal/enviar`, el use-case `EnviarFacturaSenalUseCase` crea o reutiliza **un único** `DOCUMENTO` con `tipo='condiciones_particulares'` dentro de la misma transacción atómica (`reservaId`, `tenantId`, `url` = clave `condiciones/{tenantId}.pdf`, `mimeType='application/pdf'`). Idempotencia: si ya existe un `DOCUMENTO` de ese tipo para la reserva (reenvíos futuros vía `POST .../reenviar`), se reutiliza sin crear una segunda fila ni registrar un segundo AUDIT_LOG `crear`. Sin migración: el enum `TipoDocumento` ya incluía `condiciones_particulares`.
 
+**Persistencia de `tipo ∈ {dni_anverso, dni_reverso, clausula_responsabilidad}` para la documentación del evento (US-033, UC-24):** al ejecutar `POST /reservas/{id}/documentos-evento`, el use-case crea **siempre una fila nueva** (sin buscar-antes-de-crear; **no idempotente**). La tabla no impone unicidad por `(reserva_id, tipo)`, de modo que conviven múltiples versiones del mismo tipo para la misma reserva. El documento de referencia del checklist (`GET /reservas/{id}/documentos-evento/checklist`) es el **más reciente** por `fechaCreacion`. Guarda de escritura: solo `RESERVA.estado = evento_en_curso`. El checklist es consultable también en `post_evento`. `AUDIT_LOG accion='crear'`, `entidad='DOCUMENTO'`. Sin migración: el enum `TipoDocumento` ya incluía estos valores. Clave de almacén durable: `documentos-evento/{tenantId}/{reservaId}/{tipo}/{uuid}.{ext}`. Contrasta con la idempotencia de `condiciones_particulares` en US-023; las dos políticas conviven porque la decisión de idempotencia es del use-case, no del puerto ni de la tabla. Ver [er-diagram.md §3.16 y §5.11](./er-diagram.md).
+
 ### 3.16 Comunicacion
 Log de emails enviados (E1–E8 + manuales). El motor hexagonal `DespacharEmailService` (US-045) es el único responsable de registrar y actualizar las entradas de esta entidad para los emails del ciclo de vida. La primera superficie HTTP del módulo (US-046) expone las acciones manuales del Gestor (listar, enviar borrador, descartar, email manual) como sub-recurso de la RESERVA.
 
@@ -627,6 +629,9 @@ Registro de auditoría de las acciones sobre reservas, facturas, bloqueos de fec
 
 **Convención de auditoría de Gestor — archivado manual (US-038 / UC-28 flujo alternativo B):** el endpoint `POST /reservas/{id}/archivar` genera exactamente una entrada cuando la transición tiene éxito, con `usuario_id = <id del gestor del JWT>` (origen Gestor, no nulo — diferencia clave con US-037):
 - **Transición exitosa:** `accion = 'transicion'`, `entidad = 'RESERVA'`, `entidad_id = <reservaId>`, `datos_anteriores = {estado: post_evento}`, `datos_nuevos = {estado: reserva_completada}` (sin `causa: 'T+7d'`; opcionalmente `causa: 'manual'`). La entrada no se escribe si la guarda de origen falla (409 `transicion_no_permitida`) ni si la guarda de fianza falla (422 `fianza_no_resuelta`). La serialización por `SELECT … FOR UPDATE` garantiza que, en la race condition entre el cron de US-037 y el gestor de US-038, exactamente una entrada de `AUDIT_LOG` se genera para la RESERVA.
+
+**Convención de auditoría de Gestor — forzado manual del inicio de evento (US-032 / UC-23 FA-01):** el endpoint `POST /reservas/{id}/forzar-inicio-evento` genera exactamente una entrada cuando el forzado tiene éxito (0 filas afectadas bajo el lock → no-op idempotente, sin registro), con `usuario_id = <id del gestor del JWT>` (origen **Usuario** — diferencia clave con el barrido de Sistema de US-031, que lleva `usuario_id = NULL`):
+- **Transición forzada exitosa:** `accion = 'transicion'`, `entidad = 'RESERVA'`, `entidad_id = <reservaId>`, `datos_anteriores = {estado: reserva_confirmada}`, `datos_nuevos = {estado: evento_en_curso, forzado_por_gestor: true, precondiciones_incumplidas: [lista]}`. El campo `forzado_por_gestor: true` es evidencia de auditoría obligatoria: distingue este inicio forzado de un inicio automático de US-031 (que nunca incluye `forzado_por_gestor`). `precondiciones_incumplidas` es la lista de sub-procesos sin cumplir (`pre_evento_status`, `liquidacion_status`, `fianza_status`) calculada dentro de la transacción bajo el `SELECT … FOR UPDATE`; puede ser `[]` si en el momento del forzado las tres precondiciones ya estuvieran cumplidas (el forzado se ejecuta igualmente y `forzado_por_gestor` sigue siendo `true`). Los sub-procesos incumplidos **no se resuelven**: `pre_evento_status`, `liquidacion_status` y `fianza_status` conservan su valor tras el forzado. La escritura del `AUDIT_LOG` es parte de la misma transacción que la UPDATE; si la UPDATE afecta 0 filas (carrera cron↔gestor), no se escribe auditoría.
 
 ---
 

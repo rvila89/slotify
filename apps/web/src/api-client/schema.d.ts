@@ -1406,6 +1406,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/documentos-evento": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Subir un documento obligatorio del evento y refrescar el checklist (UC-24 / US-033)
+         * @description [US-033] El **Gestor** sube uno de los tres documentos obligatorios del evento
+         *     (`dni_anverso`, `dni_reverso`, `clausula_responsabilidad`) para una RESERVA. En una **única
+         *     transacción de BD** (bajo el contexto RLS del tenant del JWT), all-or-nothing:
+         *     1. **Guardas de servidor** (autoritativas, ANTES de subir al almacén o escribir en BD):
+         *        - `RESERVA.estado='evento_en_curso'`. Si está en cualquier otro estado (anterior/posterior,
+         *          incluidos terminales) → **422** (`ESTADO_NO_PERMITE_DOCUMENTACION`) "La documentación del
+         *          evento solo puede capturarse mientras el evento está en curso"; sin efectos.
+         *        - Se adjunta **exactamente un** fichero con `mimeType ∈ {image/jpeg, image/png,
+         *          application/pdf}`, `tamanoBytes > 0` (no vacío/corrupto) y tamaño ≤ 10 MB. Si falta /
+         *          formato no permitido / vacío o corrupto / > 10 MB → **422** (`ARCHIVO_REQUERIDO` /
+         *          `FORMATO_NO_PERMITIDO` / `ARCHIVO_INVALIDO` / `TAMANO_EXCEDIDO`); sin efectos.
+         *        - El `tipo` pertenece a `{dni_anverso, dni_reverso, clausula_responsabilidad}`. Si no →
+         *          **422** (`TIPO_DOCUMENTO_NO_PERMITIDO`); sin efectos.
+         *     2. Sube los bytes al almacén de documentos **durable** (clave con `tenant_id`/`reserva_id`/
+         *        `tipo`/`uuid`, versionada: se conservan todas las versiones) y **crea una nueva fila
+         *        DOCUMENTO** con el `tipo` indicado, `reservaId`, `tenantId` (heredado de la RESERVA, nunca
+         *        del input), `url`, `mimeType`, `nombreArchivo` y `tamanoBytes > 0`. **No transiciona
+         *        `estado`** ni ningún sub-proceso.
+         *     3. `AUDIT_LOG accion='crear'`, `entidad='DOCUMENTO'`, `datos_nuevos` (tipo, reservaId, url,
+         *        mimeType, tamanoBytes), con el usuario del Gestor.
+         *
+         *     **No idempotente por diseño** (design.md §D-no-idempotencia): si ya existe un DOCUMENTO del
+         *     mismo `tipo` para la reserva (p. ej. foto borrosa), NO se rechaza ni se sobrescribe — se crea
+         *     otra fila y se conserva el histórico. El checklist marca el ítem `completado` por existencia
+         *     de ≥ 1 documento del tipo y toma el más reciente por `fechaCreacion` como referencia. Si la
+         *     subida al almacén o cualquier escritura falla, la transacción **revierte por completo** (sin
+         *     DOCUMENTO huérfano ni fichero referenciado por una fila inexistente). La respuesta incluye el
+         *     DOCUMENTO creado y el **checklist actualizado** para refresco en tiempo real (sin round-trip).
+         */
+        post: operations["subirDocumentoEvento"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reservas/{id}/documentos-evento/checklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Consultar el checklist de la documentación obligatoria del evento (UC-24 / US-033)
+         * @description [US-033] Devuelve el **checklist** de la documentación obligatoria del evento de la RESERVA,
+         *     con los **tres ítems** `dni_anverso`, `dni_reverso` y `clausula_responsabilidad`. Para cada
+         *     ítem, `completado = existe ≥ 1 DOCUMENTO de ese tipo + reservaId bajo RLS del tenant`; cuando
+         *     está completado se incluye el `documento` más reciente (por `fechaCreacion`) como referencia.
+         *     El checklist se **deriva por lectura** (no se materializa como estado agregado en la RESERVA)
+         *     y filtra por `tenant_id` del JWT (RLS): nunca incluye documentos de otro tenant. Es una señal
+         *     **informativa, no bloqueante** (FA-01). Consultable tanto en `evento_en_curso` como en
+         *     `post_evento` (para mostrar pendientes tras finalizar y permitir subida tardía).
+         */
+        get: operations["obtenerChecklistDocumentacionEvento"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/presupuestos": {
         parameters: {
             query?: never;
@@ -2462,6 +2542,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/forzar-inicio-evento": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forzar el inicio del evento a evento_en_curso (UC-23 FA-01 / US-032)
+         * @description [US-032] El **Gestor** (JWT de usuario, rol gestor, RLS del tenant del JWT — NUNCA
+         *     `X-Cron-Token`: es acción manual, no el barrido de Sistema de US-031) **fuerza** el inicio
+         *     de un evento sobre una RESERVA en `estado='reserva_confirmada'`, transicionándola a
+         *     `evento_en_curso` **aunque alguna precondición del inicio de evento esté incumplida**
+         *     (`pre_evento_status ≠ 'cerrado'` O `liquidacion_status ≠ 'cobrada'` O `fianza_status ≠
+         *     'cobrada'`), asumiendo el riesgo. El `{id}` del path identifica la ÚNICA RESERVA a forzar
+         *     (no es un barrido); el `tenant_id` y el `usuario_id` DERIVAN SIEMPRE del JWT, nunca del path
+         *     ni del body.
+         *
+         *     En una transacción atómica bajo el contexto RLS del tenant del JWT, con `SELECT … FOR UPDATE`
+         *     de la fila RESERVA, el sistema:
+         *
+         *     1. **Re-evalúa bajo el lock la guarda de origen** (`resolverInicioEvento`, reutilizada de
+         *        US-031, regla dura anti-duplicación): si `estado ≠ reserva_confirmada` (incluido ya
+         *        `evento_en_curso` porque el cron de US-031 llegó primero, doble clic del gestor u otra
+         *        acción) → **409** `code: 'conflicto_estado'`, sin transicionar ni auditar (cubre
+         *        idempotencia y la carrera cron↔gestor).
+         *     2. **Calcula bajo el lock las precondiciones incumplidas** con
+         *        `preconditionesEventoCumplidas({ preEventoStatus, liquidacionStatus, fianzaStatus })`
+         *        (guarda pura reutilizada de US-031). El resultado **NO veta** la transición (a diferencia
+         *        de US-031): solo alimenta la evidencia de auditoría. La lista `faltantes` se persiste en
+         *        `AUDIT_LOG.datos_nuevos.precondiciones_incumplidas` (puede ser `[]` si por un caso borde
+         *        las tres estaban cumplidas al forzar).
+         *     3. **UPDATE condicional** `… SET estado='evento_en_curso' WHERE id=? AND
+         *        estado='reserva_confirmada'`: 1 fila → transición + `AUDIT_LOG`; 0 filas (otro actor ganó
+         *        bajo el lock) → **no-op idempotente** traducido a **409** sin doble transición ni doble
+         *        auditoría.
+         *
+         *     La transición forzada se audita con `accion='transicion'`, `entidad='RESERVA'`,
+         *     `datos_anteriores={estado: reserva_confirmada}`, `datos_nuevos={estado: evento_en_curso,
+         *     forzado_por_gestor: true, precondiciones_incumplidas: [lista]}`, con el `usuarioId` del
+         *     **Gestor** (origen **Usuario**, a diferencia del barrido de Sistema de US-031, que no puebla
+         *     usuario). `forzado_por_gestor = true` es evidencia de auditoría OBLIGATORIA: distingue un
+         *     inicio forzado de un inicio automático de US-031. El forzado muta **exclusivamente**
+         *     `RESERVA.estado`: los sub-procesos incumplidos (`pre_evento_status`/`liquidacion_status`/
+         *     `fianza_status`) **NO** se resuelven y conservan su valor; sin side-effects sobre
+         *     `FICHA_OPERATIVA`, cobros, `FECHA_BLOQUEADA` ni la cola. No se envía ningún email.
+         *
+         *     **Guarda de fecha (422)**: el forzado solo está disponible el **día del evento**. Si
+         *     `estado = reserva_confirmada` pero `date(fecha_evento) ≠ date(hoy)` (fecha de calendario del
+         *     servidor/tenant) → **422** `code: 'fecha_evento_no_es_hoy'`, sin efectos. Es una precondición
+         *     de negocio (fecha), distinta del conflicto de estado (409). Nota UX: el botón de la UI solo
+         *     aparece con `fecha_evento = hoy`, así que el 422 es una defensa de servidor no eludible por
+         *     URL/shortcut.
+         *
+         *     **Concurrencia**: dos peticiones concurrentes (cron US-031 vs gestor, o dos sesiones del
+         *     gestor) se serializan por `SELECT … FOR UPDATE` sobre la fila RESERVA; exactamente una gana,
+         *     la segunda observa `estado ≠ reserva_confirmada` (UPDATE condicional afecta 0 filas) y termina
+         *     como **409** sin doble transición ni doble AUDIT_LOG. Sin locks distribuidos (no toca
+         *     `FECHA_BLOQUEADA` ni la cola).
+         */
+        post: operations["forzarInicioEvento"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/archivar": {
         parameters: {
             query?: never;
@@ -3420,6 +3572,8 @@ export interface components {
         /** @enum {string} */
         TipoDocumento: "dni_anverso" | "dni_reverso" | "clausula_responsabilidad" | "condiciones_particulares" | "justificante_pago" | "presupuesto" | "factura" | "otro";
         /** @enum {string} */
+        TipoDocumentoEvento: "dni_anverso" | "dni_reverso" | "clausula_responsabilidad";
+        /** @enum {string} */
         CodigoEmail: "E1" | "E2" | "E3" | "E4" | "E5" | "E6" | "E7" | "E8" | "manual";
         LoginRequest: {
             /** Format: email */
@@ -3786,6 +3940,51 @@ export interface components {
              * @enum {string}
              */
             codigo: "CONDICIONES_NO_ENVIADAS";
+        };
+        /** @description DOCUMENTO obligatorio del evento (er-diagram §DOCUMENTO). `reservaId` es obligatorio para la documentación del evento; `tipo` es uno de los tres tipos obligatorios. */
+        DocumentoEvento: {
+            /** Format: uuid */
+            idDocumento: string;
+            tipo: components["schemas"]["TipoDocumentoEvento"];
+            /** Format: uuid */
+            reservaId: string;
+            /** @description URL del fichero en el almacén de documentos durable. */
+            url: string;
+            /** @example image/jpeg */
+            mimeType: string;
+            nombreArchivo: string;
+            /** @description Tamaño del fichero en bytes; siempre > 0 (rechazo de vacío/corrupto). */
+            tamanoBytes: number;
+            /**
+             * Format: date-time
+             * @description Instante de creación de la fila DOCUMENTO; ordena el "más reciente" del checklist.
+             */
+            fechaCreacion: string;
+        };
+        /** @description Estado de uno de los tres tipos obligatorios. `completado = existe ≥ 1 DOCUMENTO de ese tipo para la reserva (bajo RLS)`. `documento` (opcional) es el más reciente por `fechaCreacion`. */
+        ChecklistItemDocumentacionEvento: {
+            tipo: components["schemas"]["TipoDocumentoEvento"];
+            /** @description true si existe al menos un DOCUMENTO de este tipo para la reserva. */
+            completado: boolean;
+            /** @description Documento más reciente (por `fechaCreacion`) de este tipo, cuando `completado=true`. Se omite/`null` si el ítem está pendiente. */
+            documento?: components["schemas"]["DocumentoEvento"] | null;
+        };
+        /** @description Checklist derivado por lectura del estado de la documentación obligatoria del evento. Siempre contiene los tres ítems (`dni_anverso`, `dni_reverso`, `clausula_responsabilidad`). */
+        ChecklistDocumentacionEvento: {
+            items: components["schemas"]["ChecklistItemDocumentacionEvento"][];
+        };
+        SubirDocumentoEventoResponse: {
+            /** @description DOCUMENTO recién creado con el `tipo` subido, `url` y `mimeType` del fichero. */
+            documento: components["schemas"]["DocumentoEvento"];
+            /** @description Checklist tras la subida: el ítem del `tipo` subido queda `completado=true`. */
+            checklist: components["schemas"]["ChecklistDocumentacionEvento"];
+        };
+        SubirDocumentoEventoValidacionError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description `ESTADO_NO_PERMITE_DOCUMENTACION` → la RESERVA no está en `evento_en_curso` ("La documentación del evento solo puede capturarse mientras el evento está en curso"); `TIPO_DOCUMENTO_NO_PERMITIDO` → `tipo` fuera de {dni_anverso, dni_reverso, clausula_responsabilidad}; `ARCHIVO_REQUERIDO` → no se adjuntó fichero; `FORMATO_NO_PERMITIDO` → mime no permitido ("Formato no admitido. Por favor, usa JPEG, PNG o PDF."); `ARCHIVO_INVALIDO` → fichero vacío o corrupto (`tamanoBytes = 0`) ("El archivo no pudo procesarse. Por favor, inténtalo de nuevo con un archivo válido."); `TAMANO_EXCEDIDO` → fichero > 10 MB.
+             * @enum {string}
+             */
+            codigo: "ESTADO_NO_PERMITE_DOCUMENTACION" | "TIPO_DOCUMENTO_NO_PERMITIDO" | "ARCHIVO_REQUERIDO" | "FORMATO_NO_PERMITIDO" | "ARCHIVO_INVALIDO" | "TAMANO_EXCEDIDO";
         };
         /**
          * @description FACTURA de una reserva (`tipo` ∈ {`senal`, `liquidacion`, `fianza`, `complementaria`}), con
@@ -4641,6 +4840,43 @@ export interface components {
              * @enum {string}
              */
             code: "transicion_no_permitida";
+        };
+        /** @description Cuerpo (opcional, vacío) de la acción de forzar inicio de evento. No hay parámetros de negocio: la única entrada es la RESERVA (path) y el Gestor autenticado (JWT). */
+        ForzarInicioEventoRequest: Record<string, never>;
+        ForzarInicioEventoResponse: components["schemas"]["Reserva"] & {
+            /**
+             * @description Marca de override explícito del gestor. Siempre `true` en la respuesta (la acción es, por definición, un forzado manual). Distingue este inicio forzado de un inicio automático de US-031 (que nunca lleva `forzado_por_gestor`).
+             * @example true
+             */
+            forzadoPorGestor: boolean;
+            /**
+             * @description Lista de precondiciones del inicio de evento que estaban incumplidas en el momento del forzado, calculada bajo el lock con `preconditionesEventoCumplidas` (US-031) y persistida en `AUDIT_LOG.datos_nuevos.precondiciones_incumplidas`. Cada ítem identifica el sub-proceso pendiente (`pre_evento_status`/`liquidacion_status`/`fianza_status`). Vacío (`[]`) si por un caso borde las tres estaban cumplidas al forzar (el forzado se ejecuta igualmente y `forzadoPorGestor` sigue siendo `true`).
+             * @example [
+             *       "liquidacion_status",
+             *       "fianza_status"
+             *     ]
+             */
+            precondicionesIncumplidas: string[];
+        };
+        ForzarInicioEventoConflictError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Discriminador del 409: la RESERVA no está en `reserva_confirmada`, así que la transición `reserva_confirmada → evento_en_curso` no es aplicable (estado actual distinto, ya iniciada por el cron de US-031 o por una petición concurrente).
+             * @example conflicto_estado
+             * @enum {string}
+             */
+            code: "conflicto_estado";
+            /** @example El evento ya está en curso (iniciado automáticamente o por otro usuario). No es necesaria ninguna acción. */
+            message?: unknown;
+        };
+        ForzarInicioEventoFechaError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Discriminador del 422: la RESERVA está en `reserva_confirmada` pero la fecha del evento no es hoy (comparación por fecha de calendario del servidor/tenant). El forzado solo está disponible el día del evento.
+             * @example fecha_evento_no_es_hoy
+             * @enum {string}
+             */
+            code: "fecha_evento_no_es_hoy";
+            /** @example El forzado del inicio del evento solo está disponible el día del evento. */
+            message?: unknown;
         };
         /** @description Cuerpo (opcional, vacío) de la acción de archivado manual. No hay parámetros de negocio: la única entrada es la RESERVA (path) y el Gestor autenticado (JWT). */
         ArchivarReservaManualRequest: Record<string, never>;
@@ -5906,6 +6142,88 @@ export interface operations {
             };
         };
     };
+    subirDocumentoEvento: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Fichero del documento del evento. Formatos permitidos: `image/jpeg`, `image/png`, `application/pdf`. Tamaño máximo 10 MB, `tamanoBytes > 0`. Obligatorio.
+                     */
+                    archivo: string;
+                    /** @description Tipo del documento obligatorio del evento: `dni_anverso`, `dni_reverso` o `clausula_responsabilidad`. Obligatorio. */
+                    tipo: components["schemas"]["TipoDocumentoEvento"];
+                };
+            };
+        };
+        responses: {
+            /**
+             * @description DOCUMENTO del evento creado. Devuelve el DOCUMENTO recién creado y el checklist de la
+             *     documentación obligatoria del evento con el ítem del `tipo` subido ya `completado=true`.
+             *     `RESERVA.estado` y sus sub-procesos no cambian.
+             */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubirDocumentoEventoResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Validación de negocio sin efectos (guarda de estado, tipo no permitido o validación de
+             *     fichero). No se crea DOCUMENTO, no se sube al almacén y no se registra AUDIT_LOG. Un
+             *     `codigo` de dominio discrimina el caso.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubirDocumentoEventoValidacionError"];
+                };
+            };
+        };
+    };
+    obtenerChecklistDocumentacionEvento: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Checklist de la documentación obligatoria del evento (tres ítems). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChecklistDocumentacionEvento"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     listarFacturasReserva: {
         parameters: {
             query?: {
@@ -6971,6 +7289,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FinalizarEventoConflictError"];
+                };
+            };
+        };
+    };
+    forzarInicioEvento: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ForzarInicioEventoRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description Inicio forzado: RESERVA en `evento_en_curso`. Devuelve la RESERVA actualizada más
+             *     `forzadoPorGestor` (siempre `true`) y `precondicionesIncumplidas` (la lista de
+             *     precondiciones que estaban incumplidas en el momento del forzado; `[]` si estaban las
+             *     tres cumplidas).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForzarInicioEventoResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto de estado: la RESERVA `{id}` no está en `reserva_confirmada` (incluye "el cron
+             *     de US-031 llegó primero y ya está en `evento_en_curso`", doble sesión del gestor, o
+             *     cualquier otro estado). Sin efectos, sin doble transición ni doble auditoría.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForzarInicioEventoConflictError"];
+                };
+            };
+            /**
+             * @description Precondición de negocio incumplida: la RESERVA `{id}` está en `reserva_confirmada`
+             *     (origen válido) pero `date(fecha_evento) ≠ date(hoy)`. El forzado solo está disponible el
+             *     día del evento. Sin efectos; `RESERVA.estado` permanece `reserva_confirmada`.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForzarInicioEventoFechaError"];
                 };
             };
         };

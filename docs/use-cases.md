@@ -1417,13 +1417,13 @@ flowchart TD
 | **ID** | UC-23 |
 | **Nombre** | Iniciar Evento |
 | **Actor Principal** | Sistema |
-| **Actores Secundarios** | Gestor (via US-032, fuera de alcance MVP), Equipo (briefing 📐, fuera de alcance MVP) |
-| **Descripción** | El Sistema transiciona automáticamente la reserva al estado `evento_en_curso` a las 00:00 del día del evento (T-0), cuando se cumplen las tres precondiciones. Implementado en US-031 (barrido `POST /cron/barrido-eventos`). |
+| **Actores Secundarios** | Gestor (via US-032, implementado), Equipo (briefing 📐, fuera de alcance MVP) |
+| **Descripción** | El Sistema transiciona automáticamente la reserva al estado `evento_en_curso` a las 00:00 del día del evento (T-0), cuando se cumplen las tres precondiciones. Implementado en US-031 (barrido `POST /cron/barrido-eventos`). El Gestor puede forzar manualmente la transición el día del evento aunque alguna precondición esté incumplida (US-032, flujo alternativo FA-01, `POST /reservas/{id}/forzar-inicio-evento`). |
 | **Precondiciones** | - Reserva en estado `reserva_confirmada`<br>- `pre_evento_status = cerrado` (producido por US-025/US-026)<br>- `liquidacion_status = cobrada` (producido por US-029)<br>- `fianza_status = cobrada` (producido por US-030)<br>- `date(fecha_evento) = date(hoy)` (es el día del evento, T-0) |
 | **Postcondiciones** | - `RESERVA.estado = evento_en_curso`<br>- `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`, `datos_anteriores = {estado: reserva_confirmada}`, `datos_nuevos = {estado: evento_en_curso}`, origen Sistema (`usuario_id` nulo)<br>- El estado `evento_en_curso` habilita la captura de documentación del evento (US-033 / UC-24) y la acción de finalización del evento del gestor (US-034 / UC-25) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
-| **US** | US-031 (flujo básico automático); US-032 (forzado manual — pendiente); US-033 (captura de documentación — pendiente); US-034 (finalización del evento — implementada) |
+| **US** | US-031 (flujo básico automático); US-032 (forzado manual — implementado); US-033 (captura de documentación — implementada); US-034 (finalización del evento — implementada) |
 | **Endpoint** | `POST /cron/barrido-eventos` — auth `X-Cron-Token` (`CronTokenGuard`); invocado por cron `@nestjs/schedule` diario a las 00:00 (`CRON_BARRIDO_EVENTOS`) |
 
 **Flujo Básico (US-031 — implementado):**
@@ -1436,7 +1436,7 @@ flowchart TD
 7. La captura de documentación del evento (US-033) y la acción de finalización del evento (US-034 / UC-25, implementada) se activan al detectar `RESERVA.estado = evento_en_curso` desde `GET /reservas` (US-049)
 
 **Flujos Alternativos:**
-- **FA-01 (precondiciones incumplidas — US-031):** si alguna de las tres precondiciones no se cumple en T-0 → el sistema no transiciona la RESERVA (permanece en `reserva_confirmada`) y genera una alerta crítica al gestor con la lista de precondiciones incumplidas. El forzado manual de la transición ante precondiciones incumplidas corresponde a **US-032** (pendiente de implementación).
+- **FA-01 (precondiciones incumplidas — US-031 / forzado manual US-032):** si alguna de las tres precondiciones no se cumple en T-0 → el sistema no transiciona la RESERVA (permanece en `reserva_confirmada`) y genera una alerta crítica al gestor con la lista de precondiciones incumplidas. El Gestor puede entonces forzar manualmente la transición vía `POST /reservas/{id}/forzar-inicio-evento` (US-032, **implementado**): la RESERVA transiciona a `evento_en_curso` con independencia de si las precondiciones se cumplen (`forzado_por_gestor = true`), los sub-procesos incumplidos NO se resuelven, y la acción se audita en `AUDIT_LOG` con origen Usuario (`usuario_id` del gestor, a diferencia del origen Sistema del barrido de US-031) y `datos_nuevos = {estado: evento_en_curso, forzado_por_gestor: true, precondiciones_incumplidas: [lista]}`. La UI presenta al gestor la lista de precondiciones incumplidas y exige doble confirmación antes de disparar el `POST`. El forzado solo está disponible el día del evento (`fecha_evento = hoy`; la guarda `esDiaDelEvento` devuelve 422 `fecha_evento_no_es_hoy` en cualquier otro día). Si el barrido de US-031 llega primero (carrera cron↔gestor), el forzado termina como no-op idempotente con 409 `conflicto_estado` ("El evento ya está en curso"). Ver endpoint `forzarInicioEvento` en `api-spec.yml`.
 - **FA-02 (A29 — condiciones particulares no firmadas — US-031):** `cond_part_firmadas = false` en T-0 → el sistema emite la alerta no bloqueante A29 ("Las condiciones particulares de esta reserva no están firmadas. El cliente puede firmarlas presencialmente.") con independencia del resultado de la transición; la RESERVA transiciona igualmente a `evento_en_curso` si las tres precondiciones se cumplen.
 - **FA-03 (idempotencia):** una RESERVA ya en `evento_en_curso` (pase previo o gestor US-032) no es candidata; el barrido la omite sin duplicar auditorías.
 - **FA-04 (sin token / token inválido):** `POST /cron/barrido-eventos` sin `X-Cron-Token` o con valor incorrecto → `401`; ninguna RESERVA se transiciona.
@@ -1461,10 +1461,10 @@ flowchart TD
     M --> N[Resumen: candidatas / eventosIniciados / precondicionesIncumplidas / fallos]
 ```
 
-**Nota de alcance (US-031):**
-- **Implementado:** barrido automático a T-0, transición atómica `reserva_confirmada → evento_en_curso`, auditoría de Sistema, alerta crítica por precondiciones incumplidas, alerta A29 no bloqueante, idempotencia, concurrencia cron↔gestor por `SELECT … FOR UPDATE`.
+**Nota de alcance:**
+- **Implementado:** barrido automático a T-0 (US-031), transición atómica `reserva_confirmada → evento_en_curso`, auditoría de Sistema, alerta crítica por precondiciones incumplidas, alerta A29 no bloqueante, idempotencia, concurrencia cron↔gestor por `SELECT … FOR UPDATE`; forzado manual del gestor ante precondiciones incumplidas (US-032) — `POST /reservas/{id}/forzar-inicio-evento`, doble confirmación en UI, auditoría origen Usuario con `forzado_por_gestor`; finalización del evento (US-034 — transición `evento_en_curso → post_evento`, UC-25).
 - **Fuera de alcance (📐):** briefing operativo al equipo (UC-23 paso 6, diseñado pero no implementado en MVP); A9 (briefing en T-3d, lista negra).
-- **US coordinadas:** US-032 (forzado manual ante precondiciones incumplidas); US-033 (captura de documentación del evento en `evento_en_curso`); US-034 (finalización del evento, implementada — transición `evento_en_curso → post_evento`, UC-25).
+- **US pendientes coordinadas:** US-033 (captura de documentación del evento en `evento_en_curso`).
 
 ---
 
@@ -1474,29 +1474,65 @@ flowchart TD
 |-------|-------------|
 | **ID** | UC-24 |
 | **Nombre** | Capturar Documentación del Evento |
-| **Actor Principal** | Gestor / Equipo |
+| **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El personal captura la documentación obligatoria durante el evento: foto DNI y cláusula de responsabilidad firmada |
-| **Precondiciones** | - Reserva en estado evento_en_curso |
-| **Postcondiciones** | - Documentación registrada<br>- URLs almacenadas<br>- Checklist actualizado |
+| **Descripción** | El gestor sube la documentación obligatoria durante el evento (foto DNI anverso, foto DNI reverso, cláusula de responsabilidad firmada) y consulta el checklist de completitud en tiempo real. Implementado en **US-033** (change `us-033-capturar-documentacion-evento`). |
+| **Precondiciones** | - Reserva en `estado = evento_en_curso` (guarda de precondición declarativa `esEstadoQuePermiteDocumentacionEvento`; solo lectura de checklist también en `post_evento`)<br>- Gestor autenticado con rol gestor sobre el tenant |
+| **Postcondiciones** | **Subida (POST):** fila `DOCUMENTO` creada con `tipo ∈ {dni_anverso, dni_reverso, clausula_responsabilidad}`, bytes persistidos en almacén durable (`documentos-evento/{tenantId}/{reservaId}/{tipo}/{uuid}.ext`); `AUDIT_LOG accion='crear'`, `entidad='DOCUMENTO'`; checklist devuelto en la misma respuesta (201). `RESERVA.estado` y los sub-procesos **permanecen intactos** (no es transición de la máquina de estados).<br>**Checklist (GET):** lectura derivada de las filas `DOCUMENTO` existentes — para cada uno de los 3 tipos, `completado = existe ≥ 1 DOCUMENTO de ese tipo` para la reserva; `documento` (opcional) es el más reciente. El estado de checklist **no se materializa** en la reserva; se calcula en cada lectura.|
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
+| **US** | US-033 |
+| **Endpoints** | `POST /reservas/{id}/documentos-evento` — multipart/form-data, campos `archivo` (binario) + `tipo` (`dni_anverso` \| `dni_reverso` \| `clausula_responsabilidad`) → 201 `SubirDocumentoEventoResponse` (documento + checklist); 422 (`ESTADO_NO_PERMITE_DOCUMENTACION`, `TIPO_DOCUMENTO_NO_PERMITIDO`, `ARCHIVO_REQUERIDO`, `FORMATO_NO_PERMITIDO`, `ARCHIVO_INVALIDO`, `TAMANO_EXCEDIDO`); 404<br>`GET /reservas/{id}/documentos-evento/checklist` → 200 `ChecklistDocumentacionEvento` (3 ítems; consultable también en `post_evento`) |
+| **Entidades afectadas** | DOCUMENTO (INSERT), AUDIT_LOG — sin migración de esquema (`TipoDocumento`, tabla `DOCUMENTO` y `AlmacenDocumentosPort` ya existían) |
 
-**Flujo Básico:**
-1. El gestor/equipo accede a la vista móvil del evento
-2. El gestor/equipo ve el checklist de documentación:
-   - [ ] Foto DNI cliente (anverso)
-   - [ ] Foto DNI cliente (reverso)
-   - [ ] Cláusula de responsabilidad firmada
-3. Para cada documento, el gestor/equipo:
-   a. Hace clic en el ítem
-   b. Captura/sube la imagen/documento
-   c. El sistema registra la URL
-   d. El checklist marca el ítem como completado
-4. El sistema registra en audit log
+**Flujo Básico (subida):**
+1. El gestor accede a la ficha de la reserva en `estado = evento_en_curso` (vista responsive mobile-first)
+2. El gestor consulta el checklist: `GET /reservas/{id}/documentos-evento/checklist` — 3 ítems (`dni_anverso`, `dni_reverso`, `clausula_responsabilidad`), cada uno con `completado` y el documento más reciente si existe
+3. El gestor selecciona un tipo, adjunta el archivo (imagen JPEG/PNG o PDF) y confirma
+4. El frontend llama a `POST /reservas/{id}/documentos-evento` con `multipart/form-data` (campos `archivo` + `tipo`)
+5. El sistema valida la guarda de precondición: `RESERVA.estado = evento_en_curso`
+6. El sistema valida el archivo: `mimeType ∈ {image/jpeg, image/png, application/pdf}`, tamaño > 0 y ≤ 10 MB, archivo presente
+7. El sistema valida que `tipo ∈ {dni_anverso, dni_reverso, clausula_responsabilidad}`
+8. El sistema sube los bytes al almacén durable con clave `documentos-evento/{tenantId}/{reservaId}/{tipo}/{uuid}.{ext}`
+9. El sistema crea la fila `DOCUMENTO` (`tipo`, `url`, `mimeType`, `nombreArchivo`, `tamanoBytes`, `reservaId`, `tenantId`) — **sin buscar antes** (no idempotente; el histórico de versiones se conserva, la tabla no impone unicidad por `(reserva_id, tipo)`)
+10. El sistema registra `AUDIT_LOG accion='crear'`, `entidad='DOCUMENTO'` con el `usuario_id` del Gestor
+11. El sistema calcula el checklist actualizado y devuelve **201** `SubirDocumentoEventoResponse` (DOCUMENTO creado + checklist)
 
 **Flujos Alternativos:**
-- **FA-01**: Documentación incompleta al finalizar → No bloquea, pero queda marcado
+- **FA-01 (documentación incompleta al finalizar evento):** el checklist con ítems pendientes se expone como señal informativa no bloqueante. La documentación incompleta **no impide** la transición a `post_evento` (UC-25 / US-034); el checklist sigue siendo consultable en `post_evento` para subidas tardías. No hay ningún cron asociado a US-033.
+- **FA-02 (estado incorrecto — guarda de precondición):** `RESERVA.estado ≠ evento_en_curso` al hacer POST → 422 `ESTADO_NO_PERMITE_DOCUMENTACION`; ningún efecto en BD ni en almacén.
+- **FA-03 (archivo ausente):** campo `archivo` no enviado → 422 `ARCHIVO_REQUERIDO`; sin efectos.
+- **FA-04 (formato no permitido):** `mimeType ∉ {image/jpeg, image/png, application/pdf}` → 422 `FORMATO_NO_PERMITIDO`; sin efectos.
+- **FA-05 (archivo vacío o corrupto):** `tamanoBytes = 0` o lectura fallida → 422 `ARCHIVO_INVALIDO`; sin efectos.
+- **FA-06 (tamaño excedido):** `tamanoBytes > 10 MB` → 422 `TAMANO_EXCEDIDO`; sin efectos.
+- **FA-07 (tipo no permitido):** `tipo ∉ {dni_anverso, dni_reverso, clausula_responsabilidad}` → 422 `TIPO_DOCUMENTO_NO_PERMITIDO`; sin efectos.
+- **FA-08 (re-subida del mismo tipo):** se admite sin error. Crea una nueva fila `DOCUMENTO` (nueva versión); `completado` permanece `true`; el documento de referencia del checklist pasa a ser el más reciente. Histórico preservado.
+
+```mermaid
+flowchart TD
+    A[Gestor: subir documento del evento] --> B{RESERVA.estado = evento_en_curso?}
+    B -->|No| C[422 ESTADO_NO_PERMITE_DOCUMENTACION — sin efectos]
+    B -->|Sí| D{archivo presente?}
+    D -->|No| E[422 ARCHIVO_REQUERIDO]
+    D -->|Sí| F{mimeType permitido?}
+    F -->|No| G[422 FORMATO_NO_PERMITIDO]
+    F -->|Sí| H{tamanoBytes > 0 y ≤ 10 MB?}
+    H -->|Vacío| I[422 ARCHIVO_INVALIDO]
+    H -->|> 10 MB| J[422 TAMANO_EXCEDIDO]
+    H -->|OK| K{tipo ∈ dni_anverso|dni_reverso|clausula_responsabilidad?}
+    K -->|No| L[422 TIPO_DOCUMENTO_NO_PERMITIDO]
+    K -->|Sí| M[Subir bytes al almacén durable — clave documentos-evento/tenant/reserva/tipo/uuid.ext]
+    M --> N[INSERT DOCUMENTO — tipo, url, mimeType, nombreArchivo, tamanoBytes, reservaId, tenantId]
+    N --> O[INSERT AUDIT_LOG accion=crear entidad=DOCUMENTO usuario_id del Gestor]
+    O --> P[Calcular checklist — para cada tipo: completado = existe ≥ 1 DOCUMENTO, documento = el más reciente]
+    P --> Q[201 SubirDocumentoEventoResponse — DOCUMENTO creado + checklist]
+```
+
+**Nota de alcance (US-033):**
+- **Implementado:** subida multipart de los 3 tipos obligatorios (`dni_anverso`, `dni_reverso`, `clausula_responsabilidad`) solo en `evento_en_curso`, checklist derivado en tiempo real consultable también en `post_evento`, histórico no idempotente (una fila nueva por subida), almacén durable con clave versionada, validación autoritativa de mime/tamaño/tipo en servidor, `AUDIT_LOG accion='crear'`, RLS multi-tenant. `DocumentoRepositoryPort` generalizado: `tipo` pasa de literal `'condiciones_particulares'` a union `TipoDocumentoDominio`; método `listarPorReservaYTipos` añadido (aditivo, sin romper US-023).
+- **Fuera de alcance (📐):** la advertencia de documentación pendiente al finalizar el evento es de UC-25 / US-034 (ya implementada); no hay cron ni barrido en US-033.
+- **Módulo:** M7 (Slotify Brief). Capability OpenSpec: `documentacion-evento`. Automatización: A30.
+- **US coordinadas:** US-031 (precondición del estado `evento_en_curso`); US-034 (consulta el checklist al finalizar, advertencia informativa no bloqueante); US-023 (idempotencia de condiciones particulares; convive con la no-idempotencia de US-033 en la misma tabla `DOCUMENTO`).
 
 ---
 
@@ -1509,11 +1545,11 @@ flowchart TD
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
 | **Descripción** | El gestor marca el evento como finalizado, transicionando la reserva a `post_evento` e iniciando el sub-proceso post-evento. Si hay fianza cobrada (`fianza_eur > 0`), el sistema envía automáticamente el email E5 (agradecimiento + solicitud de IBAN + enlace NPS). Implementado en **US-034** (change `2026-07-09-us-034-finalizar-evento`). |
-| **Precondiciones** | - Reserva en `estado = evento_en_curso` (precondición provista automáticamente por US-031 en T-0 o manualmente por US-032 cuando esté implementada)<br>- Gestor autenticado con rol gestor sobre el tenant (autenticación JWT de usuario, nunca `X-Cron-Token`) |
+| **Precondiciones** | - Reserva en `estado = evento_en_curso` (provista automáticamente por US-031 en T-0 o forzada manualmente por US-032)<br>- Gestor autenticado con rol gestor sobre el tenant (autenticación JWT de usuario, nunca `X-Cron-Token`) |
 | **Postcondiciones** | - `RESERVA.estado = post_evento` (transición **irreversible**, incondicional respecto a fianza y email)<br>- Si `fianza_eur > 0`: `COMUNICACION` creada con `codigo_email = E5`, `estado = enviado` (o `fallido` si el proveedor falla); email E5 enviado al `CLIENTE.email`<br>- Si `fianza_eur = 0` o `IS NULL`: no se envía E5 ni se crea `COMUNICACION` para E5<br>- NPS marcada como programada (T+3d), independientemente de la fianza (el envío real es 📐 fuera de MVP)<br>- `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`, `datos_anteriores = {estado: evento_en_curso}`, `datos_nuevos = {estado: post_evento}`, **origen Usuario** (gestor autenticado, `usuario_id` poblado — a diferencia del barrido de Sistema de UC-23/US-031) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
-| **US** | US-034 (flujo básico); US-032 (forzado manual — pendiente) |
+| **US** | US-034 (flujo básico); US-032 (forzado manual — implementado, produce el `evento_en_curso` que habilita esta acción) |
 | **Endpoint** | `POST /reservas/{id}/finalizar-evento` — body vacío o `{}` |
 | **Entidades afectadas** | RESERVA (UPDATE `estado`), COMUNICACION (INSERT si `fianza_eur > 0`), AUDIT_LOG — sin migración de esquema (todos los campos y enums ya existían) |
 
@@ -1565,8 +1601,9 @@ flowchart TD
 
 **Nota de alcance (US-034):**
 - **Implementado:** transición manual `evento_en_curso → post_evento` (irreversible), E5 condicional a `fianza_eur > 0`, separación transición↔envío (fallo de E5 no revierte el estado), NPS marcada como programada (sin envío), advertencia no bloqueante de documentación incompleta, dato anómalo de fianza (`NULL` con `fianza_status=cobrada`), concurrencia doble finalización por `SELECT … FOR UPDATE`, auditoría con origen Usuario.
-- **Fuera de alcance (📐):** envío real de la NPS a T+3d (recordatorios automáticos extendidos); A23 (T+3d recordatorio IBAN); A24 (T+7d segundo recordatorio IBAN); factura complementaria post-evento; construcción del checklist de documentación (→ US-033); reenvío de E5 desde la ficha (→ US futura); UI del dashboard de notificaciones (→ US-044).
-- **US coordinadas:** US-031 (precondición de estado `evento_en_curso`); US-032 (forzado manual del inicio — pendiente); US-033 (checklist de documentación, consultado por US-034); US-045 (motor de email `comunicaciones`, reutilizado para E5).
+- **Fuera de alcance (📐):** envío real de la NPS a T+3d (recordatorios automáticos extendidos); A23 (T+3d recordatorio IBAN); A24 (T+7d segundo recordatorio IBAN); factura complementaria post-evento; reenvío de E5 desde la ficha (→ US futura); UI del dashboard de notificaciones (→ US-044).
+- **Implementado en US coordinadas:** checklist de documentación del evento implementado en US-033 (consultado por US-034 en el paso 3 del flujo básico; advertencia informativa no bloqueante si hay ítems pendientes).
+- **US coordinadas:** US-031 (inicio automático de `evento_en_curso`); US-032 (forzado manual del inicio — implementado); US-033 (checklist de documentación, consultado por US-034); US-045 (motor de email `comunicaciones`, reutilizado para E5).
 
 ---
 
@@ -2297,7 +2334,7 @@ flowchart TB
 | UC-21 | Gestión Liquidación | Gestor | Crítico | Crítica | Alta |
 | UC-22 | Gestión Fianza | Gestor | Alto | Alta | Media |
 | UC-23 | Iniciar Evento | Sistema/Gestor | Alto | Alta | Media |
-| UC-24 | Capturar Documentación | Gestor/Equipo | Medio | Alta | Baja |
+| UC-24 | Capturar Documentación | Gestor | Medio | Alta | Baja |
 | UC-25 | Finalizar Evento | Gestor | Alto | Alta | Baja |
 | UC-26 | Solicitar IBAN | Sistema | Medio | Alta | Baja |
 | UC-27 | Devolver Fianza | Gestor | Medio | Alta | Media |

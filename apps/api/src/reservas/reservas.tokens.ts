@@ -94,6 +94,14 @@ export const UNIDAD_DE_TRABAJO_FINALIZACION_PORT = Symbol(
 export const DISPARAR_E5_PORT = Symbol('DispararE5Port');
 export const DOCUMENTACION_EVENTO_PORT = Symbol('DocumentacionEventoPort');
 
+// US-032 — forzado manual del inicio de evento (reserva_confirmada → evento_en_curso, acción del
+// Gestor con JWT; carga bajo RLS + UoW atómica con SELECT … FOR UPDATE + UPDATE condicional +
+// AUDIT_LOG origen Usuario con forzado_por_gestor + precondiciones_incumplidas)
+export const CARGAR_RESERVA_FORZAR_INICIO_PORT = Symbol('CargarReservaForzarInicioPort');
+export const UNIDAD_DE_TRABAJO_FORZAR_INICIO_PORT = Symbol(
+  'UnidadDeTrabajoForzarInicioPort',
+);
+
 // US-035 — registro del IBAN de devolución (post_evento + fianza > 0 → CLIENTE.iban_devolucion + E8)
 export const CARGAR_RESERVA_IBAN_DEVOLUCION_PORT = Symbol(
   'CargarReservaIbanDevolucionPort',

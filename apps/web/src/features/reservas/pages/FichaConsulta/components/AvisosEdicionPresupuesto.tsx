@@ -6,10 +6,12 @@ import {
   type ReenviarPresupuestoResponse,
 } from '@/features/presupuestos';
 import { AvisoReservaConfirmada, type ConfirmarSenalResponse } from '@/features/confirmacion';
+import { AvisoEventoForzado } from './AvisoEventoForzado';
 import { AvisoEventoFinalizado } from './AvisoEventoFinalizado';
 import type { components } from '@/api-client';
 
 type FinalizarEventoResponse = components['schemas']['FinalizarEventoResponse'];
+type ForzarInicioEventoResponse = components['schemas']['ForzarInicioEventoResponse'];
 
 /**
  * Avisos de éxito del tramo `pre_reserva` → `post_evento` de la ficha: presupuesto
@@ -27,10 +29,12 @@ type Props = {
   presupuesto: ConfirmarPresupuestoResponse | null;
   edicion: ResultadoEdicion | null;
   senal: ConfirmarSenalResponse | null;
+  forzar: ForzarInicioEventoResponse | null;
   finalizar: FinalizarEventoResponse | null;
   onCerrarPresupuesto: () => void;
   onCerrarEdicion: () => void;
   onCerrarSenal: () => void;
+  onCerrarForzar: () => void;
   onCerrarFinalizar: () => void;
 };
 
@@ -38,10 +42,12 @@ export const AvisosEdicionPresupuesto = ({
   presupuesto,
   edicion,
   senal,
+  forzar,
   finalizar,
   onCerrarPresupuesto,
   onCerrarEdicion,
   onCerrarSenal,
+  onCerrarForzar,
   onCerrarFinalizar,
 }: Props) => (
   <>
@@ -50,6 +56,7 @@ export const AvisosEdicionPresupuesto = ({
     )}
     {edicion && <AvisoPresupuestoEditado resultado={edicion} onCerrar={onCerrarEdicion} />}
     {senal && <AvisoReservaConfirmada resultado={senal} onCerrar={onCerrarSenal} />}
+    {forzar && <AvisoEventoForzado resultado={forzar} onCerrar={onCerrarForzar} />}
     {finalizar && <AvisoEventoFinalizado resultado={finalizar} onCerrar={onCerrarFinalizar} />}
   </>
 );

@@ -547,6 +547,43 @@ export const esEstadoValidoParaEditarPresupuesto = (
 ): boolean => ESTADOS_VALIDOS_EDITAR_PRESUPUESTO.includes(estado);
 
 // ---------------------------------------------------------------------------
+// Guarda de PRECONDICIÓN «capturar documentación obligatoria del evento»
+// (US-033 / UC-24 / design.md §D-no-transicion)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tabla declarativa de ESTADOS válidos para CAPTURAR (escribir) la documentación
+ * obligatoria del evento (US-033, skill `state-machine`, NO condicionales dispersos).
+ * Como `ESTADOS_VALIDOS_REGISTRAR_FIRMA_CONDICIONES` (US-024) y
+ * `ESTADOS_BLOQUEO_BLANDO_EXTENSIBLE` (US-006), es una PRECONDICIÓN sobre el estado
+ * ACTUAL del agregado —NO una transición origen→destino—: la subida CREA una fila
+ * DOCUMENTO pero la RESERVA NO transiciona (§D-no-transicion), por eso NO se añade
+ * ninguna arista al grafo. Regla ESTRICTA MONO-estado del Gate 1: válido ⇔ `estado =
+ * 'evento_en_curso'` (a diferencia de US-024, multi-estado `{reserva_confirmada,
+ * evento_en_curso, post_evento}`). NO son válidos `consulta` (todos sus sub-estados),
+ * `pre_reserva`, `reserva_confirmada` (aún no ha empezado el evento), `post_evento`
+ * (evento ya finalizado — la ESCRITURA se cierra; el checklist GET sí es consultable,
+ * pero eso lo decide la query, no esta guarda) ni los terminales
+ * `reserva_completada`/`reserva_cancelada` (inmutables) → 422 sin efectos.
+ */
+const ESTADOS_VALIDOS_DOCUMENTACION_EVENTO: ReadonlyArray<EstadoReserva> = [
+  'evento_en_curso',
+];
+
+/**
+ * Guarda declarativa de PRECONDICIÓN: ¿es `estado` un estado VÁLIDO para capturar
+ * (escribir) la documentación obligatoria del evento (US-033)? Consulta la tabla
+ * `ESTADOS_VALIDOS_DOCUMENTACION_EVENTO`: solo `evento_en_curso` lo es. Se evalúa ANTES
+ * de subir al almacén y de abrir la transacción para rechazar sin efectos con 422
+ * (`ESTADO_NO_PERMITE_DOCUMENTACION`) cualquier otro estado. El checklist GET es más
+ * permisivo (consultable también en `post_evento`, FA-01): esa permisividad la decide la
+ * query de checklist, NO esta guarda de escritura.
+ */
+export const esEstadoQuePermiteDocumentacionEvento = (
+  estado: EstadoReserva,
+): boolean => ESTADOS_VALIDOS_DOCUMENTACION_EVENTO.includes(estado);
+
+// ---------------------------------------------------------------------------
 // Transición TERMINAL por EXPIRACIÓN de TTL (US-012 / UC-09 / §D-3)
 // ---------------------------------------------------------------------------
 
@@ -899,6 +936,29 @@ export const preconditionesEventoCumplidas = (
   ).map((p) => p.nombre);
   return { cumple: faltantes.length === 0, faltantes };
 };
+
+// ---------------------------------------------------------------------------
+// Guarda PURA de FECHA del FORZADO MANUAL del inicio de evento (US-032 / §D-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guarda de PRECONDICIÓN pura del FORZADO MANUAL del inicio de evento (US-032, §D-2):
+ * ¿coincide `fechaEvento` con `hoy` por FECHA DE CALENDARIO (año-mes-día), NO por
+ * instante? El forzado por el Gestor solo está disponible el DÍA del evento
+ * (`date(fecha_evento) = date(hoy)`); fuera de él el use-case rechaza con 422
+ * (`fecha_evento_no_es_hoy`).
+ *
+ * Es una guarda de precondición sobre el estado actual del agregado (como
+ * `esEstadoValidoParaEditarPresupuesto`), NO una arista de la máquina de estados: no se
+ * añade tabla ni transición. Compara por año-mes-día para blindar el off-by-one horario:
+ * un evento de hoy a las 23:59 (o a las 00:00) sigue siendo "hoy"; el cambio de día de
+ * calendario (ayer/mañana) da `false` con independencia de la hora. Función determinista y
+ * sin efectos; el `hoy` lo calcula UNA vez el use-case y se pasa como argumento.
+ */
+export const esDiaDelEvento = (fechaEvento: Date, hoy: Date): boolean =>
+  fechaEvento.getFullYear() === hoy.getFullYear() &&
+  fechaEvento.getMonth() === hoy.getMonth() &&
+  fechaEvento.getDate() === hoy.getDate();
 
 // ---------------------------------------------------------------------------
 // Transición de FINALIZACIÓN MANUAL de EVENTO (US-034 / UC-25 / §D-2/§D-9)
