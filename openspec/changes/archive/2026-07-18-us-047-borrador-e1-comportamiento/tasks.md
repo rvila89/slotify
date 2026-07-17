@@ -23,4 +23,4 @@
 - [x] Step 14 — Actualizar documentación técnica (`docs/`)
 - [x] Code review obligatorio — report `YYYY-MM-DD-step-review-code-review.md` con `Veredicto: APTO`
 - [x] GATE humano final — code-review APTO + validación manual OK (PARADA)
-- [ ] Archive + PR
+- [x] Archive + PR
