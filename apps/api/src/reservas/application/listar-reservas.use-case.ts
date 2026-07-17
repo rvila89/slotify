@@ -61,6 +61,11 @@ export interface ReservaPipelineItem {
   nombreEvento: string;
   progressLogistica: number;
   progressLiquidacion: number;
+  /**
+   * `true` si la reserva tiene un borrador E1 pendiente de revisar/enviar (US-047).
+   * Permite a la UI del pipeline señalar la acción manual del Gestor.
+   */
+  tieneBorradorE1Pendiente: boolean;
 }
 
 /** Envoltorio de respuesta (`ReservaListResponse`). */
@@ -139,6 +144,7 @@ export class ListarReservasUseCase {
         fila.estado,
         fila.liquidacionStatus,
       ),
+      tieneBorradorE1Pendiente: fila.tieneBorradorE1Pendiente,
     };
   }
 

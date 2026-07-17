@@ -42,13 +42,29 @@ export class ReservaDetalleQueryPrismaAdapter implements ReservaDetalleQueryPort
       await this.prisma.fijarTenant(tx, tenantId);
       return tx.reserva.findFirst({
         where: { idReserva: reservaId, tenantId },
-        include: { cliente: true },
+        include: {
+          cliente: true,
+          // US-047: se cargan SOLO las COMUNICACION E1 en `borrador` de la reserva
+          // (misma subconsulta que el pipeline `GET /reservas`, sin N+1 ni endpoint
+          // extra). Su presencia deriva `tieneBorradorE1Pendiente`. El aislamiento por
+          // tenant lo garantiza el RLS ya fijado + el `tenant_id` de la reserva padre.
+          comunicaciones: {
+            where: { codigoEmail: 'E1', estado: 'borrador' },
+            select: { idComunicacion: true, codigoEmail: true, estado: true },
+          },
+        },
       });
     });
 
     if (fila === null) {
       return null;
     }
+
+    // La subconsulta ya restringe a E1/borrador; se re-verifica el contenido para ser
+    // robustos aunque el include no filtre (p. ej. en los dobles de test).
+    const tieneBorradorE1Pendiente = fila.comunicaciones.some(
+      (c) => c.codigoEmail === 'E1' && c.estado === 'borrador',
+    );
 
     return {
       idReserva: fila.idReserva,
@@ -87,6 +103,7 @@ export class ReservaDetalleQueryPrismaAdapter implements ReservaDetalleQueryPort
       consultaBloqueanteId: fila.consultaBloqueanteId,
       notas: fila.notas,
       fechaCreacion: fila.fechaCreacion,
+      tieneBorradorE1Pendiente,
       cliente: {
         idCliente: fila.cliente.idCliente,
         nombre: fila.cliente.nombre,

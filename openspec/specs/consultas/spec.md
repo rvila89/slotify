@@ -31,7 +31,31 @@ Path`, `§Reglas de Validación`; UC-03; `er-diagram.md §3.6`.)
 - **THEN** almacena los valores opcionales (invitados, horas, tipo de evento)
 - **AND** no calcula ni asigna importe de tarifa (sin fecha no hay temporada, UC-16)
 
-### Requirement: Respuesta inicial automática E1 según el campo comentarios
+### Requirement: Idioma y horario opcionales en el alta de consulta
+
+El sistema SHALL (DEBE) aceptar en el alta de consulta dos campos opcionales:
+`idioma` (`'es'` | `'ca'`, por defecto `'es'`) que determina el idioma de
+comunicación con ese cliente a lo largo de su ciclo de vida; y `horario`
+(cadena `HH:MM`, p. ej. `"10:00"`) que indica la hora de inicio prevista del
+evento. El campo `horario` DEBE ser **válido únicamente si `duracionHoras` también
+está presente**: si se envía `horario` sin `duracionHoras`, el sistema DEBE rechazar
+el alta con un error de validación. Ambos campos se persisten en `RESERVA.idioma` y
+`RESERVA.horario` respectivamente. (Fuente: decisión de producto post-US-003/004.)
+
+#### Scenario: Alta con idioma y horario los persiste en la RESERVA
+
+- **GIVEN** un alta válida con `idioma = 'ca'`, `duracionHoras = 8` y `horario = '11:00'`
+- **WHEN** el sistema crea la RESERVA
+- **THEN** persiste `RESERVA.idioma = 'ca'` y `RESERVA.horario = '11:00'`
+
+#### Scenario: horario sin duracionHoras se rechaza en servidor
+
+- **GIVEN** un alta con `horario = '10:00'` pero sin `duracionHoras`
+- **WHEN** el servidor valida la solicitud
+- **THEN** retorna un error de validación en el campo `horario`
+- **AND** no crea ningún registro
+
+### Requirement: Respuesta inicial automática E1 personalizada según idioma y situación de fecha
 
 El sistema SHALL (DEBE) registrar una fila en `COMUNICACION` con
 `codigo_email = 'E1'` para toda alta de consulta. Si el alta **no** incluye
@@ -39,15 +63,33 @@ El sistema SHALL (DEBE) registrar una fila en `COMUNICACION` con
 disparar el envío al email del cliente **sin intervención adicional** del gestor. Si
 el alta **incluye** `comentarios`, el sistema DEBE crear la COMUNICACION con
 `estado = 'borrador'`, **sin enviarla**, y la UI DEBE alertar al gestor de que tiene
-un borrador pendiente de revisar y confirmar. Cuando el alta incluye `fecha_evento`
-**y** nº de invitados **y** horas, E1 DEBE incluir la **tarifa estimada** calculada
-vía el motor UC-16; si falta alguno de esos datos (o el cálculo no es posible para la
-fecha/temporada), E1 DEBE enviarse con el **dossier de tarifas general sin precio
-exacto**, sin que la imposibilidad de calcular la tarifa bloquee el alta. El
-**transporte real** del email se realiza a través de un **puerto de email** del
-dominio cuyo adaptador de transporte queda diferido a US-045. (Fuente: `US-003 §Happy
-Path` 2.º escenario, `§FA Lead con comentarios`; `US-004 §Email relacionado`, `§FA
-solo fecha sin datos de tarifa`.)
+un borrador pendiente de revisar y confirmar.
+
+El cuerpo de E1 se selecciona del **catálogo de plantillas** según el `idioma` de la
+RESERVA (`'es'` o `'ca'`) y una de **4 variantes** determinadas por el sub-estado
+resultante del alta y la presencia de `fecha_evento`:
+
+| Variante | Condición | Sub-estado |
+|----------|-----------|------------|
+| `sin_fecha` | Alta sin `fecha_evento` | `2a` |
+| `fecha_disponible` | Fecha presente y libre | `2b` |
+| `fecha_cola` | Fecha presente y bloqueada en consulta | `2d` |
+| `fecha_confirmada` | Fecha presente y bloqueada por reserva confirmada | `2a` degradada |
+
+En la variante `fecha_confirmada`, el sistema DEBE intentar obtener fechas
+alternativas disponibles en el mismo fin de semana (±1 día, solo sábado/domingo sin
+entrada en `FECHA_BLOQUEADA`) para incluirlas en el email.
+
+E1 DEBE incluir siempre el **dossier informativo del espacio** en PDF adjunto, en el
+idioma de la RESERVA (`Dossier-Masia-Encis-es.pdf` o `Dossier-Masia-Encis-ca.pdf`).
+El dossier se adjunta por referencia de URL desde el almacén local del tenant.
+
+**Fallback**: si el catálogo no puede renderizar la plantilla (idioma no soportado,
+error de configuración), el sistema NO DEBE bloquear el alta; degrada a un
+asunto/cuerpo mínimo y envía igualmente — el motor de email centraliza el resultado
+(`enviado` o `fallido`). En producción el catálogo siempre está inyectado y el camino
+real usa siempre el render personalizado. (Fuente: `US-003 §Happy Path`; `US-004
+§Email relacionado`; decisión de producto post-US-045.)
 
 #### Scenario: Alta sin comentarios auto-envía E1
 
@@ -64,21 +106,36 @@ solo fecha sin datos de tarifa`.)
 - **AND** no envía el email al cliente
 - **AND** la UI alerta al gestor de un borrador E1 pendiente de revisar
 
-#### Scenario: E1 con fecha, invitados y horas incluye la tarifa estimada
+#### Scenario: E1 sin fecha usa la variante sin_fecha en el idioma del lead
 
-- **GIVEN** un alta con `fecha_evento`, nº de invitados y horas presentes, sin
-  comentarios
+- **GIVEN** un alta sin `fecha_evento` con `idioma = 'ca'`, sin comentarios
 - **WHEN** el sistema envía E1
-- **THEN** E1 se envía automáticamente incluyendo la tarifa estimada calculada vía
-  UC-16
+- **THEN** E1 se envía con el cuerpo de la variante `sin_fecha` en catalán
+- **AND** adjunta el dossier `Dossier-Masia-Encis-ca.pdf`
 
-#### Scenario: E1 sin datos de tarifa completos sale con el dossier general sin precio
+#### Scenario: E1 con fecha libre usa la variante fecha_disponible
 
-- **GIVEN** un alta con `fecha_evento` pero sin nº de invitados o sin horas, sin
-  comentarios
-- **WHEN** el sistema crea la RESERVA en `2.b` con su bloqueo y envía E1
-- **THEN** E1 se envía con el dossier de tarifas general, sin precio exacto calculado
-- **AND** la imposibilidad de calcular la tarifa no impide el alta ni el bloqueo
+- **GIVEN** un alta con `fecha_evento` libre (sub-estado `2b`), sin comentarios
+- **WHEN** el sistema envía E1
+- **THEN** E1 informa de que la fecha está disponible e incluye la fecha en el cuerpo
+- **AND** adjunta el dossier en el idioma de la RESERVA
+
+#### Scenario: E1 con fecha confirmada ofrece fechas alternativas si existen
+
+- **GIVEN** un alta con `fecha_evento` bloqueada por reserva confirmada (sub-estado
+  `2a` degradada), sin comentarios
+- **WHEN** el sistema envía E1
+- **THEN** E1 indica que la fecha solicitada no está disponible
+- **AND** si existe alguna fecha adyacente (sáb/dom ±1 día) libre, la incluye en el
+  cuerpo como alternativa
+
+#### Scenario: Catálogo no disponible envía E1 con texto mínimo sin bloquear el alta
+
+- **GIVEN** un alta sin comentarios en un contexto donde el catálogo no puede renderizar
+- **WHEN** el sistema procesa el alta
+- **THEN** la RESERVA se crea correctamente
+- **AND** la COMUNICACION E1 se envía con asunto/cuerpo mínimo de fallback
+- **AND** el alta devuelve 201 sin error al gestor
 
 ### Requirement: Creación idempotente de CLIENTE por tenant y email
 

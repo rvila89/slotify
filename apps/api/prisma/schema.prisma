@@ -357,6 +357,8 @@ model Reserva {
   condPartFirmadas        Boolean            @default(false) @map("cond_part_firmadas")
   condPartEnviadasFecha   DateTime?          @map("cond_part_enviadas_fecha")
   condPartFirmadasFecha   DateTime?          @map("cond_part_firmadas_fecha")
+  idioma                  String             @default("es") @map("idioma")
+  horario                 String?            @map("horario")
   notas                   String?            @db.Text
   activo                  Boolean            @default(true)
   fechaCreacion           DateTime           @default(now()) @map("fecha_creacion")

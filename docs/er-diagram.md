@@ -202,6 +202,8 @@ erDiagram
         boolean cond_part_firmadas
         timestamp cond_part_enviadas_fecha
         timestamp cond_part_firmadas_fecha
+        string idioma "DEFAULT 'es'; 'es' | 'ca' — idioma de comunicación con el cliente (US-047)"
+        string horario "nullable — hora de inicio HH:MM (US-047)"
         text notas
         boolean activo
         timestamp fecha_creacion
@@ -595,11 +597,14 @@ Entidad central única. Recorre toda la máquina de estados, desde los sub-estad
 | cond_part_firmadas | BOOLEAN | Si las condiciones particulares están firmadas. `false` al enviar E3 (US-023); `true` al registrar la copia firmada (US-024). Expuesto en el wire como `condPartFirmadas`. |
 | cond_part_enviadas_fecha | TIMESTAMP | Fecha en que se envió E3 al cliente (US-023). Nulo hasta ese momento. Precondición requerida por US-024: si es nulo, el registro de firma se rechaza con 409. |
 | cond_part_firmadas_fecha | TIMESTAMP | Fecha de registro de la copia firmada (US-024). Nulo hasta que el Gestor sube la copia firmada. Se actualiza en cada re-firma. Expuesto en el wire como `condPartFechaFirma` (el nombre de columna Prisma es `cond_part_firmadas_fecha`). |
+| idioma | VARCHAR | Idioma de comunicación con el cliente. Valores permitidos: `es` (castellano) y `ca` (catalán). `DEFAULT 'es'`. Determina la plantilla de email E1 y el dossier PDF adjunto (`Dossier-Masia-Encis-{idioma}.pdf`). Añadido en US-047 (migración `20260717150000_add_idioma_horario_to_reserva`). |
+| horario | VARCHAR | Hora de inicio prevista del evento en formato `HH:MM` (p. ej. `"10:00"`). Nullable. Solo válido junto a `duracion_horas`. Añadido en US-047 (migración `20260717150000_add_idioma_horario_to_reserva`). |
 
-**Lectura en el pipeline (US-049 / UC-37-38 — sin migración):** el endpoint `GET /reservas` (`operationId: listarReservas`) lee `RESERVA` con join a `CLIENTE` y proyecta tres campos derivados opcionales (cambio aditivo al schema `Reserva` del contrato; no rompe `ReservaDetalle`, `FichaConsulta` ni otros consumidores):
+**Lectura en el pipeline (US-049 / UC-37-38 — sin migración; US-047 aditivo):** el endpoint `GET /reservas` (`operationId: listarReservas`) lee `RESERVA` con join a `CLIENTE` y proyecta campos derivados opcionales (cambios aditivos al schema `Reserva` del contrato; no rompen `ReservaDetalle`, `FichaConsulta` ni otros consumidores):
 - `nombreEvento` — derivado de `CLIENTE.nombre + apellidos`; fallback a `RESERVA.codigo`.
 - `progressLogistica` — entero 0/50/100 derivado de `pre_evento_status`: `pendiente=0`, `en_curso=50`, `cerrado=100`. Vale `0` para estados de consulta y `pre_reserva`.
 - `progressLiquidacion` — entero 0/50/100 derivado de `liquidacion_status`: `pendiente=0`, `facturada=50`, `cobrada=100`. Vale `0` para estados de consulta y `pre_reserva`.
+- `tieneBorradorE1Pendiente` — booleano derivado (US-047): `true` cuando existe al menos una `COMUNICACION` de la reserva con `codigo_email = 'E1'` y `estado = 'borrador'`. Calculado en cada fetch; se vuelve `false` automáticamente al enviar o descartar el borrador. No se almacena en `RESERVA`; es una proyección calculada en el adaptador de pipeline sin columna adicional ni migración.
 
 La derivación se implementa como función pura de dominio (mapa declarativo, no condicionales dispersos). El filtro de exclusión de terminales (`2x`, `2y`, `2z`, `reserva_completada`, `reserva_cancelada`) y el filtro por `tenant_id` (reforzado por RLS) se aplican siempre en el adaptador Prisma. Sin migración: `pre_evento_status` y `liquidacion_status` existen en el schema desde US-000/US-021.
 
@@ -1024,6 +1029,7 @@ Registro de auditoría de todas las acciones sobre reservas, facturas y autentic
 | `@@unique([tenantId, regimenIva, numeroPresupuesto])` en PRESUPUESTO | Doble numeración por régimen (6.2): sustituye al `@@unique([tenantId, numeroPresupuesto])` de 6.1b. Permite que CON IVA y SIN IVA tengan el mismo literal `AAAANNN` sin colisionar. Ante colisión `P2002` sobre `presupuesto_tenant_id_regimen_iva_numero_presupuesto_key`, el use-case recalcula el número para ese régimen y reintenta (discriminado por `meta.target` para no confundir con el `P2002` de `FECHA_BLOQUEADA`). |
 | `idx_reserva_fts_historico` GIN funcional sobre `to_tsvector('spanish', coalesce(codigo,'') \|\| ' ' \|\| coalesce(notas,''))` en RESERVA | Búsqueda full-text en el histórico (US-042 / UC-32): permite localizar reservas por código y texto libre de notas. Sin columnas nuevas; índice funcional calculado a partir de campos existentes. Migración aditiva `20260717140000_us042_historico_fts_gin`. |
 | `idx_cliente_fts_historico` GIN funcional sobre `to_tsvector('spanish', translate(coalesce(nombre,'') \|\| ' ' \|\| coalesce(apellidos,'') \|\| ' ' \|\| coalesce(email,''), '@._-', '    '))` en CLIENTE | Búsqueda full-text en el histórico (US-042 / UC-32): permite localizar por nombre, apellidos y email del cliente; `translate` normaliza separadores comunes en emails (`@`, `.`, `_`, `-` → espacio). Sin columnas nuevas. Migración aditiva `20260717140000_us042_historico_fts_gin`. |
+| Columnas `idioma` y `horario` en RESERVA | Soporte i18n y datos de inicio del evento (US-047): `idioma VARCHAR DEFAULT 'es'` (valores: `es`, `ca`) determina la plantilla E1 y el dossier adjunto; `horario VARCHAR NULL` almacena la hora de inicio en formato `HH:MM`. Migración aditiva `20260717150000_add_idioma_horario_to_reserva`. |
 
 ---
 

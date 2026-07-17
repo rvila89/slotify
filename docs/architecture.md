@@ -291,7 +291,7 @@ Esta sección registra las decisiones tomadas conscientemente como deuda en US-0
 
 ### 2.10 Módulo M10 Comunicaciones: motor de email automático (US-045)
 
-El módulo `comunicaciones` implementa un **motor de email hexagonal reutilizable** que sirve a todos los triggers del ciclo de vida de la reserva (E1–E8). **E1** está cableado en US-045; **E2** se activó en US-014 (post-commit de la transición a `pre_reserva`, PDF adjunto); **E6** se activó en US-008 (post-commit de la transición a `2.v`); **E7** se activó en US-009 (post-commit de la transición `2v → 2b` "cliente interesado", confirmación de bloqueo post-visita); **E3** se activó en US-023 (change `documentos-enviar-factura-senal-e3`, 6.4b): acción manual del Gestor, síncrona, con rollback atómico, espejo de E4 — ver §2.16; **E4** se activó en US-028; E5, E8 se activarán en sus US respectivas (ver DT-EMAIL-02 en §2.9).
+El módulo `comunicaciones` implementa un **motor de email hexagonal reutilizable** que sirve a todos los triggers del ciclo de vida de la reserva (E1–E8). **E1** está cableado en US-045 y extendido en US-047 (adjunto dossier según `RESERVA.idioma`); **E2** se activó en US-014 (post-commit de la transición a `pre_reserva`, PDF adjunto); **E6** se activó en US-008 (post-commit de la transición a `2.v`); **E7** se activó en US-009 (post-commit de la transición `2v → 2b` "cliente interesado", confirmación de bloqueo post-visita); **E3** se activó en US-023 (change `documentos-enviar-factura-senal-e3`, 6.4b): acción manual del Gestor, síncrona, con rollback atómico, espejo de E4 — ver §2.16; **E4** se activó en US-028; E5, E8 se activarán en sus US respectivas (ver DT-EMAIL-02 en §2.9).
 
 #### Arquitectura interna del módulo
 
@@ -319,30 +319,30 @@ El método `finalizarEnvio(comunicacionId)` / `enviarYFinalizar(trigger)` orques
 
 1. Seleccionar plantilla por `codigo_email` + idioma (`TENANT_SETTINGS.idioma`, default `es`; fallback a `es` con AUDIT_LOG si falta la plantilla en el idioma del tenant).
 2. Sustituir variables con datos de `RESERVA` y `CLIENTE`. Si un campo requerido es nulo: no envía, no crea `COMUNICACION` con `estado='enviado'`, registra en AUDIT_LOG.
-3. Resolver adjuntos por referencia (`pdf_url` de `FACTURA`/`DOCUMENTO`/`PRESUPUESTO`); si el adjunto declarado no está disponible: no envía, registra error.
+3. Resolver adjuntos: los adjuntos por referencia (`pdf_url` de `FACTURA`/`DOCUMENTO`/`PRESUPUESTO`) y los adjuntos opcionales pasados directamente en `params.adjuntos` (p. ej. el dossier E1 resuelto por `AltaConsultaUseCase` o `EnviarBorradorUseCase`). Si un adjunto declarado como requerido no está disponible: no envía, registra error.
 4. Invocar el puerto `EnviarEmailPort.enviar(...)`.
 5. Actualizar `COMUNICACION`:
    - Éxito del proveedor → `estado='enviado'` + `fecha_envio = now()`.
    - Fallo del proveedor → `estado='fallido'` sin `fecha_envio` + AUDIT_LOG. Sin reintento en MVP.
-6. El camino de éxito y fallo queda **centralizado** en el motor; el use-case invocante (p. ej. `AltaConsultaUseCase`) no contiene lógica de manejo de fallo de proveedor.
+6. El camino de éxito y fallo queda **centralizado** en el motor; el use-case invocante (p. ej. `AltaConsultaUseCase`, `EnviarBorradorUseCase`) no contiene lógica de manejo de fallo de proveedor.
 
 #### Integración con el alta de consulta (E1 real, cierre DT-EMAIL-01)
 
 `AltaConsultaUseCase` (US-003/004) funciona así tras US-045:
 
-- **Dentro de la `$transaction`:** crea `RESERVA`, `CLIENTE` y `COMUNICACION` E1 con `estado='borrador'` (estado no final, sin `fecha_envio`). La transacción garantiza que la `COMUNICACION` nace siempre, incluso si el envío falla después.
-- **Post-commit (sin comentarios):** delega en `DespacharEmailService.finalizarEnvio` → promueve a `enviado` + `fecha_envio`.
-- **Post-commit (con comentarios):** no llama al motor; la `COMUNICACION` permanece en `borrador` hasta revisión manual (UC-36 / US-046).
+- **Dentro de la `$transaction`:** crea `RESERVA`, `CLIENTE` y `COMUNICACION` E1 con `estado='borrador'` (estado no final, sin `fecha_envio`). La transacción garantiza que la `COMUNICACION` nace siempre, incluso si el envío falla después. Persiste también `RESERVA.idioma` y `RESERVA.horario` si se proporcionan (US-047).
+- **Post-commit (sin comentarios):** delega en `DespacharEmailService.finalizarEnvio` pasando el dossier como adjunto por referencia (`Dossier-Masia-Encis-{idioma}.pdf`, URL construida desde `dossierBaseUrl`) → promueve a `enviado` + `fecha_envio`. Si `dossierBaseUrl` no está configurado, el envío procede sin adjunto (degradación graceful, US-047).
+- **Post-commit (con comentarios):** no llama al motor; la `COMUNICACION` permanece en `borrador` hasta revisión manual (UC-36 / US-046). El `EnviarBorradorUseCase` aplicará el mismo mecanismo de dossier al confirmar el envío.
 - **Si el proveedor falla:** motor actualiza a `fallido` + AUDIT_LOG; la respuesta HTTP es **201** igualmente (fallo de email no revierte la reserva).
 
 #### Catálogo de plantillas e i18n
 
 - **Ubicación:** `comunicaciones/infrastructure/plantillas/` — registro de infraestructura tipado en código (arrow functions; sin motor de plantillas externo).
 - **Contrato del puerto `CatalogoPlantillasPort`:** `seleccionar(codigoEmail, idioma) → { asunto, render(variables): { cuerpoHtml, cuerpoTexto } }`.
-- **E1:** activa con render real en `es` (MVP). Variables: `CLIENTE.nombre`, `RESERVA.codigo`, `TENANT.nombre`, `RESERVA.fecha_evento`.
+- **E1:** activa con render real en `es` (MVP). Variables: `CLIENTE.nombre`, `RESERVA.codigo`, `TENANT.nombre`, `RESERVA.fecha_evento`. Adjunto: dossier PDF según `RESERVA.idioma` (`Dossier-Masia-Encis-{idioma}.pdf`), por referencia de URL construida desde `dossierBaseUrl`; si la URL base no está configurada, se envía sin adjunto (degradación graceful, US-047).
 - **E3:** activa (6.4b/US-023). Render real en `es`. Envío por `EnviarEmailPort` directo (sin `DespacharEmailService`) para garantizar rollback atómico. `adjuntosRequeridos`: factura de señal (requerida); condicions particulars (opcional). Trigger: acción manual del Gestor "Enviar factura 40%" (`POST /reservas/{id}/facturas/senal/enviar`).
 - **E2, E4–E8:** declaradas como diseñadas/inactivas (metadatos + variables requeridas + adjuntos documentados; sin render activo; sin trigger cableado en el catálogo del motor).
-- **i18n:** fallback a `es` si el tenant usa otro idioma no disponible; se registra en AUDIT_LOG.
+- **i18n:** `RESERVA.idioma` determina el idioma de E1 y el dossier adjunto (`es` o `ca`); fallback a `es` si el idioma no está disponible o es nulo; se registra en AUDIT_LOG (US-047).
 
 #### Variables de entorno (validadas con zod en `config/env.validation.ts`)
 
@@ -848,11 +848,16 @@ Respuestas: `200` (`ReservaListResponse` = `{ data: Reserva[], metadata: { total
 | `nombreEvento` | `{CLIENTE.nombre} {CLIENTE.apellidos}`; fallback a `RESERVA.codigo` si no hay cliente resoluble |
 | `progressLogistica` | Entero 0/50/100 derivado de `pre_evento_status`: `pendiente=0`, `en_curso=50`, `cerrado=100`. Vale `0` para consultas y `pre_reserva`. |
 | `progressLiquidacion` | Entero 0/50/100 derivado de `liquidacion_status`: `pendiente=0`, `facturada=50`, `cobrada=100`. Vale `0` para consultas y `pre_reserva`. |
+| `tieneBorradorE1Pendiente` | Booleano calculado en cada fetch (US-047): `true` si existe `COMUNICACION` con `codigo_email='E1'` y `estado='borrador'`. Sin columna ni migración; derivado en el adaptador de pipeline. |
 | Multi-tenancy | `tenant_id` extraído del JWT, nunca configurable por el usuario; reforzado por RLS en PostgreSQL. |
 
 #### Cambio aditivo al schema `Reserva` del contrato
 
-Los tres campos (`nombreEvento: string`, `progressLogistica: integer`, `progressLiquidacion: integer`) se añaden como **opcionales** al schema `Reserva` de `docs/api-spec.yml`. No están en `required`; no rompen `ReservaDetalle`, `CreateReservaResponse` ni `FichaConsulta`. SDK del frontend regenerado (`apps/web/src/api-client/`), nunca editado a mano.
+Los tres campos de US-049 (`nombreEvento: string`, `progressLogistica: integer`, `progressLiquidacion: integer`) y el campo de US-047 (`tieneBorradorE1Pendiente: boolean`) se añaden como **opcionales** al schema `Reserva` de `docs/api-spec.yml`. No están en `required`; no rompen `ReservaDetalle`, `CreateReservaResponse` ni `FichaConsulta`. SDK del frontend regenerado (`apps/web/src/api-client/`), nunca editado a mano.
+
+**US-047 — campo `tieneBorradorE1Pendiente`:** booleano derivado que el pipeline calcula en cada fetch verificando si existe alguna `COMUNICACION` de la reserva con `codigo_email = 'E1'` y `estado = 'borrador'`. Sin columna adicional en `RESERVA` ni migración. La UI consume este campo para:
+- Mostrar un **badge ámbar** en la tarjeta Kanban y en la fila del listado.
+- **Ocultar el componente `AccionesConsulta`** en la `FichaConsulta` mientras `tieneBorradorE1Pendiente === true`, forzando al gestor a revisar el borrador antes de ejecutar otras acciones sobre la consulta.
 
 #### Arquitectura interna (hexagonal)
 
@@ -922,6 +927,8 @@ features/reservas/
 | Post-evento | `post_evento` |
 
 **Estados de vista:** skeleton en carga (FA-02), estado vacío con CTA "Nueva Reserva" (FA-01), estado de error con reintento que hace `refetch` (FA-03). Responsive mobile-first (390/768/1280): Kanban con scroll horizontal en `<lg`; Listado en cards apiladas en `<lg`, tabla en `≥lg`. Sin overflow horizontal; objetivos táctiles accesibles.
+
+**US-047 — `tieneBorradorE1Pendiente` en la UI del pipeline:** cuando la reserva tiene `tieneBorradorE1Pendiente === true`, la tarjeta Kanban (`ReservaKanbanCard`) y la fila del listado muestran un **badge ámbar** indicando "Borrador E1 pendiente". Adicionalmente, en la `FichaConsulta` (`/reservas/:id`) el componente `AccionesConsulta` queda **oculto** mientras el flag sea `true`, impidiendo ejecutar otras transiciones hasta que el gestor revise y envíe (o descarte) el borrador desde la sección de comunicaciones. El flag se recalcula en cada fetch de `GET /reservas` y `GET /reservas/{id}`; se vuelve `false` automáticamente al enviar o descartar el borrador.
 
 ### 2.18 Módulo de archivado automático de reservas completadas (US-037 / UC-28)
 

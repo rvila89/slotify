@@ -289,6 +289,23 @@ async function main(): Promise<void> {
     },
   });
 
+  // --- Dossiers (PDF informativos por idioma, E1) ---
+  // Los ficheros deben estar en seed-assets/. Idempotente: subir sobrescribe.
+  const dossierFiles: Array<{ fichero: string; clave: string }> = [
+    { fichero: 'Dossier-Masia-Encis-es.pdf', clave: 'dossiers/Dossier-Masia-Encis-es.pdf' },
+    { fichero: 'Dossier-Masia-Encis-ca.pdf', clave: 'dossiers/Dossier-Masia-Encis-ca.pdf' },
+  ];
+  for (const dossier of dossierFiles) {
+    const ruta = path.join(__dirname, 'seed-assets', dossier.fichero);
+    try {
+      const bytes = await fs.readFile(ruta);
+      await almacen.subir(new Uint8Array(bytes), dossier.clave);
+    } catch {
+      // eslint-disable-next-line no-console
+      console.warn(`Dossier no encontrado: ${dossier.fichero} — omitido`);
+    }
+  }
+
   const [nTemporadas, nTarifas, nExtras] = await Promise.all([
     prisma.temporadaCalendario.count({ where: { tenantId: TENANT_ID } }),
     prisma.tarifa.count({ where: { tenantId: TENANT_ID } }),

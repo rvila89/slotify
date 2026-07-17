@@ -57,30 +57,41 @@ destinatarios reales. (Fuente: `US-045 §Supuestos`; `design.md §1`.)
 - **THEN** el arranque falla con un mensaje explícito que identifica la variable que
   falta
 
-### Requirement: Catálogo de plantillas por código de email e idioma del tenant
+### Requirement: Catálogo de plantillas por código de email e idioma
 
 El sistema SHALL (DEBE) seleccionar la plantilla del email por **`codigo_email`** y
-por **idioma**, tomando el idioma de **`TENANT_SETTINGS.idioma`** (por defecto
-`es`). El catálogo DEBE declarar las entradas E1–E8 con sus variables requeridas y
-sus adjuntos; en este change **solo E1 está activa** (con render real), mientras
-**E2–E8 quedan declaradas como diseñadas/inactivas** (sin trigger cableado). Si no
-existe plantilla en el idioma del tenant, el sistema DEBE usar el idioma por defecto
-`es` y dejar constancia en `AUDIT_LOG`. (Fuente: `US-045 §Reglas de negocio` idioma;
-`§Notas de alcance`; `design.md §3`.)
+por **idioma**. Para **E1**, el idioma se resuelve desde **`RESERVA.idioma`**
+(campo por lead, por defecto `'es'`), permitiendo comunicar con cada cliente en su
+propio idioma independientemente del idioma del tenant. Para el resto de emails
+(E2–E8), el idioma se toma de **`TENANT_SETTINGS.idioma`** (por defecto `'es'`).
+El catálogo DEBE declarar las entradas E1–E8 con sus variables requeridas y sus
+adjuntos; **E1 y E3 están activas** (con render real); **E2, E4–E8 quedan declaradas
+como diseñadas/inactivas** (sin trigger cableado). E1 soporta los idiomas `'es'` y
+`'ca'`; E3 solo `'es'` por ahora. Si no existe plantilla en el idioma solicitado, el
+sistema DEBE usar el idioma por defecto `'es'` y dejar constancia en `AUDIT_LOG`.
+(Fuente: `US-045 §Reglas de negocio` idioma; `§Notas de alcance`; `design.md §3`;
+decisión de producto post-US-003/004.)
 
-#### Scenario: La plantilla se selecciona por código e idioma del tenant
+#### Scenario: E1 se selecciona por el idioma del lead (RESERVA.idioma)
 
-- **GIVEN** un tenant con `TENANT_SETTINGS.idioma = 'es'` y un trigger E1
+- **GIVEN** una RESERVA con `idioma = 'ca'` y un trigger E1
 - **WHEN** el motor selecciona la plantilla
-- **THEN** elige la plantilla E1 en `es`
+- **THEN** elige la plantilla E1 en `'ca'`
 - **AND** sustituye sus variables con datos de `RESERVA` y `CLIENTE`
 
-#### Scenario: E2–E8 están diseñadas pero no se disparan en este change
+#### Scenario: La plantilla se selecciona por código e idioma del tenant para E2–E8
+
+- **GIVEN** un tenant con `TENANT_SETTINGS.idioma = 'es'` y un trigger E2–E8
+- **WHEN** el motor selecciona la plantilla
+- **THEN** elige la plantilla correspondiente en `'es'`
+- **AND** sustituye sus variables con datos de `RESERVA` y `CLIENTE`
+
+#### Scenario: E2, E4–E8 están diseñadas pero no se disparan aún
 
 - **GIVEN** el catálogo de plantillas del motor
-- **WHEN** se consulta una entrada E2–E8
+- **WHEN** se consulta una entrada E2 o E4–E8
 - **THEN** existe declarada con sus variables y adjuntos como **diseñada/inactiva**
-- **AND** no hay ningún trigger cableado que la dispare en este change
+- **AND** no hay ningún trigger cableado que la dispare en este alcance
 
 ### Requirement: Registro en COMUNICACION con estado y fecha de envío coherentes
 
@@ -187,22 +198,41 @@ cableado de los emails con adjuntos (E2/E3/E4) quedan **diferidos** a sus US.
 - **WHEN** el motor intenta enviar
 - **THEN** no envía el email y registra el error
 
-### Requirement: Cableado real de E1 con regresión cero sobre el alta de consulta
+### Requirement: Cableado real de E1 personalizado por idioma, situación de fecha y dossier adjunto
 
-El sistema SHALL (DEBE) sustituir el adaptador **STUB no-op** de envío de email
-(usado por US-003/US-004) por el **transporte real** sin alterar el contrato del
-**puerto de dominio de envío** ni romper el flujo de alta. Al crear una consulta:
-si **no** hay comentarios, el sistema DEBE auto-enviar E1 y registrar la
-`COMUNICACION` como `enviado`; si **hay** comentarios, DEBE crear la `COMUNICACION`
-como `borrador` sin `fecha_envio`, sin enviar. El comportamiento observable de
-US-003/US-004 DEBE mantenerse (regresión cero). (Fuente: `US-045 §Happy Path E1`,
-`§E1 con notas/comentarios`; `design.md §6`.)
+El sistema SHALL (DEBE) enviar E1 al crear una consulta usando el **catálogo de
+plantillas** con la variante correcta según el idioma del lead (`RESERVA.idioma`) y
+la situación de la fecha (`tipoE1`), y adjuntando siempre el **dossier PDF** del
+espacio en el idioma del lead. Las 4 variantes de `tipoE1` son:
 
-#### Scenario: Alta sin comentarios auto-envía E1 por el transporte real
+- `sin_fecha` — alta sin `fecha_evento` (sub-estado `2a`)
+- `fecha_disponible` — fecha libre (sub-estado `2b`)
+- `fecha_cola` — fecha en cola de consulta (sub-estado `2d`)
+- `fecha_confirmada` — fecha ocupada por reserva confirmada (sub-estado `2a`
+  degradada); el sistema DEBE intentar obtener fechas adyacentes libres (±1 día,
+  solo fin de semana) para incluirlas en el cuerpo
 
-- **GIVEN** un alta de consulta válida sin comentarios
+El dossier se adjunta por referencia de URL (`Dossier-Masia-Encis-{idioma}.pdf`)
+desde el almacén del tenant. El envío del dossier es obligatorio; si el fichero
+no está disponible en el almacén, Resend falla la descarga y la COMUNICACION queda
+en `estado = 'fallido'`.
+
+Si el catálogo no puede renderizar la plantilla (idioma no soportado o error de
+configuración), el sistema NO DEBE bloquear el alta: degrada a asunto/cuerpo mínimo
+y envía igualmente — el motor centraliza el resultado (`enviado` o `fallido`). En
+producción el catálogo siempre está inyectado y el camino real usa el render
+personalizado.
+
+Si el alta **incluye** `comentarios`, el sistema DEBE crear la COMUNICACION con
+`estado = 'borrador'` directamente, sin enviar. (Fuente: `US-045 §Happy Path E1`,
+`§E1 con notas/comentarios`; `design.md §6`; decisión de producto post-US-003/004.)
+
+#### Scenario: Alta sin comentarios auto-envía E1 personalizado con dossier
+
+- **GIVEN** un alta de consulta válida sin comentarios, con `idioma = 'ca'`
 - **WHEN** el sistema procesa el alta y dispara E1
-- **THEN** envía el email vía el transporte real (o fake en test)
+- **THEN** envía el email con la variante correcta en catalán vía el transporte real
+- **AND** adjunta `Dossier-Masia-Encis-ca.pdf` al email
 - **AND** registra `COMUNICACION` con `codigo_email = 'E1'`, `estado = 'enviado'` y
   `fecha_envio` no nulo
 
@@ -214,12 +244,13 @@ US-003/US-004 DEBE mantenerse (regresión cero). (Fuente: `US-045 §Happy Path E
   `fecha_envio`
 - **AND** no envía el email
 
-#### Scenario: El cambio de adaptador no rompe el contrato del puerto
+#### Scenario: Catálogo no disponible envía E1 con texto mínimo sin bloquear el alta
 
-- **GIVEN** los flujos de alta de US-003/US-004 que dependen del puerto de envío
-- **WHEN** se sustituye el STUB por el adaptador real
-- **THEN** el contrato del puerto de dominio se mantiene
-- **AND** los flujos de alta conservan su comportamiento observable
+- **GIVEN** un alta sin comentarios en un contexto donde el catálogo no puede renderizar
+- **WHEN** el sistema procesa el alta
+- **THEN** la RESERVA se crea correctamente
+- **AND** la COMUNICACION E1 se envía con asunto/cuerpo mínimo de fallback
+- **AND** el alta devuelve 201 sin error
 
 ### Requirement: La transición a 2.v dispara el email E6 al cliente y lo registra en COMUNICACION
 

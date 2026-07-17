@@ -40,6 +40,8 @@ import {
   type EstadoReserva,
   type SubEstadoConsulta,
 } from '../domain/maquina-estados';
+import type { CatalogoPlantillasPort } from '../../comunicaciones/domain/catalogo-plantillas.port';
+import type { AdjuntoRef } from '../../comunicaciones/domain/enviar-email.port';
 
 export type { ClockPort };
 
@@ -96,6 +98,10 @@ export interface AltaConsultaComando {
   numAdultosNinosMayores4?: number;
   numNinosMenores4?: number;
   notas?: string;
+  /** Idioma de comunicación con el cliente (`es` por defecto, `ca` disponible). */
+  idioma?: string;
+  /** Hora de inicio del evento (`HH:MM`); solo válido junto a `duracionHoras`. */
+  horario?: string;
   /** Datos del cliente del lead. */
   cliente: AltaConsultaCliente;
 }
@@ -218,6 +224,8 @@ export interface CrearReservaParams {
   numAdultosNinosMayores4?: number;
   numNinosMenores4?: number;
   notas?: string;
+  idioma?: string;
+  horario?: string;
 }
 
 /** Repositorio de RESERVA ligado a la transacción del alta. */
@@ -360,6 +368,8 @@ export interface FinalizarEnvioEmailParams {
   asunto: string;
   cuerpo: string;
   codigoEmail: 'E1';
+  /** Adjuntos opcionales (ej. dossier) a incluir en el envío. */
+  adjuntos?: AdjuntoRef[];
 }
 
 /** Estado terminal alcanzado tras el intento de envío post-commit. */
@@ -381,6 +391,23 @@ export interface FinalizarEnvioEmailPort {
   ): Promise<FinalizarEnvioEmailResultado>;
 }
 
+/** Resultado de las fechas alternativas disponibles en el mismo fin de semana. */
+export interface FechasAlternativas {
+  anterior: Date | null;
+  posterior: Date | null;
+}
+
+/**
+ * Puerto para verificar disponibilidad de fechas adyacentes (Caso 3: fecha ocupada
+ * por reserva confirmada). Lee FECHA_BLOQUEADA fuera de la transacción del alta.
+ */
+export interface FechasAlternativasPort {
+  leerAlternativas(params: {
+    tenantId: string;
+    fecha: Date;
+  }): Promise<FechasAlternativas>;
+}
+
 /** Dependencias del caso de uso (puertos inyectados). */
 export interface AltaConsultaDeps {
   unidadDeTrabajo: UnidadDeTrabajoPort;
@@ -390,6 +417,12 @@ export interface AltaConsultaDeps {
   tarifaEstimada?: TarifaEstimadaPort;
   /** Settings del tenant para el TTL del bloqueo blando (US-004 §D-2/§D-7). */
   tenantSettings?: TenantSettingsPort;
+  /** Catálogo de plantillas para renderizar E1 personalizada por caso e idioma. */
+  catalogo?: CatalogoPlantillasPort;
+  /** Verificación de fechas adyacentes disponibles (Caso 3: fecha confirmada). */
+  fechasAlternativas?: FechasAlternativasPort;
+  /** URL base del almacén de documentos para construir la referencia del dossier. */
+  dossierBaseUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -433,25 +466,12 @@ const CANALES_VALIDOS: ReadonlyArray<CanalEntrada> = [
   'holaplace',
 ];
 
-/** Asunto/cuerpo de la respuesta inicial automática E1 (plantilla mínima). */
-const ASUNTO_E1 = 'Hemos recibido tu consulta';
-const CUERPO_E1 =
-  'Gracias por tu interés. Hemos recibido tu consulta y te contactaremos en breve.';
+/** Asunto/cuerpo PLACEHOLDER de la fila E1 creada en la transacción (se sobreescribe post-commit). */
+const ASUNTO_E1_PLACEHOLDER = 'Hem rebut la teva consulta';
 
 /** ¿Hay comentarios significativos (no vacíos ni en blanco)? */
 const tieneComentarios = (comentarios?: string): boolean =>
   (comentarios ?? '').trim().length > 0;
-
-/**
- * Construye el cuerpo de E1. Si hay tarifa estimada con precio, la incorpora; si no,
- * sale con el dossier general sin precio (US-004 §D-4).
- */
-const construirCuerpoE1 = (tarifa: TarifaEstimadaResultado | null): string => {
-  if (tarifa !== null && tarifa.totalEur !== null && !tarifa.tarifaAConsultar) {
-    return `${CUERPO_E1} Tarifa estimada: ${tarifa.totalEur} EUR (IVA incluido).`;
-  }
-  return `${CUERPO_E1} Adjuntamos el dossier de tarifas general.`;
-};
 
 /** Plan resuelto del alta: sub-estado destino + acción + metadatos de fecha. */
 interface PlanAlta {
@@ -561,6 +581,8 @@ export class AltaConsultaUseCase {
             ? { numNinosMenores4: comando.numNinosMenores4 }
             : {}),
           ...(comando.notas !== undefined ? { notas: comando.notas } : {}),
+          ...(comando.idioma !== undefined ? { idioma: comando.idioma } : {}),
+          ...(comando.horario !== undefined ? { horario: comando.horario } : {}),
         });
 
         // Bloqueo atómico en `2.b` DENTRO de la misma transacción del alta (D-2). En
@@ -584,8 +606,10 @@ export class AltaConsultaUseCase {
           clienteId: cliente.idCliente,
           codigoEmail: 'E1',
           estado: 'borrador',
-          asunto: ASUNTO_E1,
-          cuerpo: construirCuerpoE1(tarifaEstimada),
+          asunto: ASUNTO_E1_PLACEHOLDER,
+          // El cuerpo real de E1 se renderiza POST-COMMIT (personalizado por caso e
+          // idioma), cuando ya se conoce el sub-estado resultante de la transacción.
+          cuerpo: '',
           destinatarioEmail: email,
           fechaEnvio: null,
         });
@@ -631,16 +655,84 @@ export class AltaConsultaUseCase {
       return resultado;
     }
 
+    // POST-COMMIT: la CASUÍSTICA de E1 (`tipoE1`) se decide con el sub-estado YA
+    // commiteado, así que la renderización de la plantilla personalizada ocurre aquí
+    // (nunca dentro de la transacción). El cuerpo real reemplaza al placeholder.
+    const idioma = comando.idioma ?? 'es';
+    const tienesFecha = comando.fechaEvento !== undefined;
+    const subEstado = resultado.reserva.subEstado;
+
+    type TipoE1 = 'sin_fecha' | 'fecha_disponible' | 'fecha_confirmada' | 'fecha_cola';
+    let tipoE1: TipoE1;
+    if (!tienesFecha) {
+      tipoE1 = 'sin_fecha';
+    } else if (subEstado === '2b') {
+      tipoE1 = 'fecha_disponible';
+    } else if (subEstado === '2d') {
+      tipoE1 = 'fecha_cola';
+    } else {
+      // `2a` con fecha: la fecha estaba confirmada por otra reserva (alta degradada).
+      tipoE1 = 'fecha_confirmada';
+    }
+
+    // Fechas alternativas del mismo fin de semana (solo Caso 3: fecha confirmada).
+    let fechaAlternativa1: Date | undefined;
+    let fechaAlternativa2: Date | undefined;
+    if (tipoE1 === 'fecha_confirmada' && this.deps.fechasAlternativas && comando.fechaEvento) {
+      const alternativas = await this.deps.fechasAlternativas.leerAlternativas({
+        tenantId: comando.tenantId,
+        fecha: comando.fechaEvento,
+      });
+      fechaAlternativa1 = alternativas.anterior ?? undefined;
+      fechaAlternativa2 = alternativas.posterior ?? undefined;
+    }
+
+    // Renderizar la plantilla E1 personalizada (4 casos × idioma). Si el catálogo no
+    // está cableado o no hay plantilla para el código, se degrada a un asunto/cuerpo
+    // mínimo (el envío se realiza igualmente; el motor centraliza éxito/fallo).
+    const plantilla = this.deps.catalogo?.seleccionar('E1', idioma);
+    const rendered = plantilla
+      ? plantilla.render({
+          nombre: resultado.cliente.nombre,
+          tipoE1,
+          ...(comando.fechaEvento !== undefined ? { fechaEvento: comando.fechaEvento } : {}),
+          ...(fechaAlternativa1 !== undefined ? { fechaAlternativa1 } : {}),
+          ...(fechaAlternativa2 !== undefined ? { fechaAlternativa2 } : {}),
+        })
+      : (() => {
+          // Fallback mínimo cuando el catálogo no está disponible.
+          // Se escapa el nombre para evitar email content injection en el HTML.
+          const safeName = resultado.cliente.nombre
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+          return {
+            asunto: ASUNTO_E1_PLACEHOLDER,
+            cuerpoHtml: `<p>Hola ${safeName},</p><p>Hem rebut la teva consulta i et contactarem molt aviat.</p>`,
+            cuerpoTexto: `Hola ${resultado.cliente.nombre},\n\nHem rebut la teva consulta i et contactarem molt aviat.`,
+          };
+        })();
+
+    // Adjunto del dossier (por idioma). Solo si se conoce la URL base del almacén.
+    const dossierRef: AdjuntoRef | undefined = this.deps.dossierBaseUrl
+      ? {
+          clave: 'dossier',
+          nombre: `Dossier-Masia-Encis-${idioma}.pdf`,
+          pdfUrl: `${this.deps.dossierBaseUrl}/dossiers/Dossier-Masia-Encis-${idioma}.pdf`,
+        }
+      : undefined;
+
     const envio = await this.deps.finalizarEnvio.finalizarEnvio({
       tenantId: comando.tenantId,
       reservaId: resultado.reserva.idReserva,
       idComunicacion: resultado.comunicacion.idComunicacion,
       destinatario: email,
-      asunto: ASUNTO_E1,
-      // Mismo cuerpo (con tarifa estimada de US-004) que se persistió en la fila
-      // COMUNICACION dentro de la transacción.
-      cuerpo: construirCuerpoE1(tarifaEstimada),
+      asunto: rendered.asunto,
+      cuerpo: rendered.cuerpoHtml,
       codigoEmail: 'E1',
+      ...(dossierRef !== undefined ? { adjuntos: [dossierRef] } : {}),
     });
 
     return {
@@ -819,6 +911,18 @@ export class AltaConsultaUseCase {
         campo: 'canalEntrada',
         mensaje: 'El canal de entrada no está contemplado',
       });
+    }
+
+    if (comando.horario !== undefined) {
+      if (!/^\d{2}:\d{2}$/.test(comando.horario)) {
+        errores.push({ campo: 'horario', mensaje: 'El horario debe tener formato HH:MM' });
+      }
+      if (comando.duracionHoras === undefined) {
+        errores.push({
+          campo: 'horario',
+          mensaje: 'El horario requiere que se indique también la duración (duracionHoras)',
+        });
+      }
     }
 
     return errores;

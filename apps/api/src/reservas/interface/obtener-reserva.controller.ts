@@ -99,6 +99,7 @@ export class ObtenerReservaController {
       consultaBloqueanteId: r.consultaBloqueanteId,
       notas: r.notas,
       fechaCreacion: r.fechaCreacion.toISOString(),
+      tieneBorradorE1Pendiente: r.tieneBorradorE1Pendiente,
       cliente: {
         idCliente: r.cliente.idCliente,
         nombre: r.cliente.nombre,

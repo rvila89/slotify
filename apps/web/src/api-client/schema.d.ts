@@ -3687,6 +3687,8 @@ export interface components {
             progressLogistica?: number;
             /** @description Progreso de liquidación (0-100) derivado de `liquidacionStatus`: `pendiente=0`, `facturada=50`, `cobrada=100`. En estados de consulta (`2a`, `2b`, `2c`, `2d`, `2v`) y en `pre_reserva` arranca en `0` (aún no hay liquidación en curso). */
             progressLiquidacion?: number;
+            /** @description true cuando existe una comunicación de tipo E1 en estado borrador para esta reserva. Calculado en cada fetch; se vuelve false automáticamente al pasar el borrador a enviado o fallido. */
+            tieneBorradorE1Pendiente?: boolean;
         };
         ReservaDetalle: components["schemas"]["Reserva"] & {
             cliente?: components["schemas"]["Cliente"];
@@ -3761,6 +3763,17 @@ export interface components {
             notas?: string;
             /** @description [US-003] Comentarios libres del gestor sobre el lead en el momento del alta. Su PRESENCIA/AUSENCIA decide el flujo del email E1 (respuesta inicial automática): SIN `comentarios` (omitido o vacío) → la COMUNICACION E1 se persiste con `estado='enviado'` y se dispara el auto-envío de la respuesta inicial; CON `comentarios` → la COMUNICACION E1 se persiste con `estado='borrador'`, NO se envía, y la UI alerta al gestor de un borrador pendiente de revisión. Es distinto de `notas` (anotaciones internas que NO afectan al envío de E1). */
             comentarios?: string;
+            /**
+             * @description Idioma de comunicación con el cliente para el email E1 y futuros envíos automáticos.
+             * @default es
+             * @enum {string}
+             */
+            idioma: "es" | "ca";
+            /**
+             * @description Hora de inicio prevista del evento (HH:MM, p. ej. "10:00"). Solo válido si duracionHoras también está presente; la validación cruzada se aplica en servidor.
+             * @example 10:00
+             */
+            horario?: string;
             cliente: components["schemas"]["CreateClienteRequest"];
         };
         UpdateReservaRequest: {

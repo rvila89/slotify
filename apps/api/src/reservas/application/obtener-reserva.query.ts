@@ -70,6 +70,15 @@ export interface ReservaDetalleLectura {
   consultaBloqueanteId: string | null;
   notas: string | null;
   fechaCreacion: Date;
+  /**
+   * US-047: `true` cuando la reserva tiene una COMUNICACION E1 en estado `borrador`
+   * pendiente de revisar/enviar. Se deriva de la subconsulta de comunicaciones (igual
+   * que en el pipeline `GET /reservas`), para que la ficha bloquee las acciones que
+   * dependen de un E1 ya enviado. OPCIONAL/aditivo (contrato `Reserva`): solo lo
+   * proyecta la lectura del detalle (`GET /reservas/{id}`); los use-cases de transición
+   * que reutilizan este read-model pueden omitirlo.
+   */
+  tieneBorradorE1Pendiente?: boolean;
   cliente: ClienteLectura;
 }
 

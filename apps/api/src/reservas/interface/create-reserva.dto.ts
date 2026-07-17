@@ -112,6 +112,16 @@ export class CreateReservaRequestDto {
   @MaxLength(2000)
   comentarios?: string;
 
+  @ApiPropertyOptional({ enum: ['es', 'ca'], description: 'Idioma de comunicación con el cliente. Por defecto es.' })
+  @IsOptional()
+  @IsIn(['es', 'ca'])
+  idioma?: string;
+
+  @ApiPropertyOptional({ type: String, description: 'Hora de inicio del evento en formato HH:MM. Solo válido si duracionHoras también está presente.' })
+  @IsOptional()
+  @Matches(/^\d{2}:\d{2}$/, { message: 'horario debe tener formato HH:MM (ej. 10:00)' })
+  horario?: string;
+
   @ApiProperty({ type: CreateClienteRequestDto })
   @ValidateNested()
   @Type(() => CreateClienteRequestDto)

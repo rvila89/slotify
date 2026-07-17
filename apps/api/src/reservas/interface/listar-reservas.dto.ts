@@ -149,6 +149,14 @@ export class ReservaPipelineItemDto {
 
   @ApiProperty({ type: Number, minimum: 0, maximum: 100, example: 0 })
   progressLiquidacion!: number;
+
+  @ApiProperty({
+    type: Boolean,
+    example: false,
+    description:
+      'Indica si la reserva tiene un borrador E1 pendiente de revisar/enviar (US-047)',
+  })
+  tieneBorradorE1Pendiente!: boolean;
 }
 
 /** Metadatos de paginación (contrato `PaginationMetadata`). */

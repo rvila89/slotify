@@ -108,7 +108,14 @@ export const SeccionEvento = () => {
                   key={horas}
                   type="button"
                   aria-pressed={activo}
-                  onClick={() => setValue('duracionHoras', activo ? '' : horas, { shouldDirty: true })}
+                  onClick={() => {
+                    const nueva = activo ? '' : horas;
+                    setValue('duracionHoras', nueva, { shouldDirty: true });
+                    // Al quitar la duración, el horario deja de ser válido: se limpia.
+                    if (nueva === '') {
+                      setValue('horario', '', { shouldDirty: true, shouldValidate: true });
+                    }
+                  }}
                   className={cn(
                     'flex h-14 items-center justify-center rounded-[12px] border font-body text-base font-medium transition',
                     activo
@@ -122,6 +129,31 @@ export const SeccionEvento = () => {
             })}
           </div>
         </div>
+
+        <Campo
+          id="horario"
+          label="Hora de inicio"
+          opcional
+          error={errors.horario?.message}
+          className="sm:col-span-2 sm:max-w-md"
+        >
+          <input
+            id="horario"
+            type="time"
+            disabled={!duracionSeleccionada}
+            aria-invalid={errors.horario ? 'true' : undefined}
+            aria-describedby={errors.horario ? 'horario-error' : 'horario-hint'}
+            {...register('horario')}
+            className={cn(
+              claseInput,
+              '[color-scheme:light]',
+              !duracionSeleccionada && 'cursor-not-allowed opacity-50',
+            )}
+          />
+          <p id="horario-hint" className="px-1 font-body text-[13px] text-text-muted">
+            Solo si ya sabes la hora de inicio del evento. Requiere seleccionar la duración.
+          </p>
+        </Campo>
 
         <div className="flex flex-col gap-2 sm:col-span-2">
           <label htmlFor="comentarios" className={claseLabel}>

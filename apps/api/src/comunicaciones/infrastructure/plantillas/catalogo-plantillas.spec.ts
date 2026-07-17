@@ -42,8 +42,10 @@ describe('CatalogoPlantillasEnCodigo — E1 activa y E2–E8 diseñadas/inactiva
 
     const plantilla = catalogo.seleccionar('E1', 'es');
 
-    // La plantilla declara su contrato de variables (al menos el destinatario).
-    expect(plantilla?.variablesRequeridas).toEqual(expect.arrayContaining(['email']));
+    // La plantilla declara su contrato de variables (nombre del cliente + casuística E1).
+    expect(plantilla?.variablesRequeridas).toEqual(
+      expect.arrayContaining(['nombre', 'tipoE1']),
+    );
   });
 
   it('debe_renderizar_la_plantilla_E1_con_asunto_y_cuerpo_a_partir_de_las_variables', () => {
@@ -71,8 +73,9 @@ describe('CatalogoPlantillasEnCodigo — E1 activa y E2–E8 diseñadas/inactiva
   it('no_debe_tener_plantilla_en_un_idioma_no_provisto_para_que_el_motor_aplique_fallback', () => {
     const catalogo = new CatalogoPlantillasEnCodigo();
 
-    // El MVP entrega `es`; `ca` no está provisto → null (el motor cae a `es` + AUDIT_LOG).
-    expect(catalogo.seleccionar('E1', 'ca')).toBeNull();
+    // El MVP entrega `es` y `ca`; cualquier otro idioma (ej. `fr`) no está provisto →
+    // registro `es` como fallback, nunca una entrada específica de ese idioma.
+    expect(catalogo.seleccionar('E1', 'fr')?.idioma).toBe('es');
   });
 });
 

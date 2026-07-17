@@ -28,6 +28,7 @@ export const ReservaKanbanCard = ({ reserva }: ReservaKanbanCardProps) => {
   const aforo = aforoDeReserva(reserva);
   const nombre = reserva.nombreEvento ?? reserva.codigo;
   const tieneNota = Boolean(reserva.notas && reserva.notas.trim().length > 0);
+  const tieneBorradorE1 = reserva.tieneBorradorE1Pendiente === true;
 
   const metaPartes = [
     reserva.fechaEvento ? formatearFecha(reserva.fechaEvento) : null,
@@ -50,6 +51,16 @@ export const ReservaKanbanCard = ({ reserva }: ReservaKanbanCardProps) => {
         </div>
         <ExternalLink aria-hidden className="mt-0.5 size-3.5 shrink-0 text-text-muted" />
       </div>
+
+      {tieneBorradorE1 && (
+        <span
+          data-testid="badge-borrador-e1-pendiente"
+          className="inline-flex w-fit items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 font-body text-xs font-semibold text-amber-900"
+        >
+          <span aria-hidden className="size-2 rounded-full bg-current opacity-70" />
+          Borrador E1 pendiente
+        </span>
+      )}
 
       <div className="flex flex-col gap-2.5">
         <ProgressBar label="Logística" valor={reserva.progressLogistica ?? 0} color={PROGRESS_LOGISTICA} />

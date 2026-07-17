@@ -8,6 +8,8 @@
  * errores de la API (devuelve `{ data, error }`); aquí se traduce el `error` a una
  * excepción para que el motor marque la COMUNICACION como `fallido` + AUDIT_LOG.
  */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
 import { Resend } from 'resend';
 import type {
@@ -60,10 +62,15 @@ export class ResendEmailAdapter implements EnviarEmailPort {
     );
   }
 
-  /** Traduce los adjuntos por referencia al formato de Resend (URL → `path`). */
+  /**
+   * Traduce los adjuntos por referencia al formato de Resend.
+   * - URL HTTP/HTTPS → `path` (la API de Resend la descarga).
+   * - Path local del sistema de ficheros → `content` como Buffer (el SDK de
+   *   Resend no lee paths locales; la API los rechaza con 422).
+   */
   private adjuntosResend(
     adjuntos: AdjuntoRef[] | undefined,
-  ): { attachments?: { filename: string; path: string }[] } {
+  ): { attachments?: { filename: string; path?: string; content?: Buffer }[] } {
     const disponibles = (adjuntos ?? []).filter(
       (adjunto): adjunto is AdjuntoRef & { pdfUrl: string } =>
         adjunto.pdfUrl !== null,
@@ -72,10 +79,23 @@ export class ResendEmailAdapter implements EnviarEmailPort {
       return {};
     }
     return {
-      attachments: disponibles.map((adjunto) => ({
-        filename: adjunto.nombre,
-        path: adjunto.pdfUrl,
-      })),
+      attachments: disponibles.map((adjunto) => {
+        if (adjunto.pdfUrl.startsWith('http://') || adjunto.pdfUrl.startsWith('https://')) {
+          return { filename: adjunto.nombre, path: adjunto.pdfUrl };
+        }
+        // Path local: leer el fichero y enviar como Buffer (dev sin S3).
+        // Restringir al directorio del almacén para evitar arbitrary file read.
+        const almacenDir = path.resolve(process.env['ALMACEN_LOCAL_DIR'] ?? '.almacen');
+        const resolved = path.resolve(adjunto.pdfUrl);
+        if (!resolved.startsWith(almacenDir + path.sep)) {
+          throw new Error(`Adjunto fuera del directorio permitido: ${adjunto.nombre}`);
+        }
+        if (path.extname(resolved).toLowerCase() !== '.pdf') {
+          throw new Error(`Extensión de adjunto no permitida: ${adjunto.nombre}`);
+        }
+        const content = fs.readFileSync(resolved);
+        return { filename: adjunto.nombre, content };
+      }),
     };
   }
 }

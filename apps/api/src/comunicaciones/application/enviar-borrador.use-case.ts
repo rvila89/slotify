@@ -18,6 +18,7 @@
 import type { AuditLogPort } from '../../shared/audit/audit-log.port';
 import type { CodigoEmail, EstadoComunicacion } from '../domain/codigo-email';
 import type { ComunicacionRepositoryPort } from '../domain/comunicacion.repository.port';
+import type { AdjuntoRef } from '../domain/enviar-email.port';
 import { esEmailValido } from '../domain/esemailvalido';
 import type { DespacharEmailService } from './despachar-email.service';
 import {
@@ -48,6 +49,11 @@ export interface ComunicacionContexto {
   cuerpo: string;
   destinatarioEmail: string | null;
   fechaEnvio: Date | null;
+  /**
+   * Idioma de la RESERVA vinculada (US-047 D-2): determina el dossier a adjuntar al
+   * enviar E1 (`Dossier-Masia-Encis-{idioma}.pdf`). Ausente/nulo → degrada a `'es'`.
+   */
+  idioma?: string | null;
 }
 
 /** Parámetros de carga de la comunicación (scoped por el tenant del JWT y la reserva). */
@@ -105,6 +111,12 @@ export interface EnviarBorradorDeps {
   /** Motor de US-045: se reutiliza `finalizarEnvio` (único camino de envío, D-1). */
   motor: DespacharEmailService;
   auditoria: AuditLogPort;
+  /**
+   * URL base del almacén de documentos para construir la referencia del dossier E1
+   * (US-047 D-2). Si NO está configurada, el envío degrada a `adjuntos: []` (igual que
+   * el alta), sin bloquear.
+   */
+  dossierBaseUrl?: string;
 }
 
 /** La `COMUNICACION` no existe para el tenant del JWT (o es de otro tenant, RLS) → 404. */
@@ -164,6 +176,20 @@ export class EnviarBorradorUseCase {
     const asuntoEfectivo = comando.asunto ?? comunicacion.asunto;
     const cuerpoEfectivo = comando.cuerpo ?? comunicacion.cuerpo;
 
+    // 4.b Adjunto del dossier al enviar E1 (US-047 D-2): paridad EXACTA con el alta
+    //     (`AltaConsultaUseCase`). Solo para `E1` y solo si se conoce la URL base del
+    //     almacén; el idioma sale de la RESERVA cargada (ausente → `'es'`). Para otros
+    //     códigos o sin `dossierBaseUrl`, se envía SIN adjunto (degradación graceful).
+    const idioma = comunicacion.idioma ?? 'es';
+    const dossierRef: AdjuntoRef | undefined =
+      comunicacion.codigoEmail === 'E1' && this.deps.dossierBaseUrl
+        ? {
+            clave: 'dossier',
+            nombre: `Dossier-Masia-Encis-${idioma}.pdf`,
+            pdfUrl: `${this.deps.dossierBaseUrl}/dossiers/Dossier-Masia-Encis-${idioma}.pdf`,
+          }
+        : undefined;
+
     // 5. Delegar el envío en el ÚNICO camino de finalización del motor (D-1): éxito →
     //    `enviado` + fecha; fallo del proveedor → `fallido` sin fecha + AUDIT_LOG (el
     //    motor persiste el estado y NO propaga la excepción cruda del proveedor).
@@ -175,6 +201,7 @@ export class EnviarBorradorUseCase {
       asunto: asuntoEfectivo,
       cuerpo: cuerpoEfectivo,
       codigoEmail: comunicacion.codigoEmail,
+      ...(dossierRef !== undefined ? { adjuntos: [dossierRef] } : {}),
     });
 
     // 6. Fallo del proveedor → error mapeable a 502 (la fila ya quedó `fallido`).

@@ -4,6 +4,7 @@
  * compone los servicios de dominio (puros) vía factory, inyectando los puertos por
  * token (Symbol).
  */
+import * as path from 'node:path';
 import { Logger, Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from '../shared/prisma/prisma.module';
@@ -24,6 +25,8 @@ import {
   type UnidadDeTrabajoPort,
 } from './application/alta-consulta.use-case';
 import { UnidadDeTrabajoPrismaAdapter } from './infrastructure/unidad-de-trabajo.prisma.adapter';
+import { FechasAlternativasPrismaAdapter } from './infrastructure/fechas-alternativas.prisma.adapter';
+import { CatalogoPlantillasEnCodigo } from '../comunicaciones/infrastructure/plantillas/catalogo-plantillas';
 import { UnidadDeTrabajoTransicionPrismaAdapter } from './infrastructure/transicion-fecha-uow.prisma.adapter';
 import { UnidadDeTrabajoPendienteInvitadosPrismaAdapter } from './infrastructure/transicion-pendiente-invitados-uow.prisma.adapter';
 import { UnidadDeTrabajoProgramarVisitaPrismaAdapter } from './infrastructure/programar-visita-uow.prisma.adapter';
@@ -306,6 +309,7 @@ import {
         CLOCK_PORT,
         TARIFA_ESTIMADA_PORT,
         TENANT_SETTINGS_PORT,
+        PrismaService,
       ],
       useFactory: (
         unidadDeTrabajo: UnidadDeTrabajoPort,
@@ -313,6 +317,7 @@ import {
         clock: ClockPort,
         tarifaEstimada: TarifaEstimadaPort,
         tenantSettings: TenantSettingsPort,
+        prisma: PrismaService,
       ) =>
         new AltaConsultaUseCase({
           unidadDeTrabajo,
@@ -320,6 +325,17 @@ import {
           clock,
           tarifaEstimada,
           tenantSettings,
+          // E1 personalizada: catálogo de plantillas (4 casos × 2 idiomas) +
+          // verificación de fechas adyacentes disponibles + URL base del dossier.
+          catalogo: new CatalogoPlantillasEnCodigo(),
+          fechasAlternativas: new FechasAlternativasPrismaAdapter(prisma),
+          // En local (ALMACEN_PROVIDER=local) el SDK de Resend lee el fichero
+          // directamente del disco — Resend no puede descargar localhost desde
+          // internet. En producción (S3) se usa la URL pública del bucket.
+          dossierBaseUrl:
+            (process.env.ALMACEN_PROVIDER ?? 'local') === 'local'
+              ? path.resolve(process.env.ALMACEN_LOCAL_DIR ?? '.almacen')
+              : (process.env.ALMACEN_S3_BASE_URL ?? ''),
         }),
     },
     {

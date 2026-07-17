@@ -13,6 +13,7 @@
  * sus US). El dominio/aplicación dependen solo de interfaces; los adaptadores
  * (Prisma/Resend) viven en infraestructura.
  */
+import * as path from 'node:path';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaModule } from '../shared/prisma/prisma.module';
@@ -165,6 +166,13 @@ import {
           comunicaciones,
           motor,
           auditoria,
+          // US-047 — URL base del almacén para adjuntar el dossier E1 al enviar el
+          // borrador. Misma resolución que el alta (US-004): en local (Resend lee del
+          // disco) la ruta absoluta del almacén; en producción (S3) la URL pública.
+          dossierBaseUrl:
+            (process.env.ALMACEN_PROVIDER ?? 'local') === 'local'
+              ? path.resolve(process.env.ALMACEN_LOCAL_DIR ?? '.almacen')
+              : (process.env.ALMACEN_S3_BASE_URL ?? ''),
         }),
     },
     // US-046 — descartar un borrador (borrador→fallido sin envío + AUDIT_LOG, D-5).
