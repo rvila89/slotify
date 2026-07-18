@@ -334,27 +334,51 @@ E6 y su registro en `COMUNICACION` sin enviar correos a destinatarios reales. (F
 
 ### Requirement: La activación de pre_reserva dispara el email E2 con el PDF del presupuesto
 
-El sistema SHALL (DEBE), tras la activación exitosa de la pre-reserva (creación del
-PRESUPUESTO + transición de la RESERVA a `pre_reserva`), disparar el envío del email **E2**
-al cliente de la RESERVA, adjuntando por referencia el **PDF del presupuesto**
-(`PRESUPUESTO.pdf_url`) con el desglose de tarifa (base + IVA 21%), extras, total, reparto
-40%/60%/fianza e instrucciones de transferencia, reutilizando el **motor de email de US-045**
-y su **interfaz de adjuntos**. El sistema DEBE registrar el resultado en `COMUNICACION` con
-`codigo_email = 'E2'`, `estado = 'enviado'`, `reserva_id` = la RESERVA, `cliente_id` = el
-CLIENTE de esa RESERVA y el `tenant_id` correspondiente, y registrar la operación en
-`AUDIT_LOG`. La idempotencia por `(reserva_id, codigo_email)` del motor de US-045 garantiza
-**una sola** E2 por RESERVA. (Fuente: `US-014 §Email relacionado E2`, `§Happy Path`; UC-14;
-E2 §9.3; US-045 §Catálogo de plantillas, §Interfaz de adjuntos, §Idempotencia.)
+El sistema SHALL (DEBE), tras la activación exitosa de la pre-reserva (creación del PRESUPUESTO
++ transición de la RESERVA a `pre_reserva`), disparar el envío del email **E2** al cliente de la
+RESERVA reutilizando el **motor de email de US-045** y su **interfaz de adjuntos**, con la
+plantilla E2 **ACTIVA** (`activa: true`, render real `renderE2` con
+`variablesRequeridas: ['nombre', 'codigoReserva']`; el código `'E2'` deja de estar entre los
+`CODIGOS_DIFERIDOS`). El adjunto del **PDF del presupuesto** (`PRESUPUESTO.pdf_url`) es
+**REQUERIDO** (D-1: `adjuntosRequeridos: ['presupuesto']`, como E3 con `'senal'`): si el PDF
+falta, el envío de E2 se **BLOQUEA** (no se envía un E2 sin el presupuesto). En consecuencia, el
+sistema DEBE **garantizar que el PDF existe y es alcanzable por el proveedor de email en el
+momento del disparo de E2**: (a) el PDF se **genera y persiste ANTES / EN el disparo de E2** (el
+post-commit de `generar-presupuesto.use-case.ts` produce el `pdf_url` y NO dispara E2 con
+`pdf_url = null` de forma silenciosa); y (b) si el adjunto es un **path local** (dev sin S3) se
+envía como `content` **Buffer** (`resend.email.adapter.ts` ya lo soporta: el SDK de Resend no lee
+paths locales), y si es una **URL** debe ser **alcanzable por Resend**. El sistema DEBE registrar
+el resultado en `COMUNICACION` con `codigo_email = 'E2'`, `reserva_id` = la RESERVA, `cliente_id`
+= el CLIENTE de esa RESERVA y el `tenant_id` correspondiente, y registrar la operación en
+`AUDIT_LOG`. La idempotencia por `(reserva_id, codigo_email)` del motor de US-045 garantiza **una
+sola** E2 por RESERVA y **permite reintentar** el E2 una vez el PDF esté disponible. La causa raíz
+del `estado = 'fallido'` observado con adjunto (tratamiento de adjuntos por URL/path local en
+`resend.email.adapter.ts`) se **diagnostica de forma sistemática** y se corrige de modo que el
+adjunto **se envíe de verdad** (path local ⇒ Buffer; URL ⇒ alcanzable) — la corrección es **ruta
+crítica**, NO un fallback que omita el adjunto. (Fuente: workstream C; `US-014 §Email relacionado
+E2`, `§Happy Path`; UC-14; E2 §9.3; US-045 §Catálogo de plantillas, §Interfaz de adjuntos,
+§Idempotencia; `catalogo-plantillas.ts`, `disparar-e2.adapter.ts`,
+`generar-presupuesto.use-case.ts`, `resend.email.adapter.ts`.)
 
-#### Scenario: Confirmar el presupuesto envía E2 y crea la fila de COMUNICACION
+#### Scenario: Con PDF disponible, E2 se envía con el presupuesto adjunto y se traza
 
-- **GIVEN** una activación de `pre_reserva` que acaba de crear el PRESUPUESTO con su
-  `pdf_url` disponible
+- **GIVEN** una activación de `pre_reserva` que acaba de crear el PRESUPUESTO con su `pdf_url`
+  disponible y alcanzable
 - **WHEN** el sistema completa la operación tras el commit
-- **THEN** el motor de email envía E2 al cliente con el PDF del presupuesto adjunto
+- **THEN** el motor de email envía E2 al cliente con el PDF del presupuesto adjunto (path local ⇒
+  `content` Buffer; URL ⇒ descargada por Resend) y contenido real (no placeholder)
 - **AND** se crea una fila en `COMUNICACION` con `codigo_email = 'E2'`, `estado = 'enviado'`,
-  `reserva_id` = esta RESERVA, `cliente_id` = el CLIENTE de la reserva y el `tenant_id`
-  correcto
+  `reserva_id` = esta RESERVA, `cliente_id` = el CLIENTE de la reserva y el `tenant_id` correcto
+
+#### Scenario: Sin PDF disponible, E2 NO se envía sin el presupuesto (D-1 requerido)
+
+- **GIVEN** una activación de `pre_reserva` cuyo `PRESUPUESTO.pdf_url` aún no está disponible o no
+  es alcanzable en el disparo de E2
+- **WHEN** el sistema intenta disparar E2 tras el commit
+- **THEN** el motor **NO envía** un E2 sin el presupuesto adjunto (adjunto requerido): el envío
+  queda bloqueado y el intento es **observable** (no un envío silenciosamente incompleto)
+- **AND** por la idempotencia `(reserva_id, 'E2')` el E2 puede **reintentarse** una vez el PDF esté
+  generado y alcanzable, entregándose entonces CON el presupuesto adjunto
 
 #### Scenario: E2 no se duplica ante un segundo disparo sobre la misma RESERVA
 
@@ -362,6 +386,14 @@ E2 §9.3; US-045 §Catálogo de plantillas, §Interfaz de adjuntos, §Idempotenc
 - **WHEN** el trigger E2 se vuelve a disparar para esa RESERVA
 - **THEN** el motor detecta la entrada existente y no crea una segunda `COMUNICACION` E2 ni
   reenvía el email (idempotencia por `(reserva_id, codigo_email)` de US-045)
+
+#### Scenario: En test/CI E2 no envía correos reales
+
+- **GIVEN** el entorno de test o CI con el transporte de email en modo fake
+- **WHEN** una activación de `pre_reserva` dispara E2
+- **THEN** no se realiza ninguna llamada de red al proveedor externo
+- **AND** el disparo de E2 y su registro en `COMUNICACION` quedan verificables para las
+  aserciones de los tests
 
 ### Requirement: El envío de E2 es posterior al commit y su fallo no revierte la pre_reserva
 
