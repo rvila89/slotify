@@ -10,14 +10,14 @@
   (actualizado) — HECHO por `spec-author`.
 - [x] 0.2 Verificar la branch creada y activa.
 
-## 1. ⏸ Gate revisión humana SDD (OBLIGATORIO — review-gate-sdd) ← EL FLUJO ESTÁ AQUÍ
+## 1. ⏸ Gate revisión humana SDD (OBLIGATORIO — review-gate-sdd) ✅ APROBADO
 
-- [ ] 1.1 Presentar al humano `proposal.md` + spec-delta (`consultas`, `presupuestos`) +
+- [x] 1.1 Presentar al humano `proposal.md` + spec-delta (`consultas`, `presupuestos`) +
   `design.md` y **ESPERAR su OK explícito** antes de avanzar a contrato/TDD/impl.
-- [ ] 1.2 Confirmar con el humano la **decisión de alcance de fecha** (`design.md §D-2.3`):
-  ¿se incluye la operación atómica "cambiar fecha ya bloqueada" o se difiere dejando la
-  fecha editable solo en `2a`? La respuesta condiciona el TDD de concurrencia y la
-  spec-delta de `consultas`.
+  → OK humano recibido ("adelante").
+- [x] 1.2 Confirmar con el humano la **decisión de alcance de fecha** (`design.md §D-2.3`):
+  → Decisión: **INCLUIR** la operación atómica "cambiar fecha ya bloqueada" (2b/2c/2v),
+  con TDD de concurrencia obligatorio.
 
 ## 2. Contrato: exponer `horario` y validar (contract-engineer — tras el gate)
 
@@ -33,19 +33,27 @@
 
 ## 3. Tests primero — TDD RED (OBLIGATORIO — tdd-first)
 
-- [ ] 3.1 **Concurrencia (mayor riesgo)**: tests en rojo de la operación atómica "cambiar
+- [x] 3.1 **Concurrencia (mayor riesgo)**: tests en rojo de la operación atómica "cambiar
   fecha ya bloqueada" (patrón `atomic-date-lock` / `concurrency-locking`), SOLO si el gate
   la incluye (§D-2.3): dos cambios concurrentes a la misma fecha nueva (uno gana),
   anti-doble-reserva D4, promoción FIFO al liberar fecha con cola, rollback total si la
   fecha nueva está ocupada.
-- [ ] 3.2 Backend `ActualizarReservaUseCase` (PATCH campos simples): persiste campos, NO
+  → Backend: `cambiar-fecha.use-case.spec.ts` (unit, orquestación), `cambiar-fecha-concurrencia.spec.ts`
+    (Postgres real: escenarios 2 y 3), `cambiar-fecha-integracion.spec.ts` (Postgres real:
+    escenarios 1 y 4 + guardas + fecha futura + cross-tenant). RED confirmado por AUSENCIA
+    de `application/cambiar-fecha.use-case.ts`.
+- [x] 3.2 Backend `ActualizarReservaUseCase` (PATCH campos simples): persiste campos, NO
   muta `fechaEvento`/`FECHA_BLOQUEADA`, no cambia estado/sub-estado, escribe AUDIT_LOG,
   RLS por tenant; validación cruzada `horario` requiere `duracionHoras`.
+  → `actualizar-reserva.use-case.spec.ts` (unit). RED confirmado por AUSENCIA de
+    `application/actualizar-reserva.use-case.ts`.
 - [ ] 3.3 Frontend: gate de completitud de "Generar presupuesto" (fecha + invitados +
   duración + horario) y saneo de acciones en terminales (`2x/2y/2z`, `reserva_cancelada`,
   `reserva_completada` → solo fallback).
-- [ ] 3.4 Confirmar que la suite está en **rojo** por las razones esperadas antes de
-  implementar.
+- [x] 3.4 Confirmar que la suite está en **rojo** por las razones esperadas antes de
+  implementar. → Unit (`actualizar-reserva.use-case`, `cambiar-fecha.use-case`) verificados
+    RED por `jest`. Concurrencia/integración (Postgres) quedan RED por el mismo import
+    ausente; deben ejecutarse desde la sesión principal con BD (ver informe).
 
 ## 4. Backend: implementar + revisar/actualizar tests unitarios (OBLIGATORIO — step-N)
 
