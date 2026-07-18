@@ -18,5 +18,5 @@
 - [~] Step 9 — E2E Playwright: **OMITIDO justificado** — sin cambios de frontend; el diálogo de revisión ya precargaba `cuerpo` y el efecto observable (cuerpo no vacío) queda verificado por curl end-to-end (Step 8)
 - [x] Step 10 — Documentación técnica: `docs/architecture.md` (flujo post-commit con comentarios ahora rellena el borrador) y `docs/api-spec.yml` (prosa de `comentarios` en `POST /reservas`: el borrador nace ya redactado). Sin cambio de esquema/SDK (solo descripciones). YAML válido.
 - [x] Code review obligatorio — report `2026-07-18-step-review-code-review.md` con **`Veredicto: APTO`** (0 bloqueantes, 0 mayores)
-- [ ] GATE humano final — code-review APTO + validación manual OK (PARADA)
-- [ ] Archive + PR — **requiere rebase previo sobre `master` actual** (a5c1183, ya con US-051 #81); posibles conflictos en `reservas.module.ts` y `docs/api-spec.yml`. Commit + rebase + archivar + PR
+- [x] GATE humano final — code-review APTO + "adelante" del humano (PARADA superada)
+- [x] Archive + PR — rebase limpio sobre `master` (a5c1183, con US-051 #81); change archivado; delta aplicado a la spec viva `comunicaciones`; PR abierto
