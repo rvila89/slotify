@@ -116,15 +116,15 @@
 
 ## 9. Docs: actualizar documentación técnica (OBLIGATORIO — step-N+4)
 
-- [ ] 9.1 Actualizar `docs/` afectada (`er-diagram` si procede, `use-cases`, notas de
-  contrato) y las specs de referencia que cite la implementación.
+- [x] 9.1 Actualizar `docs/` afectada. → er-diagram, data-model, use-cases (UC-04/UC-14),
+  architecture §2.4, backend-standards. api-spec ya lo hizo el contract-engineer.
 
 ## 10. Code review (OBLIGATORIO — code-review — EL AGENTE DEBE EJECUTARLO)
 
-- [ ] 10.1 Ejecutar `code-reviewer` sobre el diff (guardrails: hexagonal, bloqueo atómico
+- [x] 10.1 Ejecutar `code-reviewer` sobre el diff (guardrails: hexagonal, bloqueo atómico
   sin locks distribuidos, contrato/SDK, responsive, `max-lines`, arrow functions).
-- [ ] 10.2 Dejar informe `reports/YYYY-MM-DD-step-review-code-review.md` con la línea
-  `Veredicto: APTO`. Si `NO APTO`, volver a implementación y repetir.
+- [x] 10.2 Informe `reports/2026-07-18-step-review-code-review.md` → **Veredicto: APTO**
+  (2 hallazgos baja severidad no bloqueantes).
 
 ## 11. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final)
 
