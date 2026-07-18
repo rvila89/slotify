@@ -8,6 +8,8 @@ import {
 } from '@/features/presupuestos';
 import { ConfirmarSenalDialog, type ConfirmarSenalResponse } from '@/features/confirmacion';
 import { AnadirFechaDialog } from '../../../components/AnadirFechaDialog';
+import { CambiarFechaDialog } from '../../../components/CambiarFechaDialog';
+import { EditarConsultaDialog } from '../../../components/EditarConsultaDialog';
 import { PendienteInvitadosDialog } from '../../../components/PendienteInvitadosDialog';
 import { ProgramarVisitaDialog } from '../../../components/ProgramarVisitaDialog';
 import { RegistrarResultadoVisitaDialog } from '../../../components/RegistrarResultadoVisitaDialog';
@@ -37,6 +39,8 @@ type Props = {
   reserva: Reserva;
   dialogos: {
     fecha: [boolean, Setter<boolean>];
+    cambiarFecha: [boolean, Setter<boolean>];
+    editar: [boolean, Setter<boolean>];
     invitados: [boolean, Setter<boolean>];
     visita: [boolean, Setter<boolean>];
     resultado: [boolean, Setter<boolean>];
@@ -50,6 +54,12 @@ type Props = {
     descartar: [boolean, Setter<boolean>];
   };
   onResuelto: Setter<Reserva | null>;
+  /** Cambio atómico de una fecha ya bloqueada (US-051 §D-2.1). */
+  onCambiadaFecha: Setter<Reserva | null>;
+  /** Edición de campos simples con éxito (US-051 §Punto 2). */
+  onEditado: () => void;
+  /** Abre el flujo de fecha adecuado (añadir/cambiar) desde el editor. */
+  onGestionarFecha: () => void;
   onResueltoInvitados: Setter<PendienteInvitadosResultado | null>;
   onResueltoVisita: Setter<Reserva | null>;
   onResueltoInteresado: Setter<Reserva | null>;
@@ -72,6 +82,9 @@ export const DialogosFicha = ({
   reserva,
   dialogos,
   onResuelto,
+  onCambiadaFecha,
+  onEditado,
+  onGestionarFecha,
   onResueltoInvitados,
   onResueltoVisita,
   onResueltoInteresado,
@@ -92,6 +105,21 @@ export const DialogosFicha = ({
       abierto={dialogos.fecha[0]}
       onAbiertoChange={dialogos.fecha[1]}
       onResuelto={onResuelto}
+    />
+    <CambiarFechaDialog
+      reservaId={reservaId}
+      reserva={reserva}
+      abierto={dialogos.cambiarFecha[0]}
+      onAbiertoChange={dialogos.cambiarFecha[1]}
+      onResuelto={onCambiadaFecha}
+    />
+    <EditarConsultaDialog
+      reservaId={reservaId}
+      reserva={reserva}
+      abierto={dialogos.editar[0]}
+      onAbiertoChange={dialogos.editar[1]}
+      onEditado={onEditado}
+      onGestionarFecha={onGestionarFecha}
     />
     <PendienteInvitadosDialog
       reservaId={reservaId}

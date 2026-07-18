@@ -12,6 +12,11 @@ export type { Reserva, ReservaDetalle } from './model/types';
 export { useReserva, reservaQueryKey } from './api/useReserva';
 export { useAsignarFecha } from './api/useAsignarFecha';
 export type { AsignarFechaError, AsignarFechaVars } from './api/useAsignarFecha';
+export { useEditarConsulta } from './api/useEditarConsulta';
+export type { EditarConsultaError, EditarConsultaVars } from './api/useEditarConsulta';
+export { useCambiarFecha } from './api/useCambiarFecha';
+export type { CambiarFechaError, CambiarFechaVars } from './api/useCambiarFecha';
+export { esConsultaTerminal } from './lib/estadoTerminal';
 export { usePendienteInvitados } from './api/usePendienteInvitados';
 export type {
   PendienteInvitadosError,

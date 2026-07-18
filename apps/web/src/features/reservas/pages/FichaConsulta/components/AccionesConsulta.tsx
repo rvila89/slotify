@@ -15,8 +15,10 @@ import { bloqueoVigente, puedeExtenderBloqueo } from '../../../lib/fecha';
 import { puedeFinalizarEvento } from '../../../lib/finalizarEvento';
 import { puedeForzarInicioEvento } from '../../../lib/forzarInicioEvento';
 import { puedeArchivarReserva } from '../../../lib/archivarReserva';
+import { esConsultaTerminal } from '../../../lib/estadoTerminal';
 import { AccionArchivar } from './AccionArchivar';
 import { AccionDescartar } from './AccionDescartar';
+import { AccionEditarConsulta } from './AccionEditarConsulta';
 import { AccionForzarInicio } from './AccionForzarInicio';
 import { AccionPresupuesto } from './AccionPresupuesto';
 import { AccionesPreReserva } from './AccionesPreReserva';
@@ -45,6 +47,15 @@ const claseBotonAccion =
 
 const claseTextoInfo = 'flex items-start gap-3 font-body text-sm text-text-secondary';
 
+const claseTextoSinAcciones = 'flex items-start gap-3 font-body text-sm text-text-secondary';
+
+const FallbackSinAcciones = () => (
+  <p data-testid="sin-acciones" className={claseTextoSinAcciones}>
+    <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
+    No hay acciones disponibles para esta consulta en su estado actual.
+  </p>
+);
+
 type Props = {
   reserva: Reserva;
   onAnadirFecha: () => void;
@@ -53,6 +64,7 @@ type Props = {
   onRegistrarResultadoVisita: () => void;
   onExtenderBloqueo: () => void;
   onGenerarPresupuesto: () => void;
+  onEditarConsulta: () => void;
   onEditarPresupuesto: () => void;
   onConfirmarSenal: () => void;
   onForzarInicioEvento: () => void;
@@ -69,6 +81,7 @@ export const AccionesConsulta = ({
   onRegistrarResultadoVisita,
   onExtenderBloqueo,
   onGenerarPresupuesto,
+  onEditarConsulta,
   onEditarPresupuesto,
   onConfirmarSenal,
   onForzarInicioEvento,
@@ -91,7 +104,17 @@ export const AccionesConsulta = ({
     );
   }
 
+  // US-051 (§Punto 4): en consultas cerradas (sub-estados terminales `2x/2y/2z` o
+  // estados terminales `reserva_cancelada`/`reserva_completada`) NO se ofrece
+  // NINGUNA acción, ni deshabilitada: solo el fallback "sin acciones".
+  if (esConsultaTerminal(reserva)) {
+    return <FallbackSinAcciones />;
+  }
+
   const subEstado = reserva.subEstado;
+  // US-051 (§Punto 2): "Editar consulta" mientras la consulta esté ACTIVA (en fase
+  // `consulta` no terminal). Fuera de `consulta` los datos ya no se editan por aquí.
+  const puedeEditarConsulta = reserva.estado === 'consulta';
   const esExploratoria = subEstado === '2a';
   const tieneFechaEvento = Boolean(reserva.fechaEvento);
   // US-007 (D-1): "pendiente de invitados" solo aplica a `2b` con bloqueo vigente y,
@@ -158,8 +181,16 @@ export const AccionesConsulta = ({
   return (
     <div className="flex flex-col gap-5">
       {/* US-014: "Generar presupuesto" — CTA principal para avanzar de estado (verde),
-          visible solo en `consulta`. El bloque vive en `AccionPresupuesto` (max-lines). */}
-      <AccionPresupuesto reserva={reserva} onGenerarPresupuesto={onGenerarPresupuesto} />
+          visible solo en `consulta`. El bloque vive en `AccionPresupuesto` (max-lines).
+          US-051 §Punto 3: si faltan datos, ofrece el atajo a "Editar consulta". */}
+      <AccionPresupuesto
+        reserva={reserva}
+        onGenerarPresupuesto={onGenerarPresupuesto}
+        onEditarConsulta={onEditarConsulta}
+      />
+
+      {/* US-051 §Punto 2: "Editar consulta" — visible mientras la consulta esté ACTIVA. */}
+      <AccionEditarConsulta reserva={reserva} onEditarConsulta={onEditarConsulta} />
 
       {esExploratoria && (
         <div className="flex flex-col gap-3">
@@ -320,7 +351,8 @@ export const AccionesConsulta = ({
         <AccionDescartar reserva={reserva} onDescartarConsulta={onDescartarConsulta} />
       )}
 
-      {/* Terminales u otros estados sin acciones disponibles. */}
+      {/* Otros estados no terminales sin acciones aplicables (los terminales ya
+          retornan antes). */}
       {!esExploratoria &&
         !puedePendienteInvitados &&
         !puedeProgramarVisita &&
@@ -328,17 +360,13 @@ export const AccionesConsulta = ({
         !enCola &&
         !puedeExtender &&
         !mostrarPresupuesto &&
+        !puedeEditarConsulta &&
         !puedeEditar &&
         !puedeConfirmar &&
         !puedeForzarInicio &&
         !puedeFinalizar &&
         !puedeArchivar &&
-        !mostrarDescartar && (
-          <p className={claseTextoInfo}>
-            <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-text-secondary" />
-            No hay acciones disponibles para esta consulta en su estado actual.
-          </p>
-        )}
+        !mostrarDescartar && <FallbackSinAcciones />}
     </div>
   );
 };

@@ -7,6 +7,7 @@ import { useReserva } from '../../api/useReserva';
 import { formatearFecha } from '../../lib/fecha';
 import { Badge } from './components/Badge';
 import { Dato } from './components/Dato';
+import { DetallesEvento } from './components/DetallesEvento';
 import { AccionesConsulta } from './components/AccionesConsulta';
 import { AvisosFicha } from './components/AvisosFicha';
 import { DialogosFicha } from './components/DialogosFicha';
@@ -30,6 +31,8 @@ export const FichaConsultaPage = () => {
   const { data: reserva, isLoading, isError } = useReserva(id);
 
   const [dialogoAbierto, setDialogoAbierto] = useState(false);
+  const [dialogoCambiarFechaAbierto, setDialogoCambiarFechaAbierto] = useState(false);
+  const [dialogoEditarAbierto, setDialogoEditarAbierto] = useState(false);
   const [dialogoInvitadosAbierto, setDialogoInvitadosAbierto] = useState(false);
   const [dialogoVisitaAbierto, setDialogoVisitaAbierto] = useState(false);
   const [dialogoResultadoAbierto, setDialogoResultadoAbierto] = useState(false);
@@ -92,6 +95,20 @@ export const FichaConsultaPage = () => {
     ? `${cliente.nombre ?? ''} ${cliente.apellidos ?? ''}`.trim() || 'Cliente'
     : 'Cliente';
   const subEstado = reserva.subEstado;
+
+  // US-051 §D-2: la fecha se gestiona por el flujo atómico según el sub-estado —
+  // `2a` (sin fecha) usa "Añadir fecha" (`POST /fecha`); `2b/2c/2v` (fecha ya
+  // bloqueada) usa el cambio atómico (`POST /cambiar-fecha`). El editor se cierra
+  // antes de abrir el diálogo de fecha para no anidar diálogos.
+  const gestionarFecha = () => {
+    setDialogoEditarAbierto(false);
+    if (subEstado === '2a') {
+      setResultado(null);
+      setDialogoAbierto(true);
+    } else {
+      setDialogoCambiarFechaAbierto(true);
+    }
+  };
 
   return (
     <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
@@ -163,6 +180,10 @@ export const FichaConsultaPage = () => {
         </dl>
       </section>
 
+      {/* US-051 §Punto 1: "Detalles del evento" — duración, invitados, hora de inicio y
+          comentarios, con placeholder para los opcionales ausentes. */}
+      <DetallesEvento reserva={reserva} />
+
       <section className={claseSeccion} aria-labelledby="ficha-acciones">
         <div id="ficha-acciones" className="flex items-center gap-3">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary">
@@ -200,6 +221,7 @@ export const FichaConsultaPage = () => {
             setResultadoPresupuesto(null);
             setDialogoPresupuestoAbierto(true);
           }}
+          onEditarConsulta={() => setDialogoEditarAbierto(true)}
           onEditarPresupuesto={() => {
             setResultadoEdicion(null);
             setDialogoEditarPresupuestoAbierto(true);
@@ -229,6 +251,8 @@ export const FichaConsultaPage = () => {
           reserva={reserva}
           dialogos={{
             fecha: [dialogoAbierto, setDialogoAbierto],
+            cambiarFecha: [dialogoCambiarFechaAbierto, setDialogoCambiarFechaAbierto],
+            editar: [dialogoEditarAbierto, setDialogoEditarAbierto],
             invitados: [dialogoInvitadosAbierto, setDialogoInvitadosAbierto],
             visita: [dialogoVisitaAbierto, setDialogoVisitaAbierto],
             resultado: [dialogoResultadoAbierto, setDialogoResultadoAbierto],
@@ -242,6 +266,9 @@ export const FichaConsultaPage = () => {
             descartar: [dialogoDescartarAbierto, setDialogoDescartarAbierto],
           }}
           onResuelto={setResultado}
+          onCambiadaFecha={setResultado}
+          onEditado={() => {}}
+          onGestionarFecha={gestionarFecha}
           onResueltoInvitados={setResultadoInvitados}
           onResueltoVisita={setResultadoVisita}
           onResueltoInteresado={setResultadoInteresado}
