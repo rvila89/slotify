@@ -22,6 +22,7 @@ import {
   PrismaClient,
 } from '@prisma/client';
 import {
+  ActualizarContenidoBorradorParams,
   ActualizarEstadoComunicacionParams,
   BuscarComunicacionParams,
   ComunicacionDuplicadaError,
@@ -172,6 +173,36 @@ export class ComunicacionRepositoryPrismaAdapter
           estado: params.estado as EstadoComunicacionPrisma,
           fechaEnvio: params.fechaEnvio,
         },
+        select: SELECCION,
+      });
+    });
+    return this.aRegistro(fila);
+  }
+
+  /**
+   * Actualiza SOLO `asunto` + `cuerpo` de una fila en `estado = 'borrador'`
+   * (fix-borrador-e1-cuerpo-prerelleno). RLS: fija `app.tenant_id` y filtra por
+   * `tenant_id` en el `WHERE` (defensa en profundidad, dev/test conecta como
+   * superusuario `BYPASSRLS`). GUARDA de estado: el `updateMany` con
+   * `estado: 'borrador'` NO toca filas `enviado`/`fallido` (idempotencia/seguridad); si
+   * ninguna casa (fila ya no en borrador, o de otro tenant), no muta y relee la fila
+   * actual. No cambia `estado` ni `fecha_envio`.
+   */
+  async actualizarContenidoBorrador(
+    params: ActualizarContenidoBorradorParams,
+  ): Promise<ComunicacionRegistrada> {
+    const fila = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${params.tenantId}, true)`;
+      await tx.comunicacion.updateMany({
+        where: {
+          idComunicacion: params.idComunicacion,
+          tenantId: params.tenantId,
+          estado: 'borrador' as EstadoComunicacionPrisma,
+        },
+        data: { asunto: params.asunto, cuerpo: params.cuerpo },
+      });
+      return tx.comunicacion.findFirstOrThrow({
+        where: { idComunicacion: params.idComunicacion, tenantId: params.tenantId },
         select: SELECCION,
       });
     });

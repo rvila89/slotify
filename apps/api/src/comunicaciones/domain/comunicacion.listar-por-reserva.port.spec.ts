@@ -74,6 +74,9 @@ const crearRepoFake = (
   actualizarEstado: async () => {
     throw new Error('no usado en este test de contrato');
   },
+  actualizarContenidoBorrador: async () => {
+    throw new Error('no usado en este test de contrato');
+  },
   listarPorReserva: async (
     params: ListarPorReservaParams,
   ): Promise<ComunicacionListItem[]> => {

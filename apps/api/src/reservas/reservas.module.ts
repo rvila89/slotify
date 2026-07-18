@@ -349,6 +349,9 @@ import {
           // verificación de fechas adyacentes disponibles + URL base del dossier.
           catalogo: new CatalogoPlantillasEnCodigo(),
           fechasAlternativas: new FechasAlternativasPrismaAdapter(prisma),
+          // Borrador E1 con comentarios: se rellena post-commit con el asunto/cuerpo
+          // renderizados reutilizando el mismo motor ya inyectado (sin wiring nuevo).
+          actualizarBorrador: finalizarEnvio,
           // En local (ALMACEN_PROVIDER=local) el SDK de Resend lee el fichero
           // directamente del disco — Resend no puede descargar localhost desde
           // internet. En producción (S3) se usa la URL pública del bucket.

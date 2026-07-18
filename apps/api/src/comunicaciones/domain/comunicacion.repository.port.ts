@@ -66,6 +66,19 @@ export interface ActualizarEstadoComunicacionParams {
 }
 
 /**
+ * Parámetros del UPDATE del CONTENIDO (asunto + cuerpo) de una fila en `borrador`
+ * (fix-borrador-e1-cuerpo-prerelleno). Rellena el borrador E1 creado con comentarios en
+ * el alta con el texto renderizado, sin cambiar `estado` ni `fecha_envio`.
+ */
+export interface ActualizarContenidoBorradorParams {
+  /** Tenant emisor (del JWT): se fija como contexto RLS en la actualización. */
+  tenantId: string;
+  idComunicacion: string;
+  asunto: string;
+  cuerpo: string;
+}
+
+/**
  * Parámetros del listado de comunicaciones de una RESERVA para la ficha (US-046 D-3).
  * Scoped por el `tenant_id` del JWT (RLS); nunca cross-tenant.
  */
@@ -110,6 +123,14 @@ export interface ComunicacionRepositoryPort {
   /** Actualiza estado + `fecha_envio` tras el resultado del proveedor. */
   actualizarEstado(
     params: ActualizarEstadoComunicacionParams,
+  ): Promise<ComunicacionRegistrada>;
+  /**
+   * Actualiza SOLO `asunto` + `cuerpo` de una fila en `estado = 'borrador'`
+   * (fix-borrador-e1-cuerpo-prerelleno). Guarda de estado: no afecta a filas
+   * `enviado`/`fallido`. No cambia `estado` ni `fecha_envio`.
+   */
+  actualizarContenidoBorrador(
+    params: ActualizarContenidoBorradorParams,
   ): Promise<ComunicacionRegistrada>;
   /**
    * Lista TODAS las `COMUNICACION` de una RESERVA (sección "Comunicaciones" de la ficha,

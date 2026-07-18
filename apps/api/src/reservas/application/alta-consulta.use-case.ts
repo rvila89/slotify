@@ -408,6 +408,30 @@ export interface FechasAlternativasPort {
   }): Promise<FechasAlternativas>;
 }
 
+/**
+ * Parámetros del UPDATE POST-COMMIT del contenido de la fila E1 en `borrador`
+ * (fix-borrador-e1-cuerpo-prerelleno). Solo `asunto` + `cuerpo`; el estado permanece
+ * `borrador` y `fecha_envio` intacto.
+ */
+export interface ActualizarBorradorEmailParams {
+  tenantId: string;
+  idComunicacion: string;
+  asunto: string;
+  cuerpo: string;
+}
+
+/**
+ * Puerto ESTRECHO del UPDATE del borrador E1 con comentarios. Lo SATISFACE el motor
+ * de email (`DespacharEmailService.actualizarContenidoBorrador`), ya inyectado en el
+ * alta para `finalizarEnvio`. Reutilizado sin wiring nuevo (design.md D-1). El alta
+ * solo lo invoca POST-COMMIT y de forma best-effort (D-3): un fallo no tumba el 201.
+ */
+export interface ActualizarBorradorEmailPort {
+  actualizarContenidoBorrador(
+    params: ActualizarBorradorEmailParams,
+  ): Promise<unknown>;
+}
+
 /** Dependencias del caso de uso (puertos inyectados). */
 export interface AltaConsultaDeps {
   unidadDeTrabajo: UnidadDeTrabajoPort;
@@ -421,6 +445,12 @@ export interface AltaConsultaDeps {
   catalogo?: CatalogoPlantillasPort;
   /** Verificación de fechas adyacentes disponibles (Caso 3: fecha confirmada). */
   fechasAlternativas?: FechasAlternativasPort;
+  /**
+   * UPDATE del borrador E1 con comentarios (fix-borrador-e1-cuerpo-prerelleno).
+   * Opcional: si falta, el borrador con comentarios queda sin rellenar (degradación
+   * graceful; los montajes de test que no lo inyectan no rompen).
+   */
+  actualizarBorrador?: ActualizarBorradorEmailPort;
   /** URL base del almacén de documentos para construir la referencia del dossier. */
   dossierBaseUrl?: string;
 }
@@ -651,13 +681,76 @@ export class AltaConsultaUseCase {
     //    sin propagar excepción (un fallo de email NO debe tumbar el alta ya
     //    commiteada → el alta responde 201 igualmente). Con comentarios, la fila
     //    permanece en `borrador` y no se envía.
+    // POST-COMMIT: la CASUÍSTICA de E1 (`tipoE1`) se decide con el sub-estado YA
+    // commiteado, así que la renderización de la plantilla personalizada ocurre aquí
+    // (nunca dentro de la transacción). El MISMO helper alimenta ambas ramas (envío y
+    // borrador con comentarios) → paridad de asunto/cuerpo por construcción (D-2).
+    const { asunto, cuerpo } = await this.renderizarE1(comando, resultado);
+
+    // Con comentarios: el E1 permanece en `borrador` y NO se envía; se RELLENA con el
+    // asunto/cuerpo renderizados para que el gestor edite y envíe (US-046). El UPDATE es
+    // POST-COMMIT best-effort (D-3): si falla, el alta ya commiteó y responde 201 igual;
+    // el borrador queda editable. La fila ya existe (creada en la tx) → es un UPDATE por
+    // id, sin INSERT ni duplicado.
     if (!enviarAutomaticamente) {
+      if (this.deps.actualizarBorrador) {
+        try {
+          await this.deps.actualizarBorrador.actualizarContenidoBorrador({
+            tenantId: comando.tenantId,
+            idComunicacion: resultado.comunicacion.idComunicacion,
+            asunto,
+            cuerpo,
+          });
+        } catch {
+          // best-effort: un fallo del UPDATE no debe tumbar el 201 del alta commiteada.
+        }
+      }
       return resultado;
     }
 
-    // POST-COMMIT: la CASUÍSTICA de E1 (`tipoE1`) se decide con el sub-estado YA
-    // commiteado, así que la renderización de la plantilla personalizada ocurre aquí
-    // (nunca dentro de la transacción). El cuerpo real reemplaza al placeholder.
+    // Sin comentarios (auto-envío): se DELEGA en el motor, que envía y promueve la fila.
+    // Adjunto del dossier (por idioma). Solo si se conoce la URL base del almacén.
+    const idioma = comando.idioma ?? 'es';
+    const dossierRef: AdjuntoRef | undefined = this.deps.dossierBaseUrl
+      ? {
+          clave: 'dossier',
+          nombre: `Dossier-Masia-Encis-${idioma}.pdf`,
+          pdfUrl: `${this.deps.dossierBaseUrl}/dossiers/Dossier-Masia-Encis-${idioma}.pdf`,
+        }
+      : undefined;
+
+    const envio = await this.deps.finalizarEnvio.finalizarEnvio({
+      tenantId: comando.tenantId,
+      reservaId: resultado.reserva.idReserva,
+      idComunicacion: resultado.comunicacion.idComunicacion,
+      destinatario: email,
+      asunto,
+      cuerpo,
+      codigoEmail: 'E1',
+      ...(dossierRef !== undefined ? { adjuntos: [dossierRef] } : {}),
+    });
+
+    return {
+      ...resultado,
+      comunicacion: {
+        ...resultado.comunicacion,
+        estado: envio.estado,
+        fechaEnvio: envio.fechaEnvio,
+      },
+    };
+  }
+
+  /**
+   * Renderiza la plantilla E1 personalizada (4 casos `tipoE1` × idioma) a partir del
+   * sub-estado YA commiteado. Reutilizado por el auto-envío y por el relleno del borrador
+   * con comentarios (fix-borrador-e1-cuerpo-prerelleno) para garantizar PARIDAD EXACTA de
+   * asunto/cuerpo. Si el catálogo no está cableado o no hay plantilla, degrada a un
+   * asunto/cuerpo mínimo (nunca peor que hoy; el motor centraliza éxito/fallo del envío).
+   */
+  private async renderizarE1(
+    comando: AltaConsultaComando,
+    resultado: AltaConsultaResultado,
+  ): Promise<{ asunto: string; cuerpo: string }> {
     const idioma = comando.idioma ?? 'es';
     const tienesFecha = comando.fechaEvento !== undefined;
     const subEstado = resultado.reserva.subEstado;
@@ -687,9 +780,6 @@ export class AltaConsultaUseCase {
       fechaAlternativa2 = alternativas.posterior ?? undefined;
     }
 
-    // Renderizar la plantilla E1 personalizada (4 casos × idioma). Si el catálogo no
-    // está cableado o no hay plantilla para el código, se degrada a un asunto/cuerpo
-    // mínimo (el envío se realiza igualmente; el motor centraliza éxito/fallo).
     const plantilla = this.deps.catalogo?.seleccionar('E1', idioma);
     const rendered = plantilla
       ? plantilla.render({
@@ -715,34 +805,7 @@ export class AltaConsultaUseCase {
           };
         })();
 
-    // Adjunto del dossier (por idioma). Solo si se conoce la URL base del almacén.
-    const dossierRef: AdjuntoRef | undefined = this.deps.dossierBaseUrl
-      ? {
-          clave: 'dossier',
-          nombre: `Dossier-Masia-Encis-${idioma}.pdf`,
-          pdfUrl: `${this.deps.dossierBaseUrl}/dossiers/Dossier-Masia-Encis-${idioma}.pdf`,
-        }
-      : undefined;
-
-    const envio = await this.deps.finalizarEnvio.finalizarEnvio({
-      tenantId: comando.tenantId,
-      reservaId: resultado.reserva.idReserva,
-      idComunicacion: resultado.comunicacion.idComunicacion,
-      destinatario: email,
-      asunto: rendered.asunto,
-      cuerpo: rendered.cuerpoHtml,
-      codigoEmail: 'E1',
-      ...(dossierRef !== undefined ? { adjuntos: [dossierRef] } : {}),
-    });
-
-    return {
-      ...resultado,
-      comunicacion: {
-        ...resultado.comunicacion,
-        estado: envio.estado,
-        fechaEnvio: envio.fechaEnvio,
-      },
-    };
+    return { asunto: rendered.asunto, cuerpo: rendered.cuerpoHtml };
   }
 
   /**
