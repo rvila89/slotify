@@ -436,6 +436,76 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
 
+  # [US-051 §D-2.1] Cambio ATÓMICO de una fecha YA bloqueada. Endpoint DEDICADO (NO reutiliza
+  # POST /reservas/{id}/fecha, que solo asigna la PRIMERA fecha 2a→2b/2d): aquí la RESERVA ya
+  # tiene fecha bloqueada (sub-estados 2b/2c/2v) y se pide moverla a otra fecha.
+  /reservas/{id}/cambiar-fecha:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Reservas]
+      summary: Cambiar la fecha ya bloqueada de una RESERVA — operación atómica (US-051)
+      description: |
+        [US-051 §D-2.1] Cambia la `fechaEvento` de una RESERVA que **YA tiene una fecha
+        bloqueada** (sub-estados `2b`/`2c`/`2v`) por otra fecha. Es una **única transacción
+        atómica** (`SELECT … FOR UPDATE` sobre la RESERVA y sobre `FECHA_BLOQUEADA(tenant_id,
+        fecha_nueva)`; `UNIQUE(tenant_id, fecha)`; **sin Redis ni locks distribuidos** —
+        `CLAUDE.md §Regla crítica: bloqueo atómico de fecha`):
+
+        1. Si la fecha nueva está **LIBRE** → `bloquearFecha(tenant_id, fecha_nueva)`, actualiza
+           `RESERVA.fecha_evento`, `liberarFecha(tenant_id, fecha_antigua)` y, si la fecha antigua
+           tenía cola, dispara la **promoción FIFO** (mecánica A15) del primero en cola.
+        2. Si la fecha nueva está **OCUPADA** por otra RESERVA → **rechaza con 409 sin tocar nada**
+           (rollback total: la RESERVA conserva su fecha antigua y su bloqueo). A diferencia del
+           alta/asignación (`POST /reservas/{id}/fecha`), aquí **NO se ofrece cola** para la fecha
+           nueva: el conflicto es terminal para esta operación (por eso NO lleva `colaDisponible`).
+
+        No cambia estado ni sub-estado (`estado='consulta'`, `subEstado` intacto). Registra
+        `AUDIT_LOG` (`accion='actualizar'`, `entidad='RESERVA'`) con la fecha anterior y la nueva.
+        La fecha NUNCA se muta por `PATCH /reservas/{id}` (§D-1): esa vía es solo para campos
+        simples; toda mutación de bloqueo pasa por aquí o por `POST /reservas/{id}/fecha`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CambiarFechaRequest'
+      responses:
+        '200':
+          description: |
+            Cambio aplicado. Devuelve la RESERVA actualizada con la nueva `fechaEvento`; el
+            `estado`/`subEstado` se conservan (`2b`/`2c`/`2v`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reserva'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            La fecha destino no está disponible: está bloqueada por otra RESERVA. El cambio se
+            rechaza SIN efectos (la RESERVA conserva su fecha antigua y su bloqueo; rollback total).
+            NO se ofrece cola para la fecha nueva (por eso el cuerpo no lleva `colaDisponible`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CambiarFechaConflictoError'
+        '422':
+          description: |
+            Guarda no satisfecha, sin mutar la RESERVA (F5-02: 409 = concurrencia/ocupación, 422 =
+            guarda inválida):
+            - la RESERVA NO está en un sub-estado con fecha bloqueada mutable (`2b`/`2c`/`2v`)
+              — p. ej. `2a` (sin fecha; usar `POST /reservas/{id}/fecha`), `2d` (en cola),
+              terminal `2x/2y/2z`, o `pre_reserva`+;
+            - o `fechaEvento` no es estrictamente futura (`> hoy`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
   /reservas/{id}/pendiente-invitados:
     parameters:
       - { $ref: '#/components/parameters/IdReserva' }
@@ -4913,6 +4983,38 @@ components:
             motivo:
               type: string
               description: 'Mensaje informativo para la UI sobre por qué la fecha no se pudo asignar.'
+
+    # [US-051 §D-2.1] Cuerpo de POST /reservas/{id}/cambiar-fecha: mueve la fecha YA bloqueada de una
+    # RESERVA (2b/2c/2v) a otra. A diferencia de AsignarFechaRequest NO lleva `aceptarCola`: si la
+    # fecha nueva está ocupada el sistema RECHAZA con 409 (no ofrece cola para la nueva).
+    CambiarFechaRequest:
+      type: object
+      required: [fechaEvento]
+      properties:
+        fechaEvento:
+          type: string
+          format: date
+          description: >-
+            OBLIGATORIO. Nueva fecha del evento (YYYY-MM-DD). Debe ser ESTRICTAMENTE FUTURA (> hoy,
+            día natural); en otro caso el servidor rechaza con 422 sin mutar la RESERVA. El bloqueo
+            atómico libera la fecha antigua y bloquea esta nueva en una única transacción.
+    # [US-051 §D-2.1] Error 409 de POST /reservas/{id}/cambiar-fecha (fecha destino ocupada por otra
+    # RESERVA). Sigue el MISMO patrón que BloqueoNoVigenteError de US-007 (allOf ErrorResponse + campo
+    # de dominio `motivo`): conserva el envelope NestJS (statusCode/message) y añade `motivo`. NO
+    # reutiliza AsignarFechaConflictoError porque aquí NO se ofrece cola para la fecha nueva (no
+    # aplica `colaDisponible`): el conflicto es terminal y la RESERVA conserva su fecha antigua.
+    CambiarFechaConflictoError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [motivo]
+          properties:
+            motivo:
+              type: string
+              description: >-
+                Motivo del conflicto: la fecha destino no está disponible (bloqueada por otra
+                RESERVA). El cambio se rechaza sin efectos (rollback total).
+              example: 'La fecha destino no está disponible: ya está bloqueada por otra reserva.'
 
     # -------- Transición 2.b→2.c (US-007) --------
     # [US-007] Body de POST /reservas/{id}/pendiente-invitados. La acción no toma parámetros (el TTL

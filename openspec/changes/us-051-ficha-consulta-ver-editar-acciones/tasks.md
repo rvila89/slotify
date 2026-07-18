@@ -24,6 +24,10 @@
 - [x] 2.1 Añadir `horario` (`pattern ^\d{2}:\d{2}$`, nullable) al schema `Reserva` en
   `docs/api-spec.yml`.
 - [x] 2.2 Añadir `horario` (`pattern ^\d{2}:\d{2}$`) a `UpdateReservaRequest`.
+- [x] 2.4 (Gate CONFIRMÓ §D-2.3) Añadir el endpoint dedicado `POST /reservas/{id}/cambiar-fecha`
+  (schema `CambiarFechaRequest` = `{ fechaEvento }`, sin `aceptarCola`; `409`
+  `CambiarFechaConflictoError` = `ErrorResponse` + `motivo`, sin `colaDisponible`; `422`
+  ValidationError; `404` NotFound). NO reutiliza `POST /reservas/{id}/fecha` (§D-2.1).
 - [x] 2.3 Validar el contrato (`validate-openapi`) y **regenerar el SDK** del frontend (no
   editar el cliente generado a mano; hook `protect-generated-client`).
 
