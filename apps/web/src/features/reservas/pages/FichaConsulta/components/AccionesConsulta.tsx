@@ -67,6 +67,7 @@ type Props = {
   onEditarConsulta: () => void;
   onEditarPresupuesto: () => void;
   onConfirmarSenal: () => void;
+  onDescartarPreReserva: () => void;
   onForzarInicioEvento: () => void;
   onFinalizarEvento: () => void;
   onArchivarReserva: () => void;
@@ -84,6 +85,7 @@ export const AccionesConsulta = ({
   onEditarConsulta,
   onEditarPresupuesto,
   onConfirmarSenal,
+  onDescartarPreReserva,
   onForzarInicioEvento,
   onFinalizarEvento,
   onArchivarReserva,
@@ -313,6 +315,7 @@ export const AccionesConsulta = ({
         reserva={reserva}
         onEditarPresupuesto={onEditarPresupuesto}
         onConfirmarSenal={onConfirmarSenal}
+        onDescartarPreReserva={onDescartarPreReserva}
       />
 
       {/* US-032: "Forzar inicio del evento" — solo en `reserva_confirmada` + fecha de

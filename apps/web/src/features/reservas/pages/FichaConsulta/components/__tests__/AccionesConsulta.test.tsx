@@ -48,6 +48,7 @@ const renderAcciones = (r: Reserva) =>
       onFinalizarEvento={noop}
       onArchivarReserva={noop}
       onDescartarConsulta={noop}
+      onDescartarPreReserva={noop}
     />,
   );
 

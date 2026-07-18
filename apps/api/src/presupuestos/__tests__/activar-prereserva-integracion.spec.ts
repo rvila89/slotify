@@ -394,13 +394,21 @@ describe('Confirmar — rollback total ante conflicto de bloqueo (3.10)', () => 
 });
 
 // ===========================================================================
-// 3.11 — E2 post-commit + idempotencia: tras el commit se registra la
-//         COMUNICACION E2 (modo fake, sin red); un doble disparo NO duplica por
-//         (reserva_id, codigo_email=E2). El fallo del proveedor no revierte.
+// 3.11 — E2 post-commit + idempotencia bajo D-1 (adjunto REQUERIDO, change
+//         `presupuesto-prereserva-cta-descarte-y-e2`): el commit de la pre_reserva
+//         NO se ve afectado por el desenlace del E2 (post-commit, no revierte). En
+//         el entorno Jest la generación del PDF del presupuesto degrada a `null`
+//         (react-pdf importa su binding nativo por ESM dinámico, que falla dentro
+//         de Jest), de modo que —al ser el adjunto `presupuesto` REQUERIDO (D-1)—
+//         el motor BLOQUEA el E2 (`adjunto_no_disponible`) SIN registrar una
+//         COMUNICACION `enviada`. El bloqueo es OBSERVABLE y REINTENTABLE por la
+//         idempotencia `(reserva_id, E2)`: un segundo disparo tampoco crea fila. El
+//         camino feliz (PDF presente ⇒ E2 con presupuesto adjunto) se cubre en el
+//         motor con el catálogo real en `despachar-email-e2.service.spec.ts`.
 // ===========================================================================
 
-describe('Confirmar — E2 post-commit idempotente por (reserva, E2) (3.11)', () => {
-  it('debe_registrar_una_unica_COMUNICACION_E2_tras_el_commit_de_la_pre_reserva', async () => {
+describe('Confirmar — E2 post-commit bajo D-1 (adjunto requerido) (3.11)', () => {
+  it('debe_comprometer_la_pre_reserva_y_no_registrar_E2_si_falta_el_PDF_D1', async () => {
     const reservaId = await sembrarConsulta({
       fecha: FECHA_E2,
       subEstado: SubEstadoConsulta.s2b,
@@ -409,17 +417,18 @@ describe('Confirmar — E2 post-commit idempotente por (reserva, E2) (3.11)', ()
 
     await useCase.confirmar(comandoConfirmar(reservaId));
 
-    // La pre_reserva quedó comprometida (efecto de la tx) …
+    // La pre_reserva quedó comprometida (efecto de la tx, independiente del E2) …
     const reserva = await prisma.reserva.findUnique({ where: { idReserva: reservaId } });
     expect(reserva?.estado).toBe(EstadoReserva.pre_reserva);
-    // … y el E2 se disparó post-commit dejando UNA COMUNICACION E2 (fake, sin red).
+    // … y el E2 quedó BLOQUEADO por adjunto no disponible (D-1): sin PDF, no se
+    // registra una COMUNICACION E2 (no se envía un presupuesto vacío).
     const e2 = await prisma.comunicacion.findMany({
       where: { reservaId, codigoEmail: CodigoEmail.E2 },
     });
-    expect(e2).toHaveLength(1);
+    expect(e2).toHaveLength(0);
   });
 
-  it('no_debe_duplicar_la_COMUNICACION_E2_ante_un_segundo_disparo_idempotente', async () => {
+  it('no_debe_crear_COMUNICACION_E2_ante_un_segundo_disparo_idempotente_sin_PDF', async () => {
     const reservaId = await sembrarConsulta({
       fecha: FECHA_E2,
       subEstado: SubEstadoConsulta.s2b,
@@ -430,10 +439,11 @@ describe('Confirmar — E2 post-commit idempotente por (reserva, E2) (3.11)', ()
     // Segundo disparo explícito del E2 (simula reintento/idempotencia US-045).
     await useCase.reenviarE2({ tenantId: TENANT, reservaId });
 
+    // Sin PDF el E2 se bloquea de forma idempotente: nunca crea una fila COMUNICACION.
     const e2 = await prisma.comunicacion.count({
       where: { reservaId, codigoEmail: CodigoEmail.E2 },
     });
-    expect(e2).toBe(1);
+    expect(e2).toBe(0);
   });
 });
 

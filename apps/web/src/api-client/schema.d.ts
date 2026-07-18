@@ -1057,8 +1057,26 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Marcar consulta como descartada por cliente — transición {2a|2b|2c|2d|2v}→2z (UC-10 / US-013)
-         * @description [US-013] El **Gestor** (JWT de usuario, RLS del tenant del JWT — NUNCA `X-Cron-Token`) marca
+         * Descartar una RESERVA — despacha por fase (consulta→2z / pre_reserva→reserva_cancelada) (UC-10 / US-013 + workstream B)
+         * @description Acción única de negocio "descartar una RESERVA" cuyo efecto **depende de la fase actual de la
+         *     RESERVA** (D-2, presupuesto-prereserva-cta-descarte-y-e2: se REUTILIZA este endpoint de US-013,
+         *     NO se crea uno dedicado). El endpoint **despacha por el `estado` actual**:
+         *     - `estado='consulta'` (`subEstado ∈ {2a,2b,2c,2d,2v}`) → **comportamiento US-013** (sin
+         *       cambios): transición a `subEstado='2z'` (descartada por cliente, terminal).
+         *     - `estado='pre_reserva'` (`subEstado=null`) → **transición nueva** (workstream B): la RESERVA
+         *       pasa a `estado='reserva_cancelada'` (`subEstado=null`, `ttlExpiracion=null`, terminal).
+         *     - cualquier otro estado (`reserva_confirmada` y posteriores) → **422** (origen inválido, sin
+         *       efectos); una RESERVA ya terminal (`2x`/`2y`/`2z`/`reserva_cancelada`/`reserva_completada`) o
+         *       una carrera perdida bajo el lock → **409**.
+         *
+         *     El despacho por fase vive en un **use-case orquestador** en el backend (no en condicionales de
+         *     negocio dispersos en el controller): el controller elige el caso de uso según `reserva.estado` y
+         *     mapea los errores de dominio a HTTP. El body `{ motivo? }`, `@Roles('gestor')` y el
+         *     `tenant_id`/`usuario_id` derivados del JWT se **conservan** para ambas fases; la firma HTTP no
+         *     cambia (solo se amplía la semántica). El `{id}` identifica la ÚNICA RESERVA a descartar.
+         *
+         *     ── Fase `consulta` (US-013) ──
+         *     El **Gestor** (JWT de usuario, RLS del tenant del JWT — NUNCA `X-Cron-Token`) marca
          *     **en nombre del cliente** (no hay portal de cliente en el MVP) una RESERVA en
          *     `estado='consulta'` con `subEstado ∈ {2a,2b,2c,2d,2v}` como **descartada por cliente**,
          *     transicionándola a `subEstado='2z'` (terminal e **inmutable**). `2z` es un terminal
@@ -1087,6 +1105,25 @@ export interface paths {
          *     email al cliente (esta acción no está mapeada a ningún código E1–E8). La auditoría de
          *     `liberarFecha()` y de la promoción las registran sus respectivos seams; esta acción NO las
          *     duplica.
+         *
+         *     ── Fase `pre_reserva` (workstream B) ──
+         *     El **Gestor** descarta manualmente una RESERVA en `estado='pre_reserva'` (`subEstado=null`),
+         *     transicionándola al terminal `estado='reserva_cancelada'` (`subEstado=null`, `ttlExpiracion=null`)
+         *     —el mismo destino que la expiración de TTL de la pre-reserva (`MAPA_EXPIRACION_TTL`), pero
+         *     disparado deliberadamente por el Gestor. Es la transición **mono-origen** espejo de US-013 en la
+         *     fase `pre_reserva`; el ÚNICO origen legal es `pre_reserva` (guarda declarativa
+         *     `ORIGENES_TRANSICION_DESCARTAR_PRERESERVA`). En una **única transacción** atómica bajo el contexto
+         *     RLS del tenant, serializada por `SELECT … FOR UPDATE` sobre la fila de `FECHA_BLOQUEADA` y la fila
+         *     RESERVA (sin Redis ni locks distribuidos), el sistema re-evalúa **bajo el lock** la guarda de
+         *     origen (detecta el doble clic / la carrera → 409) y ejecuta —todo INTERNO al backend, no expuesto
+         *     en el contrato— la transición a `reserva_cancelada`, la liberación de la `FECHA_BLOQUEADA` vía la
+         *     función canónica `liberarFecha()` (regla dura; nunca por otra vía) y, si existe cola activa
+         *     (`2d` sobre esa fecha), la **misma** mecánica de promoción FIFO de US-018 (exactamente-una-vez).
+         *     Todo es **all-or-nothing**: cualquier fallo revierte por completo (no queda fecha liberada sin la
+         *     RESERVA cancelada, ni cola promovida a medias). Si el Gestor aporta `motivo`, se audita en el
+         *     `AUDIT_LOG` (`datos_nuevos`) dentro de la misma transacción; su ausencia NO bloquea la transición.
+         *     Se escribe `AUDIT_LOG` `accion='transicion'`, `entidad='RESERVA'`, par
+         *     `pre_reserva → reserva_cancelada`.
          *
          *     **Concurrencia (RC-1/RC-2/RC-3)**: el descarte, el barrido de TTL de US-012 y un doble clic del
          *     gestor se serializan por `SELECT … FOR UPDATE`; exactamente una operación gana. Un segundo
@@ -5098,6 +5135,16 @@ export interface components {
             /** @example Esta consulta ya está en un estado terminal y no puede modificarse */
             message?: unknown;
         };
+        DescartarReservaOrigenInvalidoError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Discriminador del 422: la RESERVA no está en un estado descartable (`consulta` con sub-estado válido, o `pre_reserva`), sino en `reserva_confirmada` o posterior no terminal, por lo que la transición de descarte no es aplicable desde el estado actual.
+             * @example origen_invalido
+             * @enum {string}
+             */
+            code: "origen_invalido";
+            /** @example Esta reserva no puede descartarse desde su estado actual. */
+            message?: unknown;
+        };
         RegistrarIbanDevolucionRequest: {
             /**
              * @description IBAN a registrar (se normaliza en servidor: mayúsculas, sin espacios). Se valida por checksum módulo 97 antes de persistir; un IBAN que no supere mod-97 devuelve 422 (FA-01).
@@ -5842,10 +5889,16 @@ export interface operations {
         };
         responses: {
             /**
-             * @description Consulta descartada: RESERVA en `estado='consulta'`, `subEstado='2z'` (terminal). Devuelve
-             *     la RESERVA descartada actualizada. Si el origen (`2b`/`2v` con cola) disparó la promoción
-             *     A15, la RESERVA promovida cambia por separado; el frontend refleja ese cambio re-consultando
-             *     la cola/pipeline (mismo patrón que `/salir-cola` y `/promover`).
+             * @description RESERVA descartada: devuelve la RESERVA actualizada tras el commit. El estado destino depende
+             *     de la fase de origen:
+             *     - origen `consulta` → `estado='consulta'`, `subEstado='2z'` (terminal).
+             *     - origen `pre_reserva` → `estado='reserva_cancelada'`, `subEstado=null`, `ttlExpiracion=null`
+             *       (terminal).
+             *     Ambos destinos ya están cubiertos por los enums de `Reserva` (`estado`/`subEstado`); el
+             *     consumidor discrimina por el `estado` resultante. Si el origen (`2b`/`2v` con cola, o
+             *     `pre_reserva` con cola) disparó la promoción A15, la RESERVA promovida cambia por separado; el
+             *     frontend refleja ese cambio re-consultando la cola/pipeline (mismo patrón que `/salir-cola` y
+             *     `/promover`).
              */
             200: {
                 headers: {
@@ -5859,12 +5912,14 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             /**
-             * @description Conflicto de estado (mapeo F5-02; RC-3 / RC-1): la RESERVA `{id}` está en un sub-estado
-             *     terminal (`2x`/`2y`/`2z`) o en un estado terminal (`reserva_cancelada`/`reserva_completada`),
-             *     así que la transición a `2z` no es aplicable — incluido el doble descarte concurrente
-             *     (segunda petición) y la carrera perdida contra el barrido de TTL de US-012. Sin efectos, sin
-             *     doble transición, sin liberar/promover. Mensaje: "Esta consulta ya está en un estado
-             *     terminal y no puede modificarse".
+             * @description Conflicto de estado (mapeo F5-02; RC-3 / RC-1): la RESERVA `{id}` ya está en un estado/sub-estado
+             *     terminal, así que ninguna transición de descarte es aplicable. Cubre ambas fases:
+             *     - la RESERVA está en un sub-estado terminal (`2x`/`2y`/`2z`) o en un estado terminal
+             *       (`reserva_cancelada`/`reserva_completada`);
+             *     - el doble descarte concurrente (segunda petición) y la carrera perdida contra el barrido de
+             *       TTL de US-012 (fase `consulta`) o contra la expiración de TTL de la pre-reserva (fase
+             *       `pre_reserva`), que ya dejó la RESERVA en `reserva_cancelada`.
+             *     Sin efectos, sin doble transición, sin liberar/promover.
              */
             409: {
                 headers: {
@@ -5872,6 +5927,21 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DescartarConsultaConflictError"];
+                };
+            };
+            /**
+             * @description Origen inválido (mapeo F5-02; workstream B): la RESERVA `{id}` está en un estado que **no es
+             *     descartable** —ni `consulta` (+sub-estados válidos) ni `pre_reserva`— sino `reserva_confirmada`
+             *     o posteriores no terminales. La guarda de transición de descarte falla **sin efectos** (no muta
+             *     ninguna entidad, no libera fecha ni promueve cola). Distinto del 409 (que es RESERVA ya
+             *     terminal / carrera perdida).
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DescartarReservaOrigenInvalidoError"];
                 };
             };
         };

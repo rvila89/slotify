@@ -27,6 +27,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  UnprocessableEntityException,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -35,10 +36,15 @@ import { Roles } from '../../shared/auth/roles.decorator';
 import { RolesGuard } from '../../shared/auth/roles.guard';
 import type { UsuarioAutenticado } from '../../shared/auth/usuario-autenticado';
 import {
-  DescartarConsultaPorClienteUseCase,
   DescarteEstadoTerminalError,
   ReservaNoEncontradaDescarteError,
 } from '../application/descartar-consulta-por-cliente.use-case';
+import { DescartarReservaOrquestadorUseCase } from '../application/descartar-reserva-orquestador.use-case';
+import {
+  DescartePreReservaEstadoTerminalError,
+  DescartePreReservaOrigenInvalidoError,
+  ReservaNoEncontradaError,
+} from '../application/descartar-prereserva.use-case';
 import {
   ObtenerReservaUseCase,
   type ReservaDetalleLectura,
@@ -63,7 +69,7 @@ const aFechaHora = (fecha: Date | null): string | null =>
 @Controller('reservas')
 export class DescartarConsultaController {
   constructor(
-    private readonly servicio: DescartarConsultaPorClienteUseCase,
+    private readonly servicio: DescartarReservaOrquestadorUseCase,
     private readonly obtenerReserva: ObtenerReservaUseCase,
   ) {}
 
@@ -71,7 +77,7 @@ export class DescartarConsultaController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      'Marcar consulta como descartada por cliente — {2a|2b|2c|2d|2v}→2z (UC-10 / US-013)',
+      'Descartar una reserva: consulta {2a|2b|2c|2d|2v}→2z (US-013) o pre_reserva→reserva_cancelada (D-2) según su estado',
   })
   async descartar(
     @Param('id') id: string,
@@ -135,17 +141,34 @@ export class DescartarConsultaController {
   }
 
   private aHttp(error: unknown): never {
-    if (error instanceof ReservaNoEncontradaDescarteError) {
+    // 404 — RESERVA invisible bajo RLS (consulta US-013 o pre-reserva D-2).
+    if (
+      error instanceof ReservaNoEncontradaDescarteError ||
+      error instanceof ReservaNoEncontradaError
+    ) {
       throw new NotFoundException({
         statusCode: HttpStatus.NOT_FOUND,
         error: 'Not Found',
         message: error.message,
       });
     }
-    if (error instanceof DescarteEstadoTerminalError) {
+    // 409 — origen terminal / carrera perdida (consulta US-013 o pre-reserva D-2).
+    if (
+      error instanceof DescarteEstadoTerminalError ||
+      error instanceof DescartePreReservaEstadoTerminalError
+    ) {
       throw new ConflictException({
         statusCode: HttpStatus.CONFLICT,
         error: 'Conflict',
+        message: error.message,
+        code: error.codigo,
+      });
+    }
+    // 422 — la RESERVA no está en pre_reserva (ni consulta): origen inválido (D-2).
+    if (error instanceof DescartePreReservaOrigenInvalidoError) {
+      throw new UnprocessableEntityException({
+        statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+        error: 'Unprocessable Entity',
         message: error.message,
         code: error.codigo,
       });
