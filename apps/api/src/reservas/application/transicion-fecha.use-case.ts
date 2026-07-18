@@ -20,16 +20,18 @@
  *   1. (dentro de la UoW = 1 sola tx + RLS) leer RESERVA, validar origen, leer estado
  *      de la fecha, ramificar:
  *      - LIBRE → UPDATE `2.b` + `fecha_evento` + `ttl` + INSERT FECHA_BLOQUEADA blando
- *        + COMUNICACION (borrador) + AUDIT_LOG `accion='transicion'`.
+ *        + borrador E1 "disponible" (dinámico, SIN envío) + AUDIT_LOG `accion='transicion'`.
  *      - bloqueada por `2.b` + `aceptarCola` → UPDATE `2.d` + `posicion_cola` (MAX+1
- *        serializado) + `consulta_bloqueante_id` (SIN nuevo bloqueo) + AUDIT_LOG.
+ *        serializado) + `consulta_bloqueante_id` (SIN nuevo bloqueo) + borrador E1
+ *        "cola" (dinámico, SIN envío) + AUDIT_LOG.
  *      - bloqueada por `2.b` sin `aceptarCola` → `AsignarFechaConflictoError`
  *        (`colaDisponible:true`), permanece `2.a`, sin efectos.
  *      - bloqueada por estado no encolable → `AsignarFechaConflictoError`
  *        (`colaDisponible:false`), permanece `2.a`, sin efectos (incluso con cola).
- *   2. (POST-COMMIT, solo rama `2.b`) enviar el email de confirmación de bloqueo
- *      provisional (extensión de E1 vía motor US-045). NO bloqueante: un fallo NO
- *      revierte la transición ya comprometida.
+ *
+ * El borrador E1 (rama `2.b` y `2.d`) queda en `estado='borrador'`, `fecha_envio=null`
+ * para revisión/envío MANUAL del gestor (flujo US-046). NO hay auto-envío ni proveedor
+ * de email en este flujo (change `email-transicion-fecha-borrador`).
  *
  * Hexagonal: depende SOLO de puertos inyectados; no importa Prisma ni `@nestjs/*`.
  * La determinación del sub-estado vive DENTRO del cuerpo transaccional para que un
@@ -52,6 +54,7 @@ import {
   type EstadoReserva,
   type SubEstadoConsulta,
 } from '../domain/maquina-estados';
+import { renderMensajeTransicionFecha } from './plantilla-transicion-fecha';
 
 export type { ClockPort };
 
@@ -82,7 +85,9 @@ export interface TransicionFechaComando {
 
 /**
  * Proyección de la RESERVA relevante para la transición (origen y resultado). El
- * `clienteEmail` viaja para el email de confirmación post-commit (rama `2.b`).
+ * `clienteEmail`/`clienteNombre` y los datos del evento (`idioma`, `numInvitadosFinal`,
+ * `duracionHoras`) viajan para RENDERIZAR el borrador E1 dinámico de la transición
+ * (change `email-transicion-fecha-borrador`).
  */
 export interface ReservaTransicion {
   idReserva: string;
@@ -95,6 +100,14 @@ export interface ReservaTransicion {
   posicionCola: number | null;
   consultaBloqueanteId: string | null;
   clienteEmail: string;
+  /** Nombre de pila del cliente (`Cliente.nombre`) para el saludo del borrador. */
+  clienteNombre: string;
+  /** Idioma de la RESERVA (`'ca'` → catalán; cualquier otro → castellano). */
+  idioma: string;
+  /** Nº de invitados final (`num_invitados_final`); `null` → placeholder `___`. */
+  numInvitadosFinal: number | null;
+  /** Horas del evento (`duracion_horas`, ya en número); `null` → placeholder `___`. */
+  duracionHoras: number | null;
 }
 
 /** Resultado de la transición: la RESERVA en su sub-estado destino (`2b`/`2d`). */
@@ -225,37 +238,9 @@ export interface UnidadDeTrabajoTransicionPort {
   ): Promise<unknown>;
 }
 
-/** Parámetros del envío POST-COMMIT del email de confirmación de bloqueo provisional. */
-export interface EnviarConfirmacionBloqueoParams {
-  tenantId: string;
-  reservaId: string;
-  idComunicacion: string;
-  destinatario: string;
-  asunto: string;
-  cuerpo: string;
-}
-
-/** Estado terminal alcanzado tras el intento de envío post-commit. */
-export interface EnviarConfirmacionBloqueoResultado {
-  estado: 'enviado' | 'fallido';
-  fechaEnvio: Date | null;
-}
-
-/**
- * Puerto del email de confirmación de bloqueo provisional (extensión de E1 vía motor
- * US-045). Se invoca POST-COMMIT, fuera de la transacción: el adaptador centraliza el
- * try/catch del proveedor y NUNCA propaga la excepción que tumbe la transición.
- */
-export interface ConfirmacionBloqueoEmailPort {
-  enviarConfirmacionBloqueoProvisional(
-    params: EnviarConfirmacionBloqueoParams,
-  ): Promise<EnviarConfirmacionBloqueoResultado>;
-}
-
 /** Dependencias del caso de uso (puertos inyectados). */
 export interface TransicionFechaDeps {
   unidadDeTrabajo: UnidadDeTrabajoTransicionPort;
-  confirmacionBloqueo: ConfirmacionBloqueoEmailPort;
   clock: ClockPort;
   /** Settings del tenant para el TTL del bloqueo blando (now()+ttl_consulta_dias). */
   tenantSettings: TenantSettingsPort;
@@ -315,14 +300,6 @@ export class AsignarFechaConflictoError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Plantilla E1 (extensión: confirmación de bloqueo provisional)
-// ---------------------------------------------------------------------------
-
-const ASUNTO_CONFIRMACION_BLOQUEO = 'Hemos reservado provisionalmente tu fecha';
-const CUERPO_CONFIRMACION_BLOQUEO =
-  'Hemos bloqueado provisionalmente la fecha de tu evento mientras avanzamos con tu consulta. Te confirmaremos la disponibilidad definitiva en breve.';
-
 const MOTIVO_COLA =
   'La fecha está reservada por otra consulta; puedes entrar en la lista de espera.';
 const MOTIVO_NO_DISPONIBLE =
@@ -354,14 +331,11 @@ export class TransicionFechaUseCase {
     // 1. Toda la lectura/escritura, dentro de UNA unidad de trabajo (tx + RLS). La
     //    determinación del sub-estado vive DENTRO del cuerpo transaccional para que
     //    un reintento tras colisión D4 re-evalúe la rama con la fecha ya bloqueada.
+    //    El borrador E1 (rama 2.b y 2.d) NACE en la MISMA transacción y NO se
+    //    auto-envía: queda para revisión/envío manual del gestor (flujo US-046).
     const resultado = (await this.deps.unidadDeTrabajo.ejecutar(
       comando.tenantId,
-      async (
-        repos,
-      ): Promise<{
-        reserva: ReservaTransicion;
-        emailPendiente: ComunicacionTransicion | null;
-      }> => {
+      async (repos): Promise<{ reserva: ReservaTransicion }> => {
         // Lectura + existencia (RLS: cross-tenant → null → 404).
         const reserva = await repos.reservas.buscarPorId({
           tenantId: comando.tenantId,
@@ -385,7 +359,7 @@ export class TransicionFechaUseCase {
         });
         const destino = determinarAltaConFecha(estadoFecha);
 
-        // Rama LIBRE → 2.b + bloqueo blando + COMUNICACION + AUDIT_LOG.
+        // Rama LIBRE → 2.b + bloqueo blando + borrador E1 "disponible" + AUDIT_LOG.
         if (destino.accion === 'bloquear') {
           return this.transicionarABloqueoBlando(
             repos,
@@ -406,36 +380,22 @@ export class TransicionFechaUseCase {
         // Rama bloqueada por estado no encolable → sin cola, permanece 2.a.
         throw new AsignarFechaConflictoError(false, MOTIVO_NO_DISPONIBLE);
       },
-    )) as {
-      reserva: ReservaTransicion;
-      emailPendiente: ComunicacionTransicion | null;
-    };
-
-    // 2. Efecto POST-COMMIT (solo rama 2.b): enviar el email de confirmación de
-    //    bloqueo provisional. NO bloqueante: un fallo NO revierte la transición ya
-    //    comprometida (RESERVA 2.b + FECHA_BLOQUEADA).
-    if (resultado.emailPendiente !== null) {
-      await this.enviarConfirmacionTolerante(
-        comando,
-        resultado.reserva,
-        resultado.emailPendiente,
-      );
-    }
+    )) as { reserva: ReservaTransicion };
 
     return { reserva: resultado.reserva };
   }
 
   /**
-   * Rama LIBRE (`2.a → 2.b`): UPDATE de la RESERVA + INSERT del bloqueo blando + la
-   * COMUNICACION (borrador) + AUDIT_LOG `accion='transicion'`, todo en la misma tx.
-   * Devuelve la COMUNICACION pendiente de envío post-commit.
+   * Rama LIBRE (`2.a → 2.b`): UPDATE de la RESERVA + INSERT del bloqueo blando + el
+   * borrador E1 "disponible" + AUDIT_LOG `accion='transicion'`, todo en la misma tx.
+   * El borrador NO se auto-envía: queda `borrador` para revisión/envío manual (US-046).
    */
   private async transicionarABloqueoBlando(
     repos: RepositoriosTransicionFecha,
     comando: TransicionFechaComando,
     reserva: ReservaTransicion,
     ttlBloqueo: Date,
-  ): Promise<{ reserva: ReservaTransicion; emailPendiente: ComunicacionTransicion }> {
+  ): Promise<{ reserva: ReservaTransicion }> {
     const actualizada = await repos.reservas.actualizar({
       idReserva: reserva.idReserva,
       subEstado: '2b',
@@ -454,16 +414,24 @@ export class TransicionFechaUseCase {
       ttlExpiracion: ttlBloqueo,
     });
 
-    // COMUNICACION de confirmación de bloqueo provisional: nace `borrador` en la tx
-    // (atomicidad); el estado terminal lo decide el envío post-commit (US-045).
-    const comunicacion = await repos.comunicaciones.crear({
+    // Borrador E1 "disponible" (redacción dinámica): nace `borrador` en la tx
+    // (atomicidad, upsert por (reserva, E1)) y SIN envío. El gestor lo revisa y envía.
+    const { asunto, cuerpo } = renderMensajeTransicionFecha({
+      tipo: 'disponible',
+      idioma: reserva.idioma,
+      nombre: reserva.clienteNombre,
+      fechaEvento: comando.fechaEvento,
+      personas: reserva.numInvitadosFinal,
+      horas: reserva.duracionHoras,
+    });
+    await repos.comunicaciones.crear({
       tenantId: comando.tenantId,
       reservaId: reserva.idReserva,
       clienteId: reserva.clienteId,
       codigoEmail: 'E1',
       estado: 'borrador',
-      asunto: ASUNTO_CONFIRMACION_BLOQUEO,
-      cuerpo: CUERPO_CONFIRMACION_BLOQUEO,
+      asunto,
+      cuerpo,
       destinatarioEmail: reserva.clienteEmail,
       fechaEnvio: null,
     });
@@ -475,20 +443,21 @@ export class TransicionFechaUseCase {
       }),
     );
 
-    return { reserva: actualizada, emailPendiente: comunicacion };
+    return { reserva: actualizada };
   }
 
   /**
    * Rama bloqueada por `2.b` con `aceptarCola`: UPDATE de la RESERVA a `2.d` con la
    * posición de cola serializada (MAX+1) y la bloqueante; SIN nuevo FECHA_BLOQUEADA
-   * (la fecha ya la bloquea la `2.b`). AUDIT_LOG `accion='transicion'`. Sin email.
+   * (la fecha ya la bloquea la `2.b`). Crea el borrador E1 "cola" en la MISMA tx
+   * (upsert por (reserva, E1), sin envío) + AUDIT_LOG `accion='transicion'`.
    */
   private async transicionarACola(
     repos: RepositoriosTransicionFecha,
     comando: TransicionFechaComando,
     reserva: ReservaTransicion,
     estadoFecha: Extract<EstadoFechaTransicion, { tipo: 'bloqueada' }>,
-  ): Promise<{ reserva: ReservaTransicion; emailPendiente: null }> {
+  ): Promise<{ reserva: ReservaTransicion }> {
     const posicionCola = await repos.fechaBloqueada.siguientePosicionCola({
       tenantId: comando.tenantId,
       fecha: comando.fechaEvento,
@@ -504,6 +473,28 @@ export class TransicionFechaUseCase {
       consultaBloqueanteId: estadoFecha.reservaBloqueanteId,
     });
 
+    // Borrador E1 "cola" (redacción dinámica): nace `borrador` en la tx (atomicidad,
+    // upsert por (reserva, E1)) y SIN envío. El gestor lo revisa y envía (US-046).
+    const { asunto, cuerpo } = renderMensajeTransicionFecha({
+      tipo: 'cola',
+      idioma: reserva.idioma,
+      nombre: reserva.clienteNombre,
+      fechaEvento: comando.fechaEvento,
+      personas: reserva.numInvitadosFinal,
+      horas: reserva.duracionHoras,
+    });
+    await repos.comunicaciones.crear({
+      tenantId: comando.tenantId,
+      reservaId: reserva.idReserva,
+      clienteId: reserva.clienteId,
+      codigoEmail: 'E1',
+      estado: 'borrador',
+      asunto,
+      cuerpo,
+      destinatarioEmail: reserva.clienteEmail,
+      fechaEnvio: null,
+    });
+
     await repos.auditoria.registrar(
       this.registroTransicion(comando, reserva, {
         subEstado: '2d',
@@ -513,7 +504,7 @@ export class TransicionFechaUseCase {
       }),
     );
 
-    return { reserva: actualizada, emailPendiente: null };
+    return { reserva: actualizada };
   }
 
   /** Construye el registro de AUDIT_LOG `accion='transicion'` de `2.a → destino`. */
@@ -545,29 +536,5 @@ export class TransicionFechaUseCase {
       },
     });
     return plan.ttl ?? new Date(ahora.getTime());
-  }
-
-  /**
-   * Envío POST-COMMIT TOLERANTE del email de confirmación de bloqueo provisional: un
-   * fallo del proveedor NO debe propagar (la transición ya commiteó). El puerto del
-   * motor US-045 centraliza el try/catch; aquí se blinda como defensa en profundidad.
-   */
-  private async enviarConfirmacionTolerante(
-    comando: TransicionFechaComando,
-    reserva: ReservaTransicion,
-    comunicacion: ComunicacionTransicion,
-  ): Promise<void> {
-    try {
-      await this.deps.confirmacionBloqueo.enviarConfirmacionBloqueoProvisional({
-        tenantId: comando.tenantId,
-        reservaId: reserva.idReserva,
-        idComunicacion: comunicacion.idComunicacion,
-        destinatario: reserva.clienteEmail,
-        asunto: ASUNTO_CONFIRMACION_BLOQUEO,
-        cuerpo: CUERPO_CONFIRMACION_BLOQUEO,
-      });
-    } catch {
-      // El fallo de email no revierte la transición (post-commit, no bloqueante).
-    }
   }
 }

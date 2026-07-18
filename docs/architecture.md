@@ -347,6 +347,16 @@ El método `finalizarEnvio(comunicacionId)` / `enviarYFinalizar(trigger)` orques
 - **Post-commit (con comentarios):** no envía; renderiza el E1 con el helper compartido `renderizarE1` (mismo idioma y misma casuística `tipoE1` que el auto-envío) y **rellena el borrador** con ese `asunto` + `cuerpo` (best-effort, vía `DespacharEmailService.actualizarContenidoBorrador` → `ComunicacionRepositoryPort.actualizarContenidoBorrador`, guarda `estado='borrador'`). La `COMUNICACION` permanece en `borrador`, ya redactada, hasta revisión manual (UC-36 / US-046); el `EnviarBorradorUseCase` aplicará el mismo mecanismo de dossier al confirmar el envío (fix `fix-borrador-e1-cuerpo-prerelleno`).
 - **Si el proveedor falla:** motor actualiza a `fallido` + AUDIT_LOG; la respuesta HTTP es **201** igualmente (fallo de email no revierte la reserva).
 
+#### Integración con la transición de fecha (E1 borrador, change `email-transicion-fecha-borrador`)
+
+`TransicionFechaUseCase` (US-005 / UC-04) genera el borrador E1 de forma diferente al alta:
+
+- **Dentro de la `$transaction` (sin motor `DespacharEmailService`):** el borrador E1 nace directamente en la misma transacción mediante `renderMensajeTransicionFecha` (módulo de aplicación puro, sin infraestructura). **No hay auto-envío ni proveedor de email en este flujo.** La `COMUNICACION` nace siempre en `estado='borrador'`, `fecha_envio=null`.
+- **Rama libre (`2.a → 2.b`):** plantilla "disponible" (bilingüe `ca`/castellano). Variables: nombre del cliente, fecha del evento, personas (`num_invitados_final`), horas (`duracion_horas`); placeholder `___` si personas/horas son `null`. Firma fija "Ari — Masia l'Encís", señal "40%" fija.
+- **Rama cola (`2.a → 2.d`, gestor acepta cola):** plantilla "cola" (bilingüe `ca`/castellano). Variables: nombre, fecha del evento. También `estado='borrador'`, sin auto-envío.
+- **Rama no encolable (409 `colaDisponible:false`):** sin `COMUNICACION` ni email.
+- El gestor revisa y envía el borrador desde el flujo US-046 (`EnviarBorradorUseCase`). El flag `tieneBorradorE1Pendiente` (derivado en el pipeline) bloquea las acciones de la `FichaConsulta` hasta que el borrador se gestione.
+
 #### Catálogo de plantillas e i18n
 
 - **Ubicación:** `comunicaciones/infrastructure/plantillas/` — registro de infraestructura tipado en código (arrow functions; sin motor de plantillas externo).
@@ -1377,6 +1387,8 @@ El MVP tiene tres piezas, pero solo dos cuestan: el **frontend SPA** se sirve co
 - **Razón de la divergencia:** la IA acelera el código de aplicación, no la operación de infraestructura. Para el plazo, el monolito libera tiempo hacia las zonas que defienden la nota; AWS lo consumiría en operación.
 
 ---
+
+*Documento de arquitectura v5.2, 18/07/2026. Cambios respecto a v5.1: refleja el change `email-transicion-fecha-borrador` (US-005 / UC-04) — añade subsección "Integración con la transición de fecha (E1 borrador)" en §2.10: documenta que `TransicionFechaUseCase` genera el borrador E1 directamente en la transacción (sin `DespacharEmailService`), usando `renderMensajeTransicionFecha` (módulo de aplicación puro); rama libre (`2.a → 2.b`) → plantilla "disponible" bilingüe; rama cola (`2.a → 2.d`) → plantilla "cola" bilingüe; rama no encolable → sin COMUNICACION; sin auto-envío en ninguna rama; el gestor revisa/envía desde US-046; el flag `tieneBorradorE1Pendiente` bloquea acciones de la FichaConsulta. Sin cambios de contrato OpenAPI/SDK, frontend ni migración de columnas.*
 
 *Documento de arquitectura v5.1, 07/07/2026. Cambios respecto a v5.0: refleja US-050 — Capability `pipeline-ui` (pantalla `/reservas` Kanban + Listado, UC-37 / UC-38). Añade dentro de §2.17: (a) dos fixes de conformidad del backend sin cambio de contrato ni de esquema — Fix 1: proyección `ReservaPipelineItemDto` corregida para emitir `idReserva` (no `id`) y propagar `fechaEvento`, `numInvitadosFinal`, `numAdultosNinosMayores4`, `numNinosMenores4`, `notas`; Fix 2: `construirWhere()` del adaptador Prisma corregido para admitir `subEstado IS NULL` vía `AND [{ subEstado: null } OR { subEstado: { notIn: [...] } }]`, de modo que `pre_reserva`/`reserva_confirmada`/`evento_en_curso`/`post_evento` aparecen en el pipeline; (b) subsección `Capability pipeline-ui` con la estructura Bulletproof React de `features/reservas/` (hook compartido `useReservasActivas`, mapa declarativo estado→columna, `ReservasPage` con tabs flujo|listado, `KanbanView`/`KanbanColumn`/`ReservaKanbanCard`/`ListadoView`/`ProgressBar`), la tabla de agrupación estado→columna Kanban (5 columnas) y los tres estados de vista (skeleton/vacío+CTA/error+reintento).*
 

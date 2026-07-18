@@ -1,35 +1,27 @@
 /**
- * TESTS del caso de uso `TransicionFechaUseCase` (US-005 / UC-04) — fase TDD RED.
+ * TESTS del caso de uso `TransicionFechaUseCase` (US-005 / UC-04).
  * tasks.md Fase 3: 3.1 (guarda de origen a nivel de aplicación), 3.2 (2.a→2.b),
  * 3.3 (oferta de cola / 2.a→2.d con aceptarCola), 3.4 (no encolable), 3.6
- * (validación de fecha), 3.7 (email de confirmación de bloqueo provisional).
+ * (validación de fecha), 3.7 (borrador E1 dinámico SIN auto-envío).
  *
- * Trazabilidad: US-005, spec-delta `consultas` (Requirements "Transición 2.a → 2.b
- * al añadir una fecha disponible…", "Auditoría de la transición 2.a → 2.b en
- * AUDIT_LOG", "Fecha bloqueada por una consulta en 2.b ofrece entrar en cola (2.a →
- * 2.d)", "Fecha bloqueada por estados no encolables no ofrece cola y mantiene 2.a",
- * "Guarda de origen — la transición solo es válida desde sub_estado 2.a",
- * "Validación de fecha de la transición en servidor", "Email de confirmación de
- * bloqueo provisional vía el motor de US-045"), design.md §D-2 (flujo interactivo
- * de cola con `aceptarCola`), §D-3 (reuso de `determinarAltaConFecha`), §D-4
- * (`bloquearEnTx` en la MISMA tx), §D-6 (email post-commit, no bloqueante).
+ * Trazabilidad: US-005 + change `email-transicion-fecha-borrador` (spec-delta
+ * `consultas`, Requirements "Email de confirmación de bloqueo provisional…" MODIFIED
+ * — borrador SIN envío; "Plantillas dinámicas de la transición de fecha"). El correo
+ * E1 ya NO se auto-envía: ambas ramas (2.b y 2.d) crean un borrador dinámico en la
+ * MISMA transacción, para revisión/envío manual del gestor (flujo US-046).
  *
  * Ejercita la APLICACIÓN contra DOBLES DE LOS PUERTOS (in-memory), sin tocar Prisma
  * (hexagonal, hook `no-infra-in-domain`). La ATOMICIDAD y la concurrencia D4 REALES
  * viven en `transicion-fecha-concurrencia.spec.ts` y `…-integracion.spec.ts`; aquí
  * se fija la ORQUESTACIÓN: guarda de origen, ramificación 2.b/2.d/permanece-2.a, qué
  * puerto se invoca en cada rama, el contrato del conflicto `colaDisponible` y la
- * TOLERANCIA del email post-commit.
+ * creación del borrador E1 (sin envío) en 2.b/2.d.
  *
  * Contrato del endpoint congelado (POST /reservas/{id}/fecha):
  *   - 200 → RESERVA en 2.b / 2.d.
  *   - 409 → `AsignarFechaConflictoError { colaDisponible, motivo }`.
  *   - 400/422 → `TransicionFechaValidacionError` (fecha no válida o RESERVA no en 2a).
  *   - 404 → `ReservaNoEncontradaError` (RESERVA inexistente para el tenant).
- *
- * RED: aún NO existe `application/transicion-fecha.use-case.ts`. El import falla en
- * compilación y la batería está en ROJO por AUSENCIA DE IMPLEMENTACIÓN. GREEN es de
- * `backend-developer`.
  */
 import {
   TransicionFechaUseCase,
@@ -43,7 +35,6 @@ import {
   type ReservaTransicion,
   type EstadoFechaTransicion,
   type FechaBloqueadaTransicionRepositoryPort,
-  type ConfirmacionBloqueoEmailPort,
   type ClockPort,
 } from '../application/transicion-fecha.use-case';
 import type { AuditLogPort } from '../../shared/audit/audit-log.port';
@@ -91,6 +82,10 @@ const reservaOrigen = (over: Partial<ReservaTransicion> = {}): ReservaTransicion
   posicionCola: null,
   consultaBloqueanteId: null,
   clienteEmail: EMAIL_CLIENTE,
+  clienteNombre: 'Marta',
+  idioma: 'es',
+  numInvitadosFinal: 40,
+  duracionHoras: 8,
   ...over,
 });
 
@@ -142,22 +137,12 @@ const crearUowFake = (
   ),
 });
 
-const crearEmailFake = (
-  impl?: () => Promise<{ estado: 'enviado' | 'fallido'; fechaEnvio: Date | null }>,
-): ConfirmacionBloqueoEmailPort & { enviarConfirmacionBloqueoProvisional: jest.Mock } => ({
-  enviarConfirmacionBloqueoProvisional: jest.fn(
-    impl ??
-      (async () => ({ estado: 'enviado' as const, fechaEnvio: AHORA })),
-  ),
-});
-
 const relojFijo: ClockPort = { ahora: () => AHORA };
 
 const montar = (
   estadoFecha: EstadoFechaTransicion,
   opciones: {
     reserva?: ReservaTransicion | null;
-    email?: ReturnType<typeof crearEmailFake>;
   } = {},
 ) => {
   const repos = crearReposFake(
@@ -165,17 +150,15 @@ const montar = (
     'reserva' in opciones ? (opciones.reserva ?? null) : reservaOrigen(),
   );
   const uow = crearUowFake(repos);
-  const email = opciones.email ?? crearEmailFake();
   const tenantSettings = {
     obtener: jest.fn(async () => ({ ttlConsultaDias: 3, ttlPrereservaDias: 3 })),
   };
   const deps: TransicionFechaDeps = {
     unidadDeTrabajo: uow,
-    confirmacionBloqueo: email,
     clock: relojFijo,
     tenantSettings,
   };
-  return { useCase: new TransicionFechaUseCase(deps), repos, uow, email, tenantSettings };
+  return { useCase: new TransicionFechaUseCase(deps), repos, uow, tenantSettings };
 };
 
 const comando = (over: Partial<TransicionFechaComando> = {}): TransicionFechaComando => ({
@@ -321,18 +304,18 @@ describe('TransicionFechaUseCase — fecha libre transiciona a 2.b y bloquea (3.
 
 describe('TransicionFechaUseCase — bloqueada por 2.b ofrece/entra en cola (3.3)', () => {
   it('debe_ofrecer_cola_409_colaDisponible_true_y_no_mutar_cuando_no_se_acepta', async () => {
-    const { useCase, repos, email } = montar(BLOQUEADA_POR_2B);
+    const { useCase, repos } = montar(BLOQUEADA_POR_2B);
 
     const error = await useCase.ejecutar(comando()).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(AsignarFechaConflictoError);
     expect((error as AsignarFechaConflictoError).colaDisponible).toBe(true);
     expect((error as AsignarFechaConflictoError).motivo).toBeTruthy();
-    // La RESERVA permanece en 2.a: ni mutación, ni bloqueo, ni cola, ni email.
+    // La RESERVA permanece en 2.a: ni mutación, ni bloqueo, ni cola, ni borrador.
     expect(repos.reservas.actualizar).not.toHaveBeenCalled();
     expect(repos.fechaBloqueada.bloquear).not.toHaveBeenCalled();
     expect(repos.fechaBloqueada.siguientePosicionCola).not.toHaveBeenCalled();
-    expect(email.enviarConfirmacionBloqueoProvisional).not.toHaveBeenCalled();
+    expect(repos.comunicaciones.crear).not.toHaveBeenCalled();
   });
 
   it('debe_transicionar_a_2d_con_posicion_y_bloqueante_cuando_se_acepta_la_cola', async () => {
@@ -351,13 +334,20 @@ describe('TransicionFechaUseCase — bloqueada por 2.b ofrece/entra en cola (3.3
     expect(repos.fechaBloqueada.siguientePosicionCola).toHaveBeenCalledTimes(1);
   });
 
-  it('no_debe_enviar_email_de_confirmacion_de_bloqueo_en_la_entrada_a_cola_2d', async () => {
-    const { useCase, email } = montar(BLOQUEADA_POR_2B);
+  it('debe_crear_un_borrador_E1_cola_sin_envio_en_la_entrada_a_cola_2d', async () => {
+    const { useCase, repos } = montar(BLOQUEADA_POR_2B);
 
     await useCase.ejecutar(comando({ aceptarCola: true }));
 
-    // El email de "bloqueo provisional confirmado" es exclusivo de la rama 2.b.
-    expect(email.enviarConfirmacionBloqueoProvisional).not.toHaveBeenCalled();
+    // La rama 2.d TAMBIÉN crea su borrador E1 (plantilla "cola"), en `borrador` y
+    // sin envío (fecha_envio = null): revisión/envío manual del gestor (US-046).
+    expect(repos.comunicaciones.crear).toHaveBeenCalledTimes(1);
+    const args = repos.comunicaciones.crear.mock.calls[0][0];
+    expect(args.codigoEmail).toBe('E1');
+    expect(args.estado).toBe('borrador');
+    expect(args.fechaEnvio).toBeNull();
+    // Idioma por defecto de la semilla ('es') → frase clave de la plantilla "cola".
+    expect(args.cuerpo).toContain('bloqueada por otra consulta');
   });
 });
 
@@ -421,36 +411,53 @@ describe('TransicionFechaUseCase — validación de fecha `> hoy` (3.6)', () => 
 });
 
 // ===========================================================================
-// 3.7 — Email de confirmación de bloqueo provisional (extensión E1 vía US-045).
-//        Tras 2.a→2.b se invoca el motor; un fallo de envío NO revierte la
-//        transición (post-commit, no bloqueante).
+// 3.7 — Borrador E1 dinámico de la transición (change email-transicion-fecha-borrador).
+//        Tras 2.a→2.b se crea la COMUNICACION E1 en `borrador` con la plantilla
+//        "disponible" renderizada; NO se auto-envía (fecha_envio = null, sin motor).
 // ===========================================================================
 
-describe('TransicionFechaUseCase — email de confirmación de bloqueo provisional (3.7)', () => {
-  it('debe_invocar_el_motor_de_email_tras_una_transicion_exitosa_a_2b', async () => {
-    const { useCase, repos, email } = montar(LIBRE);
+describe('TransicionFechaUseCase — borrador E1 "disponible" sin envío (3.7)', () => {
+  it('debe_crear_la_COMUNICACION_E1_en_borrador_con_la_plantilla_disponible_y_sin_envio', async () => {
+    const { useCase, repos } = montar(LIBRE);
 
     await useCase.ejecutar(comando());
 
-    // Se registra la COMUNICACION y se delega el envío en el motor de US-045.
     expect(repos.comunicaciones.crear).toHaveBeenCalledTimes(1);
-    expect(email.enviarConfirmacionBloqueoProvisional).toHaveBeenCalledTimes(1);
-    const args = email.enviarConfirmacionBloqueoProvisional.mock.calls[0][0];
+    const args = repos.comunicaciones.crear.mock.calls[0][0];
     expect(args.tenantId).toBe(TENANT);
     expect(args.reservaId).toBe(RESERVA_ID);
-    expect(args.destinatario).toBe(EMAIL_CLIENTE);
+    expect(args.clienteId).toBe(CLIENTE_ID);
+    expect(args.codigoEmail).toBe('E1');
+    expect(args.estado).toBe('borrador');
+    expect(args.fechaEnvio).toBeNull();
+    expect(args.destinatarioEmail).toBe(EMAIL_CLIENTE);
+    // Texto dinámico de la plantilla "disponible" (idioma 'es' de la semilla).
+    expect(args.asunto?.trim().length ?? 0).toBeGreaterThan(0);
+    expect(args.cuerpo).toContain('disponible');
+    expect(args.cuerpo).toContain("Ari — Masia l'Encís");
   });
 
-  it('no_debe_revertir_la_transicion_si_el_envio_del_email_falla', async () => {
-    const email = crearEmailFake(async () => {
-      throw new Error('PROVEEDOR_EMAIL_CAIDO');
+  it('debe_interpolar_personas_y_horas_reales_de_la_reserva_en_el_borrador', async () => {
+    const { useCase, repos } = montar(LIBRE, {
+      reserva: reservaOrigen({ numInvitadosFinal: 30, duracionHoras: 6 }),
     });
-    const { useCase, repos } = montar(LIBRE, { email });
 
-    // La transición ya está comprometida (RESERVA 2.b + bloqueo): no debe propagar.
-    const out = await useCase.ejecutar(comando());
+    await useCase.ejecutar(comando());
 
-    expect(out.reserva.subEstado).toBe('2b');
-    expect(repos.fechaBloqueada.bloquear).toHaveBeenCalledTimes(1);
+    const args = repos.comunicaciones.crear.mock.calls[0][0];
+    expect(args.cuerpo).toContain('30 personas');
+    expect(args.cuerpo).toContain('6 horas');
+  });
+
+  it('debe_usar_placeholder_cuando_faltan_personas_u_horas_en_la_reserva', async () => {
+    const { useCase, repos } = montar(LIBRE, {
+      reserva: reservaOrigen({ numInvitadosFinal: null, duracionHoras: null }),
+    });
+
+    await useCase.ejecutar(comando());
+
+    const args = repos.comunicaciones.crear.mock.calls[0][0];
+    expect(args.cuerpo).toContain('___ personas');
+    expect(args.cuerpo).toContain('___ horas');
   });
 });

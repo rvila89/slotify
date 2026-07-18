@@ -18,6 +18,7 @@ import type {
   RenderPlantilla,
 } from '../../domain/catalogo-plantillas.port';
 import type { CodigoEmail } from '../../domain/codigo-email';
+import { formatarFechaCA, formatarFechaES } from './formato-fecha';
 
 /** Texto seguro a partir de una variable (evita `undefined`/`null` en el render). */
 const texto = (valor: unknown): string =>
@@ -37,23 +38,6 @@ const htmlEscape = (s: string): string =>
 
 /** Las 4 casuísticas de E1 según el estado de la fecha del evento. */
 type TipoE1 = 'sin_fecha' | 'fecha_disponible' | 'fecha_confirmada' | 'fecha_cola';
-
-const MESES_CA = ['gener','febrer','març','abril','maig','juny','juliol','agost','setembre','octubre','novembre','desembre'];
-const MESES_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-
-const formatarFechaCA = (fecha: Date): string => {
-  const d = fecha.getDate();
-  const m = MESES_CA[fecha.getMonth()];
-  const a = fecha.getFullYear();
-  return `${d} de ${m} de ${a}`;
-};
-
-const formatarFechaES = (fecha: Date): string => {
-  const d = fecha.getDate();
-  const m = MESES_ES[fecha.getMonth()];
-  const a = fecha.getFullYear();
-  return `${d} de ${m} de ${a}`;
-};
 
 /** Render real de la plantilla E1 en catalán (respuesta inicial automática, 4 casos). */
 const renderE1Ca = (variables: Record<string, unknown>): RenderPlantilla => {

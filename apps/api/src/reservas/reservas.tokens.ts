@@ -26,9 +26,6 @@ export const TARIFA_ESTIMADA_PORT = Symbol('TarifaEstimadaPort');
 export const UNIDAD_DE_TRABAJO_TRANSICION_PORT = Symbol(
   'UnidadDeTrabajoTransicionPort',
 );
-export const CONFIRMACION_BLOQUEO_EMAIL_PORT = Symbol(
-  'ConfirmacionBloqueoEmailPort',
-);
 
 // US-005 — lectura de la ficha (GET /reservas/{id} → ReservaDetalle)
 export const RESERVA_DETALLE_QUERY_PORT = Symbol('ReservaDetalleQueryPort');
