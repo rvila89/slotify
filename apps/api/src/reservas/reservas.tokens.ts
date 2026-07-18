@@ -143,3 +143,17 @@ export const UNIDAD_DE_TRABAJO_ARCHIVADO_MANUAL_PORT = Symbol(
 export const UNIDAD_DE_TRABAJO_DESCARTE_CONSULTA_PORT = Symbol(
   'UnidadDeTrabajoDescarteConsultaPort',
 );
+
+// US-051 §Punto 2 — PATCH /reservas/{id}: update parcial de campos simples (NO muta fecha; §D-1)
+export const CARGAR_RESERVA_ACTUALIZABLE_PORT = Symbol(
+  'CargarReservaActualizablePort',
+);
+export const UNIDAD_DE_TRABAJO_ACTUALIZAR_RESERVA_PORT = Symbol(
+  'UnidadDeTrabajoActualizarReservaPort',
+);
+
+// US-051 §Punto 2 — POST /reservas/{id}/cambiar-fecha: operación atómica (liberar antigua +
+// bloquear nueva en UNA tx con SELECT … FOR UPDATE; promoción FIFO si la antigua tenía cola)
+export const UNIDAD_DE_TRABAJO_CAMBIAR_FECHA_PORT = Symbol(
+  'UnidadDeTrabajoCambiarFechaPort',
+);

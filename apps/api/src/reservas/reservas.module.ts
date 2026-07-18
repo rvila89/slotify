@@ -192,6 +192,21 @@ import {
 import { CargarReservaDatosFiscalesPrismaAdapter } from './infrastructure/cargar-reserva-datos-fiscales.prisma.adapter';
 import { ActualizarDatosFiscalesUoWPrismaAdapter } from './infrastructure/actualizar-datos-fiscales-uow.prisma.adapter';
 import { ActualizarDatosFiscalesClienteController } from './interface/actualizar-datos-fiscales-cliente.controller';
+import {
+  ActualizarReservaUseCase,
+  type ActualizarReservaComando,
+  type ReservaActualizable,
+  type UnidadDeTrabajoActualizarReservaPort,
+} from './application/actualizar-reserva.use-case';
+import { CargarReservaActualizablePrismaAdapter } from './infrastructure/cargar-reserva-actualizable.prisma.adapter';
+import { ActualizarReservaUoWPrismaAdapter } from './infrastructure/actualizar-reserva-uow.prisma.adapter';
+import { PatchReservaController } from './interface/patch-reserva.controller';
+import {
+  CambiarFechaUseCase,
+  type UnidadDeTrabajoCambiarFechaPort,
+} from './application/cambiar-fecha.use-case';
+import { CambiarFechaUoWPrismaAdapter } from './infrastructure/cambiar-fecha-uow.prisma.adapter';
+import { CambiarFechaController } from './interface/cambiar-fecha.controller';
 import { CronTokenGuard } from '../shared/auth/cron-token.guard';
 import { ReservaDetalleQueryPrismaAdapter } from './infrastructure/reserva-detalle-query.prisma.adapter';
 import {
@@ -258,6 +273,9 @@ import {
   CARGAR_RESERVA_ARCHIVADO_MANUAL_PORT,
   UNIDAD_DE_TRABAJO_ARCHIVADO_MANUAL_PORT,
   UNIDAD_DE_TRABAJO_DESCARTE_CONSULTA_PORT,
+  CARGAR_RESERVA_ACTUALIZABLE_PORT,
+  UNIDAD_DE_TRABAJO_ACTUALIZAR_RESERVA_PORT,
+  UNIDAD_DE_TRABAJO_CAMBIAR_FECHA_PORT,
 } from './reservas.tokens';
 
 @Module({
@@ -288,6 +306,8 @@ import {
     ActualizarDatosFiscalesClienteController,
     ArchivarReservaManualController,
     DescartarConsultaController,
+    PatchReservaController,
+    CambiarFechaController,
   ],
   providers: [
     {
@@ -973,6 +993,64 @@ import {
       useFactory: (uow: DescarteConsultaUoWPort) =>
         new DescartarConsultaPorClienteUseCase({ uow }),
     },
+    // US-051 §Punto 2 — PATCH /reservas/{id}: update parcial de campos simples de la RESERVA.
+    // La RESERVA se carga bajo RLS del tenant del JWT; el UPDATE PARCIAL de columnas simples +
+    // AUDIT_LOG (entidad RESERVA, origen Usuario) van en una transacción bajo RLS. Regla dura
+    // (§D-1): NO toca `fechaEvento` ni FECHA_BLOQUEADA.
+    {
+      provide: CARGAR_RESERVA_ACTUALIZABLE_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CargarReservaActualizablePrismaAdapter(prisma),
+    },
+    {
+      provide: UNIDAD_DE_TRABAJO_ACTUALIZAR_RESERVA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new ActualizarReservaUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: ActualizarReservaUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_ACTUALIZAR_RESERVA_PORT,
+        CARGAR_RESERVA_ACTUALIZABLE_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoActualizarReservaPort,
+        cargador: CargarReservaActualizablePrismaAdapter,
+      ) =>
+        new ActualizarReservaUseCase({
+          unidadDeTrabajo,
+          cargarReserva: (
+            comando: ActualizarReservaComando,
+          ): Promise<ReservaActualizable | null> => cargador.cargar(comando),
+        }),
+    },
+    // US-051 §Punto 2 — POST /reservas/{id}/cambiar-fecha: operación ATÓMICA (liberar la fecha
+    // antigua + bloquear la nueva en UNA sola transacción con SELECT … FOR UPDATE + UNIQUE(tenant,
+    // fecha); sin locks distribuidos). Si la nueva está ocupada → 409 rollback total; si la antigua
+    // tenía cola → promoción FIFO (A15) dentro de la misma transacción, exactamente una vez.
+    {
+      provide: UNIDAD_DE_TRABAJO_CAMBIAR_FECHA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CambiarFechaUoWPrismaAdapter(
+          prisma,
+          new TenantSettingsPrismaAdapter(prisma),
+        ),
+    },
+    {
+      provide: CambiarFechaUseCase,
+      inject: [UNIDAD_DE_TRABAJO_CAMBIAR_FECHA_PORT, CLOCK_PORT],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoCambiarFechaPort,
+        clock: ClockPort,
+      ) =>
+        new CambiarFechaUseCase({
+          unidadDeTrabajo,
+          clock,
+        }),
+    },
     CronTokenGuard,
     BarridoExpiracionScheduler,
     BarridoEventosScheduler,
@@ -1003,6 +1081,8 @@ import {
     ArchivarReservasCompletadasService,
     ArchivarReservaManualUseCase,
     DescartarConsultaPorClienteUseCase,
+    ActualizarReservaUseCase,
+    CambiarFechaUseCase,
   ],
 })
 export class ReservasModule {}

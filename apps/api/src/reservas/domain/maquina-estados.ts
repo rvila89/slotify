@@ -423,6 +423,46 @@ export const esOrigenValidoParaConfirmarSenal = (
   );
 
 // ---------------------------------------------------------------------------
+// Guarda de ORIGEN de la operación atómica «cambiar fecha ya bloqueada»
+// (US-051 / UC-05/UC-12/UC-18 / design.md §D-2.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tabla declarativa de ORÍGENES válidos de la operación atómica «cambiar la fecha YA
+ * bloqueada» de una RESERVA (US-051, skill `state-machine`, NO condicionales
+ * dispersos). A diferencia de la ASIGNACIÓN de la primera fecha (US-005, origen
+ * estricto `2.a` → `POST /reservas/{id}/fecha`), aquí la RESERVA YA tiene una fecha
+ * bloqueada y se MUEVE a otra: solo las consultas ACTIVAS con bloqueo mutable
+ * (`consulta/{2b,2c,2v}`) son orígenes legales. NO lo son: `2a` (sin fecha; se asigna
+ * por el flujo de US-005), la cola `2d` (debe promoverse primero), los terminales
+ * (`2x/2y/2z`) y cualquier estado distinto de `consulta` (`pre_reserva`+,
+ * `reserva_cancelada`/`reserva_completada`, inmutables). Mismo patrón multi-sub-estado
+ * que `ESTADOS_BLOQUEO_BLANDO_EXTENSIBLE` (sin `pre_reserva`, cuya fecha no se cambia
+ * por esta vía). Tres orígenes permitidos: `{consulta,2b/2c/2v}` conservan su
+ * sub-estado, solo cambia la `fecha_evento`.
+ */
+export const ORIGENES_CAMBIAR_FECHA_BLOQUEADA: ReadonlyArray<OrigenTransicion> = [
+  { estado: 'consulta', subEstado: '2b' },
+  { estado: 'consulta', subEstado: '2c' },
+  { estado: 'consulta', subEstado: '2v' },
+];
+
+/**
+ * Guarda declarativa: ¿es `(estado, subEstado)` un ORIGEN legal de la operación
+ * «cambiar la fecha ya bloqueada» (US-051)? Consulta la tabla
+ * `ORIGENES_CAMBIAR_FECHA_BLOQUEADA`: solo `consulta/{2b,2c,2v}` lo es. Se evalúa (y se
+ * re-evalúa bajo el lock) ANTES de mutar para rechazar sin efectos con 422 cualquier
+ * otro sub-estado/estado.
+ */
+export const esOrigenValidoParaCambiarFecha = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): boolean =>
+  ORIGENES_CAMBIAR_FECHA_BLOQUEADA.some(
+    (origen) => origen.estado === estado && origen.subEstado === subEstado,
+  );
+
+// ---------------------------------------------------------------------------
 // Guarda de PRECONDICIÓN «bloqueo blando extensible» (US-006 / UC-05 / §D-1)
 // ---------------------------------------------------------------------------
 
