@@ -19,6 +19,7 @@ import { FinalizarEventoDialog } from '../../../components/FinalizarEventoDialog
 import { precondicionesIncumplidas } from '../../../lib/forzarInicioEvento';
 import { ArchivarReservaDialog } from '../../../components/ArchivarReservaDialog';
 import { DescartarConsultaDialog } from '../../../components/DescartarConsultaDialog';
+import { DescartarPreReservaDialog } from '../../../components/DescartarPreReservaDialog';
 import { MAX_DIAS_PROGRAMAR_VISITA_DEFAULT } from '../../../lib/fecha';
 import type { PendienteInvitadosResultado, Reserva } from '../../../model/types';
 import type { components } from '@/api-client';
@@ -52,6 +53,7 @@ type Props = {
     finalizar: [boolean, Setter<boolean>];
     archivar: [boolean, Setter<boolean>];
     descartar: [boolean, Setter<boolean>];
+    descartarPreReserva: [boolean, Setter<boolean>];
   };
   onResuelto: Setter<Reserva | null>;
   /** Cambio atómico de una fecha ya bloqueada (US-051 §D-2.1). */
@@ -75,6 +77,7 @@ type Props = {
       estado (toast + refetch en el diálogo), así que basta con un callback. */
   onArchivado: (reserva: Reserva) => void;
   onDescartado: (reserva: Reserva) => void;
+  onDescartadoPreReserva: (reserva: Reserva) => void;
 };
 
 export const DialogosFicha = ({
@@ -98,6 +101,7 @@ export const DialogosFicha = ({
   onFinalizado,
   onArchivado,
   onDescartado,
+  onDescartadoPreReserva,
 }: Props) => (
   <>
     <AnadirFechaDialog
@@ -193,6 +197,13 @@ export const DialogosFicha = ({
       abierto={dialogos.descartar[0]}
       onAbiertoChange={dialogos.descartar[1]}
       onDescartado={onDescartado}
+    />
+    <DescartarPreReservaDialog
+      reservaId={reservaId}
+      codigo={reserva.codigo}
+      abierto={dialogos.descartarPreReserva[0]}
+      onAbiertoChange={dialogos.descartarPreReserva[1]}
+      onDescartado={onDescartadoPreReserva}
     />
   </>
 );

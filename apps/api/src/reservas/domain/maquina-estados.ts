@@ -463,6 +463,44 @@ export const esOrigenValidoParaCambiarFecha = (
   );
 
 // ---------------------------------------------------------------------------
+// Guarda de ORIGEN de la transición «descartar pre-reserva»
+// (change presupuesto-prereserva-cta-descarte-y-e2, workstream B / D-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Conjunto declarativo de ORÍGENES válidos de la transición manual «descartar la pre-reserva»
+ * (`pre_reserva → reserva_cancelada`, skill `state-machine`, NO condicionales dispersos). Es
+ * el ESPEJO, en la fase `pre_reserva`, del descarte de consulta de US-013 (`{2a…2v} → 2z`):
+ * el Gestor cierra deliberadamente una pre-reserva que no avanza, liberando la fecha y
+ * promoviendo la cola. Calcada de `ORIGENES_TRANSICION_CONFIRMAR_SENAL` (US-021): MONO-estado
+ * desde el estado PRINCIPAL `pre_reserva` (sub_estado NULL). El destino terminal reutiliza el
+ * mismo `{reserva_cancelada, null}` de `MAPA_EXPIRACION_TTL` (A5). Cualquier sub-estado de
+ * `consulta` (`2a/2b/2c/2d/2v/2x/2y/2z` — una consulta se descarta por la vía de US-013 → 2z),
+ * el propio destino `reserva_cancelada` (inmutable), `reserva_confirmada` y posteriores
+ * (`evento_en_curso`/`post_evento`/`reserva_completada`) NO son orígenes legales. Una sola
+ * transición permitida: `{pre_reserva, NULL} → {reserva_cancelada, NULL}`.
+ */
+export const ORIGENES_TRANSICION_DESCARTAR_PRERESERVA: ReadonlyArray<OrigenTransicion> = [
+  { estado: 'pre_reserva', subEstado: null },
+];
+
+/**
+ * Guarda declarativa: ¿es `(estado, subEstado)` un ORIGEN legal de la transición «descartar
+ * pre-reserva»? Consulta la tabla `ORIGENES_TRANSICION_DESCARTAR_PRERESERVA`: solo
+ * `pre_reserva` (sub_estado NULL) lo es. Se evalúa ANTES de la tx y se RE-EVALÚA DENTRO de la
+ * tx bajo el `SELECT … FOR UPDATE` para rechazar sin efectos cualquier otro estado/sub-estado
+ * (422) y para detectar el doble descarte (la segunda petición observa `reserva_cancelada` y
+ * aborta con 409).
+ */
+export const esOrigenValidoParaDescartarPreReserva = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): boolean =>
+  ORIGENES_TRANSICION_DESCARTAR_PRERESERVA.some(
+    (origen) => origen.estado === estado && origen.subEstado === subEstado,
+  );
+
+// ---------------------------------------------------------------------------
 // Guarda de PRECONDICIÓN «bloqueo blando extensible» (US-006 / UC-05 / §D-1)
 // ---------------------------------------------------------------------------
 

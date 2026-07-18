@@ -62,8 +62,11 @@ const esquema = z.object({
 
 type FormularioConfirmarSenal = z.infer<typeof esquema>;
 
+// El "Confirmar" interno usa el VERDE del sistema (`accent-success`, mismo token
+// que "Generar presupuesto"/"Confirmar pago de señal") por coherencia con el CTA de
+// avance que abre este diálogo (D-3, presupuesto-prereserva-cta-descarte-y-e2).
 const claseBotonPrimario =
-  'inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-8 font-display text-base text-brand-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
+  'inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-accent-success px-8 font-display text-base text-accent-success-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
 
 const claseBotonSecundario =
   'inline-flex h-12 w-full items-center justify-center gap-2 rounded-full border border-border-default bg-canvas px-8 font-body text-base font-medium text-text-secondary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';

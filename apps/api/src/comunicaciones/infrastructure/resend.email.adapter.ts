@@ -64,9 +64,16 @@ export class ResendEmailAdapter implements EnviarEmailPort {
 
   /**
    * Traduce los adjuntos por referencia al formato de Resend.
-   * - URL HTTP/HTTPS → `path` (la API de Resend la descarga).
-   * - Path local del sistema de ficheros → `content` como Buffer (el SDK de
-   *   Resend no lee paths locales; la API los rechaza con 422).
+   * - URL del ALMACÉN LOCAL (`ALMACEN_LOCAL_BASE_URL`, p. ej. `http://localhost:3000/almacen/…`)
+   *   → `content` como Buffer leyendo el fichero de `ALMACEN_LOCAL_DIR`. Es la CAUSA RAÍZ del
+   *   `fallido` de E2: el `pdfUrl` de un adjunto lo produce el almacén como una URL pública
+   *   (`urlPublica`), pero en dev/sandbox esa URL apunta a `localhost` y NO es ALCANZABLE por los
+   *   servidores de Resend (que intentan descargar el `path`), por lo que la API rechaza el envío
+   *   y el motor marca la COMUNICACION como `fallido`. Al ser el adjunto del presupuesto REQUERIDO
+   *   (D-1), degradar no es opción: se resuelve la URL local a bytes y se envía como `content`.
+   * - Otra URL HTTP/HTTPS (almacén cloud público) → `path` (la API de Resend la descarga).
+   * - Path local del sistema de ficheros → `content` como Buffer (el SDK de Resend no lee paths
+   *   locales; la API los rechaza con 422).
    */
   private adjuntosResend(
     adjuntos: AdjuntoRef[] | undefined,
@@ -80,22 +87,52 @@ export class ResendEmailAdapter implements EnviarEmailPort {
     }
     return {
       attachments: disponibles.map((adjunto) => {
+        const rutaLocalAlmacen = this.rutaLocalDeUrlAlmacen(adjunto.pdfUrl);
+        if (rutaLocalAlmacen !== null) {
+          // URL del almacén LOCAL: NO reenviar como `path` (Resend no alcanza localhost).
+          // Leer el fichero del almacén y enviarlo como Buffer (fix del `fallido`).
+          return { filename: adjunto.nombre, content: this.leerPdfLocal(rutaLocalAlmacen) };
+        }
         if (adjunto.pdfUrl.startsWith('http://') || adjunto.pdfUrl.startsWith('https://')) {
+          // URL pública (almacén cloud): Resend la descarga.
           return { filename: adjunto.nombre, path: adjunto.pdfUrl };
         }
-        // Path local: leer el fichero y enviar como Buffer (dev sin S3).
-        // Restringir al directorio del almacén para evitar arbitrary file read.
-        const almacenDir = path.resolve(process.env['ALMACEN_LOCAL_DIR'] ?? '.almacen');
-        const resolved = path.resolve(adjunto.pdfUrl);
-        if (!resolved.startsWith(almacenDir + path.sep)) {
-          throw new Error(`Adjunto fuera del directorio permitido: ${adjunto.nombre}`);
-        }
-        if (path.extname(resolved).toLowerCase() !== '.pdf') {
-          throw new Error(`Extensión de adjunto no permitida: ${adjunto.nombre}`);
-        }
-        const content = fs.readFileSync(resolved);
-        return { filename: adjunto.nombre, content };
+        // Path local del sistema de ficheros (dev sin S3): leer y enviar como Buffer.
+        return { filename: adjunto.nombre, content: this.leerPdfLocal(adjunto.pdfUrl) };
       }),
     };
+  }
+
+  /**
+   * Si `pdfUrl` es una URL servida por el ALMACÉN LOCAL (`ALMACEN_LOCAL_BASE_URL`), devuelve la
+   * RUTA FÍSICA del fichero bajo `ALMACEN_LOCAL_DIR`; `null` en otro caso (URL cloud pública o
+   * path local, que se tratan aparte). Así el adjunto local se envía como Buffer alcanzable por
+   * Resend en lugar de una URL `localhost` que la API no puede descargar.
+   */
+  private rutaLocalDeUrlAlmacen(pdfUrl: string): string | null {
+    const baseUrl = (process.env['ALMACEN_LOCAL_BASE_URL'] ?? 'http://localhost:3000/almacen')
+      .replace(/\/+$/, '');
+    if (!pdfUrl.startsWith(`${baseUrl}/`)) {
+      return null;
+    }
+    const clave = pdfUrl.slice(baseUrl.length + 1);
+    const almacenDir = path.resolve(process.env['ALMACEN_LOCAL_DIR'] ?? '.almacen');
+    return path.resolve(almacenDir, clave);
+  }
+
+  /**
+   * Lee un PDF del almacén local como Buffer, restringido al directorio del almacén (evita
+   * arbitrary file read) y a la extensión `.pdf`.
+   */
+  private leerPdfLocal(rutaFichero: string): Buffer {
+    const almacenDir = path.resolve(process.env['ALMACEN_LOCAL_DIR'] ?? '.almacen');
+    const resolved = path.resolve(rutaFichero);
+    if (resolved !== almacenDir && !resolved.startsWith(almacenDir + path.sep)) {
+      throw new Error(`Adjunto fuera del directorio permitido: ${rutaFichero}`);
+    }
+    if (path.extname(resolved).toLowerCase() !== '.pdf') {
+      throw new Error(`Extensión de adjunto no permitida: ${rutaFichero}`);
+    }
+    return fs.readFileSync(resolved);
   }
 }

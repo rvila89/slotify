@@ -21,9 +21,10 @@
 import { CatalogoPlantillasEnCodigo } from './catalogo-plantillas';
 import type { CodigoEmail } from '../../domain/codigo-email';
 
-// E3 pasa a ACTIVA en la rebanada 6.4b (documentos-enviar-factura-senal-e3); ya no es
-// diferida. El resto sigue diseñado/inactivo.
-const E_DIFERIDOS: ReadonlyArray<CodigoEmail> = ['E2', 'E4', 'E5', 'E6', 'E7', 'E8'];
+// E3 pasa a ACTIVA en la rebanada 6.4b (documentos-enviar-factura-senal-e3) y E2 en el change
+// `presupuesto-prereserva-cta-descarte-y-e2` (workstream C; su activación se verifica en
+// `catalogo-plantillas-e2.spec.ts`); ya no son diferidas. El resto sigue diseñado/inactivo.
+const E_DIFERIDOS: ReadonlyArray<CodigoEmail> = ['E4', 'E5', 'E6', 'E7', 'E8'];
 
 describe('CatalogoPlantillasEnCodigo — E1 activa y E2–E8 diseñadas/inactivas (2.7)', () => {
   it('debe_seleccionar_la_plantilla_E1_en_es_y_marcarla_como_activa', () => {

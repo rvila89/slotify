@@ -160,6 +160,45 @@ const renderInactivo = (codigo: CodigoEmail) => (
 });
 
 /**
+ * Render real de la plantilla E2 (presupuesto enviado al cliente). Se activa en el change
+ * `presupuesto-prereserva-cta-descarte-y-e2` (workstream C / D-1): el cliente recibe el
+ * presupuesto (PDF adjunto REQUERIDO) con la referencia de su reserva y los próximos pasos para
+ * confirmar. Modelado sobre `renderE3`.
+ */
+const renderE2 = (variables: Record<string, unknown>): RenderPlantilla => {
+  const nombre = texto(variables.nombre);
+  const codigoReserva = texto(variables.codigoReserva);
+  const referencia = codigoReserva === '' ? '' : ` (reserva ${codigoReserva})`;
+  const asunto = `Tu presupuesto para el evento${referencia}`;
+  const cuerpoTexto = [
+    `Hola ${nombre},`,
+    '',
+    'Adjuntamos el presupuesto para tu evento. En el PDF adjunto encontrarás el',
+    `detalle de la propuesta económica de tu reserva ${codigoReserva}.`,
+    '',
+    'Próximos pasos:',
+    '- Revisa con calma el presupuesto adjunto.',
+    '- Responde a este correo para confirmar y avanzar con la reserva.',
+    '- Cuando confirmes, coordinaremos contigo el pago de la señal.',
+    '',
+    'Un saludo.',
+  ].join('\n');
+  const cuerpoHtml = [
+    `<p>Hola ${htmlEscape(nombre)},</p>`,
+    '<p>Adjuntamos el presupuesto para tu evento. En el PDF adjunto encontrarás el ' +
+      `detalle de la propuesta económica de tu reserva ${htmlEscape(codigoReserva)}.</p>`,
+    '<p>Próximos pasos:</p>',
+    '<ul>',
+    '<li>Revisa con calma el presupuesto adjunto.</li>',
+    '<li>Responde a este correo para confirmar y avanzar con la reserva.</li>',
+    '<li>Cuando confirmes, coordinaremos contigo el pago de la señal.</li>',
+    '</ul>',
+    '<p>Un saludo.</p>',
+  ].join('');
+  return { asunto, cuerpoHtml, cuerpoTexto };
+};
+
+/**
  * Render real de la plantilla E3 (factura de señal 40% + condicions particulars). Se activa en
  * la rebanada 6.4b (`documentos-enviar-factura-senal-e3`): cierra el hito de confirmación con la
  * factura de señal adjunta y anuncia al cliente los próximos hitos del evento.
@@ -218,6 +257,20 @@ const PLANTILLA_E1_CA: Plantilla = {
 };
 
 /**
+ * Plantilla E2 ACTIVA en `es` (presupuesto enviado, workstream C / D-1). El PDF del presupuesto
+ * es el adjunto REQUERIDO (`adjuntosRequeridos: ['presupuesto']`, D-1 CERRADA = requerido): sin
+ * él el motor BLOQUEA el envío (no se envía un E2 sin presupuesto).
+ */
+const PLANTILLA_E2_ES: Plantilla = {
+  codigoEmail: 'E2',
+  idioma: 'es',
+  activa: true,
+  variablesRequeridas: ['nombre', 'codigoReserva'],
+  adjuntosRequeridos: ['presupuesto'],
+  render: renderE2,
+};
+
+/**
  * Plantilla E3 ACTIVA en `es` (factura de señal + condicions particulars, 6.4b). La factura de
  * señal es el adjunto REQUERIDO; las condicions particulars son OPCIONALES (degradan sin tumbar
  * el envío, §D-adjunto-condiciones), por eso NO figuran en `adjuntosRequeridos`.
@@ -231,9 +284,11 @@ const PLANTILLA_E3_ES: Plantilla = {
   render: renderE3,
 };
 
-/** Códigos diferidos: declarados como diseñados/inactivos (sin trigger). */
+/**
+ * Códigos diferidos: declarados como diseñados/inactivos (sin trigger). E2 SALE de la lista al
+ * activarse en el workstream C (queda E4–E8).
+ */
 const CODIGOS_DIFERIDOS: ReadonlyArray<CodigoEmail> = [
-  'E2',
   'E4',
   'E5',
   'E6',
@@ -269,6 +324,7 @@ export class CatalogoPlantillasEnCodigo implements CatalogoPlantillasPort {
     Plantilla
   >([
     ['E1', PLANTILLA_E1_ES],
+    ['E2', PLANTILLA_E2_ES],
     ['E3', PLANTILLA_E3_ES],
     ...CODIGOS_DIFERIDOS.map(
       (codigo): [CodigoEmail, Plantilla] => [codigo, plantillaInactivaEs(codigo)],

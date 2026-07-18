@@ -44,6 +44,7 @@ const renderAcciones = (r: Reserva, onFinalizarEvento = vi.fn()) =>
       onFinalizarEvento={onFinalizarEvento}
       onArchivarReserva={noop}
       onDescartarConsulta={noop}
+      onDescartarPreReserva={noop}
     />,
   );
 

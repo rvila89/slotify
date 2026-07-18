@@ -84,6 +84,15 @@ export type {
   DescartarConsultaVars,
 } from './api/useDescartarConsulta';
 export { puedeDescartarConsulta, MENSAJE_DESCARTE_TERMINAL } from './lib/descartarConsulta';
+export { useDescartarPreReserva } from './api/useDescartarPreReserva';
+export type {
+  DescartarPreReservaError,
+  DescartarPreReservaVars,
+} from './api/useDescartarPreReserva';
+export {
+  puedeDescartarPreReserva,
+  MENSAJE_DESCARTE_PRERESERVA_TERMINAL,
+} from './lib/descartarPreReserva';
 export { IbanDevolucionCard } from './components/IbanDevolucionCard';
 export { puedeRegistrarIban, tieneFianza } from './lib/ibanDevolucion';
 export { esIbanValido, normalizarIban } from './lib/iban';

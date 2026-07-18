@@ -160,6 +160,16 @@ import {
 } from './application/descartar-consulta-por-cliente.use-case';
 import { DescartarConsultaUoWPrismaAdapter } from './infrastructure/descartar-consulta-uow.prisma.adapter';
 import { DescartarConsultaController } from './interface/descartar-consulta.controller';
+import {
+  DescartarPreReservaUseCase,
+  type DescartePreReservaUoWPort,
+} from './application/descartar-prereserva.use-case';
+import {
+  DescartarReservaOrquestadorUseCase,
+  type EstadoReservaLectorPort,
+} from './application/descartar-reserva-orquestador.use-case';
+import { DescartarPreReservaUoWPrismaAdapter } from './infrastructure/descartar-prereserva-uow.prisma.adapter';
+import { EstadoReservaLectorPrismaAdapter } from './infrastructure/estado-reserva-lector.prisma.adapter';
 import { DispararE5Adapter } from './infrastructure/disparar-e5.adapter';
 import { DocumentacionEventoStubAdapter } from './infrastructure/documentacion-evento.stub.adapter';
 import { FinalizarEventoController } from './interface/finalizar-evento.controller';
@@ -276,6 +286,8 @@ import {
   CARGAR_RESERVA_ACTUALIZABLE_PORT,
   UNIDAD_DE_TRABAJO_ACTUALIZAR_RESERVA_PORT,
   UNIDAD_DE_TRABAJO_CAMBIAR_FECHA_PORT,
+  UNIDAD_DE_TRABAJO_DESCARTE_PRERESERVA_PORT,
+  ESTADO_RESERVA_LECTOR_PORT,
 } from './reservas.tokens';
 
 @Module({
@@ -1054,6 +1066,50 @@ import {
           clock,
         }),
     },
+    // change presupuesto-prereserva-cta-descarte-y-e2 (workstream B / D-2) — descarte de
+    // pre-reserva (pre_reserva → reserva_cancelada). UoW atómica propia scoped a UNA RESERVA del
+    // tenant del JWT con SELECT … FOR UPDATE: transición a reserva_cancelada (ttl NULL) +
+    // liberación de FECHA_BLOQUEADA (misma mecánica que liberarFecha()) + AUDIT_LOG (origen
+    // Gestor, motivo opcional). La promoción A15 (con cola) se dispara POST-COMMIT vía el seam
+    // PROMOCION_COLA_PORT, exactamente una vez. El orquestador despacha POST /reservas/{id}/
+    // descartar por fase (consulta → US-013; pre_reserva → esta transición). Sin email, sin cron,
+    // sin locks distribuidos.
+    {
+      provide: UNIDAD_DE_TRABAJO_DESCARTE_PRERESERVA_PORT,
+      inject: [PrismaService, PROMOCION_COLA_PORT],
+      useFactory: (prisma: PrismaService, promocion: PromocionColaPort) =>
+        new DescartarPreReservaUoWPrismaAdapter(prisma, promocion),
+    },
+    {
+      provide: DescartarPreReservaUseCase,
+      inject: [UNIDAD_DE_TRABAJO_DESCARTE_PRERESERVA_PORT],
+      useFactory: (uow: DescartePreReservaUoWPort) =>
+        new DescartarPreReservaUseCase({ uow }),
+    },
+    {
+      provide: ESTADO_RESERVA_LECTOR_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new EstadoReservaLectorPrismaAdapter(prisma),
+    },
+    {
+      provide: DescartarReservaOrquestadorUseCase,
+      inject: [
+        ESTADO_RESERVA_LECTOR_PORT,
+        DescartarConsultaPorClienteUseCase,
+        DescartarPreReservaUseCase,
+      ],
+      useFactory: (
+        lector: EstadoReservaLectorPort,
+        descartarConsulta: DescartarConsultaPorClienteUseCase,
+        descartarPreReserva: DescartarPreReservaUseCase,
+      ) =>
+        new DescartarReservaOrquestadorUseCase({
+          lector,
+          descartarConsulta,
+          descartarPreReserva,
+        }),
+    },
     CronTokenGuard,
     BarridoExpiracionScheduler,
     BarridoEventosScheduler,
@@ -1086,6 +1142,8 @@ import {
     DescartarConsultaPorClienteUseCase,
     ActualizarReservaUseCase,
     CambiarFechaUseCase,
+    DescartarPreReservaUseCase,
+    DescartarReservaOrquestadorUseCase,
   ],
 })
 export class ReservasModule {}

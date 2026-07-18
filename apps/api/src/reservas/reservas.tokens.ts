@@ -157,3 +157,12 @@ export const UNIDAD_DE_TRABAJO_ACTUALIZAR_RESERVA_PORT = Symbol(
 export const UNIDAD_DE_TRABAJO_CAMBIAR_FECHA_PORT = Symbol(
   'UnidadDeTrabajoCambiarFechaPort',
 );
+
+// change presupuesto-prereserva-cta-descarte-y-e2 (workstream B / D-2) — descarte de pre-reserva
+// (pre_reserva → reserva_cancelada, acción manual del Gestor con JWT; UoW atómica propia con
+// SELECT … FOR UPDATE + liberarFecha() + promoción de cola) + lector de estado para el orquestador
+// que despacha POST /reservas/{id}/descartar por fase.
+export const UNIDAD_DE_TRABAJO_DESCARTE_PRERESERVA_PORT = Symbol(
+  'UnidadDeTrabajoDescartePreReservaPort',
+);
+export const ESTADO_RESERVA_LECTOR_PORT = Symbol('EstadoReservaLectorPort');

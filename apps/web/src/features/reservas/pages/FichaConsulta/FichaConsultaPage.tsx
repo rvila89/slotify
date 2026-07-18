@@ -44,6 +44,8 @@ export const FichaConsultaPage = () => {
   const [dialogoFinalizarAbierto, setDialogoFinalizarAbierto] = useState(false);
   const [dialogoArchivarAbierto, setDialogoArchivarAbierto] = useState(false);
   const [dialogoDescartarAbierto, setDialogoDescartarAbierto] = useState(false);
+  const [dialogoDescartarPreReservaAbierto, setDialogoDescartarPreReservaAbierto] =
+    useState(false);
   // RESERVA resultante de la transición de fecha (US-005): alimenta el aviso 2b/2d.
   const [resultado, setResultado] = useState<Reserva | null>(null);
   // Resultado de la transición 2.b → 2.c (US-007): alimenta su aviso (TTL + cola).
@@ -240,6 +242,7 @@ export const FichaConsultaPage = () => {
           }}
           onArchivarReserva={() => setDialogoArchivarAbierto(true)}
           onDescartarConsulta={() => setDialogoDescartarAbierto(true)}
+          onDescartarPreReserva={() => setDialogoDescartarPreReservaAbierto(true)}
         />
       </section>
 
@@ -264,6 +267,10 @@ export const FichaConsultaPage = () => {
             finalizar: [dialogoFinalizarAbierto, setDialogoFinalizarAbierto],
             archivar: [dialogoArchivarAbierto, setDialogoArchivarAbierto],
             descartar: [dialogoDescartarAbierto, setDialogoDescartarAbierto],
+            descartarPreReserva: [
+              dialogoDescartarPreReservaAbierto,
+              setDialogoDescartarPreReservaAbierto,
+            ],
           }}
           onResuelto={setResultado}
           onCambiadaFecha={setResultado}
@@ -284,6 +291,7 @@ export const FichaConsultaPage = () => {
           // refetch en el diálogo; la página no guarda estado.
           onArchivado={() => {}}
           onDescartado={() => {}}
+          onDescartadoPreReserva={() => {}}
         />
       )}
     </div>
