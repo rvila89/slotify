@@ -82,7 +82,7 @@ Módulos alineados con los componentes de [c4-diagrams.md](./c4-diagrams.md) (no
 | Módulo | Responsabilidad | UC |
 |---|---|---|
 | `auth` | Login, refresh, guards de rol/tenant | UC-01, UC-02 |
-| `reservas` | **Core.** Ciclo de vida de la reserva, máquina de estados, bloqueo atómico, cola. Incluye el endpoint `PATCH /reservas/{id}/datos-fiscales` (completar datos fiscales del CLIENTE asociado a una reserva, resolución inline de `DATOS_FISCALES_INCOMPLETOS` — UC-14 incidencia #5, US-014 Parte B) | UC-03 a UC-13, UC-14 (#5), UC-23 a UC-28 |
+| `reservas` | **Core.** Ciclo de vida de la reserva, máquina de estados, bloqueo atómico, cola. Incluye `PATCH /reservas/{id}/datos-fiscales` (completar datos fiscales del CLIENTE — UC-14 incidencia #5, US-014 Parte B); `PATCH /reservas/{id}` (update parcial de campos simples: `tipoEvento`, `duracionHoras`, nº invitados, `notas`, `horario` — US-051; no muta `fechaEvento`); `POST /reservas/{id}/cambiar-fecha` (operación atómica liberar-fecha-antigua + bloquear-fecha-nueva, con manejo de cola FIFO — US-051 §D-2.1). | UC-03 a UC-13, UC-14 (#5), UC-23 a UC-28 |
 | `calendario` | Disponibilidad, bloqueo y liberación de fechas | UC-29 a UC-31 |
 | `clientes` | Datos de contacto y fiscales | UC-03, UC-14 |
 | `presupuestos` | Motor de tarifas + generación/versionado de PDF | UC-14 a UC-16 |

@@ -181,6 +181,18 @@ US-019 complementa US-018 permitiendo al Gestor promover deliberadamente una con
 
 - **AUDIT_LOG:** `accion='transicion'`, `entidad='RESERVA'` por cada RESERVA modificada (bloqueante expirada, promovida, reordenadas), con `datos_nuevos.origen: 'promocion_manual'` y `usuario_id` del Gestor.
 
+**US-051 — edición de campos simples y cambio atómico de fecha ya bloqueada:**
+
+US-051 introduce dos operaciones sobre la RESERVA que afectan al núcleo crítico de formas distintas:
+
+- **`PATCH /reservas/{id}` — update parcial de campos simples (`ActualizarReservaUseCase`):** actualiza los campos `tipoEvento`, `duracionHoras`, `numAdultosNinosMayores4`, `numNinosMenores4`, `numInvitadosFinal`, `notas` y `horario` de la RESERVA. Estos campos **no afectan al bloqueo de fecha ni a la cola**. El PATCH **no acepta `fechaEvento`**; si un cliente lo envía, el servidor lo ignora/rechaza sin persistirlo (ver `design.md §D-1`). RLS por tenant + `AUDIT_LOG accion='actualizar'`. Sin migración (todos los campos existían antes de US-051). Validación adicional de `horario`: solo es aceptado si `duracionHoras` está presente en la RESERVA o en el mismo PATCH.
+
+- **`POST /reservas/{id}/cambiar-fecha` — operación atómica "cambiar fecha ya bloqueada" (`CambiarFechaReservaUseCase`):** cuando la RESERVA tiene ya una fecha en `sub_estado ∈ {2b, 2c, 2v}`, el cambio de fecha pasa obligatoriamente por esta operación dedicada. La razón: toda mutación de `fechaEvento` debe pasar por `bloquearFecha()`/`liberarFecha()` para no abrir una ventana de carrera (regla dura de `CLAUDE.md §Regla crítica: bloqueo atómico de fecha`). La operación ejecuta en **una única transacción** con `SELECT … FOR UPDATE` sobre la RESERVA y sobre `FECHA_BLOQUEADA(tenant_id, fecha_nueva)`:
+  1. Si `fecha_nueva` está libre: `bloquearFecha(tenant_id, fecha_nueva)` (INSERT) + UPDATE `RESERVA.fecha_evento` + `liberarFecha(tenant_id, fecha_antigua)` (DELETE) + si la fecha antigua tenía cola activa, disparo de `PromocionColaPort` (mecánica A15).
+  2. Si `fecha_nueva` está bloqueada: rollback total — la fecha antigua permanece intacta, la RESERVA no cambia, respuesta 409.
+  3. `AUDIT_LOG accion='actualizar'` con la fecha anterior y la nueva.
+  La garantía de no-doble-reserva sigue siendo `UNIQUE(tenant_id, fecha)` del motor PostgreSQL, sin locks distribuidos. Dos cambios concurrentes hacia la misma `fecha_nueva` resultan en uno exitoso y uno con 409 (violación de unicidad) — nunca doble bloqueo. La cobertura TDD de concurrencia incluye: cambios concurrentes a la misma `fecha_nueva`, cambio concurrente con un alta (`bloquearFecha` de UC-03/UC-04), cambio sobre fecha con cola activa (promoción FIFO exactamente-una-vez), y rollback total si falla el bloqueo de la nueva fecha (fecha antigua permanece intacta). Sin migración de esquema. Fuente: `design.md §D-1, §D-2.1`; `er-diagram.md §3.7`.
+
 **US-004 — extensiones del núcleo crítico (alta de consulta con fecha):**
 
 - **`bloquearEnTx(tx, …)`**: `FechaBloqueadaPrismaAdapter` se refactorizó extrayendo el INSERT transaccional (`SELECT FOR UPDATE` + P2002) a un método que acepta el `tx` de la UoW del alta. El método público `bloquear()` (US-040) queda como wrapper sin cambio de contrato externo. Esto permite que `RESERVA 2b + FECHA_BLOQUEADA` se creen en una única transacción all-or-nothing. Fuente: `design.md §D-2`.

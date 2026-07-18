@@ -2,8 +2,8 @@
 
 > **Documento**: Modelo de Datos (definición de entidades, campos y reglas)
 > **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados
-> **Versión**: 2.7
-> **Fecha**: 17/07/2026
+> **Versión**: 2.8
+> **Fecha**: 18/07/2026
 > **Fuente canónica del ERD**: [er-diagram.md](./er-diagram.md) · **Arquitectura**: [architecture.md](./architecture.md) · **Casos de uso**: [use-cases.md](./use-cases.md)
 
 ---
@@ -230,6 +230,8 @@ Recorre toda la máquina de estados. Incluye campos de cola, visita, sub-proceso
 | `cond_part_firmadas` | `Boolean @default(false)` | `false` cuando el cliente no ha devuelto el contrato firmado. Se fija a `false` al enviar E3 (US-023) y a `true` al registrar la firma (UC-19 flujo registro). Una alerta no bloqueante A29 se emite en T-0 si sigue en `false` (US-031). |
 | `cond_part_enviadas_fecha` | `DateTime?` | Timestamp de la última vez que las condicions particulars fueron enviadas al cliente en E3. Fijado en el primer envío (`POST /reservas/{id}/facturas/senal/enviar`, US-023) y actualizado en cada reenvío manual (`POST /reservas/{id}/facturas/senal/reenviar`). `null` si E3 no se ha disparado todavía. |
 | `cond_part_firmadas_fecha` | `DateTime?` | Timestamp en que el gestor registra la firma del cliente en el sistema (UC-19 flujo registro). |
+| `idioma` | `String @default("es")` | Idioma de comunicación con el cliente. Valores permitidos: `es` (castellano) y `ca` (catalán). Determina la plantilla de email E1 y el dossier PDF adjunto (`Dossier-Masia-Encis-{idioma}.pdf`). Añadido en US-047 (migración `20260717150000_add_idioma_horario_to_reserva`). |
+| `horario` | `String?` | Hora de inicio prevista del evento en formato `HH:MM` (p. ej. `"10:00"`). Nullable. Solo válido junto a `duracion_horas` (validación en API). Añadido en US-047 (migración `20260717150000_add_idioma_horario_to_reserva`). Expuesto en el wire en US-051: aparece en el schema de respuesta `Reserva` (nullable) y es editable vía `PATCH /reservas/{id}` (`UpdateReservaRequest.horario`). Es campo de completitud obligatorio para habilitar "Generar presupuesto" en la UI de la ficha (junto a `fechaEvento`, `numAdultosNinosMayores4` y `duracionHoras`). |
 | `notas` | `String? @db.Text` | |
 | `activo` | `Boolean @default(true)` | |
 | `fecha_creacion` / `fecha_actualizacion` | `DateTime` | Auditoría |
