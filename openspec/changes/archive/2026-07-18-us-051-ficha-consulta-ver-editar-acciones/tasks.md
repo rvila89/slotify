@@ -128,11 +128,11 @@
 
 ## 11. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final)
 
-- [ ] 11.1 Tras code-review APTO + validación manual, **ESPERAR el OK humano** antes de
-  archive/PR.
+- [x] 11.1 Tras code-review APTO + validación manual, **ESPERAR el OK humano** antes de
+  archive/PR. → OK humano recibido ("ok").
 
 ## 12. Archivar change + abrir PR (OBLIGATORIO — archive)
 
-- [ ] 12.1 `openspec archive us-051-ficha-consulta-ver-editar-acciones` (solo tras gate
-  final y code-review APTO; el hook `require-code-review` lo bloquea si falta el informe).
-- [ ] 12.2 Actualizar `openspec/specs/` (lo aplica `archive`) y abrir PR.
+- [x] 12.1 `openspec archive us-051-ficha-consulta-ver-editar-acciones` — aplicado
+  (+4 requirements `consultas`, +1 `presupuestos`).
+- [x] 12.2 `openspec/specs/` actualizado por `archive`; PR abierto contra master.
