@@ -4420,6 +4420,9 @@ components:
         fechaEvento: { type: string, format: date, nullable: true }
         duracionHoras: { allOf: [{ $ref: '#/components/schemas/DuracionHoras' }], nullable: true }
         tipoEvento: { allOf: [{ $ref: '#/components/schemas/TipoEvento' }], nullable: true }
+        # [US-051 §D-5] Hora de inicio prevista del evento (RESERVA.horario, migración
+        # 20260717150000_add_idioma_horario_to_reserva de US-047). Cambio aditivo/nullable.
+        horario: { type: string, nullable: true, pattern: '^\d{2}:\d{2}$', example: '11:00' }
         numAdultosNinosMayores4: { type: integer, nullable: true }
         numNinosMenores4: { type: integer, nullable: true }
         numInvitadosFinal: { type: integer, nullable: true }
@@ -4668,6 +4671,10 @@ components:
         numNinosMenores4: { type: integer }
         numInvitadosFinal: { type: integer }
         notas: { type: string }
+        # [US-051 §D-5] Hora de inicio (HH:MM). Solo válido si duracionHoras está presente
+        # (o entra en el mismo PATCH); la validación cruzada se aplica en servidor. La
+        # fecha del evento NO se muta por este PATCH (§D-1): va por el bloqueo atómico.
+        horario: { type: string, pattern: '^\d{2}:\d{2}$', example: '11:00' }
     TransicionRequest:
       type: object
       required: [estadoDestino]

@@ -3646,6 +3646,8 @@ export interface components {
             fechaEvento?: string | null;
             duracionHoras?: components["schemas"]["DuracionHoras"] | null;
             tipoEvento?: components["schemas"]["TipoEvento"] | null;
+            /** @example 11:00 */
+            horario?: string | null;
             numAdultosNinosMayores4?: number | null;
             numNinosMenores4?: number | null;
             numInvitadosFinal?: number | null;
@@ -3783,6 +3785,8 @@ export interface components {
             numNinosMenores4?: number;
             numInvitadosFinal?: number;
             notas?: string;
+            /** @example 11:00 */
+            horario?: string;
         };
         TransicionRequest: {
             estadoDestino: components["schemas"]["EstadoReserva"];
