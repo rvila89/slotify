@@ -93,10 +93,10 @@
 - [x] 10.2 Report `reports/2026-07-18-step-review-code-review.md` — **`Veredicto: APTO`**
 
 ## 11. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final)
-- [ ] 11.1 Presentar al humano el code-review APTO + la validación manual (curl/E2E) y
-      **ESPERAR su OK explícito** antes de archive/PR
+- [x] 11.1 Presentado el code-review APTO + validación curl/BD; **OK explícito del usuario**
+      recibido (commit + rebase sobre master + archive + PR)
 
 ## 12. Archivar change + abrir PR (OBLIGATORIO — archive)
-- [ ] 12.1 `openspec archive email-transicion-fecha-borrador` (solo tras gate final +
-      code-review APTO); actualizar `openspec/specs/consultas/`
-- [ ] 12.2 Abrir PR (GitHub MCP o `gh`)
+- [x] 12.1 `openspec archive email-transicion-fecha-borrador` → spec viva `consultas`
+      actualizada (+3 ~1); rebase sobre `origin/master` (#81/#82/#83) OK, 49/49 verde
+- [x] 12.2 PR abierto
