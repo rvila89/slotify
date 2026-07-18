@@ -75,6 +75,7 @@ export class ObtenerReservaController {
       fechaEvento: aFecha(r.fechaEvento),
       duracionHoras: r.duracionHoras,
       tipoEvento: r.tipoEvento,
+      horario: r.horario,
       numAdultosNinosMayores4: r.numAdultosNinosMayores4,
       numNinosMenores4: r.numNinosMenores4,
       numInvitadosFinal: r.numInvitadosFinal,

@@ -46,6 +46,7 @@ export interface ReservaDetalleLectura {
   fechaEvento: Date | null;
   duracionHoras: number | null;
   tipoEvento: string | null;
+  horario?: string | null;
   numAdultosNinosMayores4: number | null;
   numNinosMenores4: number | null;
   numInvitadosFinal: number | null;

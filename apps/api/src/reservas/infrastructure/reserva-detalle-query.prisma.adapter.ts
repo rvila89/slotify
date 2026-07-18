@@ -79,6 +79,7 @@ export class ReservaDetalleQueryPrismaAdapter implements ReservaDetalleQueryPort
       fechaEvento: fila.fechaEvento,
       duracionHoras: duracionHorasPrismaANumero(fila.duracionHoras),
       tipoEvento: fila.tipoEvento,
+      horario: fila.horario,
       numAdultosNinosMayores4: fila.numAdultosNinosMayores4,
       numNinosMenores4: fila.numNinosMenores4,
       numInvitadosFinal: fila.numInvitadosFinal,

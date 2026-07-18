@@ -88,6 +88,9 @@ export class ReservaDetalleResponseDto {
   })
   tipoEvento!: string | null;
 
+  @ApiPropertyOptional({ type: String, pattern: '^\\d{2}:\\d{2}$', nullable: true })
+  horario?: string | null;
+
   @ApiPropertyOptional({ type: Number, nullable: true })
   numAdultosNinosMayores4!: number | null;
 
