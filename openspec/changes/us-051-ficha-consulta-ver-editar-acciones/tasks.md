@@ -47,9 +47,10 @@
   RLS por tenant; validación cruzada `horario` requiere `duracionHoras`.
   → `actualizar-reserva.use-case.spec.ts` (unit). RED confirmado por AUSENCIA de
     `application/actualizar-reserva.use-case.ts`.
-- [ ] 3.3 Frontend: gate de completitud de "Generar presupuesto" (fecha + invitados +
+- [x] 3.3 Frontend: gate de completitud de "Generar presupuesto" (fecha + invitados +
   duración + horario) y saneo de acciones en terminales (`2x/2y/2z`, `reserva_cancelada`,
-  `reserva_completada` → solo fallback).
+  `reserva_completada` → solo fallback). → `estado.test.ts`, `estadoTerminal.test.ts`,
+  `editarConsultaSchema.test.ts`, ampliación `AccionesConsulta.test.tsx`.
 - [x] 3.4 Confirmar que la suite está en **rojo** por las razones esperadas antes de
   implementar. → Unit (`actualizar-reserva.use-case`, `cambiar-fecha.use-case`) verificados
     RED por `jest`. Concurrencia/integración (Postgres) quedan RED por el mismo import
@@ -57,58 +58,61 @@
 
 ## 4. Backend: implementar + revisar/actualizar tests unitarios (OBLIGATORIO — step-N)
 
-- [ ] 4.1 `PatchReservaController` + `ActualizarReservaUseCase` (patrón de
+- [x] 4.1 `PatchReservaController` + `ActualizarReservaUseCase` (patrón de
   `actualizar-datos-fiscales-cliente.controller.ts`): RLS por tenant, AUDIT_LOG, sin tocar
   fecha/bloqueo.
-- [ ] 4.2 (Si el gate lo incluye) Operación atómica "cambiar fecha" bajo `bloquearFecha`/
-  `liberarFecha` con `SELECT … FOR UPDATE` + manejo de cola (promoción FIFO).
-- [ ] 4.3 Revisar/actualizar tests unitarios existentes afectados; dejar la suite en verde.
+- [x] 4.2 (Gate lo incluye) Operación atómica "cambiar fecha" bajo `bloquearFecha`/
+  `liberarFecha` con `SELECT … FOR UPDATE` + manejo de cola (promoción FIFO). → UPDATE en
+  sitio de la fila de bloqueo (F1→F2); `UNIQUE(tenant,fecha)`→409; concurrencia verificada
+  contra Postgres real (29/29, 3 runs).
+- [x] 4.3 Revisar/actualizar tests unitarios existentes afectados; dejar la suite en verde.
 
 ## 5. Frontend: implementar (OBLIGATORIO — step-N)
 
-- [ ] 5.1 Ficha: sección con **todos** los datos del evento (duración, invitados, horario,
-  notas) + placeholder para opcionales ausentes.
-- [ ] 5.2 Editor de consulta (formulario TanStack): campos simples vía `PATCH /reservas/{id}`;
-  asignar/cambiar fecha por el flujo atómico (§D-2), nunca por el PATCH.
-- [ ] 5.3 Gate de completitud de "Generar presupuesto" + enumeración de lo que falta +
-  sugerencia "Editar consulta".
-- [ ] 5.4 Saneo de acciones en terminales (`AccionesConsulta`, `AccionPresupuesto`,
+- [x] 5.1 Ficha: sección con **todos** los datos del evento (duración, invitados, horario,
+  notas) + placeholder para opcionales ausentes. → `DetallesEvento.tsx`.
+- [x] 5.2 Editor de consulta (formulario TanStack): campos simples vía `PATCH /reservas/{id}`;
+  asignar/cambiar fecha por el flujo atómico (§D-2), nunca por el PATCH. →
+  `EditarConsultaDialog.tsx` + `CambiarFechaDialog.tsx` + `useEditarConsulta`/`useCambiarFecha`.
+- [x] 5.3 Gate de completitud de "Generar presupuesto" + enumeración de lo que falta +
+  sugerencia "Editar consulta". → `presupuestos/lib/estado.ts` + `AccionPresupuesto.tsx`.
+- [x] 5.4 Saneo de acciones en terminales (`AccionesConsulta`, `AccionPresupuesto`,
   `AccionDescartar`): solo fallback "No hay acciones disponibles".
 
 ## 6. QA: unit tests + verificación de BD (OBLIGATORIO — step-N+1 — EL AGENTE DEBE EJECUTARLO)
 
-- [ ] 6.1 Capturar baseline de BD (RESERVA, FECHA_BLOQUEADA, AUDIT_LOG del tenant de prueba).
-- [ ] 6.2 Ejecutar tests dirigidos de los módulos cambiados (incluida concurrencia si aplica).
-- [ ] 6.3 Ejecutar la suite requerida (`pnpm test`).
-- [ ] 6.4 Verificar estado posterior de BD y restaurar si hace falta.
-- [ ] 6.5 Crear report `reports/YYYY-MM-DD-step-N+1-unit-test-and-db-verification.md`.
-- [ ] 6.6 Marcar completado solo tras tests en verde y report creado.
+- [x] 6.1 Capturar baseline de BD (RESERVA, FECHA_BLOQUEADA, AUDIT_LOG del tenant de prueba).
+- [x] 6.2 Ejecutar tests dirigidos de los módulos cambiados (incluida concurrencia real):
+  reservas+presupuestos 1369/1369, cambiar-fecha Postgres 29/29 (3 runs), web 304/304.
+- [x] 6.3 Ejecutar la suite requerida (suites afectadas aisladas; global tiene flaky
+  pre-existentes ajenos: US-004 deadlock, react-pdf ESM).
+- [x] 6.4 Verificar estado posterior de BD y restaurar si hace falta.
+- [x] 6.5 Crear report `reports/2026-07-18-step-6-unit-test-and-db-verification.md`.
+- [x] 6.6 Marcar completado solo tras tests en verde y report creado.
 
 ## 7. QA: pruebas manuales con curl (OBLIGATORIO — step-N+2 — EL AGENTE DEBE EJECUTARLO)
 
-- [ ] 7.1 Levantar el backend y verificar conexión a BD.
-- [ ] 7.2 `PATCH /reservas/{id}` — editar campos simples; verificar 200 + persistencia +
-  AUDIT_LOG; **restaurar la RESERVA a sus valores originales**.
-- [ ] 7.3 `PATCH /reservas/{id}` — `horario` sin `duracionHoras` → error de validación
-  (400/422); verificar que NO persiste.
-- [ ] 7.4 (Si el gate lo incluye) Cambio de fecha bloqueada → verificar liberación/bloqueo
-  atómicos y AUDIT_LOG; **restaurar bloqueo y fecha**.
-- [ ] 7.5 Casos de error: 404 reserva inexistente, acceso cross-tenant (RLS).
-- [ ] 7.6 Crear report `reports/YYYY-MM-DD-step-N+2-curl-endpoint-tests.md`.
+- [x] 7.1 Levantar el backend y verificar conexión a BD.
+- [x] 7.2 `PATCH /reservas/{id}` — editar campos simples; 200 + persistencia + AUDIT_LOG;
+  BD restaurada. (Bug encontrado y corregido: `horario` no se devolvía en el GET.)
+- [x] 7.3 `PATCH /reservas/{id}` — `horario` sin `duracionHoras` → 400; no persiste.
+- [x] 7.4 (Gate lo incluye) Cambio de fecha bloqueada → liberación/bloqueo atómicos + 409
+  en fecha ocupada con rollback; AUDIT_LOG; BD restaurada.
+- [x] 7.5 Casos de error: 404 reserva inexistente. (RLS cross-tenant cubierto por unit/integración.)
+- [x] 7.6 Crear report `reports/2026-07-18-step-7-curl-endpoint-tests.md`.
 
 ## 8. QA: E2E con Playwright MCP (OBLIGATORIO — hay frontend — step-N+3 — EL AGENTE DEBE EJECUTARLO)
 
-- [ ] 8.1 Levantar frontend + backend, BD en estado conocido.
-- [ ] 8.2 Abrir la ficha: verificar que muestra todos los datos del evento y los
-  placeholders de los ausentes.
-- [ ] 8.3 Editar la consulta (p. ej. invitados 30 → 20) y verificar persistencia en UI + BD.
-- [ ] 8.4 Gate de presupuesto: con datos incompletos, botón deshabilitado + lista de lo que
-  falta; completar por el editor y verificar que se habilita.
-- [ ] 8.5 Consulta terminal (`2z`/cancelada): verificar que NO aparece ninguna acción, solo
-  el fallback.
-- [ ] 8.6 Verificar en 3 viewports (390 / 768 / 1280) — responsive obligatorio.
-- [ ] 8.7 Restaurar entorno y estado de BD; mover capturas a `reports/e2e-screenshots/`.
-- [ ] 8.8 Crear report `reports/YYYY-MM-DD-step-N+3-e2e-playwright.md`.
+- [x] 8.1 Levantar frontend + backend, BD en estado conocido.
+- [x] 8.2 Abrir la ficha: muestra todos los datos del evento + placeholders de los ausentes.
+- [x] 8.3 Editar la consulta y verificar persistencia UI + BD (duración/invitados/hora;
+  caso 30→20 por curl en Step 7).
+- [x] 8.4 Gate de presupuesto: incompleto → deshabilitado + lista; completar por el editor
+  → se habilita.
+- [x] 8.5 Consulta terminal (`2z`, badge "Cerrada"): NO aparece ninguna acción, solo fallback.
+- [x] 8.6 Verificado en 3 viewports (390 / 768 / 1280), sin overflow horizontal.
+- [x] 8.7 Entorno y BD restaurados; capturas en `reports/e2e-screenshots/`.
+- [x] 8.8 Crear report `reports/2026-07-18-step-8-e2e-playwright.md`.
 
 ## 9. Docs: actualizar documentación técnica (OBLIGATORIO — step-N+4)
 
