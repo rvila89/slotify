@@ -428,6 +428,23 @@ export class DespacharEmailService {
   }
 
   /**
+   * Rellena (post-commit) el CONTENIDO de un borrador E1 creado con comentarios en el
+   * alta (fix-borrador-e1-cuerpo-prerelleno): actualiza SOLO `asunto` + `cuerpo` con el
+   * texto renderizado, manteniendo la fila en `borrador` (guarda de estado en el
+   * repositorio). Delega en el mismo `ComunicacionRepositoryPort` del motor, de modo que
+   * el alta reutiliza este servicio (ya inyectado para `finalizarEnvio`) sin wiring nuevo.
+   * Fuera de la unidad de trabajo del alta; el llamador lo invoca best-effort.
+   */
+  async actualizarContenidoBorrador(params: {
+    tenantId: string;
+    idComunicacion: string;
+    asunto: string;
+    cuerpo: string;
+  }): Promise<ComunicacionRegistrada> {
+    return this.deps.comunicaciones.actualizarContenidoBorrador(params);
+  }
+
+  /**
    * Núcleo del camino de envío: invoca el puerto y, según el resultado, AUDITA y
    * decide el estado final SIN persistirlo (la persistencia la hace el llamador con
    * el `actualizarEstado`). Nunca propaga la excepción del proveedor.

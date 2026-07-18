@@ -127,6 +127,13 @@ const crearComunicacionesFake = (
         return creado;
       },
     ),
+    // fix-borrador-e1-cuerpo-prerelleno: UPDATE de contenido del borrador (ajeno al motor).
+    actualizarContenidoBorrador: jest.fn(
+      async (p: { asunto: string; cuerpo: string }): Promise<ComunicacionRegistrada> => {
+        creado = { ...(creado as ComunicacionRegistrada) };
+        return creado;
+      },
+    ),
     // US-046 D-3: método de listado ajeno al motor (no se ejercita en estas suites).
     listarPorReserva: jest.fn(async () => []),
   };
@@ -408,6 +415,7 @@ describe('DespacharEmailService — idempotencia por (reserva, código) (2.3)', 
         return primerCreado;
       }),
       actualizarEstado: jest.fn(async () => primerCreado as ComunicacionRegistrada),
+      actualizarContenidoBorrador: jest.fn(async () => primerCreado as ComunicacionRegistrada),
       listarPorReserva: jest.fn(async () => []),
     };
     const fake = new FakeEmailAdapter();
@@ -607,6 +615,7 @@ describe('DespacharEmailService — finalizarEnvio (envío post-commit de fila y
         fechaEnvio: p.fechaEnvio,
       }),
     ),
+    actualizarContenidoBorrador: jest.fn(async () => filaBorrador),
     listarPorReserva: jest.fn(async () => []),
   });
 

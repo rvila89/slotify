@@ -52,6 +52,9 @@ describe('ComunicacionRepositoryPort — contrato del puerto de dominio', () => 
         almacenado = { ...(almacenado as ComunicacionRegistrada), estado: p.estado, fechaEnvio: p.fechaEnvio };
         return almacenado;
       },
+      // fix-borrador-e1-cuerpo-prerelleno: UPDATE de asunto+cuerpo del borrador (no
+      // ejercitado en este contrato; el estado no cambia).
+      actualizarContenidoBorrador: async () => almacenado as ComunicacionRegistrada,
       // US-046 D-3: método de listado añadido al puerto (no ejercitado en este contrato).
       listarPorReserva: async () => [],
     };
