@@ -5,7 +5,13 @@
  */
 export { GenerarPresupuestoDialog } from './components/GenerarPresupuestoDialog';
 export { AvisoPresupuestoConfirmado } from './components/AvisoPresupuestoConfirmado';
-export { puedeGenerarPresupuesto, motivoNoPuedeGenerar } from './lib/estado';
+export {
+  puedeGenerarPresupuesto,
+  motivoNoPuedeGenerar,
+  camposCompletitudFaltantes,
+  ETIQUETA_CAMPO_COMPLETITUD,
+} from './lib/estado';
+export type { CampoCompletitudPresupuesto } from './lib/estado';
 export { usePreviewPresupuesto } from './api/usePreviewPresupuesto';
 export type { PreviewPresupuestoVars } from './api/usePreviewPresupuesto';
 export { useConfirmarPresupuesto } from './api/useConfirmarPresupuesto';

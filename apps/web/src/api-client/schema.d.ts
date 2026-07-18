@@ -529,6 +529,107 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/cambiar-fecha": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cambiar la fecha ya bloqueada de una RESERVA — operación atómica (US-051)
+         * @description [US-051 §D-2.1] Cambia la `fechaEvento` de una RESERVA que **YA tiene una fecha
+         *     bloqueada** (sub-estados `2b`/`2c`/`2v`) por otra fecha. Es una **única transacción
+         *     atómica** (`SELECT … FOR UPDATE` sobre la RESERVA y sobre `FECHA_BLOQUEADA(tenant_id,
+         *     fecha_nueva)`; `UNIQUE(tenant_id, fecha)`; **sin Redis ni locks distribuidos** —
+         *     `CLAUDE.md §Regla crítica: bloqueo atómico de fecha`):
+         *
+         *     1. Si la fecha nueva está **LIBRE** → `bloquearFecha(tenant_id, fecha_nueva)`, actualiza
+         *        `RESERVA.fecha_evento`, `liberarFecha(tenant_id, fecha_antigua)` y, si la fecha antigua
+         *        tenía cola, dispara la **promoción FIFO** (mecánica A15) del primero en cola.
+         *     2. Si la fecha nueva está **OCUPADA** por otra RESERVA → **rechaza con 409 sin tocar nada**
+         *        (rollback total: la RESERVA conserva su fecha antigua y su bloqueo). A diferencia del
+         *        alta/asignación (`POST /reservas/{id}/fecha`), aquí **NO se ofrece cola** para la fecha
+         *        nueva: el conflicto es terminal para esta operación (por eso NO lleva `colaDisponible`).
+         *
+         *     No cambia estado ni sub-estado (`estado='consulta'`, `subEstado` intacto). Registra
+         *     `AUDIT_LOG` (`accion='actualizar'`, `entidad='RESERVA'`) con la fecha anterior y la nueva.
+         *     La fecha NUNCA se muta por `PATCH /reservas/{id}` (§D-1): esa vía es solo para campos
+         *     simples; toda mutación de bloqueo pasa por aquí o por `POST /reservas/{id}/fecha`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description ID de la reserva */
+                    id: components["parameters"]["IdReserva"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CambiarFechaRequest"];
+                };
+            };
+            responses: {
+                /**
+                 * @description Cambio aplicado. Devuelve la RESERVA actualizada con la nueva `fechaEvento`; el
+                 *     `estado`/`subEstado` se conservan (`2b`/`2c`/`2v`).
+                 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Reserva"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                /**
+                 * @description La fecha destino no está disponible: está bloqueada por otra RESERVA. El cambio se
+                 *     rechaza SIN efectos (la RESERVA conserva su fecha antigua y su bloqueo; rollback total).
+                 *     NO se ofrece cola para la fecha nueva (por eso el cuerpo no lleva `colaDisponible`).
+                 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CambiarFechaConflictoError"];
+                    };
+                };
+                /**
+                 * @description Guarda no satisfecha, sin mutar la RESERVA (F5-02: 409 = concurrencia/ocupación, 422 =
+                 *     guarda inválida):
+                 *     - la RESERVA NO está en un sub-estado con fecha bloqueada mutable (`2b`/`2c`/`2v`)
+                 *       — p. ej. `2a` (sin fecha; usar `POST /reservas/{id}/fecha`), `2d` (en cola),
+                 *       terminal `2x/2y/2z`, o `pre_reserva`+;
+                 *     - o `fechaEvento` no es estrictamente futura (`> hoy`).
+                 */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reservas/{id}/pendiente-invitados": {
         parameters: {
             query?: never;
@@ -3646,6 +3747,8 @@ export interface components {
             fechaEvento?: string | null;
             duracionHoras?: components["schemas"]["DuracionHoras"] | null;
             tipoEvento?: components["schemas"]["TipoEvento"] | null;
+            /** @example 11:00 */
+            horario?: string | null;
             numAdultosNinosMayores4?: number | null;
             numNinosMenores4?: number | null;
             numInvitadosFinal?: number | null;
@@ -3783,6 +3886,8 @@ export interface components {
             numNinosMenores4?: number;
             numInvitadosFinal?: number;
             notas?: string;
+            /** @example 11:00 */
+            horario?: string;
         };
         TransicionRequest: {
             estadoDestino: components["schemas"]["EstadoReserva"];
@@ -3914,6 +4019,20 @@ export interface components {
             /** @description `true` cuando la fecha está bloqueada por una consulta en `2b` (o carrera D4): se ofrece cola, reintentar con `aceptarCola=true` para entrar en `2d`. `false` cuando está bloqueada por `2c`/`2v`/`pre_reserva`/`reserva_confirmada`+: no disponible. */
             colaDisponible: boolean;
             /** @description Mensaje informativo para la UI sobre por qué la fecha no se pudo asignar. */
+            motivo: string;
+        };
+        CambiarFechaRequest: {
+            /**
+             * Format: date
+             * @description OBLIGATORIO. Nueva fecha del evento (YYYY-MM-DD). Debe ser ESTRICTAMENTE FUTURA (> hoy, día natural); en otro caso el servidor rechaza con 422 sin mutar la RESERVA. El bloqueo atómico libera la fecha antigua y bloquea esta nueva en una única transacción.
+             */
+            fechaEvento: string;
+        };
+        CambiarFechaConflictoError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description Motivo del conflicto: la fecha destino no está disponible (bloqueada por otra RESERVA). El cambio se rechaza sin efectos (rollback total).
+             * @example La fecha destino no está disponible: ya está bloqueada por otra reserva.
+             */
             motivo: string;
         };
         /** @description Cuerpo vacío. La transición 2.b→2.c no requiere parámetros (TTL derivado del setting del tenant). */

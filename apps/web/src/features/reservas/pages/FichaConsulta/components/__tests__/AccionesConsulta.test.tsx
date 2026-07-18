@@ -41,6 +41,7 @@ const renderAcciones = (r: Reserva) =>
       onRegistrarResultadoVisita={noop}
       onExtenderBloqueo={noop}
       onGenerarPresupuesto={noop}
+      onEditarConsulta={noop}
       onEditarPresupuesto={noop}
       onConfirmarSenal={noop}
       onForzarInicioEvento={noop}
@@ -76,7 +77,42 @@ describe('AccionesConsulta — "Generar presupuesto" es la acción principal', (
   });
 
   it('usa_el_verde_del_sistema_de_diseno_token_accent_success', () => {
-    renderAcciones(reserva());
+    // Datos de evento completos → botón habilitado (verde).
+    renderAcciones(reserva({ duracionHoras: 8, numAdultosNinosMayores4: 30, horario: '11:00' }));
     expect(screen.getByTestId('boton-generar-presupuesto')).toHaveClass('bg-accent-success');
+  });
+});
+
+/**
+ * US-051 §Punto 4: en consultas cerradas (sub-estados terminales `2x/2y/2z` o
+ * estados terminales) NO se renderiza NINGUNA acción, ni siquiera deshabilitada;
+ * solo el fallback "No hay acciones disponibles…".
+ */
+describe('AccionesConsulta — saneo de acciones en terminales', () => {
+  it.each(['2x', '2y', '2z'] as const)(
+    'no_renderiza_ningun_boton_en_sub_estado_terminal_%s',
+    (sub) => {
+      renderAcciones(reserva({ subEstado: sub, ttlExpiracion: null }));
+      expect(screen.queryAllByRole('button')).toHaveLength(0);
+      expect(screen.queryByTestId('boton-generar-presupuesto')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('boton-descartar-consulta')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('boton-editar-consulta')).not.toBeInTheDocument();
+      expect(screen.getByTestId('sin-acciones')).toBeInTheDocument();
+    },
+  );
+
+  it.each(['reserva_cancelada', 'reserva_completada'] as EstadoReserva[])(
+    'no_renderiza_ningun_boton_en_estado_terminal_%s',
+    (estado) => {
+      renderAcciones(reserva({ estado, subEstado: undefined, ttlExpiracion: null }));
+      expect(screen.queryAllByRole('button')).toHaveLength(0);
+      expect(screen.getByTestId('sin-acciones')).toBeInTheDocument();
+    },
+  );
+
+  it('en_2b_activa_si_muestra_acciones', () => {
+    renderAcciones(reserva());
+    expect(screen.getAllByRole('button').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('sin-acciones')).not.toBeInTheDocument();
   });
 });
