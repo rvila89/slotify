@@ -11,7 +11,14 @@ import type { ColorCalendario } from '../model/types';
  * estructura de datos" del CLAUDE.md).
  */
 type EstiloColor = {
-  /** Clases de relleno + texto para el evento/celda (vista mes/semana/día). */
+  /**
+   * Clases de relleno + texto para el evento/celda (vista mes/semana/día). El
+   * relleno usa el modificador `!` (Tailwind → `background-color: !important`)
+   * para ganar en especificidad al `.rbc-event.rbc-selected` por defecto de
+   * react-big-calendar (fondo azul al seleccionar), que si no repintaría el
+   * evento de azul (= color de "completada") al hacer clic. La selección se
+   * señala solo con el outline definido en `calendario.css`.
+   */
   evento: string;
   /** Punto/badge tonal para listados y la leyenda. */
   punto: string;
@@ -21,27 +28,27 @@ type EstiloColor = {
 
 export const ESTILO_COLOR: Record<ColorCalendario, EstiloColor> = {
   gris: {
-    evento: 'bg-cal-gris text-cal-gris-foreground',
+    evento: '!bg-cal-gris text-cal-gris-foreground',
     punto: 'bg-cal-gris',
     etiqueta: 'Consulta activa',
   },
   ambar: {
-    evento: 'bg-cal-ambar text-cal-ambar-foreground',
+    evento: '!bg-cal-ambar text-cal-ambar-foreground',
     punto: 'bg-cal-ambar',
     etiqueta: 'Pre-reserva',
   },
   verde: {
-    evento: 'bg-cal-verde text-cal-verde-foreground',
+    evento: '!bg-cal-verde text-cal-verde-foreground',
     punto: 'bg-cal-verde',
     etiqueta: 'Confirmada / en curso',
   },
   azul: {
-    evento: 'bg-cal-azul text-cal-azul-foreground',
+    evento: '!bg-cal-azul text-cal-azul-foreground',
     punto: 'bg-cal-azul',
     etiqueta: 'Completada',
   },
   rojo: {
-    evento: 'bg-cal-rojo text-cal-rojo-foreground',
+    evento: '!bg-cal-rojo text-cal-rojo-foreground',
     punto: 'bg-cal-rojo',
     etiqueta: 'Cancelada',
   },
