@@ -2095,9 +2095,10 @@ flowchart TD
 2. Opcionalmente, el gestor edita `asunto` y/o `cuerpo`
 3. El gestor confirma el envío
 4. El sistema (`EnviarBorradorUseCase`) valida: (a) guarda de estado: solo `borrador` es enviable; (b) validación del `destinatario_email` (RFC 5321, no nulo) antes de llamar al proveedor
-5. El sistema edita `asunto`/`cuerpo` si fueron modificados, llama a `finalizarEnvio` del motor de US-045 y actualiza la fila a `estado = 'enviado'` + `fecha_envio = now()`; el contenido persistido refleja lo efectivamente enviado
-6. El sistema registra `AUDIT_LOG` con `accion = 'actualizar'`
-7. El sistema responde `200` con la `COMUNICACION` actualizada
+5. **Si `codigo_email = 'E1'`** y `dossierBaseUrl` está configurado: el sistema resuelve el dossier PDF según `RESERVA.idioma` (`Dossier-Masia-Encis-{idioma}.pdf`) y lo añade como adjunto por referencia de URL antes de invocar el proveedor. Si `dossierBaseUrl` no está configurado, el envío procede sin adjunto (degradación graceful). Para códigos distintos de `E1`, no se adjunta el dossier (US-047).
+6. El sistema edita `asunto`/`cuerpo` si fueron modificados, llama a `finalizarEnvio` del motor de US-045 y actualiza la fila a `estado = 'enviado'` + `fecha_envio = now()`; el contenido persistido refleja lo efectivamente enviado
+7. El sistema registra `AUDIT_LOG` con `accion = 'actualizar'`
+8. El sistema responde `200` con la `COMUNICACION` actualizada
 
 **Flujo Básico C — Descartar un borrador:**
 1. El gestor selecciona una `COMUNICACION` en `estado = 'borrador'` y elige "Descartar"
@@ -2152,12 +2153,12 @@ flowchart TD
 | **Endpoint** | `GET /reservas` (`operationId: listarReservas`) — excluye siempre terminales `2x/2y/2z`, `reserva_completada`, `reserva_cancelada`; params opcionales: `estado`, `subEstado`, `fechaDesde`, `fechaHasta`, `search`, `page`, `limit` |
 | **Entidades leídas** | RESERVA (solo lectura) + join CLIENTE (para `nombreEvento`); `preEventoStatus` y `liquidacionStatus` de RESERVA para derivar los progresos. Sin migración de esquema. |
 
-**Flujo Básico (implementado en US-049):**
+**Flujo Básico (implementado en US-049 / US-047 aditivo):**
 1. El gestor navega a `/reservas` (tab "Flujo de Reserva" activo por defecto)
 2. El frontend llama a `GET /reservas` (sin filtros adicionales)
-3. El sistema — autenticado por JWT, `tenant_id` inyectado en la query y reforzado por RLS — devuelve la lista paginada de reservas activas ordenadas por `fechaCreacion` descendente. Cada elemento de `data[]` incluye `nombreEvento`, `progressLogistica` y `progressLiquidacion` ya derivados.
+3. El sistema — autenticado por JWT, `tenant_id` inyectado en la query y reforzado por RLS — devuelve la lista paginada de reservas activas ordenadas por `fechaCreacion` descendente. Cada elemento de `data[]` incluye `nombreEvento`, `progressLogistica`, `progressLiquidacion` y `tieneBorradorE1Pendiente` ya derivados.
 4. El frontend agrupa en 5 columnas: Consulta (2a/2b/2c/2d/2v) · Pre-reserva · Confirmada · En Curso · Post-evento
-5. Cada tarjeta muestra: `nombreEvento`, fecha, aforo estimado, barras LOGÍSTICA y LIQUIDACIÓN
+5. Cada tarjeta muestra: `nombreEvento`, fecha, aforo estimado, barras LOGÍSTICA y LIQUIDACIÓN. Cuando `tieneBorradorE1Pendiente === true` se muestra un **badge ámbar** en la tarjeta indicando que hay un borrador E1 pendiente de envío (US-047).
 6. El gestor hace clic en cualquier tarjeta → navega a `/reservas/:id`
 
 **Flujos Alternativos:**
@@ -2173,6 +2174,7 @@ flowchart TD
 - `progressLogistica` (0/50/100) derivado de `preEventoStatus`: `pendiente=0`, `en_curso=50`, `cerrado=100`; en estados de consulta (`2a`/`2b`/`2c`/`2d`/`2v`) y `pre_reserva` vale siempre `0`
 - `progressLiquidacion` (0/50/100) derivado de `liquidacionStatus`: `pendiente=0`, `facturada=50`, `cobrada=100`; en estados de consulta y `pre_reserva` vale siempre `0`
 - La derivación de progreso es una función pura de dominio (mapa declarativo estado→valor), no lógica dispersa
+- `tieneBorradorE1Pendiente` (US-047): `true` cuando existe una `COMUNICACION` con `codigo_email='E1'` y `estado='borrador'` para la reserva. Calculado en cada fetch sin migración de columna. La UI muestra un badge ámbar en la tarjeta Kanban (y en la fila del listado) para esas reservas.
 - Operación de **lectura pura**: no muta ninguna entidad, no produce bloqueos, sin concurrencia mutante
 
 ---

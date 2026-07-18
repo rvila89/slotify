@@ -59,6 +59,8 @@ export class AltaConsultaController {
         ? { numNinosMenores4: dto.numNinosMenores4 }
         : {}),
       ...(dto.notas !== undefined ? { notas: dto.notas } : {}),
+      ...(dto.idioma !== undefined ? { idioma: dto.idioma } : {}),
+      ...(dto.horario !== undefined ? { horario: dto.horario } : {}),
       cliente: {
         nombre: dto.cliente.nombre,
         apellidos: dto.cliente.apellidos,

@@ -66,6 +66,7 @@ const filaActiva = (
   consultaBloqueanteId: null,
   notas: null,
   fechaCreacion: new Date('2026-06-01T08:00:00.000Z'),
+  tieneBorradorE1Pendiente: false,
   cliente: {
     idCliente: 'cli-1',
     nombre: 'Ana',

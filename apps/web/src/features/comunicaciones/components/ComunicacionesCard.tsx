@@ -3,16 +3,16 @@ import { Info, Loader2, Mail, Plus } from 'lucide-react';
 import { useComunicacionesReserva } from '../api/useComunicacionesReserva';
 import { ComunicacionListaItem } from './ComunicacionListaItem';
 import { RevisarEnviarBorradorDialog } from './RevisarEnviarBorradorDialog';
-import { DescartarBorradorDialog } from './DescartarBorradorDialog';
 import { NuevoEmailManualDialog } from './NuevoEmailManualDialog';
 import type { ComunicacionListItem } from '../model/types';
 
 /**
  * Sección "Comunicaciones" de la ficha de la RESERVA (US-046 · UC-36). Lista las
  * COMUNICACION de la reserva (borradores accionables + enviados/fallidos de solo
- * lectura), permite revisar/editar/enviar o descartar un borrador y crear un nuevo
+ * lectura), permite revisar/editar/enviar un borrador y crear un nuevo
  * email manual. Estado de servidor con TanStack Query sobre el SDK generado; los
- * formularios usan React Hook Form + Zod (en sus diálogos).
+ * formularios usan React Hook Form + Zod (en sus diálogos). El descarte manual de
+ * borradores se eliminó de la UI (US-047).
  *
  * Diseño: el archivo Figma "Slotify" no tiene frame de la ficha de reserva ni de esta
  * sección; se ADAPTA con los tokens del proyecto siguiendo el patrón de las demás
@@ -58,7 +58,6 @@ export const ComunicacionesCard = ({ reservaId }: Props) => {
   const { data: comunicaciones, isLoading, isError } = useComunicacionesReserva(reservaId);
 
   const [borradorRevisar, setBorradorRevisar] = useState<ComunicacionListItem | null>(null);
-  const [borradorDescartar, setBorradorDescartar] = useState<ComunicacionListItem | null>(null);
   const [dialogoManual, setDialogoManual] = useState(false);
 
   if (isLoading) {
@@ -115,7 +114,6 @@ export const ComunicacionesCard = ({ reservaId }: Props) => {
               key={item.idComunicacion}
               item={item}
               onRevisar={setBorradorRevisar}
-              onDescartar={setBorradorDescartar}
             />
           ))}
         </ul>
@@ -127,15 +125,6 @@ export const ComunicacionesCard = ({ reservaId }: Props) => {
         abierto={borradorRevisar !== null}
         onAbiertoChange={(abierto) => {
           if (!abierto) setBorradorRevisar(null);
-        }}
-      />
-
-      <DescartarBorradorDialog
-        reservaId={reservaId}
-        borrador={borradorDescartar}
-        abierto={borradorDescartar !== null}
-        onAbiertoChange={(abierto) => {
-          if (!abierto) setBorradorDescartar(null);
         }}
       />
 

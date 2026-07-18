@@ -76,6 +76,21 @@ export const AccionesConsulta = ({
   onArchivarReserva,
   onDescartarConsulta,
 }: Props) => {
+  // US-047 (Step 7): mientras exista un borrador E1 pendiente de envío, el cliente
+  // aún no sabe que la consulta existe, así que NINGUNA acción tiene sentido (incluida
+  // "Marcar como descartada"). Se sustituye todo el bloque de acciones por un aviso.
+  if (reserva.tieneBorradorE1Pendiente) {
+    return (
+      <div
+        data-testid="aviso-borrador-e1-pendiente"
+        className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 font-body text-sm text-amber-800"
+      >
+        <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-amber-600" />
+        <span>Revisa y envía el correo de confirmación antes de continuar.</span>
+      </div>
+    );
+  }
+
   const subEstado = reserva.subEstado;
   const esExploratoria = subEstado === '2a';
   const tieneFechaEvento = Boolean(reserva.fechaEvento);

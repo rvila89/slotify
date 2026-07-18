@@ -77,6 +77,7 @@ export class ListarReservasController {
         nombreEvento: item.nombreEvento,
         progressLogistica: item.progressLogistica,
         progressLiquidacion: item.progressLiquidacion,
+        tieneBorradorE1Pendiente: item.tieneBorradorE1Pendiente,
       })),
       metadata: {
         total: resultado.metadata.total,

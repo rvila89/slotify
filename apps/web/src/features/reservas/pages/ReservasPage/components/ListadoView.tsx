@@ -41,6 +41,7 @@ export const ListadoView = ({ reservas }: ListadoViewProps) => {
         {reservas.map((reserva) => {
           const aforo = aforoDeReserva(reserva);
           const nombre = reserva.nombreEvento ?? reserva.codigo;
+          const tieneBorradorE1 = reserva.tieneBorradorE1Pendiente === true;
           return (
             <tr
               key={reserva.idReserva}
@@ -57,7 +58,18 @@ export const ListadoView = ({ reservas }: ListadoViewProps) => {
                 data-label="Estado"
                 className="text-text-secondary before:mr-2 before:font-body before:text-xs before:font-semibold before:uppercase before:text-text-muted before:content-[attr(data-label)] lg:px-4 lg:py-3 lg:before:content-none"
               >
-                {etiquetaEstado(reserva)}
+                <span className="inline-flex flex-wrap items-center gap-2 align-middle">
+                  {etiquetaEstado(reserva)}
+                  {tieneBorradorE1 && (
+                    <span
+                      data-testid="badge-borrador-e1-pendiente"
+                      className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 font-body text-xs font-semibold text-amber-900"
+                    >
+                      <span aria-hidden className="size-2 rounded-full bg-current opacity-70" />
+                      Borrador E1 pendiente
+                    </span>
+                  )}
+                </span>
               </td>
               <td
                 data-label="Fecha"

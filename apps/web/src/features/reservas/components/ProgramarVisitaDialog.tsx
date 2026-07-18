@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertTriangle, CalendarClock, Clock } from 'lucide-react';
+import { AlertTriangle, CalendarClock, ChevronDown } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -54,6 +54,11 @@ type Props = {
   /** Se invoca con la RESERVA actualizada (subEstado='2v') tras un 200. */
   onResuelto: (reserva: Reserva) => void;
 };
+
+const HORARIOS = Array.from({ length: 30 }, (_, i) => {
+  const min = 9 * 60 + i * 30;
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+});
 
 const construirEsquema = (maxDias: number) =>
   z.object({
@@ -196,15 +201,25 @@ export const ProgramarVisitaDialog = ({
               Hora de la visita
             </label>
             <div className="relative">
-              <input
+              <select
                 id="programar-visita-hora"
-                type="time"
                 aria-invalid={errors.hora ? 'true' : undefined}
                 aria-describedby={errors.hora ? 'programar-visita-hora-error' : undefined}
                 {...register('hora')}
-                className={cn(claseInput, 'appearance-none pr-12 [color-scheme:light]', claseIndicadorPicker)}
-              />
-              <Clock
+                className={cn(
+                  claseInput,
+                  'appearance-none pr-12',
+                  !watch('hora') && 'text-text-secondary/40',
+                )}
+              >
+                <option value="">Selecciona una hora</option>
+                {HORARIOS.map((hora) => (
+                  <option key={hora} value={hora} className="text-text-primary">
+                    {hora}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
                 aria-hidden
                 className="pointer-events-none absolute right-4 top-1/2 size-5 -translate-y-1/2 text-text-secondary"
               />

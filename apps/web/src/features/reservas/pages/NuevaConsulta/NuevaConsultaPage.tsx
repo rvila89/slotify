@@ -42,6 +42,7 @@ export const NuevaConsultaPage = () => {
 
     const comentarios = valores.comentarios.trim();
     const fechaEvento = valores.fechaEvento.trim();
+    const horario = valores.horario.trim();
     const body: CreateReservaRequest = {
       canalEntrada: valores.canalEntrada as CanalEntrada,
       cliente: {
@@ -57,6 +58,8 @@ export const NuevaConsultaPage = () => {
         ? { duracionHoras: Number(valores.duracionHoras) as DuracionHoras }
         : {}),
       ...(valores.invitados ? { numAdultosNinosMayores4: Number(valores.invitados) } : {}),
+      idioma: valores.idioma,
+      ...(horario ? { horario } : {}),
     };
 
     mutation.mutate(

@@ -1,4 +1,4 @@
-import { Ban, CalendarClock, Mail, Send } from 'lucide-react';
+import { CalendarClock, Mail, Send } from 'lucide-react';
 import { EstadoComunicacionBadge } from './EstadoComunicacionBadge';
 import { etiquetaCodigoEmail } from '../lib/estado';
 import { formatearFechaHora } from '../lib/fecha';
@@ -8,22 +8,18 @@ import type { ComunicacionListItem } from '../model/types';
  * Fila del listado de comunicaciones de la ficha de la RESERVA (US-046 · UC-36).
  * Muestra `codigoEmail`, badge de `estado`, `asunto`, `destinatarioEmail`,
  * `fechaCreacion` y (si aplica) `fechaEnvio`. Las filas `enviado`/`fallido` son de
- * SOLO LECTURA; las `borrador` (flag `accionable`) muestran las acciones Enviar /
- * Descartar. Se apila en móvil (`<sm`) y reparte en fila en `sm:`/`lg:` sin overflow.
+ * SOLO LECTURA; las `borrador` (flag `accionable`) muestran la acción Revisar y
+ * enviar. Se apila en móvil (`<sm`) y reparte en fila en `sm:`/`lg:` sin overflow.
  */
 type Props = {
   item: ComunicacionListItem;
   onRevisar: (item: ComunicacionListItem) => void;
-  onDescartar: (item: ComunicacionListItem) => void;
 };
 
 const claseBotonPrimario =
   'inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-5 font-display text-sm text-brand-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
 
-const claseBotonPeligro =
-  'inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-red-200 bg-canvas px-5 font-body text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
-
-export const ComunicacionListaItem = ({ item, onRevisar, onDescartar }: Props) => (
+export const ComunicacionListaItem = ({ item, onRevisar }: Props) => (
   <li
     data-testid="comunicacion-item"
     data-estado={item.estado}
@@ -89,15 +85,6 @@ export const ComunicacionListaItem = ({ item, onRevisar, onDescartar }: Props) =
         >
           <Send aria-hidden className="size-4" />
           Revisar y enviar
-        </button>
-        <button
-          type="button"
-          onClick={() => onDescartar(item)}
-          data-testid="abrir-descartar-borrador"
-          className={claseBotonPeligro}
-        >
-          <Ban aria-hidden className="size-4" />
-          Descartar
         </button>
       </div>
     )}

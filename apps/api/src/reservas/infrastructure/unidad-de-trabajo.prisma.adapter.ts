@@ -142,6 +142,8 @@ class ReservaAltaPrismaRepository implements ReservaRepositoryPort {
           ? { numNinosMenores4: p.numNinosMenores4 }
           : {}),
         ...(p.notas !== undefined ? { notas: p.notas } : {}),
+        idioma: p.idioma ?? 'es',
+        ...(p.horario !== undefined ? { horario: p.horario } : {}),
       },
     });
     return {

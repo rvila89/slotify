@@ -23,22 +23,127 @@ import type { CodigoEmail } from '../../domain/codigo-email';
 const texto = (valor: unknown): string =>
   valor === null || valor === undefined ? '' : String(valor);
 
-/** Render real de la plantilla E1 (respuesta inicial automática a la consulta). */
-const renderE1 = (variables: Record<string, unknown>): RenderPlantilla => {
+/**
+ * Escapa caracteres HTML especiales en texto de usuario antes de interpolarlo en HTML.
+ * Previene email content injection cuando el valor viene de input externo (ej. nombre del cliente).
+ */
+const htmlEscape = (s: string): string =>
+  s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+/** Las 4 casuísticas de E1 según el estado de la fecha del evento. */
+type TipoE1 = 'sin_fecha' | 'fecha_disponible' | 'fecha_confirmada' | 'fecha_cola';
+
+const MESES_CA = ['gener','febrer','març','abril','maig','juny','juliol','agost','setembre','octubre','novembre','desembre'];
+const MESES_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+const formatarFechaCA = (fecha: Date): string => {
+  const d = fecha.getDate();
+  const m = MESES_CA[fecha.getMonth()];
+  const a = fecha.getFullYear();
+  return `${d} de ${m} de ${a}`;
+};
+
+const formatarFechaES = (fecha: Date): string => {
+  const d = fecha.getDate();
+  const m = MESES_ES[fecha.getMonth()];
+  const a = fecha.getFullYear();
+  return `${d} de ${m} de ${a}`;
+};
+
+/** Render real de la plantilla E1 en catalán (respuesta inicial automática, 4 casos). */
+const renderE1Ca = (variables: Record<string, unknown>): RenderPlantilla => {
   const nombre = texto(variables.nombre);
-  const asunto = 'Hemos recibido tu consulta';
-  const cuerpoTexto = [
-    `Hola ${nombre},`,
-    '',
-    'Gracias por tu interés. Hemos recibido tu consulta y te contactaremos en breve.',
-    '',
-    'Un saludo.',
-  ].join('\n');
-  const cuerpoHtml = [
-    `<p>Hola ${nombre},</p>`,
-    '<p>Gracias por tu interés. Hemos recibido tu consulta y te contactaremos en breve.</p>',
-    '<p>Un saludo.</p>',
-  ].join('');
+  const tipoE1 = texto(variables.tipoE1) as TipoE1;
+  const fechaEvento = variables.fechaEvento instanceof Date ? formatarFechaCA(variables.fechaEvento) : texto(variables.fechaEvento);
+  const fechaAlternativa1 = variables.fechaAlternativa1 instanceof Date ? formatarFechaCA(variables.fechaAlternativa1) : texto(variables.fechaAlternativa1);
+  const fechaAlternativa2 = variables.fechaAlternativa2 instanceof Date ? formatarFechaCA(variables.fechaAlternativa2) : texto(variables.fechaAlternativa2);
+
+  const asunto = 'Hem rebut la teva consulta — Masia l\'Encís';
+
+  const blocCompartir = `Podeu portar el vostre menjar, beguda i música. Tot el mobiliari i els espais estan inclosos en el preu del lloguer. Com a serveis opcionals, oferim l'ús de la barbacoa i/o del paeller per 30 € cadascun. També col·laborem amb proveïdors de confiança per si us interessa complementar l'experiència amb càtering, animació o altres serveis:\n\nhttps://masialencis.com/compartim/`;
+  const blocContacte = `Si tens qualsevol dubte, una proposta especial o simplement vols conèixer l'espai abans de decidir-te, estaré encantada d'ensenyar-te'l en una visita sense cap compromís.\n\nEm pots contactar directament al 690 37 04 38.\n\nEspero poder ajudar-te a organitzar una jornada inoblidable a la Masia l'Encís!\n\nUna abraçada,\n\nAri\nMasia l'Encís`;
+  const blocIntro = `Moltes gràcies pel teu interès en la Masia l'Encís! 😊\n\nSom un espai pensat perquè pugueu gaudir d'un dia especial amb amics, família o companys, en un entorn tranquil, privat i envoltat de natura. Disposem de jardí, piscina, zona de barbacoa i diferents espais perquè us sentiu com a casa.\n\nT'adjunto el dossier amb tota la informació i les tarifes. Hi trobaràs una orientació dels preus segons el nombre de persones i les hores que vulgueu reservar l'espai.`;
+
+  let blocCentral: string;
+  switch (tipoE1) {
+    case 'fecha_disponible':
+      blocCentral = `He revisat la disponibilitat i tinc una bona notícia: la data que ens proposes, ${fechaEvento}, actualment està disponible. Si us encaixa, us la puc reservar provisionalment sense cap compromís perquè tingueu temps de parlar-ho amb tranquil·litat i acabar de decidir-vos.`;
+      break;
+    case 'fecha_confirmada': {
+      const alternativas: string[] = [];
+      if (fechaAlternativa1) alternativas.push(fechaAlternativa1);
+      if (fechaAlternativa2) alternativas.push(fechaAlternativa2);
+      const ofertaAlternativas = alternativas.length > 0
+        ? `\n\nTot i això, sí que tindríem disponibilitat el ${alternativas.join(' o el ')}, per si alguna d'aquestes opcions us pogués encaixar. Si alguna us interessa, us la puc reservar provisionalment sense cap compromís mentre ho valoreu.`
+        : `\n\nSi les dates alternatives no us encaixen, no dubteu a comentar-me altres opcions i miraré de trobar una data disponible que s'adapti al que busqueu.`;
+      blocCentral = `He revisat la disponibilitat i, malauradament, la data que ens proposes (${fechaEvento}) ja està confirmada per una altra reserva.${ofertaAlternativas}`;
+      break;
+    }
+    case 'fecha_cola':
+      blocCentral = `Pel que fa a la data que ens proposes (${fechaEvento}), actualment està bloquejada per una altra consulta que estem gestionant. Encara no disposem d'una confirmació definitiva, així que tan aviat com tinguem resposta et podrem confirmar si finalment queda disponible o no.\n\nMentrestant, et comparteixo tota la informació perquè pugueu valorar amb calma si l'espai, les condicions i els preus encaixen amb el que esteu buscant. D'aquesta manera, si finalment la data queda disponible, podrem avançar més ràpidament amb la reserva. I si no fos possible, mirarem de proposar-vos alguna data propera que us pugui encaixar.\n\nEns comprometem a informar-vos tan aviat com tinguem una resposta.`;
+      break;
+    default: // sin_fecha
+      blocCentral = `Si ja teniu alguna data en ment, digue-m'ho i miraré personalment la disponibilitat. Si està lliure, us la puc bloquejar sense compromís mentre ho valoreu.`;
+      break;
+  }
+
+  const cuerpoTexto = `Hola ${nombre},\n\n${blocIntro}\n\n${blocCentral}\n\n${blocCompartir}\n\n${blocContacte}`;
+  const cuerpoHtml = cuerpoTexto
+    .split('\n\n')
+    .map(p => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+
+  return { asunto, cuerpoHtml, cuerpoTexto };
+};
+
+/** Render real de la plantilla E1 en castellano (respuesta inicial automática, 4 casos). */
+const renderE1Es = (variables: Record<string, unknown>): RenderPlantilla => {
+  const nombre = texto(variables.nombre);
+  const tipoE1 = texto(variables.tipoE1) as TipoE1;
+  const fechaEvento = variables.fechaEvento instanceof Date ? formatarFechaES(variables.fechaEvento) : texto(variables.fechaEvento);
+  const fechaAlternativa1 = variables.fechaAlternativa1 instanceof Date ? formatarFechaES(variables.fechaAlternativa1) : texto(variables.fechaAlternativa1);
+  const fechaAlternativa2 = variables.fechaAlternativa2 instanceof Date ? formatarFechaES(variables.fechaAlternativa2) : texto(variables.fechaAlternativa2);
+
+  const asunto = 'Hemos recibido tu consulta — Masia l\'Encís';
+
+  const blocCompartir = `Podéis traer vuestra comida, bebida y música. Todo el mobiliario y los espacios están incluidos en el precio del alquiler. Como servicios opcionales, ofrecemos el uso de la barbacoa y/o del paellero por 30 € cada uno. También colaboramos con proveedores de confianza por si os interesa complementar la experiencia con catering, animación u otros servicios:\n\nhttps://masialencis.com/compartim/`;
+  const blocContacte = `Si tienes cualquier duda, una propuesta especial o simplemente quieres conocer el espacio antes de decidirte, estaré encantada de enseñártelo en una visita sin ningún compromiso.\n\nPuedes contactarme directamente en el 690 37 04 38.\n\n¡Espero poder ayudarte a organizar una jornada inolvidable en la Masia l'Encís!\n\nUn abrazo,\n\nAri\nMasia l'Encís`;
+  const blocIntro = `¡Muchas gracias por tu interés en la Masia l'Encís! 😊\n\nSomos un espacio pensado para que podáis disfrutar de un día especial con amigos, familia o compañeros, en un entorno tranquilo, privado y rodeado de naturaleza. Disponemos de jardín, piscina, zona de barbacoa y diferentes espacios para que os sintáis como en casa.\n\nTe adjunto el dossier con toda la información y las tarifas. Encontrarás una orientación de los precios según el número de personas y las horas que queráis reservar el espacio.`;
+
+  let blocCentral: string;
+  switch (tipoE1) {
+    case 'fecha_disponible':
+      blocCentral = `He revisado la disponibilidad y tengo una buena noticia: la fecha que nos propones, ${fechaEvento}, actualmente está disponible. Si os encaja, puedo reservarla provisionalmente sin ningún compromiso para que tengáis tiempo de hablarlo con tranquilidad y terminar de decidiros.`;
+      break;
+    case 'fecha_confirmada': {
+      const alternativas: string[] = [];
+      if (fechaAlternativa1) alternativas.push(fechaAlternativa1);
+      if (fechaAlternativa2) alternativas.push(fechaAlternativa2);
+      const ofertaAlternativas = alternativas.length > 0
+        ? `\n\nSin embargo, sí que tendríamos disponibilidad el ${alternativas.join(' o el ')}, por si alguna de estas opciones os pudiera encajar. Si alguna os interesa, puedo reservarla provisionalmente sin ningún compromiso mientras lo valoráis.`
+        : `\n\nSi las fechas alternativas no os encajan, no dudéis en comentarme otras opciones e intentaré encontrar una fecha disponible que se adapte a lo que buscáis.`;
+      blocCentral = `He revisado la disponibilidad y, lamentablemente, la fecha que nos propones (${fechaEvento}) ya está confirmada por otra reserva.${ofertaAlternativas}`;
+      break;
+    }
+    case 'fecha_cola':
+      blocCentral = `En cuanto a la fecha que nos propones (${fechaEvento}), actualmente está bloqueada por otra consulta que estamos gestionando. Todavía no disponemos de una confirmación definitiva, así que en cuanto tengamos respuesta podremos confirmarte si finalmente queda disponible o no.\n\nMientras tanto, te comparto toda la información para que podáis valorar con calma si el espacio, las condiciones y los precios encajan con lo que buscáis. De esta manera, si finalmente la fecha queda disponible, podremos avanzar más rápidamente con la reserva. Y si no fuera posible, intentaremos proponeros alguna fecha próxima que os pueda encajar.\n\nNos comprometemos a informaros en cuanto tengamos una respuesta.`;
+      break;
+    default: // sin_fecha
+      blocCentral = `Si ya tenéis alguna fecha en mente, comentádmelo y miraré personalmente la disponibilidad. Si está libre, puedo bloquearla sin compromiso mientras lo valoráis.`;
+      break;
+  }
+
+  const cuerpoTexto = `Hola ${nombre},\n\n${blocIntro}\n\n${blocCentral}\n\n${blocCompartir}\n\n${blocContacte}`;
+  const cuerpoHtml = cuerpoTexto
+    .split('\n\n')
+    .map(p => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+
   return { asunto, cuerpoHtml, cuerpoTexto };
 };
 
@@ -78,7 +183,7 @@ const renderE3 = (variables: Record<string, unknown>): RenderPlantilla => {
     'Un saludo.',
   ].join('\n');
   const cuerpoHtml = [
-    `<p>Hola ${nombre},</p>`,
+    `<p>Hola ${htmlEscape(nombre)},</p>`,
     '<p>Hemos confirmado tu reserva. Adjuntamos la factura de la señal (40%) y las ' +
       'condicions particulars de tu evento.</p>',
     '<p>Próximos hitos:</p>',
@@ -97,9 +202,19 @@ const PLANTILLA_E1_ES: Plantilla = {
   codigoEmail: 'E1',
   idioma: 'es',
   activa: true,
-  variablesRequeridas: ['nombre', 'email'],
+  variablesRequeridas: ['nombre', 'tipoE1'],
   adjuntosRequeridos: [],
-  render: renderE1,
+  render: renderE1Es,
+};
+
+/** Plantilla E1 ACTIVA en `ca` con su contrato de variables requeridas. */
+const PLANTILLA_E1_CA: Plantilla = {
+  codigoEmail: 'E1',
+  idioma: 'ca',
+  activa: true,
+  variablesRequeridas: ['nombre', 'tipoE1'],
+  adjuntosRequeridos: [],
+  render: renderE1Ca,
 };
 
 /**
@@ -136,6 +251,16 @@ const plantillaInactivaEs = (codigo: CodigoEmail): Plantilla => ({
   render: renderInactivo(codigo),
 });
 
+/** Construye una entrada inactiva en `ca` para un código diferido. */
+const plantillaInactivaCa = (codigo: CodigoEmail): Plantilla => ({
+  codigoEmail: codigo,
+  idioma: 'ca',
+  activa: false,
+  variablesRequeridas: [],
+  adjuntosRequeridos: [],
+  render: renderInactivo(codigo),
+});
+
 @Injectable()
 export class CatalogoPlantillasEnCodigo implements CatalogoPlantillasPort {
   /** Registro indexado por `codigoEmail` (solo idioma `es` en el MVP). */
@@ -150,11 +275,22 @@ export class CatalogoPlantillasEnCodigo implements CatalogoPlantillasPort {
     ),
   ]);
 
+  /** Registro indexado por `codigoEmail` en idioma `ca` (E1 activa; resto inactivas). */
+  private readonly registroCa: ReadonlyMap<CodigoEmail, Plantilla> = new Map<
+    CodigoEmail,
+    Plantilla
+  >([
+    ['E1', PLANTILLA_E1_CA],
+    ...CODIGOS_DIFERIDOS.map(
+      (codigo): [CodigoEmail, Plantilla] => [codigo, plantillaInactivaCa(codigo)],
+    ),
+  ]);
+
   seleccionar(codigoEmail: CodigoEmail, idioma: string): Plantilla | null {
-    // MVP: solo `es`. Otros idiomas → null (el motor aplica fallback a `es`).
-    if (idioma !== 'es') {
-      return null;
+    if (idioma === 'ca') {
+      return this.registroCa.get(codigoEmail) ?? null;
     }
+    // 'es' y cualquier otro idioma → registro español.
     return this.registroEs.get(codigoEmail) ?? null;
   }
 }

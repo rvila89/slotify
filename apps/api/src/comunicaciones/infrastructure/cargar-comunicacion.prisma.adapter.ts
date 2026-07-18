@@ -43,6 +43,9 @@ export class CargarComunicacionPrismaAdapter implements CargarComunicacionPort {
           cuerpo: true,
           destinatarioEmail: true,
           fechaEnvio: true,
+          // Idioma de la RESERVA vinculada (US-047 D-2): determina el dossier E1 a
+          // adjuntar al enviar el borrador (`Dossier-Masia-Encis-{idioma}.pdf`).
+          reserva: { select: { idioma: true } },
         },
       });
       if (fila === null || fila.reservaId === null) {
@@ -59,6 +62,7 @@ export class CargarComunicacionPrismaAdapter implements CargarComunicacionPort {
         cuerpo: fila.cuerpo ?? '',
         destinatarioEmail: fila.destinatarioEmail,
         fechaEnvio: fila.fechaEnvio,
+        idioma: fila.reserva?.idioma ?? null,
       };
     });
   }

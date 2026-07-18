@@ -103,7 +103,7 @@ export const RevisarEnviarBorradorDialog = ({
     <Dialog open={abierto} onOpenChange={onAbiertoChange}>
       <DialogContent
         data-testid="dialog-revisar-borrador"
-        className="max-h-[90vh] overflow-y-auto"
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto"
       >
         <DialogHeader>
           <DialogTitle>Revisar y enviar borrador</DialogTitle>

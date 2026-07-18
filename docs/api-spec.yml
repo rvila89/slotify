@@ -4475,6 +4475,14 @@ components:
             Progreso de liquidación (0-100) derivado de `liquidacionStatus`:
             `pendiente=0`, `facturada=50`, `cobrada=100`. En estados de consulta (`2a`, `2b`, `2c`,
             `2d`, `2v`) y en `pre_reserva` arranca en `0` (aún no hay liquidación en curso).
+        # [US-047] Campo de presentación para el pipeline. Como el resto de derivados US-049 es
+        # OPCIONAL y aditivo: solo lo proyecta el GET /reservas; los endpoints que heredan `Reserva`
+        # (ReservaDetalle, CreateReservaResponse, FichaConsulta) pueden omitirlo.
+        tieneBorradorE1Pendiente:
+          type: boolean
+          description: >
+            true cuando existe una comunicación de tipo E1 en estado borrador para esta reserva.
+            Calculado en cada fetch; se vuelve false automáticamente al pasar el borrador a enviado o fallido.
       required: [idReserva, codigo, clienteId, estado, canalEntrada]
     ReservaDetalle:
       allOf:
@@ -4636,6 +4644,20 @@ components:
             CON `comentarios` → la COMUNICACION E1 se persiste con `estado='borrador'`, NO se
             envía, y la UI alerta al gestor de un borrador pendiente de revisión. Es distinto de
             `notas` (anotaciones internas que NO afectan al envío de E1).
+        idioma:
+          type: string
+          enum:
+            - es
+            - ca
+          default: es
+          description: Idioma de comunicación con el cliente para el email E1 y futuros envíos automáticos.
+        horario:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+          description: >
+            Hora de inicio prevista del evento (HH:MM, p. ej. "10:00"). Solo válido si
+            duracionHoras también está presente; la validación cruzada se aplica en servidor.
+          example: '10:00'
         cliente: { $ref: '#/components/schemas/CreateClienteRequest' }
     UpdateReservaRequest:
       type: object

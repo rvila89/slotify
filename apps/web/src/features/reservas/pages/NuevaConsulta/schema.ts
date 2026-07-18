@@ -31,11 +31,17 @@ export const esquema = z.object({
   }),
   invitados: z.string().trim().regex(/^\d*$/, 'Introduce un número de invitados válido'),
   duracionHoras: z.union([z.enum(DURACIONES), z.literal('')]),
+  idioma: z.enum(['es', 'ca']),
+  // Vacío ('') = sin horario indicado; si se rellena debe cumplir HH:MM.
+  horario: z.union([z.literal(''), z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM')]),
   tipoEvento: z.union([
     z.enum(['boda', 'corporativo', 'privado', 'otro', 'cumpleanos']),
     z.literal(''),
   ]),
   comentarios: z.string().max(2000, 'Máximo 2000 caracteres'),
+}).refine((data) => data.horario === '' || data.duracionHoras !== '', {
+  message: 'El horario requiere seleccionar la duración',
+  path: ['horario'],
 });
 
 export type FormularioConsulta = z.infer<typeof esquema>;
@@ -49,6 +55,8 @@ export const valoresIniciales: FormularioConsulta = {
   fechaEvento: '',
   invitados: '',
   duracionHoras: '',
+  idioma: 'es',
+  horario: '',
   tipoEvento: '',
   comentarios: '',
 };

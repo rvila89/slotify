@@ -74,6 +74,12 @@ export interface PipelineReservaLectura {
   consultaBloqueanteId: string | null;
   notas: string | null;
   fechaCreacion: Date;
+  /**
+   * `true` si la reserva tiene una `COMUNICACION` E1 (`codigo_email = 'E1'`) en
+   * `estado = 'borrador'` pendiente de revisar/enviar (US-047 D-1/D-5). Se recalcula en
+   * cada fetch (sin persistencia dedicada) mediante subconsulta del query del pipeline.
+   */
+  tieneBorradorE1Pendiente: boolean;
   cliente: PipelineClienteLectura | null;
 }
 

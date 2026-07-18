@@ -114,6 +114,8 @@ export interface FinalizarEnvioParams {
   asunto: string;
   cuerpo: string;
   codigoEmail: CodigoEmail;
+  /** Adjuntos por referencia opcionales (ej. dossier de E1). */
+  adjuntos?: AdjuntoRef[];
 }
 
 /** Resultado de `finalizarEnvio`: estado terminal alcanzado y la fila actualizada. */
@@ -411,6 +413,9 @@ export class DespacharEmailService {
         cuerpo: params.cuerpo,
         codigoEmail: params.codigoEmail,
         tenantId: params.tenantId,
+        ...(params.adjuntos !== undefined && params.adjuntos.length > 0
+          ? { adjuntos: params.adjuntos }
+          : {}),
       },
     });
     const finalizada = await this.deps.comunicaciones.actualizarEstado({

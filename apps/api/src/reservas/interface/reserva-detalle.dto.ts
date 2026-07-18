@@ -162,6 +162,13 @@ export class ReservaDetalleResponseDto {
   @ApiProperty({ type: String, format: 'date-time' })
   fechaCreacion!: string;
 
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'Indica si la reserva tiene un borrador E1 pendiente de revisar/enviar (US-047)',
+  })
+  tieneBorradorE1Pendiente?: boolean;
+
   @ApiProperty({ type: ClienteDetalleDto })
   cliente!: ClienteDetalleDto;
 }

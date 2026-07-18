@@ -59,8 +59,18 @@ const CUERPO_ORIGINAL = '<p>Borrador original E1</p>';
 // Doble de la COMUNICACION cargada (borrador E1 con destinatario válido).
 // ---------------------------------------------------------------------------
 
+/**
+ * Extensión de la proyección cargada que US-047 (D-2) requiere: el `idioma` de la
+ * RESERVA vinculada, del que se deriva el dossier (`Dossier-Masia-Encis-{idioma}.pdf`).
+ * Se declara aquí como widening del tipo actual: el campo aún NO existe en
+ * `ComunicacionContexto` (lo añade `backend-developer` en Step 4). El cast permite
+ * compilar el spec para que la batería falle por COMPORTAMIENTO (adjunto ausente),
+ * no por el tipo.
+ */
+type ComunicacionContextoE1 = ComunicacionContexto & { idioma?: string | null };
+
 const comunicacionBorrador = (
-  over: Partial<ComunicacionContexto> = {},
+  over: Partial<ComunicacionContextoE1> = {},
 ): ComunicacionContexto => ({
   idComunicacion: COM_ID,
   tenantId: TENANT,
@@ -72,6 +82,9 @@ const comunicacionBorrador = (
   cuerpo: CUERPO_ORIGINAL,
   destinatarioEmail: EMAIL,
   fechaEnvio: null,
+  // US-047 (D-2): el idioma de la RESERVA que el use-case ya carga determina el
+  // dossier a adjuntar (`Dossier-Masia-Encis-{idioma}.pdf`); ausencia → `'es'`.
+  idioma: 'es',
   ...over,
 });
 
@@ -90,6 +103,11 @@ const construirDobles = (
   opts: {
     comunicacion?: ComunicacionContexto | null;
     resultadoFinalizar?: { estado: 'enviado' | 'fallido'; fechaEnvio: Date | null };
+    /**
+     * US-047: URL base del almacén de documentos para construir la referencia del
+     * dossier E1. Si se OMITE (undefined), el envío degrada a `adjuntos: []`.
+     */
+    dossierBaseUrl?: string;
   } = {},
 ): { deps: EnviarBorradorDeps } & Dobles => {
   const comunicacion =
@@ -142,12 +160,19 @@ const construirDobles = (
     registrar: jest.fn(async () => undefined),
   } as AuditLogPort & { registrar: jest.Mock };
 
+  // `dossierBaseUrl` aún NO forma parte de `EnviarBorradorDeps` (lo añade Step 4). Se
+  // inyecta vía widening para que el spec compile y falle por comportamiento, no por
+  // el tipo: sólo se pasa cuando el test lo configura, para ejercitar la degradación
+  // graceful (envío sin adjunto) cuando se omite.
   const deps: EnviarBorradorDeps = {
     cargarComunicacion: cargar,
     comunicaciones,
     motor,
     auditoria,
-  };
+    ...(opts.dossierBaseUrl !== undefined
+      ? { dossierBaseUrl: opts.dossierBaseUrl }
+      : {}),
+  } as EnviarBorradorDeps & { dossierBaseUrl?: string };
   return { deps, cargar, comunicaciones, motor, auditoria };
 };
 
@@ -454,5 +479,117 @@ describe('EnviarBorradorUseCase — no encontrada o de otro tenant (3.9)', () =>
       uc.ejecutar(comando({ tenantId: OTRO_TENANT })),
     ).rejects.toBeInstanceOf(ComunicacionNoEncontradaError);
     expect(motor.finalizarEnvio).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// US-047 Step 2 — El envío de un borrador E1 adjunta el dossier PDF según el
+//   `idioma` de la RESERVA (D-2). Paridad EXACTA con `AltaConsultaUseCase`:
+//   reutiliza el mecanismo de adjuntos por referencia de US-045
+//   (`Dossier-Masia-Encis-{idioma}.pdf`, `pdfUrl` = `{dossierBaseUrl}/dossiers/…`),
+//   degrada a envío SIN adjunto si `dossierBaseUrl` no está configurado y NO
+//   adjunta el dossier para códigos distintos de `E1`.
+//
+//   Trazabilidad: US-047, spec-delta `comunicaciones` Requirement "El envío de un
+//   borrador E1 adjunta el dossier PDF según el idioma de la reserva" (3 scenarios).
+//   design.md D-2 (idioma de la reserva ya cargada; reutiliza el puerto/helper de
+//   adjunto del alta; degradación graceful sin dossierBaseUrl).
+//
+//   RED: hoy `EnviarBorradorUseCase` invoca `finalizarEnvio` SIN `adjuntos` y el
+//   tipo `ComunicacionContexto` no expone `idioma` ni `EnviarBorradorDeps`
+//   `dossierBaseUrl`; los tests fallan por comportamiento ausente. GREEN es de
+//   `backend-developer` (Step 4).
+// ===========================================================================
+
+describe('EnviarBorradorUseCase — adjunto del dossier al enviar E1 (US-047 Step 2)', () => {
+  const DOSSIER_BASE = 'https://cdn.slotify.example/tenant-1';
+
+  it('cuando_codigoEmail_es_E1_y_dossierBaseUrl_esta_configurado_adjunta_el_dossier_segun_reserva_idioma', async () => {
+    // Arrange: E1 en borrador vinculada a una RESERVA en catalán + almacén configurado.
+    const { deps, motor } = construirDobles({
+      comunicacion: comunicacionBorrador({ codigoEmail: 'E1', idioma: 'ca' }),
+      dossierBaseUrl: DOSSIER_BASE,
+    });
+    const uc = new EnviarBorradorUseCase(deps);
+
+    // Act.
+    await uc.ejecutar(comando());
+
+    // Assert: el envío DELEGA en el motor incorporando el dossier en el idioma de la
+    // reserva, por referencia de URL, con el mismo nombre/mecanismo del alta (US-045).
+    expect(motor.finalizarEnvio).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adjuntos: [
+          {
+            clave: 'dossier',
+            nombre: 'Dossier-Masia-Encis-ca.pdf',
+            pdfUrl: `${DOSSIER_BASE}/dossiers/Dossier-Masia-Encis-ca.pdf`,
+          },
+        ],
+      }),
+    );
+  });
+
+  it('cuando_codigoEmail_es_E1_y_la_reserva_no_tiene_idioma_degrada_a_es', async () => {
+    // Arrange: E1 en borrador sin idioma en la reserva (degrada a `es`, igual que el alta).
+    const { deps, motor } = construirDobles({
+      comunicacion: comunicacionBorrador({
+        codigoEmail: 'E1',
+        idioma: null as unknown as string,
+      }),
+      dossierBaseUrl: DOSSIER_BASE,
+    });
+    const uc = new EnviarBorradorUseCase(deps);
+
+    // Act.
+    await uc.ejecutar(comando());
+
+    // Assert: sin idioma se usa el dossier en `es`.
+    expect(motor.finalizarEnvio).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adjuntos: [
+          {
+            clave: 'dossier',
+            nombre: 'Dossier-Masia-Encis-es.pdf',
+            pdfUrl: `${DOSSIER_BASE}/dossiers/Dossier-Masia-Encis-es.pdf`,
+          },
+        ],
+      }),
+    );
+  });
+
+  it('cuando_codigoEmail_es_E1_y_dossierBaseUrl_no_esta_configurado_envia_sin_adjuntos', async () => {
+    // Arrange: E1 en borrador pero sin URL base del almacén (degradación graceful).
+    const { deps, motor } = construirDobles({
+      comunicacion: comunicacionBorrador({ codigoEmail: 'E1', idioma: 'ca' }),
+      // dossierBaseUrl OMITIDO a propósito.
+    });
+    const uc = new EnviarBorradorUseCase(deps);
+
+    // Act.
+    await uc.ejecutar(comando());
+
+    // Assert: el envío procede SIN adjunto y no se bloquea por la ausencia del dossier.
+    const params = motor.finalizarEnvio.mock.calls[0][0];
+    expect(params.adjuntos ?? []).toEqual([]);
+  });
+
+  it('cuando_codigoEmail_no_es_E1_no_adjunta_el_dossier', async () => {
+    // Arrange: un borrador `manual` con el almacén configurado NO debe adjuntar dossier.
+    const { deps, motor } = construirDobles({
+      comunicacion: comunicacionBorrador({
+        codigoEmail: 'manual' as ComunicacionContexto['codigoEmail'],
+        idioma: 'ca',
+      }),
+      dossierBaseUrl: DOSSIER_BASE,
+    });
+    const uc = new EnviarBorradorUseCase(deps);
+
+    // Act.
+    await uc.ejecutar(comando());
+
+    // Assert: sin dossier (el adjunto es exclusivo de E1).
+    const params = motor.finalizarEnvio.mock.calls[0][0];
+    expect(params.adjuntos ?? []).toEqual([]);
   });
 });

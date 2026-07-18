@@ -20,6 +20,11 @@ export const TIPOS: { value: TipoEvento; label: string }[] = [
 
 export const DURACIONES = ['4', '8', '12'] as const;
 
+export const IDIOMAS = [
+  { value: 'es', label: 'Español' },
+  { value: 'ca', label: 'Català' },
+] as const;
+
 export const CANAL_VALUES = CANALES.map((c) => c.value) as CanalEntrada[];
 
 // RFC 5322 básico, alineado al `pattern` del contrato (local@dominio.tld).
