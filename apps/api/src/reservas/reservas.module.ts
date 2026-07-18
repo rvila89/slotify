@@ -33,7 +33,6 @@ import { UnidadDeTrabajoProgramarVisitaPrismaAdapter } from './infrastructure/pr
 import { UnidadDeTrabajoResultadoVisitaPrismaAdapter } from './infrastructure/registrar-resultado-visita-uow.prisma.adapter';
 import { CargarClienteResultadoVisitaPrismaAdapter } from './infrastructure/cargar-cliente-resultado-visita.prisma.adapter';
 import { UnidadDeTrabajoExtenderBloqueoPrismaAdapter } from './infrastructure/extender-bloqueo-uow.prisma.adapter';
-import { ConfirmacionBloqueoEmailAdapter } from './infrastructure/confirmacion-bloqueo-email.adapter';
 import { ConfirmacionVisitaEmailAdapter } from './infrastructure/confirmacion-visita-email.adapter';
 import { ConfirmacionResultadoVisitaEmailAdapter } from './infrastructure/confirmacion-resultado-visita-email.adapter';
 import { TarifaEstimadaAdapter } from './infrastructure/tarifa-estimada.adapter';
@@ -49,7 +48,6 @@ import { ListarReservasController } from './interface/listar-reservas.controller
 import { ListarHistoricoController } from './interface/listar-historico.controller';
 import {
   TransicionFechaUseCase,
-  type ConfirmacionBloqueoEmailPort,
   type UnidadDeTrabajoTransicionPort,
 } from './application/transicion-fecha.use-case';
 import {
@@ -239,7 +237,6 @@ import {
   AUDIT_LOG_PORT,
   CLOCK_PORT,
   COLA_QUERY_PORT,
-  CONFIRMACION_BLOQUEO_EMAIL_PORT,
   FECHA_BLOQUEADA_LIBERACION_PORT,
   FECHA_BLOQUEADA_REPOSITORY_PORT,
   PROMOCION_COLA_PORT,
@@ -380,28 +377,19 @@ import {
         new UnidadDeTrabajoTransicionPrismaAdapter(prisma),
     },
     {
-      provide: CONFIRMACION_BLOQUEO_EMAIL_PORT,
-      inject: [DespacharEmailService],
-      useFactory: (motor: DespacharEmailService) =>
-        new ConfirmacionBloqueoEmailAdapter(motor),
-    },
-    {
       provide: TransicionFechaUseCase,
       inject: [
         UNIDAD_DE_TRABAJO_TRANSICION_PORT,
-        CONFIRMACION_BLOQUEO_EMAIL_PORT,
         CLOCK_PORT,
         TENANT_SETTINGS_PORT,
       ],
       useFactory: (
         unidadDeTrabajo: UnidadDeTrabajoTransicionPort,
-        confirmacionBloqueo: ConfirmacionBloqueoEmailPort,
         clock: ClockPort,
         tenantSettings: TenantSettingsPort,
       ) =>
         new TransicionFechaUseCase({
           unidadDeTrabajo,
-          confirmacionBloqueo,
           clock,
           tenantSettings,
         }),

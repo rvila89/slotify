@@ -53,6 +53,7 @@ import {
   subEstadoPrismaADominio,
   type SubEstadoConsultaPrisma,
 } from './sub-estado-consulta.mapper';
+import { duracionHorasPrismaANumero } from './duracion-horas.mapper';
 
 const formatearFecha = (fecha: Date): string => fecha.toISOString().slice(0, 10);
 
@@ -66,26 +67,12 @@ class ReservaTransicionPrismaRepository implements ReservaTransicionRepositoryPo
   }): Promise<ReservaTransicion | null> {
     const fila = await this.tx.reserva.findFirst({
       where: { idReserva: params.reservaId, tenantId: params.tenantId },
-      include: { cliente: { select: { email: true } } },
+      include: { cliente: { select: { nombre: true, email: true } } },
     });
     if (fila === null) {
       return null;
     }
-    return {
-      idReserva: fila.idReserva,
-      tenantId: fila.tenantId,
-      clienteId: fila.clienteId,
-      estado: fila.estado as EstadoReservaDominio,
-      subEstado:
-        fila.subEstado === null
-          ? null
-          : subEstadoPrismaADominio(fila.subEstado as SubEstadoConsultaPrisma),
-      ttlExpiracion: fila.ttlExpiracion,
-      fechaEvento: fila.fechaEvento,
-      posicionCola: fila.posicionCola,
-      consultaBloqueanteId: fila.consultaBloqueanteId,
-      clienteEmail: fila.cliente?.email ?? '',
-    };
+    return this.mapear(fila);
   }
 
   async actualizar(
@@ -102,8 +89,30 @@ class ReservaTransicionPrismaRepository implements ReservaTransicionRepositoryPo
           ? { consultaBloqueanteId: p.consultaBloqueanteId }
           : {}),
       },
-      include: { cliente: { select: { email: true } } },
+      include: { cliente: { select: { nombre: true, email: true } } },
     });
+    return this.mapear(fila);
+  }
+
+  /**
+   * Mapea la fila Prisma (con `cliente { nombre, email }` incluido) a la proyección de
+   * dominio `ReservaTransicion`, traduciendo sub-estado y la duración enum → número.
+   */
+  private mapear(fila: {
+    idReserva: string;
+    tenantId: string;
+    clienteId: string;
+    estado: string;
+    subEstado: SubEstadoConsultaPrisma | null;
+    ttlExpiracion: Date | null;
+    fechaEvento: Date | null;
+    posicionCola: number | null;
+    consultaBloqueanteId: string | null;
+    idioma: string;
+    numInvitadosFinal: number | null;
+    duracionHoras: string | null;
+    cliente: { nombre: string; email: string | null } | null;
+  }): ReservaTransicion {
     return {
       idReserva: fila.idReserva,
       tenantId: fila.tenantId,
@@ -112,12 +121,16 @@ class ReservaTransicionPrismaRepository implements ReservaTransicionRepositoryPo
       subEstado:
         fila.subEstado === null
           ? null
-          : subEstadoPrismaADominio(fila.subEstado as SubEstadoConsultaPrisma),
+          : subEstadoPrismaADominio(fila.subEstado),
       ttlExpiracion: fila.ttlExpiracion,
       fechaEvento: fila.fechaEvento,
       posicionCola: fila.posicionCola,
       consultaBloqueanteId: fila.consultaBloqueanteId,
       clienteEmail: fila.cliente?.email ?? '',
+      clienteNombre: fila.cliente?.nombre ?? '',
+      idioma: fila.idioma,
+      numInvitadosFinal: fila.numInvitadosFinal,
+      duracionHoras: duracionHorasPrismaANumero(fila.duracionHoras),
     };
   }
 }
