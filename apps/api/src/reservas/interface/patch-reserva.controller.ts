@@ -148,6 +148,7 @@ export class PatchReservaController {
       posicionCola: r.posicionCola,
       consultaBloqueanteId: r.consultaBloqueanteId,
       notas: r.notas,
+      comentarios: r.comentarios,
       fechaCreacion: r.fechaCreacion.toISOString(),
       tieneBorradorE1Pendiente: r.tieneBorradorE1Pendiente,
       cliente: {

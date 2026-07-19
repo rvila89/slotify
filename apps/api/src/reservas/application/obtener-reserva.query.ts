@@ -70,6 +70,7 @@ export interface ReservaDetalleLectura {
   posicionCola: number | null;
   consultaBloqueanteId: string | null;
   notas: string | null;
+  comentarios: string | null;
   fechaCreacion: Date;
   /**
    * US-047: `true` cuando la reserva tiene una COMUNICACION E1 en estado `borrador`

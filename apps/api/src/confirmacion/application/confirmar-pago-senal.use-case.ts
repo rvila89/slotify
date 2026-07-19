@@ -74,6 +74,11 @@ export interface ReservaConfirmacion {
   fechaEvento: Date | null;
   /** Importe total (IVA incluido) fijado en la pre-reserva (US-014); Decimal string. */
   importeTotal: string | null;
+  /**
+   * Comentarios libres del alta (mejoras-detalle-consulta). Al crear la FICHA_OPERATIVA
+   * vacía se usan para SEMBRAR `notasOperativas` (si existen y no están en blanco).
+   */
+  comentarios: string | null;
 }
 
 /** Reloj inyectable para determinismo. */
@@ -159,7 +164,16 @@ export interface FichaOperativaConfirmacionRepositoryPort {
     tenantId: string;
     reservaId: string;
   }): Promise<FichaOperativaExistente | null>;
-  crearVacia(params: { reservaId: string; fichaCerrada: false }): Promise<{ idFicha: string }>;
+  crearVacia(params: {
+    reservaId: string;
+    fichaCerrada: false;
+    /**
+     * Siembra inicial de `notasOperativas` (mejoras-detalle-consulta): el
+     * `comentarios` de la RESERVA ya recortado, o `null` si no había. Solo se aplica
+     * al crear la ficha (idempotente: si ya existe, `crearVacia` no se invoca).
+     */
+    notasOperativas: string | null;
+  }): Promise<{ idFicha: string }>;
 }
 
 /** Registro de auditoría de la transición. */
@@ -476,9 +490,15 @@ export class ConfirmarPagoSenalUseCase {
           reservaId: comando.reservaId,
         });
         if (fichaExistente === null) {
+          // Siembra de `notasOperativas` con los comentarios del alta (mejoras-detalle-
+          // consulta): recortados; en blanco/ausentes → null. Solo al CREAR la ficha
+          // (idempotente: si ya existía, no se re-siembra ni se pisa).
+          const comentariosTrim = (reserva.comentarios ?? '').trim();
+          const notasOperativas = comentariosTrim.length > 0 ? comentariosTrim : null;
           await repos.fichaOperativa.crearVacia({
             reservaId: comando.reservaId,
             fichaCerrada: false,
+            notasOperativas,
           });
         }
 

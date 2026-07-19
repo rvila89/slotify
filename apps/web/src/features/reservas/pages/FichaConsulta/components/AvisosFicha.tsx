@@ -7,6 +7,7 @@ import { AvisoResultadoVisita } from './AvisoResultadoVisita';
 import { AvisoReservaInmediata } from './AvisoReservaInmediata';
 import { AvisoBloqueoExtendido } from './AvisoBloqueoExtendido';
 import { AvisosEdicionPresupuesto, type ResultadoEdicion } from './AvisosEdicionPresupuesto';
+import { AvisoEmailEnviado } from './AvisoEmailEnviado';
 import type { PendienteInvitadosResultado, Reserva } from '../../../model/types';
 import type { components } from '@/api-client';
 
@@ -43,6 +44,9 @@ type Props = {
   onCerrarSenal: () => void;
   onCerrarForzar: () => void;
   onCerrarFinalizar: () => void;
+  /** Envío manual del borrador E1 confirmado (mejoras-detalle-consulta §D-3). */
+  emailEnviado: boolean;
+  onCerrarEmailEnviado: () => void;
 };
 
 export const AvisosFicha = ({
@@ -68,8 +72,11 @@ export const AvisosFicha = ({
   onCerrarSenal,
   onCerrarForzar,
   onCerrarFinalizar,
+  emailEnviado,
+  onCerrarEmailEnviado,
 }: Props) => (
   <>
+    {emailEnviado && <AvisoEmailEnviado onCerrar={onCerrarEmailEnviado} />}
     {resultado && <AvisosTransicion resultado={resultado} onCerrar={onCerrarResultado} />}
     {invitados && <AvisoPendienteInvitados resultado={invitados} onCerrar={onCerrarInvitados} />}
     {visita && <AvisoVisitaProgramada reserva={visita} onCerrar={onCerrarVisita} />}

@@ -20,15 +20,17 @@ import type { ReservaDetalle } from '../../../model/types';
 type Props = {
   reservaId: string;
   reserva: ReservaDetalle;
+  /** Éxito de envío manual del borrador E1: la página muestra el aviso arriba + scroll. */
+  onEmailEnviado?: () => void;
 };
 
-export const SeccionesFicha = ({ reservaId, reserva }: Props) => (
+export const SeccionesFicha = ({ reservaId, reserva, onEmailEnviado }: Props) => (
   <>
     {/* US-046 · UC-36: sección "Comunicaciones" de la ficha. Lista las COMUNICACION de
         la reserva y permite revisar/editar/enviar o descartar un borrador y crear un
         email manual. Visible en TODA RESERVA (self-contained: resuelve cargando/error/
         vacío); no depende del estado. */}
-    <ComunicacionesCard reservaId={reservaId} />
+    <ComunicacionesCard reservaId={reservaId} onEmailEnviado={onEmailEnviado} />
 
     {reserva.estado === 'reserva_confirmada' && <FacturaSenalCard reservaId={reservaId} />}
 

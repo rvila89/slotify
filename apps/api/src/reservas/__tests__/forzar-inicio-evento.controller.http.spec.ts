@@ -100,6 +100,7 @@ const resultadoForzado = (
     posicionCola: null,
     consultaBloqueanteId: null,
     notas: null,
+    comentarios: null,
     fechaCreacion: new Date('2026-01-10T09:00:00.000Z'),
     cliente: {
       idCliente: '00000000-0000-0000-0000-0000000000c1',

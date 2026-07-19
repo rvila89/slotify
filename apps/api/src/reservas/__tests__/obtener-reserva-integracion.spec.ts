@@ -46,6 +46,7 @@ const sembrarReserva = async (params: {
   ttlExpiracion?: Date;
   posicionCola?: number;
   consultaBloqueanteId?: string;
+  comentarios?: string;
   tenantId?: string;
 }): Promise<string> => {
   const cliente = await prisma.cliente.create({
@@ -74,6 +75,7 @@ const sembrarReserva = async (params: {
       ...(params.consultaBloqueanteId !== undefined
         ? { consultaBloqueanteId: params.consultaBloqueanteId }
         : {}),
+      ...(params.comentarios !== undefined ? { comentarios: params.comentarios } : {}),
     },
   });
   return reserva.idReserva;
@@ -209,6 +211,53 @@ describe('GET reserva — forma del ReservaDetalle por sub-estado', () => {
     expect(detalle.subEstado).toBe('2d');
     expect(detalle.posicionCola).toBe(1);
     expect(detalle.consultaBloqueanteId).toBe(bloqueanteId);
+  });
+});
+
+// ===========================================================================
+// mejoras-detalle-consulta 3.1/B — Exposición de `comentarios` en ReservaDetalle.
+//   INTEGRACIÓN REAL (Postgres). Requiere la migración aditiva RESERVA.comentarios
+//   y que el read-model/adaptador/DTO proyecten `comentarios`.
+//   RED esperado hoy: la columna no existe (prisma.reserva.create falla) o el
+//   read-model no expone `comentarios`.
+// ===========================================================================
+describe('GET reserva — exposición de comentarios en ReservaDetalle (mejoras-detalle-consulta)', () => {
+  it('reserva_con_comentarios_devuelve_el_texto_en_el_detalle', async () => {
+    const reservaId = await sembrarReserva({
+      estado: EstadoReserva.consulta,
+      subEstado: SubEstadoConsulta.s2a,
+      comentarios: 'El cliente pidió menú sin gluten',
+    });
+
+    const detalle = await useCase.ejecutar({ tenantId: TENANT, reservaId });
+
+    expect(detalle.comentarios).toBe('El cliente pidió menú sin gluten');
+  });
+
+  it('reserva_sin_comentarios_devuelve_comentarios_null', async () => {
+    const reservaId = await sembrarReserva({
+      estado: EstadoReserva.consulta,
+      subEstado: SubEstadoConsulta.s2a,
+    });
+
+    const detalle = await useCase.ejecutar({ tenantId: TENANT, reservaId });
+
+    expect(detalle.comentarios).toBeNull();
+  });
+
+  it('comentarios_y_notas_son_campos_independientes_en_el_detalle', async () => {
+    // `comentarios` (lo que dijo el cliente) NO es `notas` (notas del gestor):
+    // sembramos comentarios y NO notas → comentarios con valor, notas null.
+    const reservaId = await sembrarReserva({
+      estado: EstadoReserva.consulta,
+      subEstado: SubEstadoConsulta.s2a,
+      comentarios: 'Comentario del cliente',
+    });
+
+    const detalle = await useCase.ejecutar({ tenantId: TENANT, reservaId });
+
+    expect(detalle.comentarios).toBe('Comentario del cliente');
+    expect(detalle.notas).toBeNull();
   });
 });
 

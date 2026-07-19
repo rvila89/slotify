@@ -22,6 +22,11 @@ import type { ComunicacionListItem } from '../model/types';
  */
 type Props = {
   reservaId: string;
+  /**
+   * Se propaga a la ficha cuando un borrador se envía con éxito, para el aviso de éxito
+   * arriba + scroll (mejoras-detalle-consulta §D-3).
+   */
+  onEmailEnviado?: () => void;
 };
 
 const claseSeccion =
@@ -54,7 +59,7 @@ const Encabezado = ({ onNuevo }: { onNuevo?: () => void }) => (
   </div>
 );
 
-export const ComunicacionesCard = ({ reservaId }: Props) => {
+export const ComunicacionesCard = ({ reservaId, onEmailEnviado }: Props) => {
   const { data: comunicaciones, isLoading, isError } = useComunicacionesReserva(reservaId);
 
   const [borradorRevisar, setBorradorRevisar] = useState<ComunicacionListItem | null>(null);
@@ -126,6 +131,7 @@ export const ComunicacionesCard = ({ reservaId }: Props) => {
         onAbiertoChange={(abierto) => {
           if (!abierto) setBorradorRevisar(null);
         }}
+        onEnviado={onEmailEnviado}
       />
 
       <NuevoEmailManualDialog
