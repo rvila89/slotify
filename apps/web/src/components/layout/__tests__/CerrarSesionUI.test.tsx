@@ -62,14 +62,25 @@ const renderApp = (initial = '/calendario') => {
   );
 };
 
+const anchoOriginal = window.innerWidth;
+
+const fijarAncho = (px: number) => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: px });
+};
+
 beforeEach(() => {
   postMock.mockReset();
   postMock.mockResolvedValue(exito204());
   establecerAccessTokenEnMemoria('access.jwt.en-memoria');
+  // Viewport estrecho: el sidebar arranca CERRADO (change
+  // `layout-appshell-ancho-titulos-sidebar`), así se ejercita el click que lo abre
+  // y la aserción de "no accesible en reposo".
+  fijarAncho(390);
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  fijarAncho(anchoOriginal);
 });
 
 // La opción "Cerrar sesión" vive en el `SidebarContent` (sidebar integrado),

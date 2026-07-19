@@ -11,7 +11,7 @@
  *  - Distinto del catch-all (task 2.4): el placeholder es una ruta CONOCIDA;
  *    "no encontrado" es una ruta DESCONOCIDA.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -22,6 +22,17 @@ const sesionValida = {
   status: 'authenticated',
   user: { nombre: 'Ada Lovelace', plan: 'Premium' },
 } as const;
+
+const anchoOriginal = window.innerWidth;
+
+const fijarAncho = (px: number) => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: px });
+};
+
+// Viewport estrecho: el sidebar arranca CERRADO (change
+// `layout-appshell-ancho-titulos-sidebar`), así se ejercita el click que lo abre.
+beforeEach(() => fijarAncho(390));
+afterEach(() => fijarAncho(anchoOriginal));
 
 const renderApp = (initial: string) =>
   render(

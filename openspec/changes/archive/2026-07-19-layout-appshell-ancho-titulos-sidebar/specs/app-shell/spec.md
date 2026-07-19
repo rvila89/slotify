@@ -1,49 +1,14 @@
-# app-shell Specification
+# Spec Delta — Capability `app-shell`
 
-## Purpose
-TBD - created by archiving change us-000a-app-shell. Update Purpose after archive.
-## Requirements
-### Requirement: Design tokens del sistema de diseño cableados en apps/web
-`apps/web` SHALL (DEBE) exponer los design tokens de `DESIGN.md §1–§3` como CSS
-custom properties en `index.css` (`:root`) y mapearlos en `tailwind.config.ts`
-(`theme.extend.colors`, `fontFamily`, `borderRadius`), cargar las familias
-**Epilogue** y **Manrope**, e inicializar **shadcn/ui** (`components.json`)
-apuntando a esos tokens. Los colores semánticos de estado de reserva
-(`confirmada`, `bloqueada`, `cola`, `disponible`) DEBEN quedar como tokens
-nombrados, nunca como hex inline. El App Shell DEBE consumir tokens, no valores
-hex sueltos. (Fuente: `DESIGN.md §1, §2, §3, §5`.)
+> Refinamientos de layout del App Shell autenticado (SOLO frontend, `apps/web`).
+> MODIFICA el requisito de layout para fijar el estado inicial del menú lateral
+> por viewport y el ancho del área de contenido; AÑADE el requisito de que el
+> título de contenedor de cada página no duplique el título del header.
+>
+> Fuente: capability viva `openspec/specs/app-shell/spec.md`; `CLAUDE.md §Web
+> responsive (regla dura)`; `apps/web/src/components/layout/{AppShell,navigation}.tsx`.
 
-#### Scenario: Tokens disponibles como utilidades de Tailwind
-- **WHEN** se inspecciona la configuración de `apps/web`
-- **THEN** los colores semánticos (`brand.primary`, `bg.canvas`, `accent.active`,
-  `text.primary`, `border.default`, estados de reserva) están definidos como CSS
-  custom properties en `:root` y mapeados en `tailwind.config.ts`
-- **AND** las familias `Epilogue` y `Manrope` están cargadas y declaradas en
-  `fontFamily`
-
-#### Scenario: El shell no usa hex inline
-- **WHEN** se inspecciona el código del App Shell
-- **THEN** los colores y radios provienen de tokens nombrados (clases Tailwind o
-  custom properties)
-- **AND** no hay literales hexadecimales de color embebidos en el markup
-
-### Requirement: Rutas protegidas con redirección a login y retorno
-Todas las rutas del App Shell SHALL (DEBE) ser rutas protegidas: un guard
-comprueba la sesión en memoria. El acceso sin sesión válida (o token expirado)
-DEBE redirigir al login (US-001) y, tras autenticar, DEBE regresar a la ruta
-originalmente solicitada. Ninguna ruta del shell PUEDE ser accesible sin sesión
-válida. (Fuente: `US-000A §Acceso sin sesión`, `§Reglas de Validación`.)
-
-#### Scenario: Usuario sin sesión es redirigido al login
-- **GIVEN** un usuario sin sesión válida o con token expirado
-- **WHEN** intenta acceder a una ruta protegida del shell
-- **THEN** es redirigido al login (US-001)
-- **AND** la ruta solicitada se conserva para regresar a ella tras autenticar
-
-#### Scenario: Tras autenticar regresa a la ruta solicitada
-- **GIVEN** un usuario redirigido al login desde una ruta protegida
-- **WHEN** completa la autenticación con éxito
-- **THEN** la aplicación lo lleva a la ruta que solicitó originalmente
+## MODIFIED Requirements
 
 ### Requirement: Layout App Shell autenticado con cabecera, nav lateral y outlet
 
@@ -111,43 +76,7 @@ sin hex inline, y respetar la regla responsive (sin overflow horizontal en 390 /
 - **AND** el ancho es consistente con el del calendario en todas las secciones
 - **AND** no hay overflow horizontal en 390 / 768 / 1280
 
-### Requirement: Navegación SPA con item activo resaltado
-El App Shell SHALL (DEBE) permitir navegar entre secciones sin recargar la página
-(SPA): al seleccionar una sección de la navegación lateral, el área de contenido
-cambia a esa ruta y el item correspondiente queda resaltado como activo.
-(Fuente: `US-000A §Happy Path` 2º escenario; `DESIGN.md §4 Sidebar`.)
-
-#### Scenario: Cambiar de sección sin recargar y resaltar el activo
-- **GIVEN** el App Shell visible
-- **WHEN** el usuario selecciona una sección de la navegación lateral
-- **THEN** el área de contenido cambia a esa ruta sin recargar la página
-- **AND** el item de navegación seleccionado queda resaltado como activo
-
-### Requirement: Placeholder para sección aún no implementada
-El App Shell SHALL (DEBE) renderizar un placeholder vacío coherente con el layout
-para toda sección cuya funcionalidad todavía no esté construida, sin romper la
-navegación. Esto permite que cada historia posterior rellene su slot de forma
-incremental. (Fuente: `US-000A §Sección aún no implementada`,
-`§Reglas de Validación`.)
-
-#### Scenario: Sección no implementada muestra placeholder
-- **GIVEN** una sección cuya funcionalidad aún no está construida
-- **WHEN** el usuario la selecciona
-- **THEN** el área de contenido muestra un placeholder vacío coherente con el
-  layout
-- **AND** la navegación lateral y la cabecera siguen operativas
-
-### Requirement: Catch-all de ruta inexistente dentro del shell
-El App Shell SHALL (DEBE) incluir una ruta *catch-all* dentro del layout
-autenticado: una ruta inexistente muestra un estado "no encontrado" **dentro** del
-área de contenido, conservando la navegación lateral y la cabecera.
-(Fuente: `US-000A §Ruta inexistente`.)
-
-#### Scenario: Ruta inexistente muestra "no encontrado" conservando la nav
-- **GIVEN** el usuario autenticado
-- **WHEN** navega a una ruta que no existe dentro del shell
-- **THEN** el área de contenido muestra un estado "no encontrado"
-- **AND** la navegación lateral y la cabecera permanecen visibles
+## ADDED Requirements
 
 ### Requirement: Título de contenedor distinto del título del header
 
@@ -201,4 +130,3 @@ crear página nueva. `navigation.ts` NO se modifica. (Fuente:
 - **THEN** el `<h1>` muestra "Dashboard operativo" / "Calendario de disponibilidad"
   respectivamente, ya distinto del título del header ("Dashboard" / "Calendario")
 - **AND** ninguno de esos dos `<h1>` se modifica en este change
-
