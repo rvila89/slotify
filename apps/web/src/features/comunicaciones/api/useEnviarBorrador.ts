@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api-client';
+import { reservaQueryKey } from '@/features/reservas';
 import { normalizarErrorEnviarBorrador } from './normalizarError';
 import { comunicacionesReservaQueryKey } from './useComunicacionesReserva';
 import type { Comunicacion, EnviarBorradorError } from '../model/types';
@@ -27,8 +28,11 @@ export type EnviarBorradorVars = {
  *  - 409 `ESTADO_NO_BORRADOR` → `conflicto`: la fila ya no es `borrador`; refrescar.
  *  - 502 `PROVEEDOR_EMAIL_FALLIDO` → `proveedor`: la fila quedó `fallido`; reintentable.
  *
- * Tras éxito invalida el listado de comunicaciones de la reserva para reflejar el nuevo
- * estado. En el 409 y el 502 también invalida (el estado de servidor cambió).
+ * Tras éxito invalida el listado de comunicaciones de la reserva Y la propia RESERVA:
+ * el flag `tieneBorradorE1Pendiente` se deriva de la RESERVA (query aparte), así que sin
+ * invalidarla las acciones de la ficha quedarían bloqueadas hasta salir/entrar
+ * (mejoras-detalle-consulta §D-3). En el 409 y el 502 también invalida ambas (el estado
+ * de servidor cambió).
  */
 export const useEnviarBorrador = () => {
   const queryClient = useQueryClient();
@@ -47,12 +51,14 @@ export const useEnviarBorrador = () => {
     },
     onSuccess: (_data, { reservaId }) => {
       void queryClient.invalidateQueries({ queryKey: comunicacionesReservaQueryKey(reservaId) });
+      void queryClient.invalidateQueries({ queryKey: reservaQueryKey(reservaId) });
     },
     onError: (err, { reservaId }) => {
       // Conflicto de estado o fila persistida en `fallido` (proveedor): el servidor
-      // cambió; refrescar para que la lista refleje el estado real.
+      // cambió; refrescar la lista Y la reserva para que reflejen el estado real.
       if (err.tipo === 'conflicto' || err.tipo === 'proveedor') {
         void queryClient.invalidateQueries({ queryKey: comunicacionesReservaQueryKey(reservaId) });
+        void queryClient.invalidateQueries({ queryKey: reservaQueryKey(reservaId) });
       }
     },
   });

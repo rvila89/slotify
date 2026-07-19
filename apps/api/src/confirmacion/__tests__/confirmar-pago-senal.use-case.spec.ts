@@ -66,6 +66,7 @@ const reservaEnPreReserva = (
   subEstado: null,
   fechaEvento: FECHA_EVENTO,
   importeTotal: '3000.00',
+  comentarios: null,
   ...over,
 });
 

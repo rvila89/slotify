@@ -162,6 +162,9 @@ export class ReservaDetalleResponseDto {
   @ApiPropertyOptional({ type: String, nullable: true })
   notas!: string | null;
 
+  @ApiPropertyOptional({ type: String, nullable: true })
+  comentarios!: string | null;
+
   @ApiProperty({ type: String, format: 'date-time' })
   fechaCreacion!: string;
 

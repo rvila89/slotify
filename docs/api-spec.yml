@@ -4617,6 +4617,14 @@ components:
         - $ref: '#/components/schemas/Reserva'
         - type: object
           properties:
+            comentarios:
+              type: string
+              nullable: true
+              description: >-
+                [mejoras-detalle-consulta] Comentario libre que el gestor/cliente dejó al
+                crear la consulta (`CreateReservaRequest.comentarios`), persistido en RESERVA.
+                Solo lectura; distinto de `notas` (anotaciones internas editables). Solo se
+                expone en el detalle.
             cliente: { $ref: '#/components/schemas/Cliente' }
             extras:
               type: array

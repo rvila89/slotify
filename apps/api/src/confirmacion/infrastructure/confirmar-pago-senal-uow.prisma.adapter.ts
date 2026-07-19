@@ -197,9 +197,14 @@ class FichaOperativaConfirmacionPrismaRepository
   async crearVacia(params: {
     reservaId: string;
     fichaCerrada: false;
+    notasOperativas: string | null;
   }): Promise<{ idFicha: string }> {
     const fila = await this.tx.fichaOperativa.create({
-      data: { reservaId: params.reservaId, fichaCerrada: params.fichaCerrada },
+      data: {
+        reservaId: params.reservaId,
+        fichaCerrada: params.fichaCerrada,
+        notasOperativas: params.notasOperativas,
+      },
     });
     return { idFicha: fila.idFicha };
   }

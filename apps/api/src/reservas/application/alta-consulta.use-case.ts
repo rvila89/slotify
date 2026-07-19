@@ -224,6 +224,11 @@ export interface CrearReservaParams {
   numAdultosNinosMayores4?: number;
   numNinosMenores4?: number;
   notas?: string;
+  /**
+   * Comentarios libres del alta (mejoras-detalle-consulta). Se persisten ya
+   * recortados (trim); ausentes/en blanco → columna NULL.
+   */
+  comentarios?: string;
   idioma?: string;
   horario?: string;
 }
@@ -543,6 +548,9 @@ export class AltaConsultaUseCase {
 
     const enviarAutomaticamente = !tieneComentarios(comando.comentarios);
     const email = comando.cliente.email.trim();
+    // Comentarios recortados: si tras trim queda vacío, se persiste NULL (undefined).
+    const comentariosTrim = (comando.comentarios ?? '').trim();
+    const comentarios = comentariosTrim.length > 0 ? comentariosTrim : undefined;
 
     // 0.c Tarifa estimada para E1 (US-004 §D-4): TOLERANTE. Se calcula FUERA de la
     //     transacción (lectura pura) y degrada a `null` ante faltas o errores: nunca
@@ -611,6 +619,7 @@ export class AltaConsultaUseCase {
             ? { numNinosMenores4: comando.numNinosMenores4 }
             : {}),
           ...(comando.notas !== undefined ? { notas: comando.notas } : {}),
+          ...(comentarios !== undefined ? { comentarios } : {}),
           ...(comando.idioma !== undefined ? { idioma: comando.idioma } : {}),
           ...(comando.horario !== undefined ? { horario: comando.horario } : {}),
         });

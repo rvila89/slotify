@@ -42,6 +42,7 @@ export class CargarReservaConfirmacionPrismaAdapter {
           : subEstadoPrismaADominio(fila.subEstado as SubEstadoConsultaPrisma),
       fechaEvento: fila.fechaEvento,
       importeTotal: fila.importeTotal === null ? null : fila.importeTotal.toFixed(2),
+      comentarios: fila.comentarios,
     };
     return reserva;
   };

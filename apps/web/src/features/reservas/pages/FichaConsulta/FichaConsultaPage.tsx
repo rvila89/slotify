@@ -72,6 +72,10 @@ export const FichaConsultaPage = () => {
   const [resultadoForzar, setResultadoForzar] = useState<ForzarInicioEventoResponse | null>(null);
   // Resultado de la finalización del evento (US-034, post_evento + E5 + docs pendiente).
   const [resultadoFinalizar, setResultadoFinalizar] = useState<FinalizarEventoResponse | null>(null);
+  // Envío MANUAL del borrador E1 confirmado (mejoras-detalle-consulta §D-3): alimenta el
+  // aviso de éxito arriba, como el E1 automático. El refetch de la reserva (invalidación
+  // en `useEnviarBorrador`) desbloquea las acciones sin recargar.
+  const [emailEnviado, setEmailEnviado] = useState(false);
   if (isLoading) {
     return (
       <p data-testid="ficha-cargando" className="font-body text-sm text-text-secondary">
@@ -149,6 +153,8 @@ export const FichaConsultaPage = () => {
         onCerrarSenal={() => setResultadoSenal(null)}
         onCerrarForzar={() => setResultadoForzar(null)}
         onCerrarFinalizar={() => setResultadoFinalizar(null)}
+        emailEnviado={emailEnviado}
+        onCerrarEmailEnviado={() => setEmailEnviado(false)}
       />
 
       <section className={claseSeccion} aria-labelledby="ficha-cliente">
@@ -246,7 +252,18 @@ export const FichaConsultaPage = () => {
         />
       </section>
 
-      {id && <SeccionesFicha reservaId={id} reserva={reserva} />}
+      {id && (
+        <SeccionesFicha
+          reservaId={id}
+          reserva={reserva}
+          onEmailEnviado={() => {
+            setEmailEnviado(true);
+            if (typeof window !== 'undefined') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          }}
+        />
+      )}
 
       {id && (
         <DialogosFicha

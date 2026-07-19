@@ -37,6 +37,12 @@ type Props = {
   borrador: ComunicacionListItem | null;
   abierto: boolean;
   onAbiertoChange: (abierto: boolean) => void;
+  /**
+   * Se invoca tras enviar el borrador con éxito. La ficha lo usa para mostrar el aviso
+   * de éxito arriba y hacer scroll, replicando la UX del E1 automático
+   * (mejoras-detalle-consulta §D-3). Si se omite, no hay aviso en la página.
+   */
+  onEnviado?: () => void;
 };
 
 const claseBotonPrimario =
@@ -53,6 +59,7 @@ export const RevisarEnviarBorradorDialog = ({
   borrador,
   abierto,
   onAbiertoChange,
+  onEnviado,
 }: Props) => {
   const {
     register,
@@ -85,8 +92,10 @@ export const RevisarEnviarBorradorDialog = ({
       { reservaId, idComunicacion: borrador.idComunicacion, asunto, cuerpo },
       {
         onSuccess: () => {
-          toast.success('Email enviado correctamente al cliente.');
+          // El aviso de éxito lo muestra la ficha arriba (con scroll), replicando la UX
+          // del E1 automático; por eso aquí no se usa toast (mejoras-detalle-consulta §D-3).
           onAbiertoChange(false);
+          onEnviado?.();
         },
         onError: (err) => {
           // El conflicto de estado ya invalidó la lista; se avisa y se cierra.

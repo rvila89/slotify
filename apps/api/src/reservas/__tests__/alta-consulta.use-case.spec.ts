@@ -306,6 +306,77 @@ describe('AltaConsultaUseCase — crea el agregado en una única transacción (3
 });
 
 // ===========================================================================
+// mejoras-detalle-consulta 3.1 — Persistencia de `comentarios` en RESERVA.
+//   El alta persiste `comando.comentarios` en `repos.reservas.crear({...})`
+//   (columna nueva RESERVA.comentarios) SIN cambiar la decisión de E1.
+//   RED esperado: hoy el objeto pasado a `crear` NO incluye `comentarios`.
+// ===========================================================================
+
+describe('AltaConsultaUseCase — persistencia de comentarios en RESERVA (mejoras-detalle-consulta 3.1)', () => {
+  it('debe_persistir_comentarios_en_la_reserva_cuando_el_alta_los_trae', async () => {
+    const { useCase, repos } = montar();
+
+    await useCase.ejecutar(comandoBase({ comentarios: 'Llamar el lunes, lead caliente' }));
+
+    const args = repos.reservas.crear.mock.calls[0][0];
+    expect(args.comentarios).toBe('Llamar el lunes, lead caliente');
+  });
+
+  it('no_debe_pasar_comentarios_a_la_reserva_cuando_el_alta_no_los_trae', async () => {
+    // Sin comentarios: la columna nace NULL. El caso de uso NO envía la propiedad
+    // (o la envía undefined), igual que hace hoy con `notas`/`tipoEvento`.
+    const { useCase, repos } = montar();
+
+    await useCase.ejecutar(comandoBase());
+
+    const args = repos.reservas.crear.mock.calls[0][0];
+    expect(args.comentarios).toBeUndefined();
+  });
+
+  it('debe_tratar_comentarios_en_blanco_como_ausentes_y_no_persistirlos', async () => {
+    // Cadena de solo espacios = ausente (misma semántica que la decisión de E1):
+    // no se persiste (columna NULL), coherente con `tieneComentarios`.
+    const { useCase, repos } = montar();
+
+    await useCase.ejecutar(comandoBase({ comentarios: '   ' }));
+
+    const args = repos.reservas.crear.mock.calls[0][0];
+    expect(args.comentarios).toBeUndefined();
+  });
+
+  it('debe_persistir_comentarios_recortados_trim_cuando_traen_espacios_alrededor', async () => {
+    // El texto útil se guarda sin espacios de borde (trim), preservando el contenido.
+    const { useCase, repos } = montar();
+
+    await useCase.ejecutar(comandoBase({ comentarios: '  Alergias: frutos secos  ' }));
+
+    const args = repos.reservas.crear.mock.calls[0][0];
+    expect(args.comentarios).toBe('Alergias: frutos secos');
+  });
+
+  it('no_debe_cambiar_la_decision_de_E1_por_persistir_comentarios_con_comentarios_es_borrador', async () => {
+    // REGRESIÓN: persistir NO altera el flujo de E1. Con comentarios → borrador,
+    // el motor de envío NO se invoca.
+    const { useCase, finalizarEnvio } = montar();
+
+    const out = await useCase.ejecutar(comandoBase({ comentarios: 'texto' }));
+
+    expect(finalizarEnvio.finalizarEnvio).not.toHaveBeenCalled();
+    expect(out.comunicacion.estado).toBe('borrador');
+  });
+
+  it('no_debe_cambiar_la_decision_de_E1_por_persistir_comentarios_sin_comentarios_auto_envia', async () => {
+    // REGRESIÓN: sin comentarios → auto-envío intacto.
+    const { useCase, finalizarEnvio } = montar();
+
+    const out = await useCase.ejecutar(comandoBase());
+
+    expect(finalizarEnvio.finalizarEnvio).toHaveBeenCalledTimes(1);
+    expect(out.comunicacion.estado).toBe('enviado');
+  });
+});
+
+// ===========================================================================
 // 3.3 — Respuesta inicial automática E1 según `comentarios`.
 // ===========================================================================
 
