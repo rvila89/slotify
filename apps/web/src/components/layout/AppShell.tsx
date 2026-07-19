@@ -20,7 +20,10 @@ import { cn } from '@/lib/utils';
 const sidebarId = 'app-shell-sidebar';
 
 export const AppShell = () => {
-  const [open, setOpen] = useState(false);
+  // Estado inicial por viewport (inicialización perezosa): abierto en escritorio
+  // (≥ 1024px, corte `lg`) y cerrado en móvil/tablet estrecho. Aún no hay drawer
+  // móvil, por eso no se abre el aside de 288px sobre viewports estrechos.
+  const [open, setOpen] = useState(() => window.innerWidth >= 1024);
   const { title, subtitle } = resolveSectionMeta(useLocation().pathname);
 
   return (

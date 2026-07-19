@@ -6,8 +6,14 @@
  * Nota de landmark: colapsado el `<aside>` queda `aria-hidden`, así que su
  * `<nav>` NO está en el árbol de accesibilidad (los role-queries por defecto no
  * lo ven). Al abrir, el `<nav>` pasa a ser accesible.
+ *
+ * Estado inicial por viewport (change `layout-appshell-ancho-titulos-sidebar`):
+ * el sidebar arranca ABIERTO en escritorio (innerWidth ≥ 1024) y CERRADO en
+ * viewports estrechos (< 1024). Estos tests fijan `window.innerWidth`
+ * explícitamente para no depender del ancho por defecto de jsdom (1024) y para
+ * mantener coherencia con `AppShellInitialSidebar.test.tsx`.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -38,6 +44,12 @@ const sesionValida = {
   user: { nombre: 'Ada Lovelace', plan: 'Premium' },
 } as const;
 
+const anchoOriginal = window.innerWidth;
+
+const fijarAncho = (px: number) => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: px });
+};
+
 const renderApp = (initial: string) =>
   render(
     <SessionProvider value={sesionValida}>
@@ -47,14 +59,20 @@ const renderApp = (initial: string) =>
     </SessionProvider>,
   );
 
+afterEach(() => fijarAncho(anchoOriginal));
+
 describe('App Shell — sidebar integrado colapsable', () => {
+  // Se parte de un viewport estrecho para que el sidebar arranque CERRADO y
+  // ejercitar el toggle manual de abrir→cerrar desde el estado colapsado.
+  beforeEach(() => fijarAncho(390));
+
   it('el_logo_alterna_el_sidebar_y_refleja_el_estado_en_aria_expanded', async () => {
     const user = userEvent.setup();
     renderApp('/calendario');
 
     const toggle = screen.getByRole('button', { name: /navegación/i });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    // Estado por defecto: colapsado → el <nav> no está en el árbol de a11y.
+    // Viewport estrecho: arranca colapsado → el <nav> no está en el árbol de a11y.
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
 
     // Abrir: aparece la navegación principal.
@@ -82,9 +100,10 @@ describe('App Shell — sidebar integrado colapsable', () => {
     await user.click(within(nav).getByRole('link', { name: /reservas/i }));
 
     // El outlet cambia a Reservas (SPA). US-050: /reservas ya renderiza la
-    // ReservasPage real (no el SectionPlaceholder); verificamos su cabecera <h1>.
+    // ReservasPage real (no el SectionPlaceholder); su título de contenedor es
+    // "Pipeline de solicitudes" (distinto del header "Reservas").
     expect(
-      await screen.findByRole('heading', { level: 1, name: /reservas/i }),
+      await screen.findByRole('heading', { level: 1, name: /pipeline de solicitudes/i }),
     ).toBeInTheDocument();
 
     // ...y el sidebar permanece abierto (integrado, no modal): la nav sigue

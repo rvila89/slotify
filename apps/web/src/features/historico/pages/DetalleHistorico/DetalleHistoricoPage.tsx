@@ -40,7 +40,7 @@ export const DetalleHistoricoPage = () => {
   const esCerrada = estadoFinal === 'reserva_completada' || estadoFinal === 'reserva_cancelada';
 
   return (
-    <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <Link
         to="/historico"
         className="inline-flex w-fit items-center gap-2 font-body text-sm font-semibold text-brand-primary underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
