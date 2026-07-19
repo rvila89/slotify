@@ -305,9 +305,13 @@ export const FichaConsultaPage = () => {
           onForzado={setResultadoForzar}
           onFinalizado={setResultadoFinalizar}
           // Desenlaces terminales (archivado US-038 / descarte US-013): toast +
-          // refetch en el diálogo; la página no guarda estado.
+          // refetch en el diálogo; la página no guarda estado. Al descartar,
+          // devolvemos el "puntero" al inicio de la página para que el foco
+          // visual vuelva a la cabecera (mismo patrón que NuevaConsultaPage).
           onArchivado={() => {}}
-          onDescartado={() => {}}
+          onDescartado={() => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
           onDescartadoPreReserva={() => {}}
         />
       )}
