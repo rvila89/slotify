@@ -39,10 +39,10 @@ export const ReservasPage = () => {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
         <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
-          Reservas
+          Pipeline de solicitudes
         </h1>
         <p className="font-body text-sm text-text-secondary">
           Pipeline de reservas activas agrupadas por fase.

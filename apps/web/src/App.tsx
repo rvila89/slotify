@@ -53,7 +53,10 @@ const App = () => (
             pura). El detalle reutiliza `GET /reservas/{id}` en MODO LECTURA. */}
         <Route path="/historico" element={<HistoricoPage />} />
         <Route path="/historico/:id" element={<DetalleHistoricoPage />} />
-        <Route path="/metricas" element={<SectionPlaceholder nombre="Métricas" />} />
+        <Route
+          path="/metricas"
+          element={<SectionPlaceholder nombre="Métricas" titulo="Panel de métricas" />}
+        />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Route>
