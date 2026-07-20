@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginPage } from './pages/LoginPage';
 import { AppShell, SectionPlaceholder, NotFound } from './components/layout';
+import { Toaster } from './components/ui/sonner';
 import { NuevaConsultaPage, FichaConsultaPage, ReservasPage } from './features/reservas';
 import { HistoricoPage, DetalleHistoricoPage } from './features/historico';
 import { CalendarioPage } from './features/calendario';
@@ -30,6 +31,9 @@ const queryClient = new QueryClient({
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <InterceptorRegistrar />
+    {/* Host global de notificaciones (Sonner). Se monta una única vez aquí para
+        que cualquier `toast.*()` del árbol (login incluido) se renderice. */}
+    <Toaster />
     <Routes>
     {/* Layout auth (sin chrome del shell) */}
     <Route path="/login" element={<LoginPage />} />
@@ -53,7 +57,10 @@ const App = () => (
             pura). El detalle reutiliza `GET /reservas/{id}` en MODO LECTURA. */}
         <Route path="/historico" element={<HistoricoPage />} />
         <Route path="/historico/:id" element={<DetalleHistoricoPage />} />
-        <Route path="/metricas" element={<SectionPlaceholder nombre="Métricas" />} />
+        <Route
+          path="/metricas"
+          element={<SectionPlaceholder nombre="Métricas" titulo="Panel de métricas" />}
+        />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Route>

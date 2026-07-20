@@ -147,6 +147,7 @@ export class ExtenderBloqueoController {
       posicionCola: r.posicionCola,
       consultaBloqueanteId: r.consultaBloqueanteId,
       notas: r.notas,
+      comentarios: r.comentarios,
       fechaCreacion: r.fechaCreacion.toISOString(),
       cliente: {
         idCliente: r.cliente.idCliente,

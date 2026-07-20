@@ -3831,6 +3831,8 @@ export interface components {
             tieneBorradorE1Pendiente?: boolean;
         };
         ReservaDetalle: components["schemas"]["Reserva"] & {
+            /** @description [mejoras-detalle-consulta] Comentario libre que el gestor/cliente dejó al crear la consulta (`CreateReservaRequest.comentarios`), persistido en RESERVA. Solo lectura; distinto de `notas` (anotaciones internas editables). Solo se expone en el detalle. */
+            comentarios?: string | null;
             cliente?: components["schemas"]["Cliente"];
             extras?: components["schemas"]["ReservaExtra"][];
             presupuestos?: components["schemas"]["Presupuesto"][];
@@ -3901,7 +3903,7 @@ export interface components {
             numAdultosNinosMayores4?: number;
             numNinosMenores4?: number;
             notas?: string;
-            /** @description [US-003] Comentarios libres del gestor sobre el lead en el momento del alta. Su PRESENCIA/AUSENCIA decide el flujo del email E1 (respuesta inicial automática): SIN `comentarios` (omitido o vacío) → la COMUNICACION E1 se persiste con `estado='enviado'` y se dispara el auto-envío de la respuesta inicial; CON `comentarios` → la COMUNICACION E1 se persiste con `estado='borrador'`, NO se envía, y la UI alerta al gestor de un borrador pendiente de revisión. Es distinto de `notas` (anotaciones internas que NO afectan al envío de E1). */
+            /** @description [US-003] Comentarios libres del gestor sobre el lead en el momento del alta. Su PRESENCIA/AUSENCIA decide el flujo del email E1 (respuesta inicial automática): SIN `comentarios` (omitido o vacío) → la COMUNICACION E1 se persiste con `estado='enviado'` y se dispara el auto-envío de la respuesta inicial; CON `comentarios` → la COMUNICACION E1 se persiste con `estado='borrador'`, YA REDACTADA (asunto y `cuerpo` renderizados con el mismo idioma y la misma casuística de fecha que el auto-envío), NO se envía, y la UI alerta al gestor de un borrador pendiente de revisión para que lo edite y envíe. Es distinto de `notas` (anotaciones internas que NO afectan al envío de E1). */
             comentarios?: string;
             /**
              * @description Idioma de comunicación con el cliente para el email E1 y futuros envíos automáticos.

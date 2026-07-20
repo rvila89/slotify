@@ -97,6 +97,7 @@ const sembrarPreReserva = async (params: {
   importeTotal?: string;
   tenantId?: string;
   conBloqueoBlando?: boolean;
+  comentarios?: string;
 }): Promise<string> => {
   const tenantId = params.tenantId ?? TENANT;
   const cliente = await prisma.cliente.create({
@@ -127,6 +128,7 @@ const sembrarPreReserva = async (params: {
       numNinosMenores4: 5,
       importeTotal: params.importeTotal ?? '3000.00',
       ttlExpiracion: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      ...(params.comentarios !== undefined ? { comentarios: params.comentarios } : {}),
     },
   });
   if (params.conBloqueoBlando ?? true) {
@@ -283,8 +285,70 @@ describe('Confirmar señal — DOCUMENTO justificante + FICHA_OPERATIVA vacía',
     expect(ficha?.timingDetallado).toBeNull();
     expect(ficha?.contactoEventoNombre).toBeNull();
     expect(ficha?.contactoEventoTelefono).toBeNull();
+    // mejoras-detalle-consulta: `notasOperativas` nace NULL SOLO si la RESERVA no
+    // tenía `comentarios`. Esta reserva se sembró sin comentarios → null. La siembra
+    // con comentarios se cubre en el describe "siembra de notasOperativas".
     expect(ficha?.notasOperativas).toBeNull();
     expect(ficha?.briefingEquipo).toBeNull();
+  });
+});
+
+// ===========================================================================
+// mejoras-detalle-consulta 3.2 — Siembra de `notasOperativas` con
+//   `RESERVA.comentarios` al crear la FICHA_OPERATIVA vacía (US-021 intacta).
+//   INTEGRACIÓN REAL (Postgres). Requiere la columna RESERVA.comentarios y la
+//   siembra dentro del `create` de la ficha (atómica, idempotente, RLS).
+//   RED esperado hoy: `crearVacia` no siembra → notasOperativas siempre null.
+//
+// Extiende dos fechas nuevas para no colisionar con las suites existentes.
+// ===========================================================================
+const FECHA_SIEMBRA_CON = new Date('2028-03-07T00:00:00.000Z');
+const FECHA_SIEMBRA_BLANCO = new Date('2028-03-08T00:00:00.000Z');
+const FECHA_SIEMBRA_IDEMP = new Date('2028-03-09T00:00:00.000Z');
+FECHAS.push(FECHA_SIEMBRA_CON, FECHA_SIEMBRA_BLANCO, FECHA_SIEMBRA_IDEMP);
+
+describe('Confirmar señal — siembra de notasOperativas con comentarios (mejoras-detalle-consulta 3.2)', () => {
+  it('debe_sembrar_notasOperativas_con_los_comentarios_de_la_reserva', async () => {
+    const reservaId = await sembrarPreReserva({
+      fecha: FECHA_SIEMBRA_CON,
+      comentarios: 'El cliente pidió menú sin gluten y barra libre hasta las 3',
+    });
+
+    await useCase.ejecutar(comando(reservaId));
+
+    const ficha = await prisma.fichaOperativa.findUnique({ where: { reservaId } });
+    expect(ficha).not.toBeNull();
+    expect(ficha?.notasOperativas).toBe(
+      'El cliente pidió menú sin gluten y barra libre hasta las 3',
+    );
+  });
+
+  it('debe_dejar_notasOperativas_null_cuando_la_reserva_no_tiene_comentarios', async () => {
+    const reservaId = await sembrarPreReserva({ fecha: FECHA_SIEMBRA_BLANCO });
+
+    await useCase.ejecutar(comando(reservaId));
+
+    const ficha = await prisma.fichaOperativa.findUnique({ where: { reservaId } });
+    expect(ficha?.notasOperativas).toBeNull();
+  });
+
+  it('no_debe_re_sembrar_ni_sobreescribir_notasOperativas_si_la_ficha_ya_existe_idempotencia', async () => {
+    // La ficha ya existía (reintento) con notas propias; la confirmación NO la
+    // re-siembra ni la pisa con `comentarios`. Idempotencia US-021 intacta.
+    const reservaId = await sembrarPreReserva({
+      fecha: FECHA_SIEMBRA_IDEMP,
+      comentarios: 'Comentario del cliente que NO debe sobrescribir la ficha',
+    });
+    await prisma.fichaOperativa.create({
+      data: { reservaId, fichaCerrada: false, notasOperativas: 'Notas ya escritas por el gestor' },
+    });
+
+    await useCase.ejecutar(comando(reservaId));
+
+    const fichas = await prisma.fichaOperativa.findMany({ where: { reservaId } });
+    expect(fichas).toHaveLength(1);
+    // El contenido preexistente se conserva: NO se pisa con los comentarios.
+    expect(fichas[0].notasOperativas).toBe('Notas ya escritas por el gestor');
   });
 });
 

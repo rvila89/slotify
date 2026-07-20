@@ -58,10 +58,10 @@ export const HistoricoPage = () => {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
         <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
-          Histórico
+          Reservas archivadas
         </h1>
         <p className="font-body text-sm text-text-secondary">
           Busca y consulta las reservas completadas y canceladas del negocio.

@@ -103,6 +103,7 @@ export class ReservaDetalleQueryPrismaAdapter implements ReservaDetalleQueryPort
       posicionCola: fila.posicionCola,
       consultaBloqueanteId: fila.consultaBloqueanteId,
       notas: fila.notas,
+      comentarios: fila.comentarios,
       fechaCreacion: fila.fechaCreacion,
       tieneBorradorE1Pendiente,
       cliente: {

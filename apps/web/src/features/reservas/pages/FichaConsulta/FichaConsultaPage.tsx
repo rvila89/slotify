@@ -72,6 +72,10 @@ export const FichaConsultaPage = () => {
   const [resultadoForzar, setResultadoForzar] = useState<ForzarInicioEventoResponse | null>(null);
   // Resultado de la finalización del evento (US-034, post_evento + E5 + docs pendiente).
   const [resultadoFinalizar, setResultadoFinalizar] = useState<FinalizarEventoResponse | null>(null);
+  // Envío MANUAL del borrador E1 confirmado (mejoras-detalle-consulta §D-3): alimenta el
+  // aviso de éxito arriba, como el E1 automático. El refetch de la reserva (invalidación
+  // en `useEnviarBorrador`) desbloquea las acciones sin recargar.
+  const [emailEnviado, setEmailEnviado] = useState(false);
   if (isLoading) {
     return (
       <p data-testid="ficha-cargando" className="font-body text-sm text-text-secondary">
@@ -112,7 +116,7 @@ export const FichaConsultaPage = () => {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
@@ -148,6 +152,8 @@ export const FichaConsultaPage = () => {
         onCerrarSenal={() => setResultadoSenal(null)}
         onCerrarForzar={() => setResultadoForzar(null)}
         onCerrarFinalizar={() => setResultadoFinalizar(null)}
+        emailEnviado={emailEnviado}
+        onCerrarEmailEnviado={() => setEmailEnviado(false)}
       />
 
       <section className={claseSeccion} aria-labelledby="ficha-cliente">
@@ -249,7 +255,18 @@ export const FichaConsultaPage = () => {
         />
       </section>
 
-      {id && <SeccionesFicha reservaId={id} reserva={reserva} />}
+      {id && (
+        <SeccionesFicha
+          reservaId={id}
+          reserva={reserva}
+          onEmailEnviado={() => {
+            setEmailEnviado(true);
+            if (typeof window !== 'undefined') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          }}
+        />
+      )}
 
       {id && (
         <DialogosFicha
@@ -290,9 +307,13 @@ export const FichaConsultaPage = () => {
           onForzado={setResultadoForzar}
           onFinalizado={setResultadoFinalizar}
           // Desenlaces terminales (archivado US-038 / descarte US-013): toast +
-          // refetch en el diálogo; la página no guarda estado.
+          // refetch en el diálogo; la página no guarda estado. Al descartar,
+          // devolvemos el "puntero" al inicio de la página para que el foco
+          // visual vuelva a la cabecera (mismo patrón que NuevaConsultaPage).
           onArchivado={() => {}}
-          onDescartado={() => {}}
+          onDescartado={() => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
           onDescartadoPreReserva={() => {}}
         />
       )}

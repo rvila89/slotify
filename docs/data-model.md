@@ -2,8 +2,8 @@
 
 > **Documento**: Modelo de Datos (definición de entidades, campos y reglas)
 > **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados
-> **Versión**: 2.8
-> **Fecha**: 18/07/2026
+> **Versión**: 2.9
+> **Fecha**: 19/07/2026
 > **Fuente canónica del ERD**: [er-diagram.md](./er-diagram.md) · **Arquitectura**: [architecture.md](./architecture.md) · **Casos de uso**: [use-cases.md](./use-cases.md)
 
 ---
@@ -232,7 +232,8 @@ Recorre toda la máquina de estados. Incluye campos de cola, visita, sub-proceso
 | `cond_part_firmadas_fecha` | `DateTime?` | Timestamp en que el gestor registra la firma del cliente en el sistema (UC-19 flujo registro). |
 | `idioma` | `String @default("es")` | Idioma de comunicación con el cliente. Valores permitidos: `es` (castellano) y `ca` (catalán). Determina la plantilla de email E1 y el dossier PDF adjunto (`Dossier-Masia-Encis-{idioma}.pdf`). Añadido en US-047 (migración `20260717150000_add_idioma_horario_to_reserva`). |
 | `horario` | `String?` | Hora de inicio prevista del evento en formato `HH:MM` (p. ej. `"10:00"`). Nullable. Solo válido junto a `duracion_horas` (validación en API). Añadido en US-047 (migración `20260717150000_add_idioma_horario_to_reserva`). Expuesto en el wire en US-051: aparece en el schema de respuesta `Reserva` (nullable) y es editable vía `PATCH /reservas/{id}` (`UpdateReservaRequest.horario`). Es campo de completitud obligatorio para habilitar "Generar presupuesto" en la UI de la ficha (junto a `fechaEvento`, `numAdultosNinosMayores4` y `duracionHoras`). |
-| `notas` | `String? @db.Text` | |
+| `notas` | `String? @db.Text` | Anotaciones internas editables del gestor |
+| `comentarios` | `String? @db.Text` | Comentario libre introducido en el alta de la consulta. Distinto de `notas`: `comentarios` es inmutable tras el alta y procede del cliente o del gestor en el momento de apertura. Su **presencia** decide el flujo de E1 (sin comentarios → auto-envío; con comentarios → borrador para revisión). Expuesto en `GET /reservas/{id}` como `ReservaDetalle.comentarios`. Al crearse la `FICHA_OPERATIVA` (US-021), se siembra en `FICHA_OPERATIVA.notas_operativas` si no está vacío, dentro de la misma transacción, de forma idempotente. Migración aditiva (`mejoras-detalle-consulta`). |
 | `activo` | `Boolean @default(true)` | |
 | `fecha_creacion` / `fecha_actualizacion` | `DateTime` | Auditoría |
 
@@ -534,7 +535,7 @@ Datos operativos del evento, cumplimentados progresivamente. Relación 1:1 con l
 | `timing_detallado` | `String? @db.Text` | |
 | `contacto_evento_nombre` | `String?` | |
 | `contacto_evento_telefono` | `String?` | |
-| `notas_operativas` | `String? @db.Text` | |
+| `notas_operativas` | `String? @db.Text` | Notas para el equipo. Si `RESERVA.comentarios` tiene contenido al confirmar la señal (US-021), se inicializa con ese valor dentro de la misma transacción, de forma idempotente. Editable libremente por el gestor vía US-025. |
 | `briefing_equipo` | `String? @db.Text` | |
 | `ficha_cerrada` | `Boolean @default(false)` | `true` al cerrar (US-025); no revierte a `false` |
 | `fecha_cierre` | `DateTime?` | `now()` al cerrar; se actualiza en cada guardado post-cierre (D-4) |
@@ -687,6 +688,8 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 - **Auditoría:** toda transición de estado de `Reserva` y toda emisión de `Factura` genera un `AuditLog`.
 
 ---
+
+*Documento de modelo de datos v2.9 (19/07/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v4.9. v2.9: refleja el change `mejoras-detalle-consulta` — añade campo `comentarios String? @db.Text` en la tabla de §3.5 Reserva (migración aditiva; campo inmutable tras el alta; decide el flujo de E1; expuesto en `ReservaDetalle.comentarios` vía `GET /reservas/{id}`; distinto de `notas`); actualiza la descripción de `notas_operativas` en §3.14 FichaOperativa para documentar la siembra desde `RESERVA.comentarios` al crear la ficha (US-021), dentro de la misma transacción, idempotente. Sin entidades ni índices nuevos.*
 
 *Documento de modelo de datos v2.7 (17/07/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v4.5. v2.7: refleja US-042 — Buscar y filtrar en el histórico (UC-32): añade nota de lectura en el histórico en §3.5 Reserva (`GET /historico`, schema `ReservaHistorico`, desacople del pipeline, join a CLIENTE, detalle vía `GET /reservas/{id}`); añade dos índices GIN funcionales en §5 (`idx_reserva_fts_historico` sobre `codigo`+`notas` de RESERVA; `idx_cliente_fts_historico` sobre `nombre`+`apellidos`+`email` de CLIENTE con `translate` de separadores; migración aditiva `20260717140000_us042_historico_fts_gin`). Sin columnas nuevas en ninguna entidad.*
 

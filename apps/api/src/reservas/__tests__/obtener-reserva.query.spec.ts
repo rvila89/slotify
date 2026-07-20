@@ -49,6 +49,7 @@ const detalle2b = (): ReservaDetalleLectura => ({
   posicionCola: null,
   consultaBloqueanteId: null,
   notas: null,
+  comentarios: null,
   fechaCreacion: new Date('2026-06-01T08:00:00.000Z'),
   tieneBorradorE1Pendiente: false,
   cliente: {

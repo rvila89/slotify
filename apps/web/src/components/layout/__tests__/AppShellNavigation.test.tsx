@@ -9,7 +9,7 @@
  *  - El item activo se marca con `aria-current="page"` (NavLink de React Router).
  *  - `@/features/auth` -> `SessionProvider` para INYECTAR la sesion valida.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -54,6 +54,18 @@ const abrirSidebar = async (user: ReturnType<typeof userEvent.setup>) => {
   return screen.findByRole('navigation');
 };
 
+const anchoOriginal = window.innerWidth;
+
+const fijarAncho = (px: number) => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: px });
+};
+
+// Viewport estrecho: el sidebar arranca CERRADO (change
+// `layout-appshell-ancho-titulos-sidebar`), así que `abrirSidebar` lo despliega
+// desde el estado colapsado, como asume este flujo.
+beforeEach(() => fijarAncho(390));
+afterEach(() => fijarAncho(anchoOriginal));
+
 describe('App Shell — navegacion SPA con item activo (sidebar integrado)', () => {
   it('debe_cambiar_el_outlet_sin_recargar_resaltar_el_item_activo_y_mantener_el_sidebar_abierto', async () => {
     // Arrange: en /calendario, abrimos el sidebar para acceder a la nav.
@@ -73,10 +85,11 @@ describe('App Shell — navegacion SPA con item activo (sidebar integrado)', () 
     await user.click(linkReservas);
 
     // Assert: el outlet cambia a la seccion Reservas (US-050: la ruta /reservas
-    // ya renderiza la ReservasPage real). Verificamos la cabecera <h1>, que se
-    // pinta con independencia del estado del query.
+    // ya renderiza la ReservasPage real). Verificamos la cabecera <h1>, cuyo
+    // título de contenedor es "Pipeline de solicitudes" (distinto del header
+    // "Reservas"), que se pinta con independencia del estado del query.
     expect(
-      await screen.findByRole('heading', { level: 1, name: /reservas/i }),
+      await screen.findByRole('heading', { level: 1, name: /pipeline de solicitudes/i }),
     ).toBeInTheDocument();
 
     // ...el header refleja la nueva sección (subtítulo dinámico de Reservas)...
