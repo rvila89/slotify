@@ -35,6 +35,7 @@ import {
   type ClockPort,
   type DispararE2Port,
   type GenerarPdfPresupuestoPort,
+  type GuardarPdfUrlPresupuestoPort,
   type TenantSettingsPresupuestoPort,
   type UnidadDeTrabajoActivarPrereservaPort,
 } from './application/generar-presupuesto.use-case';
@@ -48,6 +49,7 @@ import {
 } from './infrastructure/pdf-presupuesto.real.adapter';
 import { CargarDatosDocumentoPresupuestoPrismaAdapter } from './infrastructure/cargar-datos-documento-presupuesto.prisma.adapter';
 import { DispararE2Adapter } from './infrastructure/disparar-e2.adapter';
+import { GuardarPdfUrlPresupuestoPrismaAdapter } from './infrastructure/guardar-pdf-url-presupuesto.prisma.adapter';
 import { SistemaClockAdapter } from './infrastructure/sistema-clock.adapter';
 import { GenerarPresupuestoController } from './interface/generar-presupuesto.controller';
 import { EditarPresupuestoController } from './interface/editar-presupuesto.controller';
@@ -60,6 +62,7 @@ import {
   type CargarReservaEdicionPort,
   type ClockPort as EdicionClockPort,
   type DispararE2EdicionPort,
+  type GenerarPdfEdicionPort,
   type ReenviarE2Port,
   type TenantSettingsPresupuestoPort as EdicionTenantSettingsPort,
   type UnidadDeTrabajoEditarPresupuestoPort,
@@ -86,6 +89,7 @@ import {
   CARGAR_RESERVA_PRESUPUESTO_PORT,
   DISPARAR_E2_PORT,
   GENERAR_PDF_PRESUPUESTO_PORT,
+  GUARDAR_PDF_URL_PRESUPUESTO_PORT,
   PRESUPUESTOS_CLOCK_PORT,
   REENVIAR_E2_PRESUPUESTO_PORT,
   REGISTRAR_AUDITORIA_REENVIO_PORT,
@@ -160,6 +164,12 @@ import {
     },
     { provide: PRESUPUESTOS_CLOCK_PORT, useClass: SistemaClockAdapter },
     {
+      provide: GUARDAR_PDF_URL_PRESUPUESTO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): GuardarPdfUrlPresupuestoPort =>
+        new GuardarPdfUrlPresupuestoPrismaAdapter(prisma).guardar,
+    },
+    {
       provide: GenerarPresupuestoUseCase,
       inject: [
         CalculadoraTarifaService,
@@ -170,6 +180,7 @@ import {
         GENERAR_PDF_PRESUPUESTO_PORT,
         PRESUPUESTOS_CLOCK_PORT,
         DISPARAR_E2_PORT,
+        GUARDAR_PDF_URL_PRESUPUESTO_PORT,
       ],
       useFactory: (
         motorTarifa: CalculadoraTarifaService,
@@ -180,6 +191,7 @@ import {
         generarPdf: GenerarPdfPresupuestoPort,
         clock: ClockPort,
         dispararE2: DispararE2Port,
+        guardarPdfUrl: GuardarPdfUrlPresupuestoPort,
       ) =>
         new GenerarPresupuestoUseCase({
           motorTarifa,
@@ -190,6 +202,7 @@ import {
           generarPdf,
           clock,
           dispararE2,
+          guardarPdfUrl,
         }),
     },
     // -----------------------------------------------------------------------
@@ -259,6 +272,7 @@ import {
         GENERAR_PDF_PRESUPUESTO_PORT,
         PRESUPUESTOS_CLOCK_PORT,
         DISPARAR_E2_PORT,
+        GUARDAR_PDF_URL_PRESUPUESTO_PORT,
       ],
       useFactory: (
         motorTarifa: CalculadoraTarifaService,
@@ -271,6 +285,7 @@ import {
         generarPdf: GenerarPdfPresupuestoPort,
         clock: EdicionClockPort,
         dispararE2: DispararE2EdicionPort,
+        guardarPdfUrl: GuardarPdfUrlPresupuestoPort,
       ) =>
         new EditarPresupuestoUseCase({
           motorTarifa,
@@ -283,6 +298,7 @@ import {
           generarPdf,
           clock,
           dispararE2,
+          guardarPdfUrl,
         }),
     },
     {
@@ -294,6 +310,7 @@ import {
         REGISTRAR_E2_REENVIO_PORT,
         REGISTRAR_AUDITORIA_REENVIO_PORT,
         PRESUPUESTOS_CLOCK_PORT,
+        GENERAR_PDF_PRESUPUESTO_PORT,
       ],
       useFactory: (
         cargarReserva: CargarReservaEdicionPort,
@@ -302,6 +319,7 @@ import {
         registrarE2Reenvio: RegistrarE2ReenvioPresupuestoAdapter['registrar'],
         registrarAuditoria: RegistrarAuditoriaReenvioPresupuestoAdapter['registrar'],
         clock: EdicionClockPort,
+        generarPdf: GenerarPdfEdicionPort,
       ) =>
         new ReenviarPresupuestoUseCase({
           cargarReserva,
@@ -310,6 +328,7 @@ import {
           registrarE2Reenvio,
           registrarAuditoria,
           clock,
+          generarPdf,
         }),
     },
   ],

@@ -139,10 +139,18 @@ const renderInactivo = (codigo: CodigoEmail) => (
 const renderE2 = (variables: Record<string, unknown>): RenderPlantilla => {
   const nombre = texto(variables.nombre);
   const codigoReserva = texto(variables.codigoReserva);
+  const esEdicion = variables.esEdicion === true;
   const referencia = codigoReserva === '' ? '' : ` (reserva ${codigoReserva})`;
-  const asunto = `Tu presupuesto para el evento${referencia}`;
+  const asunto = esEdicion
+    ? `Hemos actualizado tu presupuesto para el evento${referencia}`
+    : `Tu presupuesto para el evento${referencia}`;
   const parrafos = [
     `Hola ${nombre},`,
+    ...(esEdicion
+      ? [
+          'Hemos actualizado el presupuesto que te enviamos con los cambios solicitados. Te adjuntamos la versión revisada.',
+        ]
+      : []),
     "¡Muchas gracias por confiar en la Masia l'Encís!",
     'Te adjuntamos el presupuesto para que podáis efectuar el pago anticipado del 40% del importe total y así dejar confirmada la reserva.\nEl presupuesto está basado en las personas que tienes confirmadas actualmente y, una semana antes de la reserva, nos pondremos en contacto contigo para concretar el listado final de asistentes. En ese momento recalcularemos el importe total si es necesario.',
     'A la hora de realizar la transferencia, debes indicar como destinatario "Canoliart, SL" y, en el concepto, "Masia l\'Encís".\nTambién te adjuntamos las condiciones particulares, que deberéis devolver debidamente firmadas antes de la fecha de la reserva.',
@@ -163,10 +171,18 @@ const renderE2 = (variables: Record<string, unknown>): RenderPlantilla => {
 const renderE2Ca = (variables: Record<string, unknown>): RenderPlantilla => {
   const nombre = texto(variables.nombre);
   const codigoReserva = texto(variables.codigoReserva);
+  const esEdicion = variables.esEdicion === true;
   const referencia = codigoReserva === '' ? '' : ` (reserva ${codigoReserva})`;
-  const asunto = `El teu pressupost per a l'esdeveniment${referencia}`;
+  const asunto = esEdicion
+    ? `Hem actualitzat el teu pressupost per a l'esdeveniment${referencia}`
+    : `El teu pressupost per a l'esdeveniment${referencia}`;
   const parrafos = [
     `Hola ${nombre},`,
+    ...(esEdicion
+      ? [
+          "Hem actualitzat el pressupost que et vam enviar amb els canvis sol·licitats. T'adjuntem la versió revisada.",
+        ]
+      : []),
     "Moltes gràcies per confiar en la Masia l'Encís!",
     "T'adjuntem el pressupost perquè pugueu efectuar el pagament anticipat del 40% de l'import total i així deixar confirmada la reserva.\nEl pressupost està basat en les persones que tens confirmades actualment i, una setmana abans de la reserva, ens posarem en contacte amb tu per concretar el llistat final d'assistents. En aquest moment recalcularem l'import total si cal.",
     "A l'hora de realitzar la transferència, cal indicar com a destinatari \"Canoliart, SL\" i, en el concepte, \"Masia l'Encís\".\nTambé t'adjuntem les condicions particulars, que haureu de retornar degudament signades abans de la data de la reserva.",

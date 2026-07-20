@@ -62,17 +62,20 @@ type Props = {
   onCambiadaFecha: (reserva: Reserva | null) => void;
   /** Edición de campos simples con éxito (US-051 §Punto 2). */
   onEditado: () => void;
-  onResueltoInvitados: Setter<PendienteInvitadosResultado | null>;
-  onResueltoVisita: Setter<Reserva | null>;
-  onResueltoInteresado: Setter<Reserva | null>;
-  onResueltoReservaInmediata: Setter<Reserva | null>;
-  onResueltoExtension: Setter<Reserva | null>;
-  onConfirmadoPresupuesto: Setter<ConfirmarPresupuestoResponse | null>;
+  // Callbacks planos (no setters): la página muestra el aviso y hace scroll; los
+  // diálogos hijos declaran `(resultado) => void`. (Alinea los tipos con los handlers
+  // `avisos.mostrar*` del refactor de avisos, que dejó estas props como `Setter` por error.)
+  onResueltoInvitados: (resultado: PendienteInvitadosResultado) => void;
+  onResueltoVisita: (reserva: Reserva) => void;
+  onResueltoInteresado: (reserva: Reserva) => void;
+  onResueltoReservaInmediata: (reserva: Reserva) => void;
+  onResueltoExtension: (reserva: Reserva) => void;
+  onConfirmadoPresupuesto: (resultado: ConfirmarPresupuestoResponse) => void;
   onEditadoPresupuesto: (resultado: EdicionPresupuestoResponse) => void;
   onReenviadoPresupuesto: (resultado: ReenviarPresupuestoResponse) => void;
-  onConfirmadoSenal: Setter<ConfirmarSenalResponse | null>;
-  onForzado: Setter<ForzarInicioEventoResponse | null>;
-  onFinalizado: Setter<FinalizarEventoResponse | null>;
+  onConfirmadoSenal: (resultado: ConfirmarSenalResponse) => void;
+  onForzado: (resultado: ForzarInicioEventoResponse) => void;
+  onFinalizado: (resultado: FinalizarEventoResponse) => void;
   /** Desenlaces terminales (archivado US-038 / descarte US-013): la página no guarda
       estado (toast + refetch en el diálogo), así que basta con un callback. */
   onArchivado: (reserva: Reserva) => void;
@@ -162,6 +165,8 @@ export const DialogosFicha = ({
       onAbiertoChange={dialogos.editarPresupuesto[1]}
       onEditado={onEditadoPresupuesto}
       onReenviado={onReenviadoPresupuesto}
+      invitadosIniciales={reserva.numAdultosNinosMayores4 ?? undefined}
+      duracionInicial={reserva.duracionHoras ?? undefined}
     />
     <ConfirmarSenalDialog
       reservaId={reservaId}
