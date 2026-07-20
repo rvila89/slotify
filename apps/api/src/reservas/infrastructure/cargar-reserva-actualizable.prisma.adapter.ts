@@ -46,6 +46,11 @@ export class CargarReservaActualizablePrismaAdapter {
           numInvitadosFinal: true,
           horario: true,
           notas: true,
+          // Regeneración del borrador E1 al editar (change `consulta-fecha-borrador-fix`,
+          // design.md §D-3): idioma para el idioma de la plantilla y nombre del cliente
+          // para el saludo del cuerpo re-renderizado.
+          idioma: true,
+          cliente: { select: { nombre: true } },
         },
       });
       if (fila === null) {
@@ -67,6 +72,8 @@ export class CargarReservaActualizablePrismaAdapter {
         numInvitadosFinal: fila.numInvitadosFinal,
         horario: fila.horario,
         notas: fila.notas,
+        idioma: fila.idioma,
+        nombreCliente: fila.cliente?.nombre ?? null,
       };
     });
   }

@@ -148,6 +148,11 @@ export const CARGAR_RESERVA_ACTUALIZABLE_PORT = Symbol(
 export const UNIDAD_DE_TRABAJO_ACTUALIZAR_RESERVA_PORT = Symbol(
   'UnidadDeTrabajoActualizarReservaPort',
 );
+// change consulta-fecha-borrador-fix (design.md §D-3) — regeneración del borrador E1
+// pendiente tras el PATCH de edición de la consulta.
+export const CARGAR_BORRADOR_E1_PENDIENTE_PORT = Symbol(
+  'CargarBorradorE1PendientePort',
+);
 
 // US-051 §Punto 2 — POST /reservas/{id}/cambiar-fecha: operación atómica (liberar antigua +
 // bloquear nueva en UNA tx con SELECT … FOR UPDATE; promoción FIFO si la antigua tenía cola)

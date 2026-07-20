@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, type components } from '@/api-client';
+import { comunicacionesReservaQueryKey } from '@/features/comunicaciones';
 import { reservaQueryKey } from './useReserva';
 
 type Reserva = components['schemas']['Reserva'];
@@ -75,6 +76,9 @@ export const useEditarConsulta = () => {
         prev ? { ...prev, ...reserva } : reserva,
       );
       void queryClient.invalidateQueries({ queryKey: reservaQueryKey(id) });
+      // Si existe un borrador E1 pendiente, el backend lo regenera con los datos
+      // editados (§D-3): invalidar la lectura de comunicaciones para verlo (§D-4).
+      void queryClient.invalidateQueries({ queryKey: comunicacionesReservaQueryKey(id) });
     },
   });
 };

@@ -19,15 +19,14 @@ import {
   type FormularioEditarConsulta,
 } from '../lib/editarConsultaSchema';
 import { useEditarConsulta, type EditarConsultaError } from '../api/useEditarConsulta';
-import { FechaConsultaSeccion } from './FechaConsultaSeccion';
 import type { Reserva } from '../model/types';
 
 /**
- * Diálogo "Editar consulta" (US-051 §Punto 2). Edita los CAMPOS SIMPLES de la
+ * Diálogo "Editar consulta" (US-051 §Punto 2). Edita SOLO los CAMPOS SIMPLES de la
  * RESERVA (`tipoEvento`, `duracionHoras`, invitados, `horario`, `notas`) vía
  * `PATCH /reservas/{id}` (SDK generado). La FECHA NUNCA se toca por el PATCH
- * (§D-1): se gestiona por el flujo atómico —`onGestionarFecha` cierra este editor
- * y abre "Añadir fecha" (`2a`) o "Cambiar fecha" (`2b/2c/2v`) según el sub-estado.
+ * (§D-1): se gestiona por su flujo atómico dedicado ("Añadir fecha" en `2a`,
+ * "Cambiar fecha" en `2b/2c/2v`) desde la botonera de la ficha, no desde este modal.
  *
  * Diseño: NO existe frame propio en Figma "Slotify" para esta ficha/diálogos; se
  * ADAPTA con los tokens del proyecto reutilizando el tratamiento de
@@ -65,8 +64,6 @@ type Props = {
   onAbiertoChange: (abierto: boolean) => void;
   /** Se invoca al guardar con éxito (la ficha refresca vía cache/invalidación). */
   onEditado: () => void;
-  /** Cierra el editor y abre el flujo atómico de fecha (añadir/cambiar). */
-  onGestionarFecha: () => void;
 };
 
 export const EditarConsultaDialog = ({
@@ -75,7 +72,6 @@ export const EditarConsultaDialog = ({
   abierto,
   onAbiertoChange,
   onEditado,
-  onGestionarFecha,
 }: Props) => {
   const mutation = useEditarConsulta();
   const { reset: resetMutation } = mutation;
@@ -131,8 +127,8 @@ export const EditarConsultaDialog = ({
         <DialogHeader>
           <DialogTitle>Editar consulta</DialogTitle>
           <DialogDescription>
-            Actualiza los datos del evento. La fecha se gestiona aparte (bloqueo de fecha) desde el
-            botón de fecha.
+            Actualiza los datos del evento. La fecha del evento no se edita aquí: se gestiona con su
+            bloqueo atómico desde los botones "Añadir fecha" / "Cambiar fecha" de la ficha.
           </DialogDescription>
         </DialogHeader>
 
@@ -284,8 +280,6 @@ export const EditarConsultaDialog = ({
               </p>
             )}
           </div>
-
-          <FechaConsultaSeccion reserva={reserva} onGestionarFecha={onGestionarFecha} />
 
           {errors.root && (
             <div

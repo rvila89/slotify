@@ -38,6 +38,7 @@ const renderAcciones = (r: Reserva, onForzarInicioEvento = vi.fn()) =>
     <AccionesConsulta
       reserva={r}
       onAnadirFecha={noop}
+      onCambiarFecha={noop}
       onPendienteInvitados={noop}
       onProgramarVisita={noop}
       onRegistrarResultadoVisita={noop}

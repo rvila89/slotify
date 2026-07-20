@@ -4,8 +4,10 @@ import type { Reserva } from '../../../model/types';
 
 /**
  * Avisos del desenlace de la transición de fecha mostrados en la ficha:
- *  - `2b`: bloqueo provisional (+ email al cliente) con su `ttlExpiracion`.
- *  - `2d`: entrada en cola con `posicionCola`.
+ *  - `2b`: bloqueo provisional con su `ttlExpiracion`. El correo de confirmación E1
+ *    queda en BORRADOR (US-047), pendiente de revisión y envío manual → aviso ÁMBAR
+ *    (acción requerida), NO verde de "email enviado" (spec-delta `consultas`).
+ *  - `2d`: entrada en cola con `posicionCola`; su borrador E1 también queda pendiente.
  */
 export const AvisosTransicion = ({
   resultado,
@@ -19,22 +21,23 @@ export const AvisosTransicion = ({
       <div
         role="status"
         data-testid="alerta-fecha-bloqueada"
-        className="flex items-start gap-3 rounded-[16px] border border-emerald-200 bg-emerald-50 p-4 text-emerald-900"
+        className="flex items-start gap-3 rounded-[16px] border border-amber-200 bg-amber-50 p-4 text-amber-900"
       >
-        <CalendarCheck aria-hidden className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+        <CalendarCheck aria-hidden className="mt-0.5 size-5 shrink-0 text-amber-600" />
         <div className="flex-1">
           <p className="font-body text-sm font-bold">Fecha reservada provisionalmente</p>
           <p className="font-body text-sm">
             {resultado.fechaEvento ? (
               <>
                 La fecha <strong>{formatearFecha(resultado.fechaEvento)}</strong> ha quedado{' '}
-                <strong>bloqueada</strong> (bloqueo blando)
+                <strong>bloqueada provisionalmente</strong> (bloqueo blando)
                 {resultado.ttlExpiracion ? ` hasta el ${formatearFechaHora(resultado.ttlExpiracion)}` : ''}
-                . Se ha enviado un email de confirmación al cliente. Confírmala antes de que expire
-                para no perder la reserva.
+                . Se ha generado un <strong>borrador de confirmación</strong> pendiente de revisión
+                y envío: revísalo y envía el correo desde la sección Comunicaciones. Confirma la
+                reserva antes de que expire para no perderla.
               </>
             ) : (
-              'La fecha ha quedado bloqueada (bloqueo blando) y se ha enviado un email de confirmación al cliente.'
+              'La fecha ha quedado bloqueada provisionalmente (bloqueo blando). Se ha generado un borrador de confirmación pendiente de revisión y envío desde la sección Comunicaciones.'
             )}
           </p>
         </div>
@@ -42,7 +45,7 @@ export const AvisosTransicion = ({
           type="button"
           aria-label="Cerrar aviso"
           onClick={onCerrar}
-          className="rounded-full p-1 text-emerald-700 transition hover:bg-emerald-100"
+          className="rounded-full p-1 text-amber-700 transition hover:bg-amber-100"
         >
           <X aria-hidden className="size-4" />
         </button>
@@ -65,7 +68,9 @@ export const AvisosTransicion = ({
               </>
             ) : null}
             Tu consulta ha entrado en la cola en la{' '}
-            <strong>posición {resultado.posicionCola}</strong>. Te avisaremos si la fecha se libera.
+            <strong>posición {resultado.posicionCola}</strong>. Se ha generado un{' '}
+            <strong>borrador de confirmación</strong> pendiente de revisión y envío desde la
+            sección Comunicaciones. Te avisaremos si la fecha se libera.
           </p>
         </div>
         <button

@@ -143,6 +143,15 @@ export class EstadoNoBorradorError extends Error {
   }
 }
 
+/**
+ * Heurística conservadora (design.md §D-2) para decidir el formato del cuerpo persistido en
+ * el borrador: `true` si contiene marcado de BLOQUE HTML (`<p>`/`<br>`/`<div>`/`<ul>`/`<li>`
+ * /`<ol>`), señal de un borrador del catálogo que ya es HTML y NO debe re-escaparse;
+ * `false` para el texto plano del E1 de transición o del cuerpo editado por el gestor.
+ */
+const contieneMarcadoHtml = (cuerpo: string): boolean =>
+  /<(p|br|div|ul|ol|li)\b/i.test(cuerpo);
+
 export class EnviarBorradorUseCase {
   constructor(private readonly deps: EnviarBorradorDeps) {}
 
@@ -176,6 +185,13 @@ export class EnviarBorradorUseCase {
     const asuntoEfectivo = comando.asunto ?? comunicacion.asunto;
     const cuerpoEfectivo = comando.cuerpo ?? comunicacion.cuerpo;
 
+    // 4.a Formato del cuerpo para el borde de envío (change `consulta-fecha-borrador-fix`,
+    //     design.md §D-2): un borrador del catálogo persiste HTML (`<p>`/`<br>`) y debe
+    //     enviarse INTACTO (sin doble-escape); el E1 de transición y los cuerpos editados
+    //     por el gestor son TEXTO PLANO y se convierten a HTML. Se detecta por presencia de
+    //     marcado de bloque HTML (heurística conservadora de §D-2).
+    const cuerpoEsHtml = contieneMarcadoHtml(cuerpoEfectivo);
+
     // 4.b Adjunto del dossier al enviar E1 (US-047 D-2): paridad EXACTA con el alta
     //     (`AltaConsultaUseCase`). Solo para `E1` y solo si se conoce la URL base del
     //     almacén; el idioma sale de la RESERVA cargada (ausente → `'es'`). Para otros
@@ -200,6 +216,7 @@ export class EnviarBorradorUseCase {
       destinatario: comunicacion.destinatarioEmail as string,
       asunto: asuntoEfectivo,
       cuerpo: cuerpoEfectivo,
+      cuerpoEsHtml,
       codigoEmail: comunicacion.codigoEmail,
       ...(dossierRef !== undefined ? { adjuntos: [dossierRef] } : {}),
     });

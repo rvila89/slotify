@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, type components } from '@/api-client';
+import { comunicacionesReservaQueryKey } from '@/features/comunicaciones';
 import { reservaQueryKey } from './useReserva';
 
 type Reserva = components['schemas']['Reserva'];
@@ -100,6 +101,9 @@ export const useAsignarFecha = () => {
         prev ? { ...prev, ...reserva } : reserva,
       );
       void queryClient.invalidateQueries({ queryKey: reservaQueryKey(id) });
+      // La transición de fecha crea el borrador E1 (US-047): invalidar la lectura de
+      // comunicaciones para que el borrador recién creado aparezca sin recargar (§D-4).
+      void queryClient.invalidateQueries({ queryKey: comunicacionesReservaQueryKey(id) });
     },
   });
 };
