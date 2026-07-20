@@ -54,7 +54,9 @@ const ETIQUETAS_FIRMA: ReadonlyArray<string> = [
 export const construirModeloDocumentoCondiciones = (
   config: ConfiguracionDocumentoTenant,
 ): ModeloDocumentoCondiciones => ({
-  titulo: config.condiciones.titulo,
+  // El documento de condicions particulares conserva el catalán en este change (design.md
+  // D6/§"Fuera de alcance"): su render bilingüe autónomo es trabajo futuro.
+  titulo: config.condiciones.titulo.ca,
   cabecera: {
     // Las condicions no muestran el desglose fiscal ni dependen del régimen: cabecera con
     // nombre comercial + identidad fiscal + branding del tenant (mismo componente que 6.1b).
@@ -71,8 +73,8 @@ export const construirModeloDocumentoCondiciones = (
     email: config.identidadFiscal.email,
   },
   secciones: config.condiciones.secciones.map((seccion) => ({
-    titulo: seccion.titulo,
-    cuerpo: seccion.cuerpo,
+    titulo: seccion.titulo.ca,
+    cuerpo: seccion.cuerpo.ca,
   })),
   firma: { etiquetas: ETIQUETAS_FIRMA },
 });

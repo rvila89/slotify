@@ -6,6 +6,7 @@
  * marcador semántico del bloque bancario. Primitivas react-pdf inyectadas en `kit`.
  * Reutilizable por factura (6.3).
  */
+import type { EtiquetasDocumento } from '../etiquetas-por-idioma';
 import type { PieBancarioModelo } from '../modelo-documento-presupuesto';
 import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
 
@@ -13,23 +14,32 @@ export interface PieBancarioProps {
   kit: KitReactPdf;
   estilos: EstilosReactPdf;
   pieBancario: PieBancarioModelo;
+  /**
+   * Etiquetas fijas por idioma (frases del pie bancario). La FACTURA reutiliza este
+   * bloque en idioma fijo `ca` (design.md D6): recibe las etiquetas catalanas.
+   */
+  etiquetas: EtiquetasDocumento;
   /** Email de contacto del emisor (de la cabecera) al que enviar el comprovant. */
   email: string;
 }
 
-export const PieBancario = ({ kit, estilos, pieBancario, email }: PieBancarioProps) => {
+export const PieBancario = ({
+  kit,
+  estilos,
+  pieBancario,
+  etiquetas,
+  email,
+}: PieBancarioProps) => {
   const { View, Text } = kit;
   return (
     <View style={estilos.pieCentrado}>
       <Text style={estilos.pieLinea}>
-        *Per formalitzar el pagament, envieu el comprovant a &quot;{email}&quot;.
+        {`${etiquetas.formalitzarPagament} "${email}".`}
       </Text>
-      <Text style={estilos.pieLinea}>
-        El pagament es pot efectuar mitjançant transferència al núm. de compte:
-      </Text>
+      <Text style={estilos.pieLinea}>{etiquetas.transferenciaCompte}</Text>
       <Text style={estilos.pieIban}>{pieBancario.iban}</Text>
       <Text style={[estilos.pieLinea, estilos.negrita, { marginTop: 6 }]}>
-        Dades bancàries: {pieBancario.beneficiario}
+        {`${etiquetas.dadesBancaries} ${pieBancario.beneficiario}`}
       </Text>
     </View>
   );

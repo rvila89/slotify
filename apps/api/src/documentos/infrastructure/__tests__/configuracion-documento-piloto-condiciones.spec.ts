@@ -48,8 +48,8 @@ describe('construirConfiguracionDocumentoPiloto — bloque condiciones (2.2)', (
     // Arrange / Act
     const config = construirConfiguracionDocumentoPiloto(TENANT_PILOTO);
 
-    // Assert
-    expect(config.condiciones.titulo).toBe('Condicions Particulars');
+    // Assert (idioma ca del título bilingüe)
+    expect(config.condiciones.titulo.ca).toBe('Condicions Particulars');
   });
 
   it('debe_tener_exactamente_14_secciones', () => {
@@ -61,7 +61,7 @@ describe('construirConfiguracionDocumentoPiloto — bloque condiciones (2.2)', (
   it('debe_listar_los_14_titulos_en_el_orden_exacto_especificado', () => {
     const config = construirConfiguracionDocumentoPiloto(TENANT_PILOTO);
 
-    const titulos = config.condiciones.secciones.map((s) => s.titulo);
+    const titulos = config.condiciones.secciones.map((s) => s.titulo.ca);
     expect(titulos).toEqual(TITULOS_ESPERADOS);
   });
 
@@ -71,8 +71,8 @@ describe('construirConfiguracionDocumentoPiloto — bloque condiciones (2.2)', (
     const config = construirConfiguracionDocumentoPiloto(TENANT_PILOTO);
 
     for (const seccion of config.condiciones.secciones) {
-      expect(seccion.titulo.trim().length).toBeGreaterThan(0);
-      expect(seccion.cuerpo.trim().length).toBeGreaterThan(0);
+      expect(seccion.titulo.ca.trim().length).toBeGreaterThan(0);
+      expect(seccion.cuerpo.ca.trim().length).toBeGreaterThan(0);
     }
   });
 

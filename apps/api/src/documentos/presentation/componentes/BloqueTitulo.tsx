@@ -12,10 +12,17 @@ export interface BloqueTituloProps {
   kit: KitReactPdf;
   estilos: EstilosReactPdf;
   colorPrimario: string;
+  /**
+   * Color del título grande. Por defecto `colorPrimario` (turquesa, factura). El
+   * presupuesto lo sobrescribe con `COLOR_ACENTO` (amarillo) desde su layout (Mejora 2).
+   */
+  colorTitulo?: string;
   /** Título grande del documento, p. ej. "PRESSUPOST" o "FACTURA". */
   titulo: string;
   /** Rótulo de la primera columna de la mini-tabla, p. ej. "Pressupost" o "Factura". */
   etiquetaNumero: string;
+  /** Rótulo de la segunda columna de la mini-tabla ("Data"/"Fecha"). */
+  etiquetaFecha: string;
   /** Número del documento (o cadena vacía si aún no está numerado). */
   numero: string;
   /** Fecha del documento en `dd/mm/aaaa` (o cadena vacía si no aplica). */
@@ -26,19 +33,23 @@ export const BloqueTitulo = ({
   kit,
   estilos,
   colorPrimario,
+  colorTitulo,
   titulo,
   etiquetaNumero,
+  etiquetaFecha,
   numero,
   fecha,
 }: BloqueTituloProps) => {
   const { View, Text } = kit;
   return (
     <View style={estilos.columnaTitulo}>
-      <Text style={[estilos.tituloDocumento, { color: colorPrimario }]}>{titulo}</Text>
+      <Text style={[estilos.tituloDocumento, { color: colorTitulo ?? colorPrimario }]}>
+        {titulo}
+      </Text>
       <View style={estilos.tablaMeta}>
         <View style={estilos.tablaMetaFila}>
           <Text style={estilos.tablaMetaCeldaEtiqueta}>{etiquetaNumero}</Text>
-          <Text style={estilos.tablaMetaCeldaEtiquetaUltima}>Data</Text>
+          <Text style={estilos.tablaMetaCeldaEtiquetaUltima}>{etiquetaFecha}</Text>
         </View>
         <View style={estilos.tablaMetaFila}>
           <Text style={estilos.tablaMetaCeldaValor}>{numero}</Text>

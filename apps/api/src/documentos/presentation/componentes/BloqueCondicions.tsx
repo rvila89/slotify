@@ -7,35 +7,43 @@
  * son LAYOUT FIJO; los importes vienen del modelo (reparto del régimen). No aplica
  * a la factura. Primitivas react-pdf inyectadas en `kit`.
  */
+import type { EtiquetasDocumento } from '../etiquetas-por-idioma';
 import type { RepartoDocumento } from '../modelo-documento-presupuesto';
 import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
 
 export interface BloqueCondicionsProps {
   kit: KitReactPdf;
   estilos: EstilosReactPdf;
+  /** Etiquetas fijas por idioma (título/reparto/fianza del bloque). */
+  etiquetas: EtiquetasDocumento;
   reparto: RepartoDocumento;
 }
 
-export const BloqueCondicions = ({ kit, estilos, reparto }: BloqueCondicionsProps) => {
+export const BloqueCondicions = ({
+  kit,
+  estilos,
+  etiquetas,
+  reparto,
+}: BloqueCondicionsProps) => {
   const { View, Text } = kit;
   return (
     <View style={estilos.condicionsBloque}>
-      <Text style={estilos.condicionsTitulo}>Condicions</Text>
+      <Text style={estilos.condicionsTitulo}>{etiquetas.condiciones}</Text>
       <View style={estilos.condicionsTabla}>
         <View style={estilos.condicionsFila}>
           <Text style={estilos.condicionsCeldaPct}>40 %</Text>
           <Text style={estilos.condicionsCeldaImporte}>{reparto.senalEur} €</Text>
-          <Text style={estilos.condicionsCeldaEtiqueta}>Pagament anticipat</Text>
+          <Text style={estilos.condicionsCeldaEtiqueta}>{etiquetas.pagamentAnticipat}</Text>
         </View>
         <View style={estilos.condicionsFila}>
           <Text style={estilos.condicionsCeldaPct}>60 %</Text>
           <Text style={estilos.condicionsCeldaImporte}>{reparto.liquidacionEur} €</Text>
-          <Text style={estilos.condicionsCeldaEtiqueta}>Import restant</Text>
+          <Text style={estilos.condicionsCeldaEtiqueta}>{etiquetas.importRestant}</Text>
         </View>
         <View style={estilos.condicionsFila}>
-          <Text style={estilos.condicionsCeldaPct}>A l&apos;arribada</Text>
+          <Text style={estilos.condicionsCeldaPct}>{etiquetas.aLarribada}</Text>
           <Text style={estilos.condicionsCeldaImporte}>{reparto.fianzaEur} €</Text>
-          <Text style={estilos.condicionsCeldaEtiqueta}>Fiança</Text>
+          <Text style={estilos.condicionsCeldaEtiqueta}>{etiquetas.fianza}</Text>
         </View>
       </View>
       <View style={estilos.condicionsAcento} />

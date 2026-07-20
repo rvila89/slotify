@@ -64,11 +64,20 @@ const configPiloto = (logoUrl: string | null = null): ConfiguracionDocumentoTena
     conceptoTransferencia: "Masia l'Encís",
   },
   textos: {
-    plantillaConceptoFiscal: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
-    validesaTexto: '10 DIES',
-    pieLegal: 'Aquest document té una validesa de 10 dies des de la seva emissió.',
+    plantillaConceptoFiscal: {
+      ca: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
+      es: 'Gestión del uso del espacio de {nombreComercial} para evento',
+    },
+    validesaTexto: { ca: '10 DIES', es: '10 DÍAS' },
+    pieLegal: {
+      ca: 'Aquest document té una validesa de 10 dies des de la seva emissió.',
+      es: 'Este documento tiene una validez de 10 días desde su emisión.',
+    },
   },
-  condiciones: { titulo: 'Condicions Particulars', secciones: [] },
+  condiciones: {
+    titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
+    secciones: [],
+  },
 });
 
 const configOtroTenant = (): ConfiguracionDocumentoTenant => ({
@@ -88,11 +97,17 @@ const configOtroTenant = (): ConfiguracionDocumentoTenant => ({
     conceptoTransferencia: 'Finca del Roble',
   },
   textos: {
-    plantillaConceptoFiscal: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
-    validesaTexto: '15 DIES',
-    pieLegal: 'Validesa 15 dies.',
+    plantillaConceptoFiscal: {
+      ca: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
+      es: 'Gestión del uso del espacio de {nombreComercial} para evento',
+    },
+    validesaTexto: { ca: '15 DIES', es: '15 DÍAS' },
+    pieLegal: { ca: 'Validesa 15 dies.', es: 'Validez 15 días.' },
   },
-  condiciones: { titulo: 'Condicions Particulars', secciones: [] },
+  condiciones: {
+    titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
+    secciones: [],
+  },
 });
 
 const datosPresupuesto = (
@@ -102,6 +117,8 @@ const datosPresupuesto = (
   fecha: new Date('2026-07-13T00:00:00.000Z'),
   // 6.2: régimen obligatorio; estos escenarios de 6.1b son la variante CON IVA.
   regimen: 'con_iva',
+  // Mejora 3: idioma catalán (estos escenarios verifican el contenido catalán vivo).
+  idioma: 'ca',
   cliente: {
     nombre: 'Anna',
     apellidos: 'Puig Soler',
@@ -112,6 +129,7 @@ const datosPresupuesto = (
     provincia: 'Barcelona',
   },
   fechaEvento: new Date('2027-09-12T00:00:00.000Z'),
+  horario: '12:00',
   duracionHoras: 8,
   numPersonas: 80,
   extras: [

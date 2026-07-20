@@ -10,6 +10,7 @@
 import type { ModeloDocumentoFactura } from '../modelo-documento-factura';
 import type { KitReactPdf } from '../kit-react-pdf';
 import { construirEstilos } from '../estilos';
+import { etiquetasDocumento } from '../etiquetas-por-idioma';
 import { Cabecera } from './Cabecera';
 import { BloqueCliente } from './BloqueCliente';
 import { BloqueTitulo } from './BloqueTitulo';
@@ -47,6 +48,8 @@ export const DocumentoFacturaLayout = ({ kit, modelo }: DocumentoFacturaLayoutPr
   const { Document, Page, View, Text } = kit;
   const estilos = construirEstilos(kit.StyleSheet);
   const colorPrimario = modelo.cabecera.colorPrimario;
+  // La factura NO cambia de idioma en este change (design.md D6): idioma fijo catalán.
+  const etiquetas = etiquetasDocumento('ca');
   return (
     <Document>
       <Page size="A4" style={[estilos.pagina, { color: modelo.cabecera.colorTexto }]}>
@@ -62,6 +65,7 @@ export const DocumentoFacturaLayout = ({ kit, modelo }: DocumentoFacturaLayoutPr
             colorPrimario={colorPrimario}
             titulo={TITULO_POR_TIPO[modelo.tipo]}
             etiquetaNumero={ETIQUETA_META_POR_TIPO[modelo.tipo]}
+            etiquetaFecha={etiquetas.fecha}
             numero={modelo.numeroFactura ?? ''}
             fecha={modelo.fechaEmision === null ? '' : formatearFecha(modelo.fechaEmision)}
           />
@@ -80,6 +84,7 @@ export const DocumentoFacturaLayout = ({ kit, modelo }: DocumentoFacturaLayoutPr
           kit={kit}
           estilos={estilos}
           totales={modelo.totales}
+          etiquetas={etiquetas}
           validesaTexto=""
         />
 
@@ -88,6 +93,7 @@ export const DocumentoFacturaLayout = ({ kit, modelo }: DocumentoFacturaLayoutPr
             kit={kit}
             estilos={estilos}
             pieBancario={modelo.pieBancario}
+            etiquetas={etiquetas}
             email={modelo.cabecera.email}
           />
         )}

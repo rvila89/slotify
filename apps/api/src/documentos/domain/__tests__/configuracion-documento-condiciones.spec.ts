@@ -47,54 +47,63 @@ const configConCondiciones = (
     conceptoTransferencia: "Masia l'Encís",
   },
   textos: {
-    plantillaConceptoFiscal:
-      "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
-    validesaTexto: '10 DIES',
-    pieLegal: 'Validesa 10 dies.',
+    plantillaConceptoFiscal: {
+      ca: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
+      es: 'Gestión del uso del espacio de {nombreComercial} para evento',
+    },
+    validesaTexto: { ca: '10 DIES', es: '10 DÍAS' },
+    pieLegal: { ca: 'Validesa 10 dies.', es: 'Validez 10 días.' },
   },
   condiciones,
 });
 
-describe('ConfiguracionDocumentoTenant — bloque condiciones (2.1)', () => {
+describe('ConfiguracionDocumentoTenant — bloque condiciones bilingüe (2.1)', () => {
   it('debe_aceptar_una_config_con_titulo_y_lista_de_secciones', () => {
     // Arrange
     const seccion: SeccionCondiciones = {
-      titulo: 'Reserva i pagament',
-      cuerpo: 'Text de la secció.',
+      titulo: { ca: 'Reserva i pagament', es: 'Reserva y pago' },
+      cuerpo: { ca: 'Text de la secció.', es: 'Texto de la sección.' },
     };
     const condiciones: CondicionesDocumento = {
-      titulo: 'Condicions Particulars',
+      titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
       secciones: [seccion],
     };
 
     // Act
     const config = configConCondiciones(condiciones);
 
-    // Assert — forma del bloque.
-    expect(config.condiciones.titulo).toBe('Condicions Particulars');
+    // Assert — forma bilingüe del bloque.
+    expect(config.condiciones.titulo.ca).toBe('Condicions Particulars');
+    expect(config.condiciones.titulo.es).toBe('Condiciones Particulares');
     expect(config.condiciones.secciones).toHaveLength(1);
-    expect(config.condiciones.secciones[0].titulo).toBe('Reserva i pagament');
-    expect(config.condiciones.secciones[0].cuerpo).toBe('Text de la secció.');
+    expect(config.condiciones.secciones[0].titulo.ca).toBe('Reserva i pagament');
+    expect(config.condiciones.secciones[0].cuerpo.ca).toBe('Text de la secció.');
   });
 
   it('debe_permitir_una_lista_de_secciones_vacia_en_el_tipo', () => {
     // El tipo tolera 0 secciones (la degradación a null la decide el adapter, D3).
-    const config = configConCondiciones({ titulo: 'Condicions Particulars', secciones: [] });
+    const config = configConCondiciones({
+      titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
+      secciones: [],
+    });
 
     expect(config.condiciones.secciones).toEqual([]);
   });
 
-  it('debe_exponer_cada_seccion_como_par_titulo_cuerpo', () => {
-    // Comprobación a nivel de tipo: SeccionCondiciones = { titulo, cuerpo }.
+  it('debe_exponer_cada_seccion_como_par_titulo_cuerpo_bilingue', () => {
+    // Comprobación a nivel de tipo: SeccionCondiciones = { titulo:{ca,es}, cuerpo:{ca,es} }.
     const secciones: SeccionCondiciones[] = [
-      { titulo: 'Fiança', cuerpo: 'Cos 1' },
-      { titulo: 'Neteja', cuerpo: 'Cos 2' },
+      { titulo: { ca: 'Fiança', es: 'Fianza' }, cuerpo: { ca: 'Cos 1', es: 'Cuerpo 1' } },
+      { titulo: { ca: 'Neteja', es: 'Limpieza' }, cuerpo: { ca: 'Cos 2', es: 'Cuerpo 2' } },
     ];
-    const config = configConCondiciones({ titulo: 'Condicions Particulars', secciones });
+    const config = configConCondiciones({
+      titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
+      secciones,
+    });
 
     for (const seccion of config.condiciones.secciones) {
-      expect(typeof seccion.titulo).toBe('string');
-      expect(typeof seccion.cuerpo).toBe('string');
+      expect(typeof seccion.titulo.ca).toBe('string');
+      expect(typeof seccion.cuerpo.es).toBe('string');
     }
   });
 });

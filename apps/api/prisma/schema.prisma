@@ -251,12 +251,17 @@ model PlantillaDocumentoTenant {
   iban                      String
   beneficiarioTransferencia String   @map("beneficiario_transferencia")
   conceptoTransferencia     String   @map("concepto_transferencia")
-  // Textos
-  plantillaConceptoFiscal   String   @map("plantilla_concepto_fiscal") @db.Text
-  validesaTexto             String   @map("validesa_texto")
-  pieLegal                  String   @map("pie_legal") @db.Text
-  // Condicions particulars (épico #6, 6.4a): { titulo, secciones: [{ titulo, cuerpo }] }.
-  // Default '{}' (no destructivo): las filas existentes se rellenan por reseed del piloto.
+  // Textos bilingües es/ca (change pdf-presupuesto-horario-idioma, Mejora 3): el PDF de
+  // presupuesto elige el idioma según Reserva.idioma. Gestionados por seed/migración.
+  plantillaConceptoFiscalCa String   @map("plantilla_concepto_fiscal_ca") @db.Text
+  plantillaConceptoFiscalEs String   @map("plantilla_concepto_fiscal_es") @db.Text
+  validesaTextoCa           String   @map("validesa_texto_ca")
+  validesaTextoEs           String   @map("validesa_texto_es")
+  pieLegalCa                String   @map("pie_legal_ca") @db.Text
+  pieLegalEs                String   @map("pie_legal_es") @db.Text
+  // Condicions particulars (épico #6, 6.4a; bilingüe en pdf-presupuesto-horario-idioma):
+  // { titulo:{ca,es}, secciones:[{ titulo:{ca,es}, cuerpo:{ca,es} }] }. Default '{}' (no
+  // destructivo): las filas existentes se rellenan por reseed del piloto.
   condiciones               Json     @default("{}") @map("condiciones")
   fechaCreacion             DateTime @default(now()) @map("fecha_creacion")
   fechaActualizacion        DateTime @updatedAt @map("fecha_actualizacion")

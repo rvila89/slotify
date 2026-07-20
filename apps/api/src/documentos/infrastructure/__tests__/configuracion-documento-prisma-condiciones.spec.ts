@@ -25,12 +25,18 @@ import type { PrismaService } from '../../../shared/prisma/prisma.service';
 
 const TENANT = '00000000-0000-0000-0000-000000000001';
 
-/** Bloque `condiciones` tal como viaja en la columna JSON de Prisma. */
+/** Bloque `condiciones` bilingüe tal como viaja en la columna JSON de Prisma. */
 const condicionesJson = {
-  titulo: 'Condicions Particulars',
+  titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
   secciones: [
-    { titulo: 'Reserva i pagament', cuerpo: 'Cos reserva.' },
-    { titulo: 'Fiança', cuerpo: 'Cos fiança.' },
+    {
+      titulo: { ca: 'Reserva i pagament', es: 'Reserva y pago' },
+      cuerpo: { ca: 'Cos reserva.', es: 'Cuerpo reserva.' },
+    },
+    {
+      titulo: { ca: 'Fiança', es: 'Fianza' },
+      cuerpo: { ca: 'Cos fiança.', es: 'Cuerpo fianza.' },
+    },
   ],
 };
 
@@ -49,9 +55,12 @@ const filaPrisma = () => ({
   iban: 'ES30 0182 1683 4002 0172 9599',
   beneficiarioTransferencia: 'Canoliart, SL',
   conceptoTransferencia: "Masia l'Encís",
-  plantillaConceptoFiscal: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
-  validesaTexto: '10 DIES',
-  pieLegal: 'Validesa 10 dies.',
+  plantillaConceptoFiscalCa: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
+  plantillaConceptoFiscalEs: 'Gestión del uso del espacio de {nombreComercial} para evento',
+  validesaTextoCa: '10 DIES',
+  validesaTextoEs: '10 DÍAS',
+  pieLegalCa: 'Validesa 10 dies.',
+  pieLegalEs: 'Validez 10 días.',
   condiciones: condicionesJson,
 });
 
@@ -78,13 +87,22 @@ describe('ConfiguracionDocumentoPrismaAdapter — mapea la columna JSON condicio
     // Act
     const config = await adaptador.obtenerPorTenant(TENANT);
 
-    // Assert — el bloque condiciones del VO refleja la columna JSON.
+    // Assert — el bloque condiciones bilingüe del VO refleja la columna JSON.
     expect(config).not.toBeNull();
-    expect(config?.condiciones.titulo).toBe('Condicions Particulars');
+    expect(config?.condiciones.titulo.ca).toBe('Condicions Particulars');
+    expect(config?.condiciones.titulo.es).toBe('Condiciones Particulares');
     expect(config?.condiciones.secciones).toEqual([
-      { titulo: 'Reserva i pagament', cuerpo: 'Cos reserva.' },
-      { titulo: 'Fiança', cuerpo: 'Cos fiança.' },
+      {
+        titulo: { ca: 'Reserva i pagament', es: 'Reserva y pago' },
+        cuerpo: { ca: 'Cos reserva.', es: 'Cuerpo reserva.' },
+      },
+      {
+        titulo: { ca: 'Fiança', es: 'Fianza' },
+        cuerpo: { ca: 'Cos fiança.', es: 'Cuerpo fianza.' },
+      },
     ]);
+    // Los textos libres se mapean a objetos bilingües.
+    expect(config?.textos.validesaTexto).toEqual({ ca: '10 DIES', es: '10 DÍAS' });
   });
 
   it('debe_devolver_null_cuando_no_hay_fila_para_el_tenant', async () => {

@@ -14,8 +14,10 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { calcularReparto } from '../domain/desglose-fiscal';
+import { derivarNumPersonas } from '../domain/derivar-num-personas';
 import type { RegimenIva } from '../domain/regimen-desde-metodo-pago';
 import { duracionHorasPrismaANumero } from '../../reservas/infrastructure/duracion-horas.mapper';
+import type { IdiomaDocumento } from '../../documentos/presentation/meses';
 import type {
   CargarDatosDocumentoPresupuestoParams,
   CargarDatosDocumentoPresupuestoPort,
@@ -76,10 +78,14 @@ export class CargarDatosDocumentoPresupuestoPrismaAdapter
         regimen,
       });
 
+      // Mejora 3: idioma del cliente normalizado al union `es|ca` (default `es`).
+      const idioma: IdiomaDocumento = reserva.idioma === 'ca' ? 'ca' : 'es';
+
       const datos: DatosDocumentoPresupuestoCargados = {
         numeroPresupuesto: presupuesto.numeroPresupuesto ?? '',
         fecha: presupuesto.fechaEnvio ?? presupuesto.fechaCreacion,
         regimen,
+        idioma,
         cliente: {
           nombre: reserva.cliente.nombre,
           apellidos: reserva.cliente.apellidos,
@@ -90,8 +96,14 @@ export class CargarDatosDocumentoPresupuestoPrismaAdapter
           provincia: reserva.cliente.provincia,
         },
         fechaEvento: reserva.fechaEvento,
+        horario: reserva.horario,
         duracionHoras: duracionHorasPrismaANumero(reserva.duracionHoras) ?? 0,
-        numPersonas: reserva.numAdultosNinosMayores4 ?? 0,
+        // Mejora 1 (fix deuda): aforo derivado, no solo `numAdultosNinosMayores4`.
+        numPersonas: derivarNumPersonas({
+          numInvitadosFinal: reserva.numInvitadosFinal,
+          numAdultosNinosMayores4: reserva.numAdultosNinosMayores4,
+          numNinosMenores4: reserva.numNinosMenores4,
+        }),
         extras: reserva.reservaExtras.map((extra) => ({
           descripcion: extra.conceptoLibre ?? 'Extra',
           importeEur: aImporte(extra.subtotal),

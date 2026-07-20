@@ -10,7 +10,7 @@
  */
 import type { ModeloDocumentoPresupuesto } from '../modelo-documento-presupuesto';
 import type { KitReactPdf } from '../kit-react-pdf';
-import { construirEstilos } from '../estilos';
+import { construirEstilos, COLOR_ACENTO } from '../estilos';
 import { Cabecera } from './Cabecera';
 import { BloqueCliente } from './BloqueCliente';
 import { BloqueTitulo } from './BloqueTitulo';
@@ -24,7 +24,7 @@ export interface DocumentoLayoutProps {
   modelo: ModeloDocumentoPresupuesto;
 }
 
-/** Formatea una fecha a `dd/mm/aaaa` en UTC (determinista para el documento). */
+/** Formatea una fecha a `dd/mm/aaaa` en UTC (fecha de emisión del documento). */
 const formatearFecha = (fecha: Date): string => {
   const dia = String(fecha.getUTCDate()).padStart(2, '0');
   const mes = String(fecha.getUTCMonth() + 1).padStart(2, '0');
@@ -35,6 +35,7 @@ export const DocumentoLayout = ({ kit, modelo }: DocumentoLayoutProps) => {
   const { Document, Page, View, Text } = kit;
   const estilos = construirEstilos(kit.StyleSheet);
   const colorPrimario = modelo.cabecera.colorPrimario;
+  const etiquetas = modelo.etiquetas;
   return (
     <Document>
       <Page size="A4" style={[estilos.pagina, { color: modelo.cabecera.colorTexto }]}>
@@ -42,14 +43,21 @@ export const DocumentoLayout = ({ kit, modelo }: DocumentoLayoutProps) => {
 
         <View style={estilos.filaTitulo}>
           <View style={estilos.columnaCliente}>
-            <BloqueCliente kit={kit} estilos={estilos} cliente={modelo.cliente} />
+            <BloqueCliente
+              kit={kit}
+              estilos={estilos}
+              cliente={modelo.cliente}
+              titulo={etiquetas.datosCliente}
+            />
           </View>
           <BloqueTitulo
             kit={kit}
             estilos={estilos}
             colorPrimario={colorPrimario}
-            titulo="PRESSUPOST"
-            etiquetaNumero="Pressupost"
+            colorTitulo={COLOR_ACENTO}
+            titulo={etiquetas.titulo}
+            etiquetaNumero={etiquetas.numeroDoc}
+            etiquetaFecha={etiquetas.fecha}
             numero={modelo.numeroPresupuesto}
             fecha={formatearFecha(modelo.fecha)}
           />
@@ -59,9 +67,10 @@ export const DocumentoLayout = ({ kit, modelo }: DocumentoLayoutProps) => {
           kit={kit}
           estilos={estilos}
           colorPrimario={colorPrimario}
+          etiquetas={etiquetas}
           conceptoPrincipal={modelo.conceptoPrincipal}
-          duracionTexto={modelo.duracionTexto}
-          fechaEvento={modelo.fechaEvento}
+          fechaEventoTexto={modelo.fechaEventoTexto}
+          horarioTexto={modelo.horarioTexto}
           numPersonas={modelo.numPersonas}
           precioTotal={modelo.totales.total}
           extras={modelo.extras}
@@ -71,16 +80,23 @@ export const DocumentoLayout = ({ kit, modelo }: DocumentoLayoutProps) => {
           kit={kit}
           estilos={estilos}
           totales={modelo.totales}
+          etiquetas={etiquetas}
           validesaTexto={modelo.validesaTexto}
         />
 
-        <BloqueCondicions kit={kit} estilos={estilos} reparto={modelo.reparto} />
+        <BloqueCondicions
+          kit={kit}
+          estilos={estilos}
+          etiquetas={etiquetas}
+          reparto={modelo.reparto}
+        />
 
         {modelo.pieBancario.mostrar && (
           <PieBancario
             kit={kit}
             estilos={estilos}
             pieBancario={modelo.pieBancario}
+            etiquetas={etiquetas}
             email={modelo.cabecera.email}
           />
         )}
