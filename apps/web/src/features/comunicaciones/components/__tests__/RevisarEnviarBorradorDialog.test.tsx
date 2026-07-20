@@ -20,7 +20,7 @@ vi.mock('@/api-client', () => ({
 }));
 
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), info: vi.fn(), warning: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), info: vi.fn(), warning: vi.fn(), error: vi.fn(), dismiss: vi.fn() },
 }));
 const toastMock = toast as unknown as {
   success: ReturnType<typeof vi.fn>;

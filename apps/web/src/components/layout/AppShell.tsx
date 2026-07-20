@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
  * App Shell: layout autenticado responsive (DESIGN.md §4).
  *
  * El menú lateral es un `<aside>` INTEGRADO en el layout (no un overlay/modal):
- * anima su ancho (0 ↔ 288px) empujando el contenido y se abre/cierra con el
+ * anima su ancho (0 ↔ 192px / 12rem) empujando el contenido y se abre/cierra con el
  * logo del header. Persiste al navegar (seleccionar una sección NO lo cierra).
  * Colapsado queda `inert` + `aria-hidden` (fuera del árbol de foco y de a11y).
  *
@@ -22,7 +22,7 @@ const sidebarId = 'app-shell-sidebar';
 export const AppShell = () => {
   // Estado inicial por viewport (inicialización perezosa): abierto en escritorio
   // (≥ 1024px, corte `lg`) y cerrado en móvil/tablet estrecho. Aún no hay drawer
-  // móvil, por eso no se abre el aside de 288px sobre viewports estrechos.
+  // móvil, por eso no se abre el aside de 192px sobre viewports estrechos.
   const [open, setOpen] = useState(() => window.innerWidth >= 1024);
   const { title, subtitle } = resolveSectionMeta(useLocation().pathname);
 
@@ -38,10 +38,10 @@ export const AppShell = () => {
         }}
         className={cn(
           'shrink-0 overflow-hidden bg-accent-active transition-[width] duration-300 ease-in-out motion-reduce:transition-none',
-          open ? 'w-72 border-r border-border-default' : 'w-0',
+          open ? 'w-48 border-r border-border-default' : 'w-0',
         )}
       >
-        <div className="h-full w-72">
+        <div className="h-full w-48">
           <SidebarContent />
         </div>
       </aside>

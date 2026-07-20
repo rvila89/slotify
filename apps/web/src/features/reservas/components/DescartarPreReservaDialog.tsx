@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AlertTriangle, Ban, X } from 'lucide-react';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import {
   Dialog,
   DialogContent,
@@ -98,7 +98,7 @@ export const DescartarPreReservaDialog = ({
       { id: reservaId, motivo },
       {
         onSuccess: (reserva) => {
-          toast.success(`Pre-reserva ${codigo} descartada.`);
+          notify.success(`Pre-reserva ${codigo} descartada.`);
           onDescartado(reserva);
           onAbiertoChange(false);
         },

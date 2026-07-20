@@ -1,5 +1,5 @@
 import { CheckCircle2, Loader2, Send } from 'lucide-react';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import { useEnviarFacturaSenal } from '../api/useEnviarFacturaSenal';
 import { AvisoErrorEnvioSenal } from './AvisoErrorEnvioSenal';
 import { AccionReenviarE3 } from './AccionReenviarE3';
@@ -43,9 +43,9 @@ export const EnvioFacturaSenal = ({ reservaId }: Props) => {
       {
         onSuccess: ({ condPartAdjuntada }) => {
           if (condPartAdjuntada) {
-            toast.success('Factura de señal enviada al cliente con las condiciones particulares.');
+            notify.success('Factura de señal enviada al cliente con las condiciones particulares.');
           } else {
-            toast.warning('Factura de señal enviada al cliente.', {
+            notify.warning('Factura de señal enviada al cliente.', {
               description:
                 'No se adjuntaron las condiciones particulares (sin condiciones configuradas o fallo al generarlas). Revísalo si el cliente debe recibirlas.',
             });
@@ -54,11 +54,11 @@ export const EnvioFacturaSenal = ({ reservaId }: Props) => {
         onError: (error) => {
           // 502 (recuperable) y 409 "ya enviado" se avisan sin alarmar; el resto como error.
           if (error.tipo === 'envio-fallido') {
-            toast.warning('Error de envío, reintenta', { description: error.mensaje });
+            notify.warning('Error de envío, reintenta', { description: error.mensaje });
           } else if (error.tipo === 'ya-enviado') {
-            toast.info(error.mensaje);
+            notify.info(error.mensaje);
           } else {
-            toast.error(error.mensaje);
+            notify.error(error.mensaje);
           }
         },
       },

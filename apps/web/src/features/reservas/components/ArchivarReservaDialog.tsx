@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { AlertTriangle, Archive, X } from 'lucide-react';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import {
   Dialog,
   DialogContent,
@@ -67,7 +67,7 @@ export const ArchivarReservaDialog = ({
       { id: reservaId },
       {
         onSuccess: (reserva) => {
-          toast.success(
+          notify.success(
             `Reserva ${codigo} archivada correctamente. Ya está disponible en el Histórico.`,
           );
           onArchivado(reserva);

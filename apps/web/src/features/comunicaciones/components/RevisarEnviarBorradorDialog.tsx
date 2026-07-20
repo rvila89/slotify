@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Send, X } from 'lucide-react';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import {
   Dialog,
   DialogContent,
@@ -100,7 +100,7 @@ export const RevisarEnviarBorradorDialog = ({
         onError: (err) => {
           // El conflicto de estado ya invalidó la lista; se avisa y se cierra.
           if (err.tipo === 'conflicto') {
-            toast.info(err.mensaje);
+            notify.info(err.mensaje);
             onAbiertoChange(false);
           }
         },
