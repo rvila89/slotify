@@ -24,6 +24,10 @@ export const CARGAR_DATOS_DOCUMENTO_PRESUPUESTO_PORT = Symbol(
 );
 /** Disparo del E2 post-commit (motor de email US-045). */
 export const DISPARAR_E2_PORT = Symbol('DispararE2Port');
+/** Persistencia best-effort de `pdf_url` en la fila del PRESUPUESTO (post-commit). */
+export const GUARDAR_PDF_URL_PRESUPUESTO_PORT = Symbol(
+  'GuardarPdfUrlPresupuestoPort',
+);
 /** Reloj del sistema (TTL de la pre_reserva). */
 export const PRESUPUESTOS_CLOCK_PORT = Symbol('PresupuestosClockPort');
 

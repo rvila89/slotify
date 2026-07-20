@@ -8,6 +8,7 @@ import { AvisoReservaInmediata } from './AvisoReservaInmediata';
 import { AvisoBloqueoExtendido } from './AvisoBloqueoExtendido';
 import { AvisosEdicionPresupuesto, type ResultadoEdicion } from './AvisosEdicionPresupuesto';
 import { AvisoEmailEnviado } from './AvisoEmailEnviado';
+import { AvisoDescarte } from './AvisoDescarte';
 import type { PendienteInvitadosResultado, Reserva } from '../../../model/types';
 import type { components } from '@/api-client';
 
@@ -47,6 +48,10 @@ type Props = {
   /** Envío manual del borrador E1 confirmado (mejoras-detalle-consulta §D-3). */
   emailEnviado: boolean;
   onCerrarEmailEnviado: () => void;
+  /** Desenlace terminal de descarte (consulta US-013 / pre-reserva): aviso inline verde
+      en la cabecera, en sustitución del toast de Sonner. */
+  descarte: { reserva: Reserva; tipo: 'consulta' | 'prereserva' } | null;
+  onCerrarDescarte: () => void;
 };
 
 export const AvisosFicha = ({
@@ -74,9 +79,18 @@ export const AvisosFicha = ({
   onCerrarFinalizar,
   emailEnviado,
   onCerrarEmailEnviado,
+  descarte,
+  onCerrarDescarte,
 }: Props) => (
   <>
     {emailEnviado && <AvisoEmailEnviado onCerrar={onCerrarEmailEnviado} />}
+    {descarte && (
+      <AvisoDescarte
+        tipo={descarte.tipo}
+        codigo={descarte.reserva.codigo}
+        onCerrar={onCerrarDescarte}
+      />
+    )}
     {resultado && <AvisosTransicion resultado={resultado} onCerrar={onCerrarResultado} />}
     {invitados && <AvisoPendienteInvitados resultado={invitados} onCerrar={onCerrarInvitados} />}
     {visita && <AvisoVisitaProgramada reserva={visita} onCerrar={onCerrarVisita} />}

@@ -1,4 +1,4 @@
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import type { LiquidacionError } from '../model/types';
 
 /**
@@ -12,16 +12,16 @@ import type { LiquidacionError } from '../model/types';
  *  - resto (422/genérico): toast de ERROR con el mensaje normalizado.
  */
 export const toastLiquidacionExito = (mensaje: string): void => {
-  toast.success(mensaje);
+  notify.success(mensaje);
 };
 
 export const toastLiquidacionError = (error: LiquidacionError): void => {
   if (error.tipo === 'emision-envio-fallido') {
-    toast.warning('Error de envío, reintenta', {
+    notify.warning('Error de envío, reintenta', {
       description: error.mensaje,
     });
     return;
   }
 
-  toast.error(error.mensaje);
+  notify.error(error.mensaje);
 };

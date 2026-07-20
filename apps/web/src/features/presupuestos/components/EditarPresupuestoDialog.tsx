@@ -15,6 +15,7 @@ import { useReenviarPresupuesto } from '../api/useReenviarPresupuesto';
 import { useExtras } from '../api/useExtras';
 import { useBorradorEdicion } from '../lib/useBorradorEdicion';
 import { esquemaEdicion, type FormularioEdicion } from '../lib/edicionSchema';
+import { acotarDuracionInicial } from '../lib/edicion';
 import { METODO_PAGO_POR_DEFECTO, etiquetaRegimenIva } from '../lib/metodoPago';
 import { claseBotonPrimario, claseBotonSecundario, claseLabel } from '../lib/estilos';
 import { AvisoErrorPresupuesto } from './AvisoErrorPresupuesto';
@@ -53,6 +54,12 @@ type Props = {
   onAbiertoChange: (abierto: boolean) => void;
   onEditado: (resultado: EdicionPresupuestoResponse) => void;
   onReenviado: (resultado: ReenviarPresupuestoResponse) => void;
+  /** Prefill del nº de invitados con el valor vigente de la RESERVA
+      (`numAdultosNinosMayores4`, el campo que el editor escribe — D3). */
+  invitadosIniciales?: number | null;
+  /** Prefill de la duración con `duracionHoras` de la RESERVA, acotada a {4,8,12}
+      (fallback '4' fuera del enum o nula — D3). */
+  duracionInicial?: number | null;
 };
 
 export const EditarPresupuestoDialog = ({
@@ -61,7 +68,18 @@ export const EditarPresupuestoDialog = ({
   onAbiertoChange,
   onEditado,
   onReenviado,
+  invitadosIniciales,
+  duracionInicial,
 }: Props) => {
+  const valoresIniciales = (): FormularioEdicion => ({
+    numInvitados: invitadosIniciales != null ? String(invitadosIniciales) : '',
+    duracionHoras: acotarDuracionInicial(duracionInicial),
+    descuento: '',
+    descuentoMotivo: '',
+    precioManual: '',
+    metodoPago: METODO_PAGO_POR_DEFECTO,
+  });
+
   const {
     register,
     watch,
@@ -71,14 +89,7 @@ export const EditarPresupuestoDialog = ({
     formState: { errors },
   } = useForm<FormularioEdicion>({
     resolver: zodResolver(esquemaEdicion),
-    defaultValues: {
-      numInvitados: '',
-      duracionHoras: '4',
-      descuento: '',
-      descuentoMotivo: '',
-      precioManual: '',
-      metodoPago: METODO_PAGO_POR_DEFECTO,
-    },
+    defaultValues: valoresIniciales(),
   });
 
   const numInvitados = watch('numInvitados');
@@ -100,12 +111,18 @@ export const EditarPresupuestoDialog = ({
   const { reset: resetReenviar } = reenviar;
 
   useEffect(() => {
-    if (!abierto) {
+    if (abierto) {
+      // Al abrir, arranca el formulario con los valores vigentes de la RESERVA (D3).
+      reset(valoresIniciales());
+    } else {
       resetEditar();
       resetReenviar();
-      reset();
+      reset(valoresIniciales());
     }
-  }, [abierto, resetEditar, resetReenviar, reset]);
+    // `valoresIniciales` es estable frente a los prefills; el efecto se relanza
+    // cuando cambian `abierto` o los valores de prefill.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abierto, invitadosIniciales, duracionInicial, resetEditar, resetReenviar, reset]);
 
   const borrador = preview.data;
   const tarifaAConsultar = borrador?.tarifaAConsultar ?? false;

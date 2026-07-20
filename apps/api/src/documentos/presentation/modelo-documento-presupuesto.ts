@@ -15,6 +15,10 @@
  * de dominio `ConfiguracionDocumentoTenant`.
  */
 import type { ConfiguracionDocumentoTenant } from '../domain/configuracion-documento';
+import type { IdiomaDocumento } from './meses';
+import { formatearFechaLarga } from './meses';
+import { formatearHorario } from './horario';
+import { etiquetasDocumento, type EtiquetasDocumento } from './etiquetas-por-idioma';
 
 /**
  * Régimen fiscal del documento (6.2). DECLARADO en `documentos` (NO se importa de
@@ -61,8 +65,15 @@ export interface DatosDocumentoPresupuesto {
   fecha: Date;
   /** Régimen fiscal del documento (6.2): gobierna cabecera y totales de la variante. */
   regimen: RegimenDocumento;
+  /**
+   * Idioma del documento (Mejora 3): `es`|`ca` según `Reserva.idioma`. Gobierna etiquetas
+   * fijas, nombres de mes y la elección de los textos libres bilingües.
+   */
+  idioma: IdiomaDocumento;
   cliente: ClienteDocumento;
   fechaEvento: Date;
+  /** Hora de inicio del evento "HH:MM" (Mejora 1); `null` cuando no está informada. */
+  horario: string | null;
   /** Duración del evento en horas (enum de negocio 4/8/12). */
   duracionHoras: number;
   numPersonas: number;
@@ -123,9 +134,15 @@ export interface PieBancarioModelo {
 export interface ModeloDocumentoPresupuesto {
   numeroPresupuesto: string;
   fecha: Date;
+  /** Etiquetas fijas ya traducidas por idioma (Mejora 3). */
+  etiquetas: EtiquetasDocumento;
   cabecera: CabeceraModelo;
   cliente: ClienteDocumento;
   fechaEvento: Date;
+  /** Fecha del evento "D de <mes> de AAAA" en el idioma del cliente (Mejora 1). */
+  fechaEventoTexto: string;
+  /** Horario "De HH:MM a HH:MM (N <hores|horas>)" o fallback "(N ...)" (Mejora 1). */
+  horarioTexto: string;
   /** Texto de duración "(N hores)" (N5: solo horas, sin rango horario). */
   duracionTexto: string;
   numPersonas: number;
@@ -145,6 +162,10 @@ const resolverConcepto = (
   nombreComercial: string,
 ): string => plantilla.replaceAll('{nombreComercial}', nombreComercial);
 
+/** Normaliza el idioma del documento al union `es|ca`; desconocido → `es` (default). */
+const normalizarIdioma = (idioma: IdiomaDocumento): IdiomaDocumento =>
+  idioma === 'ca' ? 'ca' : 'es';
+
 /**
  * Construye el modelo de vista del documento a partir de la config del tenant + los datos
  * del presupuesto. PURA y determinista: todas las aserciones de CONTENIDO recaen aquí.
@@ -157,9 +178,12 @@ export const construirModeloDocumentoPresupuesto = (
   const mostrarIdentidadFiscal = datos.regimen === 'con_iva';
   const mostrarDesgloseIva = datos.regimen === 'con_iva';
   const mostrarPieBancario = datos.regimen === 'con_iva';
+  // Mejora 3: idioma normalizado gobierna etiquetas fijas, meses y textos libres.
+  const idioma = normalizarIdioma(datos.idioma);
   return {
     numeroPresupuesto: datos.numeroPresupuesto,
     fecha: datos.fecha,
+    etiquetas: etiquetasDocumento(idioma),
     cabecera: {
       soloTexto: config.branding.logoUrl === null,
       mostrarIdentidadFiscal,
@@ -175,10 +199,12 @@ export const construirModeloDocumentoPresupuesto = (
     },
     cliente: datos.cliente,
     fechaEvento: datos.fechaEvento,
+    fechaEventoTexto: formatearFechaLarga(datos.fechaEvento, idioma),
+    horarioTexto: formatearHorario(datos.horario, datos.duracionHoras, idioma),
     duracionTexto: `(${datos.duracionHoras} hores)`,
     numPersonas: datos.numPersonas,
     conceptoPrincipal: resolverConcepto(
-      config.textos.plantillaConceptoFiscal,
+      config.textos.plantillaConceptoFiscal[idioma],
       config.identidadFiscal.nombreComercial,
     ),
     extras: datos.extras.map((extra) => ({
@@ -193,8 +219,8 @@ export const construirModeloDocumentoPresupuesto = (
       total: datos.desglose.total,
     },
     reparto: datos.reparto,
-    validesaTexto: config.textos.validesaTexto,
-    pieLegal: config.textos.pieLegal,
+    validesaTexto: config.textos.validesaTexto[idioma],
+    pieLegal: config.textos.pieLegal[idioma],
     pieBancario: {
       mostrar: mostrarPieBancario,
       iban: config.banca.iban,

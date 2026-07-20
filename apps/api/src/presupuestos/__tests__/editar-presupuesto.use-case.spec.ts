@@ -172,10 +172,6 @@ interface ReposFake extends ReposEditarPresupuesto {
     /** Reemplaza el conjunto de líneas RESERVA_EXTRA de la reserva (conjunto vivo). */
     reemplazarLineas: jest.Mock;
   };
-  comunicaciones: {
-    /** Registra la COMUNICACION E2 de reenvío (es_reenvio=true) al enviar. */
-    registrarE2Reenvio: jest.Mock;
-  };
   auditoria: {
     registrar: jest.Mock;
   };
@@ -203,14 +199,6 @@ const crearReposFake = (
       if (opciones.fallarEn === 'reemplazarLineas') throw new Error('FALLO_REEMPLAZARLINEAS');
       return { lineas: p.lineas };
     }),
-  },
-  comunicaciones: {
-    registrarE2Reenvio: jest.fn(async () => ({
-      idComunicacion: 'com-e2-1',
-      codigoEmail: 'E2',
-      estado: 'enviado',
-      esReenvio: true,
-    })),
   },
   auditoria: {
     registrar: jest.fn(async () => {
@@ -245,6 +233,8 @@ const montar = (opciones: {
   versionMaxima?: number;
   catalogo?: Record<string, ExtraCatalogo>;
   lineasExistentes?: LineaExtraExistente[];
+  /** URL que devuelve `generarPdf` post-commit (`null` para simular fallo de PDF). */
+  pdfUrl?: string | null;
 } = {}) => {
   const reserva = 'reserva' in opciones ? opciones.reserva : reservaEnPrereserva();
   const vigente =
@@ -266,7 +256,10 @@ const montar = (opciones: {
   );
   const cargarLineasExistentes = jest.fn(async () => lineasExistentes);
   const dispararE2 = { disparar: jest.fn(async () => undefined) };
-  const generarPdf = jest.fn(async () => 'https://docs/presup-v2.pdf');
+  const pdfUrlSalida: string | null =
+    'pdfUrl' in opciones ? (opciones.pdfUrl ?? null) : 'https://docs/presup-v2.pdf';
+  const generarPdf = jest.fn(async () => pdfUrlSalida);
+  const guardarPdfUrl = jest.fn(async () => undefined);
   const deps: EditarPresupuestoDeps = {
     motorTarifa: motor as unknown as CalculadoraTarifaService,
     unidadDeTrabajo: uow,
@@ -278,6 +271,7 @@ const montar = (opciones: {
     generarPdf,
     clock: relojFijo,
     dispararE2,
+    guardarPdfUrl,
   };
   return {
     useCase: new EditarPresupuestoUseCase(deps),
@@ -289,6 +283,7 @@ const montar = (opciones: {
     cargarExtraCatalogo,
     dispararE2,
     generarPdf,
+    guardarPdfUrl,
     deps,
   };
 };
@@ -367,16 +362,49 @@ describe('EditarPresupuestoUseCase.confirmar — happy path descuento (AC-1)', (
     expect(repos.presupuestos.crearVersion).toHaveBeenCalledTimes(1);
   });
 
-  it('debe_registrar_COMUNICACION_E2_con_es_reenvio_true_al_enviar', async () => {
+  // D1: FUENTE ÚNICA = el motor post-commit. El use-case DEJA DE registrar la fila
+  // "contable" `registrarE2Reenvio` dentro de la transacción; la única COMUNICACION E2
+  // (`es_reenvio=true`) la escribe `despacharReenvio` fuera de la tx. La respuesta HTTP
+  // proyecta `comunicacion` con estado OPTIMISTA `enviado` / `esReenvio=true`.
+  it('NO_debe_registrar_la_fila_de_COMUNICACION_dentro_de_la_transaccion_fuente_unica_motor', async () => {
     const { useCase, repos } = montar();
 
     await useCase.confirmar(comandoConfirmar({ descuentoEur: '200.00' }));
 
-    expect(repos.comunicaciones.registrarE2Reenvio).toHaveBeenCalledTimes(1);
-    const args = repos.comunicaciones.registrarE2Reenvio.mock.calls[0][0];
-    expect(args.codigoEmail).toBe('E2');
-    expect(args.esReenvio).toBe(true);
-    expect(args.estado).toBe('enviado');
+    // Ya no se escribe la fila contable en la tx (evita el doble registro D1): la UoW de
+    // edición NI SIQUIERA expone un repositorio de COMUNICACION (código muerto eliminado).
+    expect(repos).not.toHaveProperty('comunicaciones');
+  });
+
+  it('debe_exponer_comunicacion_optimista_enviado_es_reenvio_true_en_la_respuesta', async () => {
+    const { useCase } = montar();
+
+    const out = await useCase.confirmar(comandoConfirmar({ descuentoEur: '200.00' }));
+
+    // Proyección optimista al confirmar la versión (el estado real fallido queda
+    // auditado en la fila COMUNICACION post-commit, no aquí).
+    expect(out.comunicacion).not.toBeNull();
+    expect(out.comunicacion?.estado).toBe('enviado');
+    expect(out.comunicacion?.esReenvio).toBe(true);
+    expect(out.comunicacion?.codigoEmail).toBe('E2');
+  });
+
+  it('debe_disparar_el_E2_post_commit_con_esEdicion_true_al_enviar', async () => {
+    const { useCase, dispararE2 } = montar();
+
+    await useCase.confirmar(comandoConfirmar({ descuentoEur: '200.00' }));
+
+    // D1/D2: el envío real de la edición enruta por el disparo post-commit (que llama a
+    // `despacharReenvio`) y propaga la MARCA DE EDICIÓN derivada en servidor.
+    expect(dispararE2.disparar).toHaveBeenCalledTimes(1);
+    const args = (dispararE2.disparar.mock.calls[0] as unknown[])[0] as {
+      esEdicion?: boolean;
+      tenantId: string;
+      reservaId: string;
+    };
+    expect(args.esEdicion).toBe(true);
+    expect(args.tenantId).toBe(TENANT);
+    expect(args.reservaId).toBe(RESERVA_ID);
   });
 
   it('debe_registrar_AUDIT_LOG_accion_actualizar_referenciando_el_nuevo_presupuesto', async () => {
@@ -729,8 +757,8 @@ describe('EditarPresupuestoUseCase — guardar borrador sin enviar (AC-6)', () =
     expect(args.version).toBe(2);
     expect(args.estado).toBe('borrador');
     expect(args.numeroPresupuesto).toBeNull();
-    // Sin COMUNICACION ni email en el borrador.
-    expect(repos.comunicaciones.registrarE2Reenvio).not.toHaveBeenCalled();
+    // Sin COMUNICACION ni email en el borrador (la UoW no expone repo de COMUNICACION).
+    expect(repos).not.toHaveProperty('comunicaciones');
     expect(dispararE2.disparar).not.toHaveBeenCalled();
     expect(out.presupuesto.estado).toBe('borrador');
     // El borrador NO consume número de la secuencia (numeración por envío).
@@ -744,6 +772,59 @@ describe('EditarPresupuestoUseCase — guardar borrador sin enviar (AC-6)', () =
 
     const registros = repos.auditoria.registrar.mock.calls.map((c) => c[0]);
     expect(registros.some((r) => r.accion === 'actualizar')).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Persistencia de `pdf_url` (fix reenvío) — tras generar el PDF post-commit se guarda
+// la URL en la fila de la v2 (best-effort) para que el reenvío sin cambios disponga del
+// adjunto. Si la generación devuelve null NO se persiste; un fallo al persistir NO
+// propaga (no revierte la versión ya comprometida).
+// ===========================================================================
+
+describe('EditarPresupuestoUseCase.confirmar — persistencia de pdf_url', () => {
+  it('debe_persistir_pdf_url_de_la_v2_cuando_la_generacion_devuelve_url_no_nula', async () => {
+    const { useCase, guardarPdfUrl } = montar({ pdfUrl: 'https://docs/presup-v2.pdf' });
+
+    await useCase.confirmar(comandoConfirmar({ descuentoEur: '200.00' }));
+
+    expect(guardarPdfUrl).toHaveBeenCalledTimes(1);
+    const args = (guardarPdfUrl.mock.calls[0] as unknown[])[0] as {
+      tenantId: string;
+      idPresupuesto: string;
+      pdfUrl: string;
+    };
+    expect(args.tenantId).toBe(TENANT);
+    expect(args.idPresupuesto).toBe('presup-v2');
+    expect(args.pdfUrl).toBe('https://docs/presup-v2.pdf');
+  });
+
+  it('NO_debe_persistir_pdf_url_cuando_la_generacion_devuelve_null', async () => {
+    const { useCase, guardarPdfUrl } = montar({ pdfUrl: null });
+
+    await useCase.confirmar(comandoConfirmar({ descuentoEur: '200.00' }));
+
+    expect(guardarPdfUrl).not.toHaveBeenCalled();
+  });
+
+  it('NO_debe_persistir_pdf_url_en_el_borrador_sin_enviar', async () => {
+    const { useCase, guardarPdfUrl } = montar();
+
+    await useCase.confirmar(comandoConfirmar({ enviar: false, descuentoEur: '200.00' }));
+
+    // Sin envío no hay generación de PDF post-commit ni persistencia.
+    expect(guardarPdfUrl).not.toHaveBeenCalled();
+  });
+
+  it('un_fallo_al_persistir_pdf_url_NO_propaga_ni_revierte_la_version', async () => {
+    const { useCase, guardarPdfUrl, repos } = montar();
+    guardarPdfUrl.mockRejectedValueOnce(new Error('BD_CAIDA'));
+
+    const out = await useCase.confirmar(comandoConfirmar({ descuentoEur: '200.00' }));
+
+    // La versión se comprometió igualmente; el fallo best-effort se tragó.
+    expect(repos.presupuestos.crearVersion).toHaveBeenCalledTimes(1);
+    expect(out.presupuesto.version).toBe(2);
   });
 });
 
@@ -848,6 +929,7 @@ describe('ReenviarPresupuestoUseCase — reenvío sin cambios (AC-9)', () => {
     const registrarAuditoria = jest.fn(async (_registro: Record<string, unknown>) => undefined);
     const crearVersion = jest.fn(async () => ({ idPresupuesto: 'no-debe-crearse' }));
     const reenviarE2 = jest.fn(async (_params: Record<string, unknown>) => undefined);
+    const generarPdf = jest.fn(async () => 'https://docs/presup-v1-regenerado.pdf');
     const deps: ReenviarPresupuestoDeps = {
       cargarReserva: jest.fn(async () => reserva),
       cargarPresupuestoVigente: jest.fn(async () => vigente),
@@ -855,6 +937,7 @@ describe('ReenviarPresupuestoUseCase — reenvío sin cambios (AC-9)', () => {
       registrarE2Reenvio,
       registrarAuditoria,
       clock: relojFijo,
+      generarPdf,
     };
     return {
       useCase: new ReenviarPresupuestoUseCase(deps),
@@ -862,6 +945,7 @@ describe('ReenviarPresupuestoUseCase — reenvío sin cambios (AC-9)', () => {
       registrarAuditoria,
       reenviarE2,
       crearVersion,
+      generarPdf,
       deps,
     };
   };
@@ -915,6 +999,46 @@ describe('ReenviarPresupuestoUseCase — reenvío sin cambios (AC-9)', () => {
     await expect(useCase.ejecutar(comandoReenvio())).rejects.toBeInstanceOf(
       ReservaFueraDePrereservaError,
     );
+  });
+
+  // Reenvío DEFENSIVO: presupuestos históricos previos al fix de persistencia tienen
+  // `pdf_url=null`. El reenvío regenera el PDF del vigente antes de despachar para que
+  // siga llevando adjunto. Presupuestos nuevos (con pdf_url) NO regeneran.
+  it('debe_reenviar_con_el_pdf_url_vigente_sin_regenerar_cuando_ya_existe', async () => {
+    const { useCase, reenviarE2, generarPdf } = montarReenvio();
+
+    await useCase.ejecutar(comandoReenvio());
+
+    expect(generarPdf).not.toHaveBeenCalled();
+    const args = (reenviarE2.mock.calls[0] as unknown[])[0] as { pdfUrl: string | null };
+    expect(args.pdfUrl).toBe('https://docs/presup-v1.pdf');
+  });
+
+  it('debe_regenerar_el_pdf_del_vigente_cuando_pdf_url_es_null_historico', async () => {
+    const { useCase, reenviarE2, generarPdf } = montarReenvio({
+      presupuestoVigente: presupuestoVigenteV1({ pdfUrl: null }),
+    });
+
+    await useCase.ejecutar(comandoReenvio());
+
+    expect(generarPdf).toHaveBeenCalledTimes(1);
+    const genArgs = (generarPdf.mock.calls[0] as unknown[])[0] as { idPresupuesto: string };
+    expect(genArgs.idPresupuesto).toBe(P_VIGENTE_ID);
+    const args = (reenviarE2.mock.calls[0] as unknown[])[0] as { pdfUrl: string | null };
+    expect(args.pdfUrl).toBe('https://docs/presup-v1-regenerado.pdf');
+  });
+
+  it('reenvia_sin_adjunto_si_pdf_url_null_y_la_regeneracion_falla_best_effort', async () => {
+    const { useCase, reenviarE2, generarPdf } = montarReenvio({
+      presupuestoVigente: presupuestoVigenteV1({ pdfUrl: null }),
+    });
+    generarPdf.mockRejectedValueOnce(new Error('PDF_CAIDO'));
+
+    await useCase.ejecutar(comandoReenvio());
+
+    // El reenvío sigue adelante sin adjunto (un fallo de PDF no bloquea el reenvío).
+    const args = (reenviarE2.mock.calls[0] as unknown[])[0] as { pdfUrl: string | null };
+    expect(args.pdfUrl).toBeNull();
   });
 });
 
@@ -1116,7 +1240,7 @@ describe('EditarPresupuestoUseCase.preview — borrador de edición sin efectos'
     // NADA se persiste.
     expect(repos.presupuestos.crearVersion).not.toHaveBeenCalled();
     expect(repos.extras.reemplazarLineas).not.toHaveBeenCalled();
-    expect(repos.comunicaciones.registrarE2Reenvio).not.toHaveBeenCalled();
+    expect(repos).not.toHaveProperty('comunicaciones');
     expect(dispararE2.disparar).not.toHaveBeenCalled();
   });
 

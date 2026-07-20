@@ -51,23 +51,34 @@ const base = (tenantId: string): Omit<ConfiguracionDocumentoTenant, 'condiciones
     conceptoTransferencia: "Masia l'Encís",
   },
   textos: {
-    plantillaConceptoFiscal: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
-    validesaTexto: '10 DIES',
-    pieLegal: 'Validesa 10 dies.',
+    plantillaConceptoFiscal: {
+      ca: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
+      es: 'Gestión del uso del espacio de {nombreComercial} para evento',
+    },
+    validesaTexto: { ca: '10 DIES', es: '10 DÍAS' },
+    pieLegal: { ca: 'Validesa 10 dies.', es: 'Validez 10 días.' },
   },
 });
 
 const configConSecciones = (tenantId: string = TENANT): ConfiguracionDocumentoTenant => ({
   ...base(tenantId),
   condiciones: {
-    titulo: 'Condicions Particulars',
-    secciones: [{ titulo: 'Reserva i pagament', cuerpo: 'Cos.' }],
+    titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
+    secciones: [
+      {
+        titulo: { ca: 'Reserva i pagament', es: 'Reserva y pago' },
+        cuerpo: { ca: 'Cos.', es: 'Cuerpo.' },
+      },
+    ],
   },
 });
 
 const configSinSecciones = (tenantId: string = TENANT): ConfiguracionDocumentoTenant => ({
   ...base(tenantId),
-  condiciones: { titulo: 'Condicions Particulars', secciones: [] },
+  condiciones: {
+    titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
+    secciones: [],
+  },
 });
 
 // --- Dobles de los puertos --------------------------------------------------

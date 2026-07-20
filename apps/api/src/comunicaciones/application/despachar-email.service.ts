@@ -92,6 +92,12 @@ export interface DespacharEmailComando {
    * `(reserva, codigo, NULL)`).
    */
   subtipo?: SubtipoEmail;
+  /**
+   * Marca de EDICIÓN (derivada en servidor, default `false`): cuando el disparo
+   * proviene de una edición del presupuesto, la plantilla E2 renderiza la variante
+   * "presupuesto actualizado" (asunto + párrafo). NO entra por el contrato ni el body.
+   */
+  esEdicion?: boolean;
 }
 
 /** Motivo del resultado del despacho. */
@@ -515,6 +521,10 @@ export class DespacharEmailService {
       codigo: reserva.codigo,
       codigoReserva: reserva.codigo,
       idReserva: reserva.idReserva,
+      // Marca de edición server-side (default false): la plantilla E2 la lee para
+      // renderizar la variante "presupuesto actualizado". Se propaga por `despachar`
+      // y `despacharReenvio` (ambos usan este helper).
+      esEdicion: comando.esEdicion ?? false,
     };
   }
 

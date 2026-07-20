@@ -236,6 +236,13 @@ if (isError) {
 ```
 
 - Usar toasts/alerts de shadcn/ui para feedback de mutaciones.
+- **Convención de la Ficha de consulta:** las confirmaciones de transiciones de estado
+  y de descartes (pre-reserva y consulta) se muestran como **aviso inline en la cabecera
+  de la ficha** (banner de color según el tipo — verde para éxito — con ícono, título y
+  descripción, cerrable, con auto-scroll al inicio), no como toast lateral. Patrón
+  canónico: los componentes `AvisoXxx` de `features/reservas/pages/FichaConsulta/components/`
+  (p. ej. `AvisoVisitaProgramada`, `AvisoDescarte`), orquestados por `AvisosFicha`. Los
+  toasts de Sonner se reservan para feedback de dominios sin ficha contextual.
 
 ## Accesibilidad
 

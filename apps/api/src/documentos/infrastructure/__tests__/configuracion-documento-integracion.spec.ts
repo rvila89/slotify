@@ -52,9 +52,12 @@ const crearConfig = (tenantId: string, over: Record<string, unknown> = {}) => {
         iban: base.banca.iban,
         beneficiarioTransferencia: base.banca.beneficiarioTransferencia,
         conceptoTransferencia: base.banca.conceptoTransferencia,
-        plantillaConceptoFiscal: base.textos.plantillaConceptoFiscal,
-        validesaTexto: base.textos.validesaTexto,
-        pieLegal: base.textos.pieLegal,
+        plantillaConceptoFiscalCa: base.textos.plantillaConceptoFiscal.ca,
+        plantillaConceptoFiscalEs: base.textos.plantillaConceptoFiscal.es,
+        validesaTextoCa: base.textos.validesaTexto.ca,
+        validesaTextoEs: base.textos.validesaTexto.es,
+        pieLegalCa: base.textos.pieLegal.ca,
+        pieLegalEs: base.textos.pieLegal.es,
         ...over,
       },
     });
@@ -173,8 +176,9 @@ describe('PlantillaDocumentoTenant — adaptador mapea al VO de dominio (4.4)', 
     // Los cuatro bloques presentes.
     expect(config?.branding).toBeDefined();
     expect(config?.banca.iban).toBe('ES30 0182 1683 4002 0172 9599');
-    expect(config?.textos.plantillaConceptoFiscal).toContain('espai');
-    expect(config?.textos.plantillaConceptoFiscal.toLowerCase()).not.toContain('lloguer');
+    expect(config?.textos.plantillaConceptoFiscal.ca).toContain('espai');
+    expect(config?.textos.plantillaConceptoFiscal.ca.toLowerCase()).not.toContain('lloguer');
+    expect(config?.textos.plantillaConceptoFiscal.es.toLowerCase()).not.toContain('lloguer');
   });
 
   it('devuelve_null_si_el_tenant_no_tiene_configuracion', async () => {

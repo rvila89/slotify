@@ -318,41 +318,90 @@ US-014/UC-14 §D-6/§D-7; `epico-6-documentos-pdf-roadmap` 6.1b; `documentos` 6.
 ### Requirement: Contenido del PDF de presupuesto tomado de la config del tenant
 
 El PDF del presupuesto CON IVA SHALL (DEBE) componerse **exclusivamente** con
-datos del tenant y de la reserva, sin valores de negocio hardcodeados:
+datos del tenant y de la reserva, sin valores de negocio hardcodeados, y en el
+**idioma del cliente** (`Reserva.idioma ∈ {es, ca}`, default `es`; el adaptador de
+carga lo proyecta a `DatosDocumentoPresupuesto.idioma`):
 
 - **Cabecera**: logo si `logoUrl` no es nulo (si no, solo-texto), razón social
   fiscal, NIF, dirección fiscal, email y web (de `identidadFiscal`).
 - **Dades client** (del cliente de la reserva): nombre y apellidos, DNI/NIF,
   dirección, CP + población, provincia.
-- **PRESSUPOST + número + Data**.
-- **CONCEPTE/PREU**: el texto de `textos.plantillaConceptoFiscal` con el
-  placeholder `{nombreComercial}` resuelto (expresa "espai", **nunca** "lloguer");
-  debajo, la fecha del evento, la **duración** (enum `DuracionHoras` 4/8/12 →
-  "(N hores)"; ver `design.md` N5 sobre el rango horario), el nº de personas
-  (`num_adultos_ninos_mayores4`), y los **extras** de la reserva como
-  sub-conceptos con su precio.
-- **Validesa** (`textos.validesaTexto`, p. ej. "10 DIES") | Base imp. | % IVA |
+- **PRESSUPOST/PRESUPUESTO + número + Data/Fecha** (etiquetas en el idioma del
+  cliente).
+- **CONCEPTE/CONCEPTO · PREU/PRECIO**: el texto de `textos.plantillaConceptoFiscal`
+  (bilingüe, elegido por el idioma del cliente) con el placeholder
+  `{nombreComercial}` resuelto (expresa "espai", **nunca** "lloguer"); debajo, tres
+  líneas legibles:
+  - la **fecha del evento** como "D de <mes> de AAAA" (con año, mes en el idioma
+    del cliente),
+  - el **horario**: "De HH:MM a HH:MM (N <hores|horas>)" cuando `Reserva.horario`
+    no es nulo (la hora de fin se calcula en memoria desde `horario` +
+    `duracionHoras`, no se persiste), o el **fallback** "(N <hores|horas>)" sin
+    rango cuando `Reserva.horario` es nulo,
+  - el **nº de personas**, derivado del aforo:
+    `numInvitadosFinal ?? (numAdultosNinosMayores4 + numNinosMenores4)` (fix de la
+    derivación previa que solo tomaba `numAdultosNinosMayores4`),
+
+  y los **extras** de la reserva como sub-conceptos con su precio.
+- **Validesa/Validez** (`textos.validesaTexto`, bilingüe) | Base imp. | % IVA |
   Total.
-- **Condicions**: 40% pago anticipado / 60% import restant / fiança "A l'arribada"
-  (del desglose/reparto del presupuesto).
+- **Condicions/Condiciones**: 40% pago anticipado / 60% import restant / fiança "A
+  l'arribada" (del desglose/reparto del presupuesto), con etiquetas en el idioma
+  del cliente.
 - **Pie bancario**: instrucciones de pago + IBAN (de `banca`).
 
-(Fuente: Excel hoja "PRESSUPOST IVA"; `documentos` 6.1a `ConfiguracionDocumentoTenant`;
-regla del épico "concepto nunca lloguer".)
+(Fuente: Excel hoja "PRESSUPOST IVA"; `documentos` 6.1a
+`ConfiguracionDocumentoTenant`; regla del épico "concepto nunca lloguer"; change
+`pdf-presupuesto-horario-idioma` — fecha con año, rango horario y idioma del
+cliente; fix `numPersonas` derivado del aforo, `aforo/personas es campo derivado`.)
 
-#### Scenario: El concepto fiscal usa la plantilla del tenant y nunca "lloguer"
+#### Scenario: El concepto fiscal usa la plantilla bilingüe del tenant y nunca "lloguer"
 
-- **GIVEN** una config con `plantillaConceptoFiscal = "Gestió de l'ús espai de
-  {nombreComercial} per esdeveniment"` y `nombreComercial = "Masia l'Encís"`
+- **GIVEN** una config con `plantillaConceptoFiscal = { ca: "Gestió de l'ús espai
+  de {nombreComercial} per esdeveniment", es: "Gestión del uso del espacio de
+  {nombreComercial} para evento" }` y `nombreComercial = "Masia l'Encís"`, y un
+  presupuesto con `idioma = 'ca'`
 - **WHEN** se renderiza el concepto del PDF
 - **THEN** aparece "Gestió de l'ús espai de Masia l'Encís per esdeveniment"
 - **AND** el documento no contiene la palabra "lloguer"
+
+#### Scenario: El bloque de concepto muestra fecha con año y rango horario
+
+- **GIVEN** una reserva con `fechaEvento = 2026-09-20`, `horario = '12:00'`,
+  `duracionHoras = 8`, `numAdultosNinosMayores4 = 14`, `numNinosMenores4 = 0`,
+  `numInvitadosFinal = null` e `idioma = 'ca'`
+- **WHEN** se renderiza el bloque de concepto
+- **THEN** aparecen tres líneas: "20 de setembre de 2026", "De 12:00 a 18:00
+  (8 hores)" y "14 persones"
+
+#### Scenario: Fallback sin hora de inicio muestra solo la duración
+
+- **GIVEN** una reserva con `horario = null` y `duracionHoras = 8` e `idioma = 'ca'`
+- **WHEN** se renderiza el bloque de concepto
+- **THEN** la línea de horario es "(8 hores)" sin rango, y el PDF se genera sin
+  error
+
+#### Scenario: El nº de personas se deriva del aforo real
+
+- **GIVEN** una reserva con `numInvitadosFinal = null`,
+  `numAdultosNinosMayores4 = 30` y `numNinosMenores4 = 10`
+- **WHEN** el adaptador carga los datos del documento
+- **THEN** `numPersonas = 40` (`numAdultosNinosMayores4 + numNinosMenores4`), no 30
+- **AND** si `numInvitadosFinal` estuviera informado, se usaría ese valor con
+  prioridad
 
 #### Scenario: Los extras aparecen como sub-conceptos con precio
 
 - **GIVEN** una reserva con extras (p. ej. "Neteja" a 100 €)
 - **WHEN** se renderiza el PDF
 - **THEN** cada extra figura como sub-concepto del bloque CONCEPTE con su precio
+
+#### Scenario: El PDF se genera en el idioma del cliente (es)
+
+- **GIVEN** una reserva con `idioma = 'es'`
+- **WHEN** el adaptador carga los datos y se renderiza el PDF
+- **THEN** `DatosDocumentoPresupuesto.idioma = 'es'` y el documento usa las
+  etiquetas fijas y los textos libres del tenant en castellano
 
 ### Requirement: Método de pago del presupuesto determina el régimen fiscal
 
@@ -761,24 +810,43 @@ flujo **no se bloquea** por la ausencia de tarifa para el tramo +50. (Fuente:
 ### Requirement: Envío explícito de la edición registra COMUNICACION E2 y AUDIT_LOG
 
 El sistema SHALL (DEBE), cuando el Gestor confirma la edición **con envío explícito**,
-regenerar el PDF de la nueva versión, disparar el email **E2** (reenvío del
-presupuesto actualizado; **gap de spec E2 documentado en `design.md` D1**), registrar
-una nueva `COMUNICACION` con `codigo_email = 'E2'`, `estado = 'enviado'` y
-`es_reenvio = true` (para esquivar el índice UNIQUE parcial `(reserva_id,
-codigo_email) WHERE es_reenvio = false`, patrón US-028/US-023), fijar
-`PRESUPUESTO.estado = 'enviado'` en la nueva versión, y registrar en `AUDIT_LOG` con
-`accion = 'actualizar'` referenciando el nuevo `id_presupuesto`. (Fuente: `US-015
-§Happy Path`, `§Reglas de negocio` envío explícito; UC-15; `er-diagram
-§COMUNICACION`, `§AUDIT_LOG`; patrón `es_reenvio` de US-028/US-023.)
+regenerar el PDF de la nueva versión y **enviar realmente** el email **E2** invocando el
+proveedor de correo a través del camino de reenvío del motor
+(`DespacharEmailService.despacharReenvio`), que **salta la idempotencia** — no como el
+camino `despachar`, que al encontrar el E2 original (`es_reenvio = false`) por el índice
+UNIQUE parcial `(reserva_id, codigo_email) WHERE es_reenvio = false` devolvía
+`motivo = 'idempotente'` y **nunca invocaba al proveedor**. El envío DEBE persistir **una
+única** `COMUNICACION` con `codigo_email = 'E2'`, `es_reenvio = true` y
+`estado ∈ {'enviado', 'fallido'}` según el resultado real del proveedor (fuente única =
+el motor post-commit; NO se registra además una fila "contable" duplicada dentro de la
+transacción). El sistema DEBE fijar `PRESUPUESTO.estado = 'enviado'` en la nueva versión
+y registrar en `AUDIT_LOG` con `accion = 'actualizar'` referenciando el nuevo
+`id_presupuesto`. El envío es **best-effort post-commit**: un fallo del proveedor deja la
+`COMUNICACION` en `estado = 'fallido'` y **NO** revierte la versión ya creada ni el
+`AUDIT_LOG`. (Fuente: `US-015 §Happy Path`, `§Reglas de negocio` envío explícito; UC-15;
+US-045 motor de email; `er-diagram §COMUNICACION`, `§AUDIT_LOG`; patrón `es_reenvio` de
+US-028/US-023.)
 
-#### Scenario: Confirmar con envío registra E2 (reenvío) y AUDIT_LOG actualizar
+#### Scenario: Confirmar con envío invoca al proveedor y registra una única COMUNICACION E2
+
+- **GIVEN** una RESERVA en `pre_reserva` con PRESUPUESTO `version = 1` en `enviado`
+  (ya existe la `COMUNICACION` E2 original con `es_reenvio = false`)
+- **WHEN** el gestor confirma una edición y la envía
+- **THEN** el proveedor de email se invoca realmente (transporte ejecutado) y NO se
+  cortocircuita por idempotencia
+- **AND** se registra **exactamente una** nueva `COMUNICACION` con `codigo_email = 'E2'`,
+  `es_reenvio = true` y `estado = 'enviado'` (sin fila contable duplicada en la
+  transacción)
+- **AND** `PRESUPUESTO version = 2` queda en `estado = 'enviado'` y se registra un
+  `AUDIT_LOG` con `accion = 'actualizar'` que referencia el nuevo `id_presupuesto`
+
+#### Scenario: Fallo del proveedor no revierte la versión (best-effort post-commit)
 
 - **GIVEN** una edición confirmada que crea PRESUPUESTO `version = 2`
-- **WHEN** el gestor envía la versión actualizada
-- **THEN** se registra una `COMUNICACION` con `codigo_email = 'E2'`,
-  `estado = 'enviado'` y `es_reenvio = true`
-- **AND** se registra un `AUDIT_LOG` con `accion = 'actualizar'` que referencia el
-  nuevo `id_presupuesto`, y `PRESUPUESTO version=2` queda en `estado = 'enviado'`
+- **WHEN** el envío post-commit del E2 falla en el proveedor
+- **THEN** la `COMUNICACION` E2 queda en `estado = 'fallido'` (`es_reenvio = true`)
+- **AND** `PRESUPUESTO version = 2` y el `AUDIT_LOG` `actualizar` persisten (no se
+  revierten) y la versión puede reenviarse después
 
 ### Requirement: Guardar la edición como borrador sin enviar
 
@@ -799,19 +867,26 @@ enviar`, `§Reglas de negocio` borrador guardado; UC-15.)
 ### Requirement: Reenvío sin cambios de la versión vigente
 
 El sistema SHALL (DEBE), cuando el Gestor confirma el envío **sin modificar ningún
-campo**, **NO** crear una versión nueva: reenvía el PDF de la versión vigente,
-registra una nueva `COMUNICACION` E2 (`es_reenvio = true`, `estado = 'enviado'`) y un
-`AUDIT_LOG`, y deja la versión vigente en `estado = 'enviado'`. No se crea ni modifica
-ninguna `RESERVA_EXTRA` ni se recalcula el desglose. (Fuente: `US-015 §Sin cambios —
-reenvío de versión existente`; UC-15; patrón reenvío de US-023/US-028.)
+campo**, **NO** crear una versión nueva: reenvía el PDF de la versión vigente **enviando
+realmente** el email E2 a través de `DespacharEmailService.despacharReenvio` (el
+adaptador de reenvío NO debe ser un no-op / stub que omita el transporte), registra **una
+única** nueva `COMUNICACION` E2 (`es_reenvio = true`, `estado ∈ {'enviado', 'fallido'}`
+según el proveedor) y un `AUDIT_LOG`, y deja la versión vigente en `estado = 'enviado'`.
+No se crea ni modifica ninguna `RESERVA_EXTRA` ni se recalcula el desglose. El reenvío
+sin cambios usa el texto **E2 estándar** (no la marca de edición). (Fuente: `US-015 §Sin
+cambios — reenvío de versión existente`; UC-15; US-045 motor de email; patrón reenvío de
+US-023/US-028.)
 
-#### Scenario: Reenvío sin cambios no crea versión nueva
+#### Scenario: Reenvío sin cambios invoca al proveedor y no crea versión nueva
 
 - **GIVEN** una RESERVA en `pre_reserva` con PRESUPUESTO `version = 2` en `enviado`
 - **WHEN** el gestor abre el presupuesto, no modifica nada y confirma el envío
-- **THEN** no se crea una versión nueva; se reenvía el PDF de la `version = 2`
-- **AND** se registra una `COMUNICACION` E2 (`es_reenvio = true`) y un `AUDIT_LOG`, y
-  la versión sigue en `estado = 'enviado'`
+- **THEN** el proveedor de email se invoca realmente (transporte ejecutado) — el envío
+  NO es un no-op
+- **AND** no se crea una versión nueva; se reenvía el PDF de la `version = 2`
+- **AND** se registra **una única** `COMUNICACION` E2 (`es_reenvio = true`,
+  `estado = 'enviado'`) con el asunto/cuerpo estándar de E2 y un `AUDIT_LOG`, y la
+  versión sigue en `estado = 'enviado'`
 
 ### Requirement: La edición no muta el estado de la RESERVA ni el bloqueo de fecha
 
@@ -888,4 +963,59 @@ antes del cálculo".)
 - **WHEN** el gestor pulsa "Generar presupuesto" (habilitado por el gate de UI)
 - **THEN** el servidor revalida y rechaza enumerando los campos fiscales faltantes, sin
   crear PRESUPUESTO (comportamiento de la spec viva "Validación síncrona…" intacto)
+
+### Requirement: Marca de edición en el email E2 (asunto y párrafo, ES/CA)
+
+El sistema SHALL (DEBE) permitir que la plantilla **E2** reciba una variable `esEdicion`
+(booleana, **derivada en servidor**, default `false`; NO entra por el contrato ni por el
+body) y, cuando sea `true` (envío disparado por una **edición** del presupuesto),
+renderizar la variante "presupuesto actualizado":
+
+- **Asunto (ES)**: «Hemos actualizado tu presupuesto para el evento (reserva
+  {codigoReserva})».
+- **Asunto (CA)**: «Hem actualitzat el teu pressupost per a l'esdeveniment (reserva
+  {codigoReserva})».
+- **Párrafo inicial** insertado inmediatamente tras el saludo «Hola {nombre},» (ES):
+  «Hemos actualizado el presupuesto que te enviamos con los cambios solicitados. Te
+  adjuntamos la versión revisada.»; **CA** equivalente: «Hem actualitzat el pressupost
+  que et vam enviar amb els canvis sol·licitats. T'adjuntem la versió revisada.».
+
+El resto del texto de marca del tenant (pago anticipado del 40%, transferencia con
+destinatario "Canoliart, SL" y concepto "Masia l'Encís", condiciones particulares a
+firmar, firma "Ari — Masia l'Encís") se mantiene **idéntico** al E2 estándar. Cuando
+`esEdicion` es `false` o está ausente (envío original de US-014 o reenvío sin cambios),
+la plantilla E2 renderiza el **texto estándar** sin cambios. `variablesRequeridas` de E2
+y E2-CA permanece `['nombre', 'codigoReserva']` (`esEdicion` NO es requerida). (Fuente:
+`US-015 §Email relacionado`; UC-15; US-014/US-045 plantilla E2 `renderE2`/`renderE2Ca`;
+`catalogo-plantillas.ts`.)
+
+#### Scenario: Edición renderiza asunto y párrafo de "presupuesto actualizado" (ES)
+
+- **GIVEN** un envío E2 en español con `esEdicion = true`, `nombre = 'Marta'`,
+  `codigoReserva = '26-0001'`
+- **WHEN** se renderiza la plantilla E2
+- **THEN** el asunto es «Hemos actualizado tu presupuesto para el evento (reserva 26-0001)»
+- **AND** tras el saludo «Hola Marta,» aparece el párrafo «Hemos actualizado el
+  presupuesto que te enviamos con los cambios solicitados. Te adjuntamos la versión
+  revisada.»
+- **AND** el resto del texto de marca (pago 40%, transferencia Canoliart, firma Ari) se
+  mantiene sin cambios
+
+#### Scenario: Edición renderiza la marca de edición en catalán (CA)
+
+- **GIVEN** un envío E2 en catalán con `esEdicion = true` y `codigoReserva = '26-0001'`
+- **WHEN** se renderiza la plantilla E2-CA
+- **THEN** el asunto es «Hem actualitzat el teu pressupost per a l'esdeveniment (reserva
+  26-0001)»
+- **AND** tras el saludo aparece el párrafo «Hem actualitzat el pressupost que et vam
+  enviar amb els canvis sol·licitats. T'adjuntem la versió revisada.»
+
+#### Scenario: Sin marca de edición se conserva el E2 estándar
+
+- **GIVEN** un envío E2 con `esEdicion = false` o ausente (envío original / reenvío sin
+  cambios)
+- **WHEN** se renderiza la plantilla E2
+- **THEN** el asunto es «Tu presupuesto para el evento (reserva {codigoReserva})» (o su
+  variante CA) y NO se inserta el párrafo de "presupuesto actualizado"
+- **AND** `variablesRequeridas` sigue siendo `['nombre', 'codigoReserva']`
 

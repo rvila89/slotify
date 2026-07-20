@@ -124,11 +124,17 @@ const configPiloto = (logoUrl: string | null = null): ConfiguracionDocumentoTena
     conceptoTransferencia: "Masia l'Encís",
   },
   textos: {
-    plantillaConceptoFiscal: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
-    validesaTexto: '10 DIES',
-    pieLegal: PIE_LEGAL_PILOTO,
+    plantillaConceptoFiscal: {
+      ca: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
+      es: 'Gestión del uso del espacio de {nombreComercial} para evento',
+    },
+    validesaTexto: { ca: '10 DIES', es: '10 DÍAS' },
+    pieLegal: { ca: PIE_LEGAL_PILOTO, es: PIE_LEGAL_PILOTO },
   },
-  condiciones: { titulo: 'Condicions Particulars', secciones: [] },
+  condiciones: {
+    titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
+    secciones: [],
+  },
 });
 
 const datosConIva = (
@@ -137,6 +143,7 @@ const datosConIva = (
   numeroPresupuesto: '2026001',
   fecha: new Date('2026-07-13T00:00:00.000Z'),
   regimen: CON_IVA,
+  idioma: 'ca',
   cliente: {
     nombre: 'Anna',
     apellidos: 'Puig Soler',
@@ -147,6 +154,7 @@ const datosConIva = (
     provincia: 'Barcelona',
   },
   fechaEvento: new Date('2027-09-12T00:00:00.000Z'),
+  horario: '12:00',
   duracionHoras: 8,
   numPersonas: 80,
   extras: [

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import { CheckCircle2, FileSignature, Info, PenLine, RefreshCw } from 'lucide-react';
 import {
   MENSAJE_CONDICIONES_NO_ENVIADAS,
@@ -148,7 +148,7 @@ export const CondicionesFirmadasCard = ({
           abierto={abierto}
           onAbiertoChange={setAbierto}
           onRegistrado={() =>
-            toast.success(
+            notify.success(
               firmadas
                 ? 'Nueva versión de las condiciones firmadas registrada.'
                 : 'Firma de condiciones particulares registrada correctamente.',

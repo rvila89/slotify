@@ -44,9 +44,12 @@ const aConfiguracion = (
     conceptoTransferencia: fila.conceptoTransferencia,
   },
   textos: {
-    plantillaConceptoFiscal: fila.plantillaConceptoFiscal,
-    validesaTexto: fila.validesaTexto,
-    pieLegal: fila.pieLegal,
+    plantillaConceptoFiscal: {
+      ca: fila.plantillaConceptoFiscalCa,
+      es: fila.plantillaConceptoFiscalEs,
+    },
+    validesaTexto: { ca: fila.validesaTextoCa, es: fila.validesaTextoEs },
+    pieLegal: { ca: fila.pieLegalCa, es: fila.pieLegalEs },
   },
   // Épico #6 6.4a: la factura no pinta condicions, pero el VO las requiere; se mapea la
   // columna JSON (default `'{}'`) tolerando filas sin poblar.
@@ -59,7 +62,7 @@ const aCondiciones = (
 ): CondicionesDocumento => {
   const bruto = (valor ?? {}) as Partial<CondicionesDocumento>;
   return {
-    titulo: bruto.titulo ?? '',
+    titulo: bruto.titulo ?? { ca: '', es: '' },
     secciones: Array.isArray(bruto.secciones) ? bruto.secciones : [],
   };
 };

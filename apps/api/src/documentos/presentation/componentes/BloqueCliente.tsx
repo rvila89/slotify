@@ -11,6 +11,8 @@ export interface BloqueClienteProps {
   kit: KitReactPdf;
   estilos: EstilosReactPdf;
   cliente: ClienteDocumento;
+  /** Título del bloque ("Dades client"/"Datos del cliente"); default catalán. */
+  titulo?: string;
 }
 
 /** Une nombre y apellidos ignorando los nulos. */
@@ -21,12 +23,17 @@ const nombreCompleto = (cliente: ClienteDocumento): string =>
 const lineaPoblacion = (cliente: ClienteDocumento): string =>
   [cliente.codigoPostal, cliente.poblacion].filter((parte) => parte).join(' ');
 
-export const BloqueCliente = ({ kit, estilos, cliente }: BloqueClienteProps) => {
+export const BloqueCliente = ({
+  kit,
+  estilos,
+  cliente,
+  titulo = 'Dades client',
+}: BloqueClienteProps) => {
   const { View, Text } = kit;
   const poblacion = lineaPoblacion(cliente);
   return (
     <View>
-      <Text style={estilos.clienteTitulo}>Dades client</Text>
+      <Text style={estilos.clienteTitulo}>{titulo}</Text>
       <Text style={estilos.linea}>{nombreCompleto(cliente)}</Text>
       {cliente.dniNif ? <Text style={estilos.linea}>{cliente.dniNif}</Text> : null}
       {cliente.direccion ? <Text style={estilos.linea}>{cliente.direccion}</Text> : null}

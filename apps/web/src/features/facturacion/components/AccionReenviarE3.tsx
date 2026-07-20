@@ -1,5 +1,5 @@
 import { Loader2, RefreshCw } from 'lucide-react';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import { useReenviarE3 } from '../api/useReenviarE3';
 import { AvisoErrorReenvioE3 } from './AvisoErrorReenvioE3';
 
@@ -36,19 +36,19 @@ export const AccionReenviarE3 = ({ reservaId }: Props) => {
       { reservaId },
       {
         onSuccess: () => {
-          toast.success('E3 reenviado al cliente.');
+          notify.success('E3 reenviado al cliente.');
         },
         onError: (error) => {
           if (error.tipo === 'envio-fallido') {
-            toast.warning('Error de reenvío, reintenta', { description: error.mensaje });
+            notify.warning('Error de reenvío, reintenta', { description: error.mensaje });
           } else if (error.tipo === 'no-enviado-previamente') {
-            toast.info(error.mensaje);
+            notify.info(error.mensaje);
           } else if (error.tipo === 'condiciones-no-configuradas') {
-            toast.warning('Condiciones particulares no configuradas', {
+            notify.warning('Condiciones particulares no configuradas', {
               description: error.mensaje,
             });
           } else {
-            toast.error(error.mensaje);
+            notify.error(error.mensaje);
           }
         },
       },

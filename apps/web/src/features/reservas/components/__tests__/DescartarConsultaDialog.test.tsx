@@ -1,14 +1,18 @@
 /**
- * Confirmación de descarte desde la ficha (spec `ficha-consulta-ui`): al
- * confirmar el descarte con éxito, el diálogo DEBE mostrar el alert de éxito
- * (toast) y notificar a la página vía `onDescartado` (que en la ficha desplaza el
- * "puntero" al inicio). El toast solo se renderiza si el host `<Toaster/>` está
- * montado — por eso el test lo monta, reproduciendo el árbol real de la app.
+ * TDD-RED (change `2026-07-20-descarte-aviso-inline-ficha`): al confirmar el
+ * descarte de una CONSULTA con éxito (200), el diálogo YA NO emite un toast lateral
+ * de Sonner. La confirmación pasa a ser un aviso inline verde en la cabecera de la
+ * ficha (`AvisoDescarte`), que la página monta a partir del callback `onDescartado`.
+ *
+ * Este test reemplaza la conducta anterior (spec hermano no archivado que asertaba el
+ * toast). Ahora verifica: (a) NO se invoca `toast.success`; (b) SÍ se notifica
+ * `onDescartado(reserva)` al éxito. FALLA (RED) mientras el diálogo siga llamando
+ * `toast.success` en `onSuccess`.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Toaster } from '@/components/ui/sonner';
+import { toast } from 'sonner';
 import { DescartarConsultaDialog } from '../DescartarConsultaDialog';
 import type { components } from '@/api-client';
 
@@ -28,27 +32,30 @@ vi.mock('../../api/useDescartarConsulta', () => ({
   }),
 }));
 
-describe('DescartarConsultaDialog — alert de éxito al descartar', () => {
-  it('muestra_el_toast_de_exito_y_notifica_onDescartado_al_confirmar', async () => {
+// Espía de Sonner: el aserto clave es que `toast.success` NO se invoca.
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), info: vi.fn(), warning: vi.fn(), error: vi.fn() },
+}));
+const toastMock = toast as unknown as { success: ReturnType<typeof vi.fn> };
+
+describe('DescartarConsultaDialog — sin toast, notifica onDescartado', () => {
+  it('al_confirmar_con_exito_NO_emite_toast_success_y_notifica_onDescartado', async () => {
     const user = userEvent.setup();
     const onDescartado = vi.fn();
 
     render(
-      <>
-        <Toaster />
-        <DescartarConsultaDialog
-          reservaId="r-1"
-          codigo="SLO-2026-0013"
-          abierto
-          onAbiertoChange={() => {}}
-          onDescartado={onDescartado}
-        />
-      </>,
+      <DescartarConsultaDialog
+        reservaId="r-1"
+        codigo="SLO-2026-0013"
+        abierto
+        onAbiertoChange={() => {}}
+        onDescartado={onDescartado}
+      />,
     );
 
     await user.click(screen.getByTestId('confirmar-descartar-consulta'));
 
-    expect(await screen.findByText(/marcada como descartada por el cliente/i)).toBeInTheDocument();
+    expect(toastMock.success).not.toHaveBeenCalled();
     expect(onDescartado).toHaveBeenCalledWith(reservaDescartada);
   });
 });

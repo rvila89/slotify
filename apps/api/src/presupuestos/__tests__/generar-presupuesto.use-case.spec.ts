@@ -224,6 +224,8 @@ const montar = (opciones: {
   motor?: MotorFake;
   presupuestoPrevio?: boolean;
   fallarEn?: PuntoDeFallo;
+  /** URL que devuelve `generarPdf` post-commit (`null` para simular fallo de PDF). */
+  pdfUrl?: string | null;
 } = {}) => {
   const reserva = 'reserva' in opciones ? opciones.reserva : reservaActiva();
   const cliente = opciones.cliente ?? clienteFiscalCompleto();
@@ -235,14 +237,19 @@ const montar = (opciones: {
   const uow = crearUowFake(repos);
   const cargarReserva = jest.fn(async () => reserva);
   const cargarCliente = jest.fn(async () => cliente);
+  const pdfUrlSalida: string | null =
+    'pdfUrl' in opciones ? (opciones.pdfUrl ?? null) : 'https://docs/p-1.pdf';
+  const generarPdf = jest.fn(async () => pdfUrlSalida);
+  const guardarPdfUrl = jest.fn(async () => undefined);
   const deps: GenerarPresupuestoDeps = {
     motorTarifa: motor as unknown as CalculadoraTarifaService,
     unidadDeTrabajo: uow,
     tenantSettings: { obtener: jest.fn(async () => settings) },
     cargarReserva,
     cargarCliente,
-    generarPdf: jest.fn(async () => 'https://docs/p-1.pdf'),
+    generarPdf,
     clock: relojFijo,
+    guardarPdfUrl,
   };
   return {
     useCase: new GenerarPresupuestoUseCase(deps),
@@ -251,6 +258,8 @@ const montar = (opciones: {
     motor,
     cargarReserva,
     cargarCliente,
+    generarPdf,
+    guardarPdfUrl,
     deps,
   };
 };
@@ -422,6 +431,50 @@ describe('GenerarPresupuestoUseCase.confirmar — PRESUPUESTO congelado con IVA 
     const args = repos.reservas.transicionarAPrereserva.mock.calls[0][0];
     // TTL = now() + 7 días (setting), NO hardcodeado.
     expect((args.ttlExpiracion as Date).getTime()).toBe(AHORA.getTime() + 7 * DIA_MS);
+  });
+});
+
+// ===========================================================================
+// Persistencia de `pdf_url` (fix reenvío) — tras generar el PDF post-commit se guarda
+// la URL en la fila del PRESUPUESTO (best-effort) para que el reenvío sin cambios
+// disponga del adjunto. Si la generación devuelve null NO se persiste; un fallo al
+// persistir NO propaga (no revierte la pre_reserva ya comprometida).
+// ===========================================================================
+
+describe('GenerarPresupuestoUseCase.confirmar — persistencia de pdf_url', () => {
+  it('debe_persistir_pdf_url_cuando_la_generacion_devuelve_url_no_nula', async () => {
+    const { useCase, guardarPdfUrl } = montar({ pdfUrl: 'https://docs/p-1.pdf' });
+
+    await useCase.confirmar(comandoConfirmar());
+
+    expect(guardarPdfUrl).toHaveBeenCalledTimes(1);
+    const args = (guardarPdfUrl.mock.calls[0] as unknown[])[0] as {
+      tenantId: string;
+      idPresupuesto: string;
+      pdfUrl: string;
+    };
+    expect(args.tenantId).toBe(TENANT);
+    expect(args.idPresupuesto).toBe('p-1');
+    expect(args.pdfUrl).toBe('https://docs/p-1.pdf');
+  });
+
+  it('NO_debe_persistir_pdf_url_cuando_la_generacion_devuelve_null', async () => {
+    const { useCase, guardarPdfUrl } = montar({ pdfUrl: null });
+
+    await useCase.confirmar(comandoConfirmar());
+
+    expect(guardarPdfUrl).not.toHaveBeenCalled();
+  });
+
+  it('un_fallo_al_persistir_pdf_url_NO_propaga_ni_revierte_la_pre_reserva', async () => {
+    const { useCase, guardarPdfUrl, repos } = montar();
+    guardarPdfUrl.mockRejectedValueOnce(new Error('BD_CAIDA'));
+
+    const resultado = await useCase.confirmar(comandoConfirmar());
+
+    // La pre_reserva se comprometió igualmente; el fallo best-effort se tragó.
+    expect(repos.presupuestos.crear).toHaveBeenCalledTimes(1);
+    expect(resultado.presupuesto).toBeDefined();
   });
 });
 

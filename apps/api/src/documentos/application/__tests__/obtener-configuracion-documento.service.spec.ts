@@ -56,13 +56,24 @@ const configTenantA = (): ConfiguracionDocumentoTenant => ({
     conceptoTransferencia: "Masia l'Encís",
   },
   textos: {
-    plantillaConceptoFiscal: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
-    validesaTexto: '10 DIES',
-    pieLegal: 'Text legal del peu del document.',
+    plantillaConceptoFiscal: {
+      ca: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
+      es: 'Gestión del uso del espacio de {nombreComercial} para evento',
+    },
+    validesaTexto: { ca: '10 DIES', es: '10 DÍAS' },
+    pieLegal: {
+      ca: 'Text legal del peu del document.',
+      es: 'Texto legal del pie del documento.',
+    },
   },
   condiciones: {
-    titulo: 'Condicions Particulars',
-    secciones: [{ titulo: 'Reserva i pagament', cuerpo: 'Cos.' }],
+    titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
+    secciones: [
+      {
+        titulo: { ca: 'Reserva i pagament', es: 'Reserva y pago' },
+        cuerpo: { ca: 'Cos.', es: 'Cuerpo.' },
+      },
+    ],
   },
 });
 
@@ -128,8 +139,8 @@ describe('ObtenerConfiguracionDocumentoService — lectura de config por tenant 
     expect(config?.identidadFiscal.direccionFiscal).toContain('Sant Martí Sarroca');
     expect(config?.banca.iban).toBe('ES30 0182 1683 4002 0172 9599');
     expect(config?.banca.beneficiarioTransferencia).toBe('Canoliart, SL');
-    expect(config?.textos.plantillaConceptoFiscal).toContain('espai');
-    expect(config?.textos.validesaTexto).toBe('10 DIES');
+    expect(config?.textos.plantillaConceptoFiscal.ca).toContain('espai');
+    expect(config?.textos.validesaTexto.ca).toBe('10 DIES');
   });
 
   it('debe_devolver_null_cuando_el_tenant_no_tiene_configuracion', async () => {

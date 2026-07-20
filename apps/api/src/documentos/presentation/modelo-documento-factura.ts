@@ -140,7 +140,8 @@ export const construirModeloDocumentoFactura = ({
       ivaImporte: datos.desglose.ivaImporte,
       total: datos.desglose.total,
     },
-    pieLegal: config.textos.pieLegal,
+    // La factura NO cambia de idioma en este change (design.md D6): pie legal en catalán.
+    pieLegal: config.textos.pieLegal.ca,
     pieBancario: {
       mostrar: conIva,
       iban: config.banca.iban,

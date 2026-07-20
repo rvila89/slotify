@@ -294,6 +294,12 @@ export interface DispararE2Port {
     tenantId: string;
     reservaId: string;
     pdfUrl: string | null;
+    /**
+     * Marca de EDICIÓN (derivada en servidor). El primer envío (US-014) NO la pasa:
+     * usa el camino idempotente `despachar`. La edición pasa `true` para enrutar por
+     * `despacharReenvio` (envío real) y renderizar la variante "presupuesto actualizado".
+     */
+    esEdicion?: boolean;
   }): Promise<void>;
 }
 
@@ -304,6 +310,21 @@ export interface GenerarPdfPresupuestoPort {
     reservaId: string;
     idPresupuesto: string;
   }): Promise<string | null>;
+}
+
+/**
+ * Puerto de PERSISTENCIA de la `pdf_url` en la fila del PRESUPUESTO (best-effort,
+ * post-commit). Espejo de `FacturaRepositoryPort.guardarPdfUrl` (US-022): tras generar
+ * el PDF fuera de la tx crítica se guarda la URL para que el REENVÍO sin cambios (que lee
+ * `vigente.pdfUrl`) disponga del adjunto. Un fallo aquí NO revierte la pre_reserva/versión
+ * (el envío usa la URL en memoria igualmente); se traga. Bajo RLS (`fijarTenant`).
+ */
+export interface GuardarPdfUrlPresupuestoPort {
+  (params: {
+    tenantId: string;
+    idPresupuesto: string;
+    pdfUrl: string;
+  }): Promise<void>;
 }
 
 /** Lectura de la RESERVA (fuera de la tx crítica; RLS: cross-tenant → null). */
@@ -333,6 +354,8 @@ export interface GenerarPresupuestoDeps {
   clock: ClockPort;
   /** Disparo del E2 post-commit (opcional en tests unitarios sin BD). */
   dispararE2?: DispararE2Port;
+  /** Persistencia best-effort de `pdf_url` (opcional en tests unitarios sin BD). */
+  guardarPdfUrl?: GuardarPdfUrlPresupuestoPort;
 }
 
 /** Resultado del preview (no persiste): desglose y reparto o `null` (a-consultar). */
@@ -892,19 +915,46 @@ export class GenerarPresupuestoUseCase {
     }
   }
 
-  /** Genera el PDF del presupuesto post-commit (D-6). Un fallo se traga (no revierte). */
+  /**
+   * Genera el PDF del presupuesto post-commit (D-6) y PERSISTE su `pdf_url` en la fila
+   * (best-effort) para que el REENVÍO sin cambios disponga del adjunto. Un fallo (de la
+   * generación o de la persistencia) se traga: NO revierte la pre_reserva ya comprometida
+   * y el envío usa la URL en memoria igualmente.
+   */
   private async generarPdfPostCommit(
     comando: ConfirmarPresupuestoComando,
     presupuesto: PresupuestoCreado,
   ): Promise<string | null> {
+    let pdfUrl: string | null;
     try {
-      return await this.deps.generarPdf({
+      pdfUrl = await this.deps.generarPdf({
         tenantId: comando.tenantId,
         reservaId: comando.reservaId,
         idPresupuesto: presupuesto.idPresupuesto,
       });
     } catch {
       return null;
+    }
+    if (pdfUrl !== null) {
+      await this.persistirPdfUrl(comando.tenantId, presupuesto.idPresupuesto, pdfUrl);
+    }
+    return pdfUrl;
+  }
+
+  /** Persiste `pdf_url` en la fila del PRESUPUESTO (best-effort; un fallo NO propaga). */
+  private async persistirPdfUrl(
+    tenantId: string,
+    idPresupuesto: string,
+    pdfUrl: string,
+  ): Promise<void> {
+    if (this.deps.guardarPdfUrl === undefined) {
+      return;
+    }
+    try {
+      await this.deps.guardarPdfUrl({ tenantId, idPresupuesto, pdfUrl });
+    } catch {
+      // Best-effort: si no se puede persistir la URL no se revierte nada (el envío usa
+      // la URL en memoria); el reenvío defensivo regenerará el PDF si `pdf_url` sigue null.
     }
   }
 

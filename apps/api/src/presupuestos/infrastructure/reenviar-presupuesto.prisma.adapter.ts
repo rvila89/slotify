@@ -16,16 +16,16 @@ import { DespacharEmailService } from '../../comunicaciones/application/despacha
 import type { ComunicacionE2Reenvio } from '../application/editar-presupuesto.use-case';
 
 /**
- * Reenvía el E2 (best-effort) reutilizando el motor de email (US-045). La fila
- * COMUNICACION del reenvío la persiste `RegistrarE2ReenvioPresupuestoAdapter` (una
- * sola fila `es_reenvio=true`), de modo que aquí el envío del transporte se hace en
- * modo reenvío del motor SIN persistir un segundo registro: se usa `despacharReenvio`
- * con `autoenviar` desactivado para no duplicar la COMUNICACION.
+ * Reenvía el E2 (best-effort) INVOCANDO el motor de email por su camino de reenvío
+ * (`DespacharEmailService.despacharReenvio`): salta la idempotencia, crea la ÚNICA fila
+ * COMUNICACION E2 (`es_reenvio=true`) y ENVÍA por el transporte real. Deja de ser un
+ * stub (regresión que impedía el envío real del reenvío "sin cambios").
  *
- * NOTA (DB-real): el cableado exacto motor↔COMUNICACION (evitar el doble registro,
- * adjuntar el PDF vigente) se valida en la suite de integración desde la sesión
- * principal; en unit los puertos van mockeados. El transporte real es best-effort:
- * un fallo del proveedor NO propaga (el reenvío es una acción idempotente del gestor).
+ * FUENTE ÚNICA de la fila (D1): la escribe el motor post-commit; el
+ * `RegistrarE2ReenvioPresupuestoAdapter` ya NO persiste una segunda fila (solo proyecta
+ * la respuesta optimista). El PDF vigente viaja por referencia (`pdf_url`). D2: el
+ * reenvío SIN cambios usa el texto E2 ESTÁNDAR (NO lleva `esEdicion`). Best-effort: un
+ * fallo del proveedor NO propaga (el reenvío es una acción idempotente del gestor).
  */
 @Injectable()
 export class ReenviarE2PresupuestoAdapter {
@@ -37,6 +37,7 @@ export class ReenviarE2PresupuestoAdapter {
   readonly reenviar = async (params: Record<string, unknown>): Promise<void> => {
     const tenantId = params.tenantId as string;
     const reservaId = params.reservaId as string;
+    const pdfUrl = (params.pdfUrl as string | null) ?? null;
 
     const reserva = await this.prisma.$transaction(async (tx) => {
       await this.prisma.fijarTenant(tx, tenantId);
@@ -48,15 +49,39 @@ export class ReenviarE2PresupuestoAdapter {
     if (reserva === null || reserva.cliente === null) {
       return;
     }
-    // El motor está disponible para el transporte real; la persistencia de la
-    // COMUNICACION la hace el adaptador dedicado (no aquí, para no duplicar fila).
-    void this.motorEmail;
+
+    // Adjunto del presupuesto vigente por referencia (solo si hay PDF).
+    const adjuntos =
+      pdfUrl !== null
+        ? [{ clave: 'presupuesto', nombre: 'presupuesto.pdf', pdfUrl }]
+        : [];
+
+    // Camino de reenvío REAL (no idempotente): escribe la única fila E2
+    // `es_reenvio=true` y ejerce el transporte. SIN marca de edición (E2 estándar, D2).
+    await this.motorEmail.despacharReenvio({
+      tenantId,
+      codigoEmail: 'E2',
+      reserva: { idReserva: reserva.idReserva, codigo: reserva.codigo },
+      cliente: {
+        idCliente: reserva.cliente.idCliente,
+        nombre: reserva.cliente.nombre,
+        apellidos: reserva.cliente.apellidos ?? '',
+        email: reserva.cliente.email,
+        telefono: reserva.cliente.telefono ?? '',
+      },
+      adjuntos,
+      idioma: reserva.idioma,
+    });
   };
 }
 
 /**
- * Registra la NUEVA COMUNICACION E2 del reenvío con `es_reenvio=true` (fuera del
- * índice UNIQUE parcial). Devuelve la proyección para la respuesta HTTP.
+ * Proyecta la COMUNICACION E2 del reenvío para la respuesta HTTP con estado OPTIMISTA
+ * `enviado` / `es_reenvio=true`. FUENTE ÚNICA de la fila (D1): la escribe el MOTOR de
+ * email post-commit (`ReenviarE2PresupuestoAdapter.reenviar` → `despacharReenvio`), de
+ * modo que aquí YA NO se persiste una segunda fila (evita el doble registro). Solo
+ * verifica RESERVA/CLIENTE bajo RLS y devuelve la proyección (el estado real
+ * enviado/fallido queda auditado en la fila que crea el motor).
  */
 @Injectable()
 export class RegistrarE2ReenvioPresupuestoAdapter {
@@ -67,7 +92,7 @@ export class RegistrarE2ReenvioPresupuestoAdapter {
   ): Promise<ComunicacionE2Reenvio> => {
     const tenantId = params.tenantId as string;
     const reservaId = params.reservaId as string;
-    const fila = await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       await this.prisma.fijarTenant(tx, tenantId);
       const reserva = await tx.reserva.findFirst({
         where: { idReserva: reservaId, tenantId },
@@ -78,32 +103,13 @@ export class RegistrarE2ReenvioPresupuestoAdapter {
           `No se encontró la RESERVA/CLIENTE para el reenvío E2 (${reservaId})`,
         );
       }
-      return tx.comunicacion.create({
-        data: {
-          tenantId,
-          reservaId,
-          clienteId: reserva.clienteId,
-          codigoEmail: CodigoEmailPrisma.E2,
-          asunto: 'Reenvío del presupuesto',
-          cuerpo: null,
-          destinatarioEmail: reserva.cliente.email ?? '',
-          estado: EstadoComunicacionPrisma.enviado,
-          fechaEnvio: new Date(),
-          esReenvio: true,
-        },
-        select: {
-          idComunicacion: true,
-          codigoEmail: true,
-          estado: true,
-          esReenvio: true,
-        },
-      });
     });
+    // Proyección optimista (la fila real la escribe el motor post-commit, fuente única).
     return {
-      idComunicacion: fila.idComunicacion,
-      codigoEmail: fila.codigoEmail,
-      estado: fila.estado,
-      esReenvio: fila.esReenvio,
+      idComunicacion: '',
+      codigoEmail: CodigoEmailPrisma.E2,
+      estado: EstadoComunicacionPrisma.enviado,
+      esReenvio: true,
     };
   };
 }

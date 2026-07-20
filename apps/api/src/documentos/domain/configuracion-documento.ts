@@ -41,35 +41,45 @@ export interface BancaDocumento {
   conceptoTransferencia: string;
 }
 
-/** Textos configurables del documento. */
+/**
+ * Texto bilingüe es/ca (change `pdf-presupuesto-horario-idioma`, Mejora 3). El documento
+ * de presupuesto elige el idioma según `Reserva.idioma`; los textos libres del tenant se
+ * gestionan por seed/migración (no hay UI de edición).
+ */
+export interface TextoBilingue {
+  ca: string;
+  es: string;
+}
+
+/** Textos configurables del documento (bilingües es/ca, Mejora 3). */
 export interface TextosDocumento {
   /**
    * Plantilla del concepto fiscal con placeholder `{nombreComercial}`. Regla
    * dura del épico: expresa "espai" y NUNCA contiene "lloguer".
    */
-  plantillaConceptoFiscal: string;
-  /** Texto de validez del documento, p. ej. "10 DIES". */
-  validesaTexto: string;
-  pieLegal: string;
+  plantillaConceptoFiscal: TextoBilingue;
+  /** Texto de validez del documento, p. ej. "10 DIES"/"10 DÍAS". */
+  validesaTexto: TextoBilingue;
+  pieLegal: TextoBilingue;
 }
 
 /**
  * Una sección de las "Condicions particulars" (épico #6, rebanada 6.4a): par
- * título + cuerpo. El cuerpo puede ser multi-línea (con `\n`).
+ * título + cuerpo, bilingüe es/ca (Mejora 3). El cuerpo puede ser multi-línea (con `\n`).
  */
 export interface SeccionCondiciones {
-  titulo: string;
-  cuerpo: string;
+  titulo: TextoBilingue;
+  cuerpo: TextoBilingue;
 }
 
 /**
  * Bloque de "Condicions particulars" del documento (épico #6, rebanada 6.4a):
- * título del documento + lista ordenada de secciones. El tipo tolera 0 secciones;
- * la degradación a `null` (no adjuntar) cuando no hay secciones la decide el
- * adaptador real (D3), no el tipo.
+ * título del documento + lista ordenada de secciones (bilingües es/ca, Mejora 3). El
+ * tipo tolera 0 secciones; la degradación a `null` (no adjuntar) cuando no hay secciones
+ * la decide el adaptador real (D3), no el tipo.
  */
 export interface CondicionesDocumento {
-  titulo: string;
+  titulo: TextoBilingue;
   secciones: SeccionCondiciones[];
 }
 

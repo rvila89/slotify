@@ -32,20 +32,21 @@ describe('construirConfiguracionDocumentoPiloto — datos reales del piloto (2.3
     // Arrange / Act
     const config = construirConfiguracionDocumentoPiloto(TENANT_PILOTO);
 
-    // Assert — regla dura del épico "concepto nunca lloguer".
-    expect(config.textos.plantillaConceptoFiscal).toContain('espai');
-    expect(config.textos.plantillaConceptoFiscal.toLowerCase()).not.toContain('lloguer');
+    // Assert — regla dura del épico "concepto nunca lloguer" (ambos idiomas).
+    expect(config.textos.plantillaConceptoFiscal.ca).toContain('espai');
+    expect(config.textos.plantillaConceptoFiscal.ca.toLowerCase()).not.toContain('lloguer');
+    expect(config.textos.plantillaConceptoFiscal.es.toLowerCase()).not.toContain('lloguer');
   });
 
   it('debe_expresar_el_concepto_fiscal_completo_con_el_placeholder_nombreComercial', () => {
     // Arrange / Act
     const config = construirConfiguracionDocumentoPiloto(TENANT_PILOTO);
 
-    // Assert — texto 6.5 alineado a la referencia real, con placeholder.
-    expect(config.textos.plantillaConceptoFiscal).toBe(
+    // Assert — texto 6.5 alineado a la referencia real, con placeholder (idioma ca).
+    expect(config.textos.plantillaConceptoFiscal.ca).toBe(
       'Gestió ús espai de {nombreComercial} per esdeveniment',
     );
-    expect(config.textos.plantillaConceptoFiscal).toContain('{nombreComercial}');
+    expect(config.textos.plantillaConceptoFiscal.ca).toContain('{nombreComercial}');
   });
 
   it('debe_fijar_el_color_primario_turquesa_del_rediseno_6_5', () => {
