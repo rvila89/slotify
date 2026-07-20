@@ -21,6 +21,7 @@ import {
   EstadoReserva,
   Prisma,
   SubEstadoConsulta,
+  SubtipoEmail as SubtipoEmailPrisma,
   TipoEvento,
 } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
@@ -201,6 +202,8 @@ class ComunicacionAltaPrismaRepository implements ComunicacionRepositoryPort {
             ? EstadoComunicacion.enviado
             : EstadoComunicacion.borrador,
         fechaEnvio: p.fechaEnvio,
+        // §D-subtipo: subtipo semántico del E1 inicial (null si no se aporta).
+        subtipo: (p.subtipo ?? null) as SubtipoEmailPrisma | null,
       },
     });
     return {

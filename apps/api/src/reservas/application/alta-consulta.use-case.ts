@@ -42,11 +42,18 @@ import {
 } from '../domain/maquina-estados';
 import type { CatalogoPlantillasPort } from '../../comunicaciones/domain/catalogo-plantillas.port';
 import type { AdjuntoRef } from '../../comunicaciones/domain/enviar-email.port';
+import {
+  subtipoDesdeTipoE1,
+  type SubtipoEmail,
+} from '../../comunicaciones/domain/subtipo-email';
 
 export type { ClockPort };
 
 /** Días de TTL del bloqueo blando por defecto si el tenant no tiene settings. */
 const TTL_CONSULTA_DIAS_DEFECTO = 3;
+
+/** Casuística del E1 del alta (design.md §D-subtipo; usada por `tipoE1Alta`). */
+type TipoE1 = 'sin_fecha' | 'fecha_disponible' | 'fecha_confirmada' | 'fecha_cola';
 
 // ---------------------------------------------------------------------------
 // Tipos de dominio del comando/resultado (en español, snake-free / camelCase)
@@ -329,6 +336,12 @@ export interface CrearComunicacionParams {
   cuerpo: string;
   destinatarioEmail: string;
   fechaEnvio: Date | null;
+  /**
+   * Subtipo semántico del E1 inicial (change `historial-completo-comunicaciones`,
+   * §D-subtipo): derivado del `tipoE1` (`sin_fecha`/`fecha_disponible`/`fecha_confirmada`/
+   * `fecha_cola`) del sub-estado resultante del alta.
+   */
+  subtipo?: SubtipoEmail | null;
 }
 
 /** Repositorio de COMUNICACION ligado a la transacción del alta. */
@@ -645,6 +658,8 @@ export class AltaConsultaUseCase {
         // `fecha_envio`) dentro de la transacción, preservando la atomicidad US-003.
         // El estado terminal (`enviado`/`fallido`) lo decide el envío post-commit
         // (US-045); con comentarios la fila se queda en `borrador` y no se envía.
+        // §D-subtipo: el subtipo se deriva del sub-estado YA resuelto (mismo criterio que
+        // `renderizarE1`), etiquetando el E1 inicial en el historial.
         const comunicacion = await repos.comunicaciones.crear({
           tenantId: comando.tenantId,
           reservaId: reserva.idReserva,
@@ -657,6 +672,10 @@ export class AltaConsultaUseCase {
           cuerpo: '',
           destinatarioEmail: email,
           fechaEnvio: null,
+          subtipo: this.subtipoAltaE1(
+            comando.fechaEvento !== undefined,
+            reserva.subEstado,
+          ),
         });
 
         // AUDIT_LOG dentro de la misma transacción.
@@ -764,6 +783,31 @@ export class AltaConsultaUseCase {
    * asunto/cuerpo. Si el catálogo no está cableado o no hay plantilla, degrada a un
    * asunto/cuerpo mínimo (nunca peor que hoy; el motor centraliza éxito/fallo del envío).
    */
+  /**
+   * Deriva el `tipoE1` del E1 inicial (mismo criterio que `renderizarE1`) a partir de si
+   * el alta trae fecha y del sub-estado resuelto. Centraliza la regla para que el subtipo
+   * persistido en la tx (§D-subtipo) y el `tipoE1` de la renderización POST-COMMIT no
+   * diverjan.
+   */
+  private tipoE1Alta(tienesFecha: boolean, subEstado: SubEstadoAlta): TipoE1 {
+    if (!tienesFecha) {
+      return 'sin_fecha';
+    }
+    if (subEstado === '2b') {
+      return 'fecha_disponible';
+    }
+    if (subEstado === '2d') {
+      return 'fecha_cola';
+    }
+    // `2a` con fecha: la fecha estaba confirmada por otra reserva (alta degradada).
+    return 'fecha_confirmada';
+  }
+
+  /** Subtipo (§D-subtipo) del E1 inicial derivado del `tipoE1` del alta. */
+  private subtipoAltaE1(tienesFecha: boolean, subEstado: SubEstadoAlta): SubtipoEmail {
+    return subtipoDesdeTipoE1(this.tipoE1Alta(tienesFecha, subEstado));
+  }
+
   private async renderizarE1(
     comando: AltaConsultaComando,
     resultado: AltaConsultaResultado,
@@ -772,18 +816,7 @@ export class AltaConsultaUseCase {
     const tienesFecha = comando.fechaEvento !== undefined;
     const subEstado = resultado.reserva.subEstado;
 
-    type TipoE1 = 'sin_fecha' | 'fecha_disponible' | 'fecha_confirmada' | 'fecha_cola';
-    let tipoE1: TipoE1;
-    if (!tienesFecha) {
-      tipoE1 = 'sin_fecha';
-    } else if (subEstado === '2b') {
-      tipoE1 = 'fecha_disponible';
-    } else if (subEstado === '2d') {
-      tipoE1 = 'fecha_cola';
-    } else {
-      // `2a` con fecha: la fecha estaba confirmada por otra reserva (alta degradada).
-      tipoE1 = 'fecha_confirmada';
-    }
+    const tipoE1: TipoE1 = this.tipoE1Alta(tienesFecha, subEstado);
 
     // Fechas alternativas del mismo fin de semana (solo Caso 3: fecha confirmada).
     let fechaAlternativa1: Date | undefined;

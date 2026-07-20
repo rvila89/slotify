@@ -27,6 +27,7 @@ import {
   EstadoComunicacion,
   Prisma,
   SubEstadoConsulta,
+  SubtipoEmail as SubtipoEmailPrisma,
 } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type {
@@ -142,57 +143,34 @@ class ComunicacionTransicionPrismaRepository
   constructor(private readonly tx: Prisma.TransactionClient) {}
 
   /**
-   * UPSERT de la fila `(reserva_id, codigo_email='E1')` (decisión humana US-005 QA,
-   * Opción A). Toda RESERVA en `2.a` ya tiene su E1 (la respuesta inicial del alta
-   * US-003/004), de modo que un `create` violaría SIEMPRE el UNIQUE parcial
-   * `uq_comunicacion_reserva_codigo (reserva_id, codigo_email) WHERE reserva_id IS
-   * NOT NULL` (P2002). Se reutiliza esa fila: si existe, se ACTUALIZA
-   * `asunto/cuerpo/estado/fecha_envio/destinatario_email` con el contenido de la
-   * confirmación de bloqueo provisional (reenvío); si no existe, se INSERTA.
+   * INSERT de una fila NUEVA `(reserva_id, codigo_email='E1')` por evento
+   * (change `historial-completo-comunicaciones`, §D-insert-no-upsert): cada transición
+   * «añadir fecha» / «entrar en cola» es un email SEMÁNTICAMENTE distinto (etiquetado por
+   * su `subtipo`), NO una sobrescritura del E1 anterior. Se abandona el upsert manual
+   * (`findFirst` + `update`) de US-005: el historial conserva todas las E1 `borrador`.
    *
-   * El UPSERT se hace manual (`findFirst` + `update`/`create`) porque el índice es
-   * PARCIAL (predicado `WHERE`) y Prisma no lo modela como `@@unique`, por lo que su
-   * `upsert` declarativo no es aplicable. Es seguro dentro de la transacción: en este
-   * flujo el único escritor de la E1 de la reserva es esta transición (la RESERVA
-   * está bloqueada por el camino `2.b`), así que no puede ocurrir un P2002 de
-   * comunicación que dispare el retry de re-derivación a cola de la UoW (ese retry es
-   * SOLO para colisiones de `fecha`/`posicion_cola`).
+   * No colisiona con el índice UNIQUE parcial: este solo restringe la terna
+   * `(reserva, codigo, subtipo)` en filas `estado = 'enviado'`; los `borrador` (cualquier
+   * subtipo) quedan fuera del predicado. Todas las E1 de la transición nacen `borrador`,
+   * `es_reenvio = false`, `fecha_envio = null`.
    */
   async crear(
     p: CrearComunicacionTransicionParams,
   ): Promise<ComunicacionTransicion> {
-    const existente = await this.tx.comunicacion.findFirst({
-      where: {
+    const fila = await this.tx.comunicacion.create({
+      data: {
         tenantId: p.tenantId,
         reservaId: p.reservaId,
+        clienteId: p.clienteId,
         codigoEmail: CodigoEmail.E1,
+        asunto: p.asunto,
+        cuerpo: p.cuerpo,
+        destinatarioEmail: p.destinatarioEmail,
+        estado: EstadoComunicacion.borrador,
+        fechaEnvio: p.fechaEnvio,
+        subtipo: p.subtipo as SubtipoEmailPrisma,
       },
-      select: { idComunicacion: true },
     });
-
-    const datos = {
-      asunto: p.asunto,
-      cuerpo: p.cuerpo,
-      destinatarioEmail: p.destinatarioEmail,
-      estado: EstadoComunicacion.borrador,
-      fechaEnvio: p.fechaEnvio,
-    };
-
-    const fila =
-      existente === null
-        ? await this.tx.comunicacion.create({
-            data: {
-              tenantId: p.tenantId,
-              reservaId: p.reservaId,
-              clienteId: p.clienteId,
-              codigoEmail: CodigoEmail.E1,
-              ...datos,
-            },
-          })
-        : await this.tx.comunicacion.update({
-            where: { idComunicacion: existente.idComunicacion },
-            data: datos,
-          });
 
     return {
       idComunicacion: fila.idComunicacion,

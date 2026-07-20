@@ -11,6 +11,7 @@ export type Comunicacion = components['schemas']['Comunicacion'];
 export type ComunicacionListItem = components['schemas']['ComunicacionListItem'];
 export type EstadoComunicacion = components['schemas']['EstadoComunicacion'];
 export type CodigoEmail = components['schemas']['CodigoEmail'];
+export type SubtipoEmail = components['schemas']['SubtipoEmail'];
 export type EnviarBorradorRequest = components['schemas']['EnviarBorradorRequest'];
 export type CrearEmailManualRequest = components['schemas']['CrearEmailManualRequest'];
 export type ErrorResponse = components['schemas']['ErrorResponse'];

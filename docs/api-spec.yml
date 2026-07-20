@@ -3927,11 +3927,14 @@ paths:
       operationId: listarComunicacionesReserva
       description: |
         [US-046] Lista TODAS las `COMUNICACION` de la RESERVA `{id}` (sección "Comunicaciones" de la
-        ficha), ordenadas por `fechaCreacion` descendente. Cada ítem trae `codigoEmail`, `estado`
-        (`borrador`/`enviado`/`fallido`), `asunto`, `destinatarioEmail`, `fechaCreacion`, `fechaEnvio`
-        (nullable), `esReenvio` y el flag derivado `accionable` (`true` solo si `estado='borrador'`:
-        la fila puede enviarse o descartarse; `enviado`/`fallido` son de solo lectura). Scoped por el
-        tenant del JWT (RLS); nunca cross-tenant.
+        ficha), ordenadas por `fechaCreacion` descendente. Devuelve el historial COMPLETO: todas las
+        filas (una por evento del ciclo de vida), SIN deduplicar por `codigoEmail`/`subtipo`. Cada
+        ítem trae `codigoEmail`, `subtipo` (nullable: el evento del ciclo de vida que generó el E1;
+        `NULL` para E2–E8, `manual` y filas legadas), `estado` (`borrador`/`enviado`/`fallido`),
+        `asunto`, `destinatarioEmail`, `fechaCreacion`, `fechaEnvio` (nullable), `esReenvio` y el flag
+        derivado `accionable` (`true` solo si `estado='borrador'`: la fila puede enviarse o
+        descartarse; `enviado`/`fallido` son de solo lectura). Scoped por el tenant del JWT (RLS);
+        nunca cross-tenant.
       responses:
         '200':
           description: Comunicaciones de la reserva (posiblemente vacío).
@@ -7394,6 +7397,13 @@ components:
         Estado de la COMUNICACION (US-045). `borrador` = pendiente de revisión/envío (accionable);
         `enviado` = terminal (no se revierte ni re-envía); `fallido` = el proveedor falló o el gestor
         la descartó (distinguible por AUDIT_LOG).
+    SubtipoEmail:
+      type: string
+      enum: [consulta_exploratoria, fecha_disponible, fecha_confirmada, cola_espera, cambio_fecha]
+      description: >-
+        Subtipo del email E1 que distingue el evento del ciclo de vida que lo generó
+        (respuesta a consulta exploratoria, asignación de fecha disponible, confirmación de fecha,
+        entrada en cola o cambio de fecha). `NULL` para E2–E8 y `manual`.
     Comunicacion:
       type: object
       required: [idComunicacion, clienteId, codigoEmail, asunto, estado, esReenvio, fechaCreacion]
@@ -7402,6 +7412,10 @@ components:
         reservaId: { type: string, format: uuid, nullable: true }
         clienteId: { type: string, format: uuid }
         codigoEmail: { $ref: '#/components/schemas/CodigoEmail' }
+        subtipo:
+          allOf: [{ $ref: '#/components/schemas/SubtipoEmail' }]
+          nullable: true
+          description: 'Subtipo del email E1 (evento del ciclo de vida). NULL para E2–E8, manual y filas legadas.'
         asunto: { type: string }
         cuerpo:
           type: string
@@ -7423,7 +7437,10 @@ components:
         fechaEnvio: { type: string, format: date-time, nullable: true }
     ComunicacionListItem:
       # [US-046 D-3] Proyección de listado enriquecida para la ficha de la RESERVA. Extiende
-      # Comunicacion con el flag derivado `accionable` (solo-lectura vs. accionable).
+      # Comunicacion con el flag derivado `accionable` (solo-lectura vs. accionable). Hereda de
+      # Comunicacion el campo `subtipo` (nullable): cada ítem del historial E1 lo trae etiquetado
+      # con el evento del ciclo de vida que lo generó. El listado devuelve TODAS las filas (una por
+      # evento) sin deduplicar por `codigoEmail`/`subtipo`.
       allOf:
         - $ref: '#/components/schemas/Comunicacion'
         - type: object

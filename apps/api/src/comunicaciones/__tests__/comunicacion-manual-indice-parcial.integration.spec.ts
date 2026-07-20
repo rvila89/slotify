@@ -158,12 +158,15 @@ describe('COMUNICACION manual — índice UNIQUE parcial excluye codigo_email=ma
 });
 
 // ===========================================================================
-// 2. REGRESIÓN US-045: E1–E8 conservan la idempotencia (un segundo E-código con
-//    reserva_id no nulo y es_reenvio=false SÍ colisiona). La migración es aditiva.
+// 2. TERNA (historial-completo-comunicaciones §D-indice-terna): la idempotencia se
+//    clava sobre `(reserva, codigo, subtipo)` con predicado `estado = 'enviado'` y
+//    `NULLS NOT DISTINCT`. Dos `enviado` de la MISMA terna colisionan; de subtipos
+//    DISTINTOS coexisten. Se preserva la idempotencia de E2–E8 (subtipo NULL) gracias a
+//    `NULLS NOT DISTINCT`. Regresión de US-045 reexpresada a la terna.
 // ===========================================================================
 
-describe('COMUNICACION E-código — la idempotencia de US-045 se conserva (regresión)', () => {
-  it('debe_seguir_rechazando_un_segundo_E1_de_la_misma_reserva_no_reenvio', async () => {
+describe('COMUNICACION E-código — idempotencia por terna (reserva, codigo, subtipo) enviado', () => {
+  it('debe_rechazar_un_segundo_E1_enviado_de_la_MISMA_terna_subtipo', async () => {
     const repo = montarAdaptador();
 
     await repo.crear({
@@ -177,9 +180,10 @@ describe('COMUNICACION E-código — la idempotencia de US-045 se conserva (regr
       estado: 'enviado',
       fechaEnvio: new Date('2026-07-17T10:00:00.000Z'),
       esReenvio: false,
+      subtipo: 'fecha_disponible',
     });
 
-    // Segundo E1 (mismo reserva, es_reenvio=false) DEBE colisionar (P2002 → dominio).
+    // Segundo E1 `enviado` del MISMO subtipo (misma terma) DEBE colisionar (P2002 → dominio).
     await expect(
       repo.crear({
         tenantId: TENANT_ID,
@@ -192,11 +196,91 @@ describe('COMUNICACION E-código — la idempotencia de US-045 se conserva (regr
         estado: 'enviado',
         fechaEnvio: new Date('2026-07-17T11:00:00.000Z'),
         esReenvio: false,
+        subtipo: 'fecha_disponible',
       }),
     ).rejects.toThrow();
 
     const total = await prisma.comunicacion.count({
       where: { tenantId: TENANT_ID, reservaId, codigoEmail: 'E1' },
+    });
+    expect(total).toBe(1);
+  });
+
+  it('debe_permitir_dos_E1_enviado_de_subtipos_DISTINTOS_sin_colision', async () => {
+    const repo = montarAdaptador();
+
+    await repo.crear({
+      tenantId: TENANT_ID,
+      reservaId,
+      clienteId,
+      codigoEmail: 'E1',
+      asunto: 'E1 exploratoria',
+      cuerpo: '<p>e1a</p>',
+      destinatarioEmail: EMAIL,
+      estado: 'enviado',
+      fechaEnvio: new Date('2026-07-17T10:00:00.000Z'),
+      esReenvio: false,
+      subtipo: 'consulta_exploratoria',
+    });
+
+    // Subtipo DISTINTO → email legítimo distinto, NO reenvío: coexiste en `enviado`.
+    await expect(
+      repo.crear({
+        tenantId: TENANT_ID,
+        reservaId,
+        clienteId,
+        codigoEmail: 'E1',
+        asunto: 'E1 cambio',
+        cuerpo: '<p>e1b</p>',
+        destinatarioEmail: EMAIL,
+        estado: 'enviado',
+        fechaEnvio: new Date('2026-07-17T11:00:00.000Z'),
+        esReenvio: false,
+        subtipo: 'cambio_fecha',
+      }),
+    ).resolves.toBeDefined();
+
+    const total = await prisma.comunicacion.count({
+      where: { tenantId: TENANT_ID, reservaId, codigoEmail: 'E1' },
+    });
+    expect(total).toBe(2);
+  });
+
+  it('debe_rechazar_un_segundo_E2_enviado_subtipo_NULL_por_NULLS_NOT_DISTINCT', async () => {
+    const repo = montarAdaptador();
+
+    // E2–E8 llevan subtipo NULL: `NULLS NOT DISTINCT` los trata como la MISMA terna, de
+    // modo que dos `enviado` de la misma (reserva, codigo, NULL) SIGUEN colisionando.
+    await repo.crear({
+      tenantId: TENANT_ID,
+      reservaId,
+      clienteId,
+      codigoEmail: 'E2',
+      asunto: 'E2',
+      cuerpo: '<p>e2</p>',
+      destinatarioEmail: EMAIL,
+      estado: 'enviado',
+      fechaEnvio: new Date('2026-07-17T10:00:00.000Z'),
+      esReenvio: false,
+    });
+
+    await expect(
+      repo.crear({
+        tenantId: TENANT_ID,
+        reservaId,
+        clienteId,
+        codigoEmail: 'E2',
+        asunto: 'E2 duplicado',
+        cuerpo: '<p>e2 dup</p>',
+        destinatarioEmail: EMAIL,
+        estado: 'enviado',
+        fechaEnvio: new Date('2026-07-17T11:00:00.000Z'),
+        esReenvio: false,
+      }),
+    ).rejects.toThrow();
+
+    const total = await prisma.comunicacion.count({
+      where: { tenantId: TENANT_ID, reservaId, codigoEmail: 'E2' },
     });
     expect(total).toBe(1);
   });

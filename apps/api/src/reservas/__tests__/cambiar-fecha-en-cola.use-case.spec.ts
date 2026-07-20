@@ -274,6 +274,9 @@ describe('CambiarFecha rama 2d — fecha libre: sale de la cola y pasa a 2b (esc
         codigoEmail: 'E1',
         estado: 'borrador',
         fechaEnvio: null,
+        // historial-completo-comunicaciones (§D-subtipo): la salida de cola a fecha libre
+        // (2d → 2b) es una `fecha_disponible` ("Fecha disponible / asignada"), NO un cambio.
+        subtipo: 'fecha_disponible',
       }),
     );
     // La plantilla es la rama 'disponible' (transición a fecha libre).

@@ -165,6 +165,18 @@ enum EstadoComunicacion {
   fallido
 }
 
+// historial-completo-comunicaciones (§D-subtipo) — Subtipo semántico del E1. Un mismo
+// codigo_email='E1' agrupa emails distintos según el evento del ciclo de vida que lo
+// dispara; el `subtipo` los distingue en el historial y en la etiqueta de UI. Es NULL
+// para E2–E8, `manual` y filas legadas.
+enum SubtipoEmail {
+  consulta_exploratoria
+  fecha_disponible
+  fecha_confirmada
+  cola_espera
+  cambio_fecha
+}
+
 enum AccionAudit {
   crear
   actualizar
@@ -645,19 +657,33 @@ model Comunicacion {
   // US-028 (D-4) — Marca de reenvío manual del Gestor. Los reenvíos quedan FUERA del
   // índice de idempotencia parcial (permiten múltiples COMUNICACION E4 por reserva).
   esReenvio         Boolean            @default(false) @map("es_reenvio")
+  // historial-completo-comunicaciones (§D-subtipo) — Subtipo semántico del E1 (NULL para
+  // E2–E8, `manual` y filas legadas). Participa en el índice UNIQUE parcial de la terna.
+  subtipo           SubtipoEmail?      @map("subtipo")
 
   tenant  Tenant   @relation(fields: [tenantId], references: [idTenant])
   reserva Reserva? @relation(fields: [reservaId], references: [idReserva])
   cliente Cliente  @relation(fields: [clienteId], references: [idCliente])
 
-  // US-045 — Idempotencia de un email por (reserva, código). Índice UNIQUE PARCIAL
-  // `uq_comunicacion_reserva_codigo (reserva_id, codigo_email) WHERE reserva_id IS
-  // NOT NULL AND es_reenvio = false AND codigo_email <> 'manual'` creado por SQL crudo
-  // (Prisma no modela el predicado WHERE de índices parciales). Quedan EXCLUIDOS del
-  // constraint: los reenvíos manuales (es_reenvio = true, US-028 D-4) y los emails
-  // `manual` (US-046 D-5 Opción C), que llevan reserva_id NO nulo y es_reenvio = false
-  // (semántica honesta: no son reenvíos) y quedan fuera por el predicado
-  // `codigo_email <> 'manual'`, permitiendo varios `manual` por reserva sin colisión.
+  // historial-completo-comunicaciones (§D-indice-terna) — Idempotencia clavada sobre la
+  // TERNA `(reserva_id, codigo_email, subtipo)`. Índice UNIQUE PARCIAL
+  // `uq_comunicacion_reserva_codigo (reserva_id, codigo_email, subtipo) NULLS NOT
+  // DISTINCT WHERE reserva_id IS NOT NULL AND es_reenvio = false AND codigo_email <>
+  // 'manual' AND estado = 'enviado'` creado por SQL crudo (Prisma no modela ni el
+  // predicado WHERE ni `NULLS NOT DISTINCT`).
+  //
+  // Semántica del historial: el predicado `estado = 'enviado'` permite ILIMITADOS
+  // `borrador` de cualquier subtipo (historial completo por evento: alta/añadir/cambiar
+  // fecha), y que subtipos DISTINTOS lleguen ambos a `enviado` (emails legítimos
+  // distintos, NO reenvíos). Solo un SEGUNDO envío de la MISMA terna colisiona (backstop
+  // de la carrera de doble envío idéntico).
+  //
+  // `NULLS NOT DISTINCT` (Postgres 15) es CRÍTICO: preserva la idempotencia de E2–E8
+  // (subtipo = NULL) — dos filas `enviado` de la misma `(reserva, codigo, NULL)` siguen
+  // colisionando —, mientras que los E1 con subtipos NO nulos distintos coexisten.
+  //
+  // Quedan EXCLUIDOS del constraint: los reenvíos manuales (es_reenvio = true, US-028
+  // D-4, patrón E3/E4/E8) y los emails `manual` (US-046 D-5 Opción C), por su predicado.
   @@map("comunicacion")
 }
 

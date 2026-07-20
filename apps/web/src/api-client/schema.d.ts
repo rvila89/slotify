@@ -542,25 +542,47 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cambiar la fecha ya bloqueada de una RESERVA — operación atómica (US-051)
-         * @description [US-051 §D-2.1] Cambia la `fechaEvento` de una RESERVA que **YA tiene una fecha
-         *     bloqueada** (sub-estados `2b`/`2c`/`2v`) por otra fecha. Es una **única transacción
+         * Cambiar la fecha de una RESERVA — operación atómica; origen con fecha bloqueada (2b/2c/2v) o en cola (2d)
+         * @description Cambia la `fechaEvento` de una RESERVA por otra fecha, en una **única transacción
          *     atómica** (`SELECT … FOR UPDATE` sobre la RESERVA y sobre `FECHA_BLOQUEADA(tenant_id,
          *     fecha_nueva)`; `UNIQUE(tenant_id, fecha)`; **sin Redis ni locks distribuidos** —
-         *     `CLAUDE.md §Regla crítica: bloqueo atómico de fecha`):
+         *     `CLAUDE.md §Regla crítica: bloqueo atómico de fecha`). El origen válido es una RESERVA
+         *     con fecha **YA bloqueada** (sub-estados `2b`/`2c`/`2v`) o una consulta **en cola de
+         *     espera** (`2d`). El comportamiento se ramifica **por el origen** (mismo esquema de
+         *     request/response en ambos casos):
+         *
+         *     **A) Origen `2b`/`2c`/`2v` (fecha ya bloqueada)** [US-051 §D-2.1]:
          *
          *     1. Si la fecha nueva está **LIBRE** → `bloquearFecha(tenant_id, fecha_nueva)`, actualiza
          *        `RESERVA.fecha_evento`, `liberarFecha(tenant_id, fecha_antigua)` y, si la fecha antigua
-         *        tenía cola, dispara la **promoción FIFO** (mecánica A15) del primero en cola.
+         *        tenía cola, dispara la **promoción FIFO** (mecánica A15) del primero en cola. No cambia
+         *        estado ni sub-estado (`subEstado` intacto).
          *     2. Si la fecha nueva está **OCUPADA** por otra RESERVA → **rechaza con 409 sin tocar nada**
          *        (rollback total: la RESERVA conserva su fecha antigua y su bloqueo). A diferencia del
          *        alta/asignación (`POST /reservas/{id}/fecha`), aquí **NO se ofrece cola** para la fecha
          *        nueva: el conflicto es terminal para esta operación (por eso NO lleva `colaDisponible`).
          *
-         *     No cambia estado ni sub-estado (`estado='consulta'`, `subEstado` intacto). Registra
-         *     `AUDIT_LOG` (`accion='actualizar'`, `entidad='RESERVA'`) con la fecha anterior y la nueva.
-         *     La fecha NUNCA se muta por `PATCH /reservas/{id}` (§D-1): esa vía es solo para campos
-         *     simples; toda mutación de bloqueo pasa por aquí o por `POST /reservas/{id}/fecha`.
+         *     **B) Origen `2d` (consulta en cola de espera)** [change `cambiar-fecha-consulta-en-cola`]:
+         *
+         *     1. Si la fecha nueva está **LIBRE** → la consulta **SALE de la cola** y transiciona
+         *        **`2d → 2b`**: `bloquearFecha(tenant_id, fecha_nueva)` (INSERTA un bloqueo nuevo, blando,
+         *        con TTL; la `2d` no poseía bloqueo propio), `RESERVA.fecha_evento = fecha_nueva`,
+         *        `posicionCola → null`, `consultaBloqueanteId → null`, y **reordena la cola vieja**
+         *        cerrando el hueco (mecánica de *Salida de cola con reordenación al descartar desde 2.d*,
+         *        US-013). La RESERVA bloqueante de la fecha antigua **no se toca** y su bloqueo **no se
+         *        libera**, por lo que **NO** se dispara ninguna promoción de cola. Se crea un **borrador
+         *        E1** de transición de fecha (no autoenviado, `fechaEnvio = null`) para revisión del
+         *        gestor con el flujo existente (US-046).
+         *     2. Si la fecha nueva está **OCUPADA** por otra RESERVA → **409 terminal sin re-encolar**
+         *        (rollback total: la consulta conserva su posición en la cola actual; mismo shape que A2,
+         *        solo `motivo`, sin `colaDisponible`).
+         *
+         *     En ambos orígenes registra `AUDIT_LOG` (`accion='actualizar'`,
+         *     `entidad='RESERVA'`) con la fecha anterior y la nueva (en la rama `2d`, `datos_nuevos`
+         *     refleja además la salida de cola: `sub_estado`, `posicion_cola`, `consulta_bloqueante_id`). La fecha NUNCA se muta por
+         *     `PATCH /reservas/{id}` (§D-1): esa vía es solo para campos simples; toda mutación de bloqueo
+         *     pasa por aquí o por `POST /reservas/{id}/fecha`. El esquema de request/response no cambia
+         *     entre orígenes.
          */
         post: {
             parameters: {
@@ -579,8 +601,10 @@ export interface paths {
             };
             responses: {
                 /**
-                 * @description Cambio aplicado. Devuelve la RESERVA actualizada con la nueva `fechaEvento`; el
-                 *     `estado`/`subEstado` se conservan (`2b`/`2c`/`2v`).
+                 * @description Cambio aplicado. Devuelve la RESERVA actualizada con la nueva `fechaEvento`. Desde
+                 *     origen `2b`/`2c`/`2v` el `subEstado` se conserva; desde origen `2d` la consulta sale
+                 *     de la cola y transiciona a `subEstado='2b'` (`posicionCola`/`consultaBloqueanteId`
+                 *     quedan a `null`).
                  */
                 200: {
                     headers: {
@@ -595,8 +619,11 @@ export interface paths {
                 404: components["responses"]["NotFound"];
                 /**
                  * @description La fecha destino no está disponible: está bloqueada por otra RESERVA. El cambio se
-                 *     rechaza SIN efectos (la RESERVA conserva su fecha antigua y su bloqueo; rollback total).
-                 *     NO se ofrece cola para la fecha nueva (por eso el cuerpo no lleva `colaDisponible`).
+                 *     rechaza SIN efectos (rollback total): desde origen `2b`/`2c`/`2v` la RESERVA conserva su
+                 *     fecha antigua y su bloqueo; desde origen `2d` la consulta conserva su posición en la
+                 *     cola actual (NO se re-encola en la fecha nueva). Conflicto **terminal** para esta
+                 *     operación en ambos orígenes: NO se ofrece cola para la fecha nueva (por eso el cuerpo
+                 *     no lleva `colaDisponible`).
                  */
                 409: {
                     headers: {
@@ -609,9 +636,10 @@ export interface paths {
                 /**
                  * @description Guarda no satisfecha, sin mutar la RESERVA (F5-02: 409 = concurrencia/ocupación, 422 =
                  *     guarda inválida):
-                 *     - la RESERVA NO está en un sub-estado con fecha bloqueada mutable (`2b`/`2c`/`2v`)
-                 *       — p. ej. `2a` (sin fecha; usar `POST /reservas/{id}/fecha`), `2d` (en cola),
-                 *       terminal `2x/2y/2z`, o `pre_reserva`+;
+                 *     - la RESERVA NO está en un origen válido para cambiar fecha: los orígenes válidos son
+                 *       `2b`/`2c`/`2v` (con fecha bloqueada) y `2d` (en cola de espera). Se rechazan p. ej.
+                 *       `2a` (sin fecha; usar `POST /reservas/{id}/fecha`), terminales `2x/2y/2z`, o
+                 *       `pre_reserva`+;
                  *     - o `fechaEvento` no es estrictamente futura (`> hoy`).
                  */
                 422: {
@@ -3294,11 +3322,14 @@ export interface paths {
         /**
          * Listar las comunicaciones de una reserva (UC-36 / US-046)
          * @description [US-046] Lista TODAS las `COMUNICACION` de la RESERVA `{id}` (sección "Comunicaciones" de la
-         *     ficha), ordenadas por `fechaCreacion` descendente. Cada ítem trae `codigoEmail`, `estado`
-         *     (`borrador`/`enviado`/`fallido`), `asunto`, `destinatarioEmail`, `fechaCreacion`, `fechaEnvio`
-         *     (nullable), `esReenvio` y el flag derivado `accionable` (`true` solo si `estado='borrador'`:
-         *     la fila puede enviarse o descartarse; `enviado`/`fallido` son de solo lectura). Scoped por el
-         *     tenant del JWT (RLS); nunca cross-tenant.
+         *     ficha), ordenadas por `fechaCreacion` descendente. Devuelve el historial COMPLETO: todas las
+         *     filas (una por evento del ciclo de vida), SIN deduplicar por `codigoEmail`/`subtipo`. Cada
+         *     ítem trae `codigoEmail`, `subtipo` (nullable: el evento del ciclo de vida que generó el E1;
+         *     `NULL` para E2–E8, `manual` y filas legadas), `estado` (`borrador`/`enviado`/`fallido`),
+         *     `asunto`, `destinatarioEmail`, `fechaCreacion`, `fechaEnvio` (nullable), `esReenvio` y el flag
+         *     derivado `accionable` (`true` solo si `estado='borrador'`: la fila puede enviarse o
+         *     descartarse; `enviado`/`fallido` son de solo lectura). Scoped por el tenant del JWT (RLS);
+         *     nunca cross-tenant.
          */
         get: operations["listarComunicacionesReserva"];
         put?: never;
@@ -5282,6 +5313,11 @@ export interface components {
          * @enum {string}
          */
         EstadoComunicacion: "borrador" | "enviado" | "fallido";
+        /**
+         * @description Subtipo del email E1 que distingue el evento del ciclo de vida que lo generó (respuesta a consulta exploratoria, asignación de fecha disponible, confirmación de fecha, entrada en cola o cambio de fecha). `NULL` para E2–E8 y `manual`.
+         * @enum {string}
+         */
+        SubtipoEmail: "consulta_exploratoria" | "fecha_disponible" | "fecha_confirmada" | "cola_espera" | "cambio_fecha";
         Comunicacion: {
             /** Format: uuid */
             idComunicacion: string;
@@ -5290,6 +5326,8 @@ export interface components {
             /** Format: uuid */
             clienteId: string;
             codigoEmail: components["schemas"]["CodigoEmail"];
+            /** @description Subtipo del email E1 (evento del ciclo de vida). NULL para E2–E8, manual y filas legadas. */
+            subtipo?: components["schemas"]["SubtipoEmail"] | null;
             asunto: string;
             /** @description Cuerpo del email efectivamente enviado/guardado (puede ser nulo en borradores E1..E8). */
             cuerpo?: string | null;

@@ -11,6 +11,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, MinLength } from 'class-validator';
 import type { CodigoEmail, EstadoComunicacion } from '../domain/codigo-email';
+import type { SubtipoEmail } from '../domain/subtipo-email';
 
 /** Body OPCIONAL del envío del borrador: sólo `asunto`/`cuerpo` editables. */
 export class EnviarBorradorRequestDto {
@@ -75,6 +76,21 @@ export class ComunicacionResponseDto {
 
   @ApiProperty({ enum: ['borrador', 'enviado', 'fallido'] })
   estado!: EstadoComunicacion;
+
+  @ApiPropertyOptional({
+    enum: [
+      'consulta_exploratoria',
+      'fecha_disponible',
+      'fecha_confirmada',
+      'cola_espera',
+      'cambio_fecha',
+    ],
+    nullable: true,
+    required: false,
+    description:
+      'Subtipo semántico del E1 (historial-completo-comunicaciones §D-subtipo). `null` para E2–E8, `manual` y filas legadas.',
+  })
+  subtipo?: SubtipoEmail | null;
 
   @ApiProperty({ type: Boolean })
   esReenvio!: boolean;

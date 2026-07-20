@@ -743,11 +743,11 @@ En `test`/CI el transporte es `FakeEmailAdapter` (confirmación simulada, sin re
 
 #### Campo `esReenvio` en `Comunicacion` (migración D-4)
 
-Para permitir múltiples `COMUNICACION E4` por reserva cuando el Gestor reenvía la factura, se añadió el campo `esReenvio Boolean @default(false)` al modelo `Comunicacion`. El índice UNIQUE parcial de US-045 se actualizó con la condición adicional `AND es_reenvio = false`:
+Para permitir múltiples `COMUNICACION E4` por reserva cuando el Gestor reenvía la factura, se añadió el campo `esReenvio Boolean @default(false)` al modelo `Comunicacion`. El índice UNIQUE parcial de US-045 se actualizó con la condición adicional `AND es_reenvio = false` (D-4). Posteriormente, D-5 de US-046 añadió `AND codigo_email <> 'manual'`, y el change `historial-completo-comunicaciones` amplió la clave a la terna `(reserva_id, codigo_email, subtipo)` con `NULLS NOT DISTINCT` y añadió `AND estado = 'enviado'`. El índice en su estado actual es:
 
 ```
-uq_comunicacion_reserva_codigo (reserva_id, codigo_email)
-  WHERE reserva_id IS NOT NULL AND es_reenvio = false
+uq_comunicacion_reserva_codigo (reserva_id, codigo_email, subtipo) NULLS NOT DISTINCT
+  WHERE reserva_id IS NOT NULL AND es_reenvio = false AND codigo_email <> 'manual' AND estado = 'enviado'
 ```
 
 Los reenvíos (`esReenvio = true`) quedan fuera del constraint, permitiendo trazabilidad de cada envío sin violar la idempotencia del envío original.

@@ -46,6 +46,7 @@ import {
   planificarSalidaDeCola,
   type EntradaColaSalida,
 } from '../domain/salida-de-cola';
+import type { SubtipoEmail } from '../../comunicaciones/domain/subtipo-email';
 
 export type { ClockPort };
 
@@ -83,17 +84,17 @@ export interface ReservaCambioFecha {
    * `2b/2c/2v`.
    */
   consultaBloqueanteId?: string | null;
-  /** (Rama `2d`) Cliente de la RESERVA, para enlazar el borrador E1. */
+  /** Cliente de la RESERVA, para enlazar el borrador E1 (ambas ramas). */
   clienteId?: string;
-  /** (Rama `2d`) Idioma de la RESERVA (`'ca'` → catalán; cualquier otro → castellano). */
+  /** Idioma de la RESERVA (`'ca'` → catalán; cualquier otro → castellano; ambas ramas). */
   idioma?: string;
-  /** (Rama `2d`) Nombre de pila del cliente, para el saludo del borrador E1. */
+  /** Nombre de pila del cliente, para el saludo del borrador E1 (ambas ramas). */
   clienteNombre?: string;
-  /** (Rama `2d`) Email del cliente, destinatario del borrador E1. */
+  /** Email del cliente, destinatario del borrador E1 (ambas ramas). */
   clienteEmail?: string;
-  /** (Rama `2d`) Nº de invitados final; `null` → placeholder `___` en el E1. */
+  /** Nº de invitados final; `null` → placeholder `___` en el E1 (ambas ramas). */
   numInvitadosFinal?: number | null;
-  /** (Rama `2d`) Horas del evento; `null` → placeholder `___` en el E1. */
+  /** Horas del evento; `null` → placeholder `___` en el E1 (ambas ramas). */
   duracionHoras?: number | null;
 }
 
@@ -182,7 +183,7 @@ export interface CrearBorradorE1Params {
   clienteId: string;
   codigoEmail: 'E1';
   estado: 'borrador';
-  /** Rama de la plantilla de transición de fecha: siempre `'disponible'` en `2d`. */
+  /** Rama de la plantilla de transición de fecha: siempre `'disponible'`. */
   tipo: 'disponible';
   idioma: string;
   clienteNombre: string;
@@ -191,6 +192,12 @@ export interface CrearBorradorE1Params {
   personas: number | null;
   horas: number | null;
   fechaEnvio: null;
+  /**
+   * Subtipo semántico del E1 (change `historial-completo-comunicaciones`, §D-subtipo).
+   * Dependiente de la RAMA, NO del `tipo` de plantilla: la salida de cola a fecha libre
+   * (2d → 2b) es una `fecha_disponible`; el cambio de fecha de una 2b es un `cambio_fecha`.
+   */
+  subtipo: SubtipoEmail;
 }
 
 /** Puerto de COMUNICACION tx-bound: crea el borrador E1 `'disponible'` (rama `2d`). */
@@ -426,6 +433,28 @@ export class CambiarFechaUseCase {
           });
         }
 
+        // Borrador E1 del cambio de fecha (no autoenviado): nace `borrador` en la MISMA tx
+        // e informa al cliente de la NUEVA fecha. Antes esta rama 2b NO generaba ninguna
+        // comunicación (hueco real). §D-subtipo: `cambio_fecha` ("Cambio de fecha"), a
+        // diferencia de la salida de cola (`fecha_disponible`). Reusa la plantilla
+        // `disponible` de transición de fecha ("Pre-reserva confirmada").
+        await repos.comunicaciones.crearBorradorE1({
+          tenantId: comando.tenantId,
+          reservaId: reserva.idReserva,
+          clienteId: reserva.clienteId ?? '',
+          codigoEmail: 'E1',
+          estado: 'borrador',
+          tipo: 'disponible',
+          idioma: reserva.idioma ?? '',
+          clienteNombre: reserva.clienteNombre ?? '',
+          clienteEmail: reserva.clienteEmail ?? '',
+          fechaEvento: comando.fechaEvento,
+          personas: reserva.numInvitadosFinal ?? null,
+          horas: reserva.duracionHoras ?? null,
+          fechaEnvio: null,
+          subtipo: 'cambio_fecha',
+        });
+
         // AUDIT_LOG `actualizar` (F1 → F2), en la misma transacción.
         await repos.auditoria.registrar({
           tenantId: comando.tenantId,
@@ -519,6 +548,8 @@ export class CambiarFechaUseCase {
     }
 
     // 5. Borrador E1 `'disponible'` (no autoenviado): nace `borrador` en la misma tx.
+    //    §D-subtipo: la salida de cola a fecha libre (2d → 2b) es una `fecha_disponible`
+    //    ("Fecha disponible / asignada"), NO un cambio de fecha.
     await repos.comunicaciones.crearBorradorE1({
       tenantId: comando.tenantId,
       reservaId: reserva.idReserva,
@@ -533,6 +564,7 @@ export class CambiarFechaUseCase {
       personas: reserva.numInvitadosFinal ?? null,
       horas: reserva.duracionHoras ?? null,
       fechaEnvio: null,
+      subtipo: 'fecha_disponible',
     });
 
     // 6. AUDIT_LOG `actualizar` (F1 → F2 + salida de cola), en la misma transacción.
