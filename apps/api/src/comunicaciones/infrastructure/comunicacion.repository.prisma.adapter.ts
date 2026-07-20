@@ -20,6 +20,7 @@ import {
   EstadoComunicacion as EstadoComunicacionPrisma,
   Prisma,
   PrismaClient,
+  SubtipoEmail as SubtipoEmailPrisma,
 } from '@prisma/client';
 import {
   ActualizarContenidoBorradorParams,
@@ -33,6 +34,7 @@ import {
   RegistrarComunicacionParams,
 } from '../domain/comunicacion.repository.port';
 import type { CodigoEmail, EstadoComunicacion } from '../domain/codigo-email';
+import type { SubtipoEmail } from '../domain/subtipo-email';
 
 /** Fila de COMUNICACION tal como la devuelve Prisma (campos relevantes). */
 interface FilaComunicacion {
@@ -60,6 +62,7 @@ interface FilaComunicacionListado {
   asunto: string;
   cuerpo: string | null;
   destinatarioEmail: string;
+  subtipo: SubtipoEmailPrisma | null;
   fechaCreacion: Date;
   fechaEnvio: Date | null;
   esReenvio: boolean;
@@ -91,6 +94,7 @@ const SELECCION_LISTADO = {
   asunto: true,
   cuerpo: true,
   destinatarioEmail: true,
+  subtipo: true,
   fechaCreacion: true,
   fechaEnvio: true,
   esReenvio: true,
@@ -113,6 +117,14 @@ export class ComunicacionRepositoryPrismaAdapter
         where: {
           reservaId: params.reservaId,
           codigoEmail: params.codigoEmail as CodigoEmailPrisma,
+          // §D-autosend: clava sobre la TERNA (subtipo) y exige el estado pedido cuando
+          // se aporta (el motor pasa `'enviado'`). `subtipo` puede ser `null` (E2–E8).
+          ...(params.subtipo !== undefined
+            ? { subtipo: params.subtipo as SubtipoEmailPrisma | null }
+            : {}),
+          ...(params.estado !== undefined
+            ? { estado: params.estado as EstadoComunicacionPrisma }
+            : {}),
         },
         select: SELECCION,
       });
@@ -141,6 +153,8 @@ export class ComunicacionRepositoryPrismaAdapter
             // UNIQUE parcial (`es_reenvio = true`), permitiendo múltiples filas del
             // mismo (reserva, código) como excepción auditada a la idempotencia.
             esReenvio: params.esReenvio ?? false,
+            // §D-subtipo: subtipo semántico del E1 (null para E2–E8, `manual`, legadas).
+            subtipo: (params.subtipo ?? null) as SubtipoEmailPrisma | null,
           },
           select: SELECCION,
         });
@@ -244,6 +258,7 @@ export class ComunicacionRepositoryPrismaAdapter
       asunto: fila.asunto,
       cuerpo: fila.cuerpo,
       destinatarioEmail: fila.destinatarioEmail,
+      subtipo: (fila.subtipo as SubtipoEmail | null) ?? null,
       fechaCreacion: fila.fechaCreacion,
       fechaEnvio: fila.fechaEnvio,
       esReenvio: fila.esReenvio,

@@ -55,6 +55,10 @@ import {
   type SubEstadoConsulta,
 } from '../domain/maquina-estados';
 import { renderMensajeTransicionFecha } from './plantilla-transicion-fecha';
+import {
+  subtipoDesdeTransicion,
+  type SubtipoEmail,
+} from '../../comunicaciones/domain/subtipo-email';
 
 export type { ClockPort };
 
@@ -196,6 +200,11 @@ export interface CrearComunicacionTransicionParams {
   cuerpo: string;
   destinatarioEmail: string;
   fechaEnvio: Date | null;
+  /**
+   * Subtipo semántico del E1 (change `historial-completo-comunicaciones`, §D-subtipo):
+   * `fecha_disponible` en la rama libre (2b), `cola_espera` en la cola (2d).
+   */
+  subtipo: SubtipoEmail;
 }
 
 /** Proyección de la COMUNICACION creada en la transición. */
@@ -434,6 +443,8 @@ export class TransicionFechaUseCase {
       cuerpo,
       destinatarioEmail: reserva.clienteEmail,
       fechaEnvio: null,
+      // §D-subtipo: añadir fecha en rama libre → `fecha_disponible`.
+      subtipo: subtipoDesdeTransicion({ evento: 'transicion', tipo: 'disponible' }),
     });
 
     await repos.auditoria.registrar(
@@ -493,6 +504,8 @@ export class TransicionFechaUseCase {
       cuerpo,
       destinatarioEmail: reserva.clienteEmail,
       fechaEnvio: null,
+      // §D-subtipo: entrar en cola → `cola_espera`.
+      subtipo: subtipoDesdeTransicion({ evento: 'transicion', tipo: 'cola' }),
     });
 
     await repos.auditoria.registrar(

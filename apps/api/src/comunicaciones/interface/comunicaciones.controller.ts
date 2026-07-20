@@ -234,6 +234,7 @@ export class ComunicacionesController {
       destinatarioEmail: fila.destinatarioEmail,
       estado: fila.estado,
       esReenvio: fila.esReenvio,
+      subtipo: fila.subtipo,
       fechaCreacion: fila.fechaCreacion,
       fechaEnvio: fila.fechaEnvio,
       accionable: fila.accionable,
