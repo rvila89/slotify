@@ -77,6 +77,100 @@ describe('renderMensajeTransicionFecha — plantilla "disponible"', () => {
 });
 
 // ===========================================================================
+// ASUNTO de la rama "disponible" → "Pre-reserva confirmada" (change
+// `consulta-fecha-borrador-fix`, spec-delta `consultas` — Requirement
+// "Plantillas dinámicas de la transición de fecha").
+//
+// RED: hoy el asunto ES es "La fecha que propones está disponible" y el CA es
+// "La data que ens proposes està disponible"; debe pasar a "Pre-reserva
+// confirmada" en ambos idiomas. La rama "cola" NO cambia (guardas de no
+// regresión más abajo).
+// ===========================================================================
+
+describe('renderMensajeTransicionFecha — asunto "disponible" = "Pre-reserva confirmada"', () => {
+  it('debe_usar_asunto_Pre_reserva_confirmada_en_castellano', () => {
+    const { asunto } = renderMensajeTransicionFecha({
+      tipo: 'disponible',
+      idioma: 'es',
+      nombre: 'Marta',
+      fechaEvento: FECHA_19_JUL_2026,
+      personas: 40,
+      horas: 8,
+    });
+
+    expect(asunto).toBe('Pre-reserva confirmada');
+  });
+
+  it('debe_usar_asunto_Pre_reserva_confirmada_en_catalan', () => {
+    const { asunto } = renderMensajeTransicionFecha({
+      tipo: 'disponible',
+      idioma: 'ca',
+      nombre: 'Marta',
+      fechaEvento: FECHA_19_JUL_2026,
+      personas: 40,
+      horas: 8,
+    });
+
+    // Asunto catalán acordado por el plan: idéntico al castellano.
+    expect(asunto).toBe('Pre-reserva confirmada');
+  });
+
+  it('no_debe_conservar_el_asunto_antiguo_de_disponibilidad_en_ninguno_de_los_dos_idiomas', () => {
+    const es = renderMensajeTransicionFecha({
+      tipo: 'disponible',
+      idioma: 'es',
+      nombre: 'Marta',
+      fechaEvento: FECHA_19_JUL_2026,
+      personas: 40,
+      horas: 8,
+    });
+    const ca = renderMensajeTransicionFecha({
+      tipo: 'disponible',
+      idioma: 'ca',
+      nombre: 'Marta',
+      fechaEvento: FECHA_19_JUL_2026,
+      personas: 40,
+      horas: 8,
+    });
+
+    expect(es.asunto).not.toBe('La fecha que propones está disponible');
+    expect(ca.asunto).not.toBe('La data que ens proposes està disponible');
+  });
+});
+
+// ===========================================================================
+// NO REGRESIÓN: el asunto de la rama "cola" NO cambia (ES y CA).
+// ===========================================================================
+
+describe('renderMensajeTransicionFecha — asunto "cola" no cambia (no regresión)', () => {
+  it('mantiene_el_asunto_de_cola_en_castellano', () => {
+    const { asunto } = renderMensajeTransicionFecha({
+      tipo: 'cola',
+      idioma: 'es',
+      nombre: 'Jordi',
+      fechaEvento: FECHA_19_JUL_2026,
+      personas: 30,
+      horas: 6,
+    });
+
+    expect(asunto).toBe('Sobre la fecha que propones');
+  });
+
+  it('mantiene_el_asunto_de_cola_en_catalan', () => {
+    const { asunto } = renderMensajeTransicionFecha({
+      tipo: 'cola',
+      idioma: 'ca',
+      nombre: 'Jordi',
+      fechaEvento: FECHA_19_JUL_2026,
+      personas: 30,
+      horas: 6,
+    });
+
+    expect(asunto).toBe('Sobre la data que ens proposes');
+  });
+});
+
+// ===========================================================================
 // Plantilla "cola" — CA / ES
 // ===========================================================================
 

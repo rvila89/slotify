@@ -65,7 +65,7 @@ const renderDisponibleCA = ({
   horas,
 }: RenderMensajeTransicionParams): MensajeTransicion => {
   const fecha = formatarFechaCA(fechaEvento);
-  const asunto = 'La data que ens proposes està disponible';
+  const asunto = 'Pre-reserva confirmada';
   const cuerpo = [
     `Hola ${nombre},`,
     '',
@@ -88,7 +88,7 @@ const renderDisponibleES = ({
   horas,
 }: RenderMensajeTransicionParams): MensajeTransicion => {
   const fecha = formatarFechaES(fechaEvento);
-  const asunto = 'La fecha que propones está disponible';
+  const asunto = 'Pre-reserva confirmada';
   const cuerpo = [
     `Hola ${nombre},`,
     '',

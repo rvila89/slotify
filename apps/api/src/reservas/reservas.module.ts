@@ -205,8 +205,10 @@ import {
   type ActualizarReservaComando,
   type ReservaActualizable,
   type UnidadDeTrabajoActualizarReservaPort,
+  type CargarBorradorE1PendientePort,
 } from './application/actualizar-reserva.use-case';
 import { CargarReservaActualizablePrismaAdapter } from './infrastructure/cargar-reserva-actualizable.prisma.adapter';
+import { CargarBorradorE1PendientePrismaAdapter } from './infrastructure/cargar-borrador-e1-pendiente.prisma.adapter';
 import { ActualizarReservaUoWPrismaAdapter } from './infrastructure/actualizar-reserva-uow.prisma.adapter';
 import { PatchReservaController } from './interface/patch-reserva.controller';
 import {
@@ -282,6 +284,7 @@ import {
   UNIDAD_DE_TRABAJO_DESCARTE_CONSULTA_PORT,
   CARGAR_RESERVA_ACTUALIZABLE_PORT,
   UNIDAD_DE_TRABAJO_ACTUALIZAR_RESERVA_PORT,
+  CARGAR_BORRADOR_E1_PENDIENTE_PORT,
   UNIDAD_DE_TRABAJO_CAMBIAR_FECHA_PORT,
   UNIDAD_DE_TRABAJO_DESCARTE_PRERESERVA_PORT,
   ESTADO_RESERVA_LECTOR_PORT,
@@ -1013,20 +1016,38 @@ import {
         new ActualizarReservaUoWPrismaAdapter(prisma),
     },
     {
+      // change consulta-fecha-borrador-fix (§D-3) — lectura del borrador E1 pendiente.
+      provide: CARGAR_BORRADOR_E1_PENDIENTE_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CargarBorradorE1PendientePrismaAdapter(prisma),
+    },
+    {
       provide: ActualizarReservaUseCase,
       inject: [
         UNIDAD_DE_TRABAJO_ACTUALIZAR_RESERVA_PORT,
         CARGAR_RESERVA_ACTUALIZABLE_PORT,
+        CARGAR_BORRADOR_E1_PENDIENTE_PORT,
+        DespacharEmailService,
       ],
       useFactory: (
         unidadDeTrabajo: UnidadDeTrabajoActualizarReservaPort,
         cargador: CargarReservaActualizablePrismaAdapter,
+        cargarBorradorE1Pendiente: CargarBorradorE1PendientePort,
+        // El motor de US-045 SATISFACE el puerto de UPDATE del borrador (§D-3): reutiliza
+        // `actualizarContenidoBorrador` (mantiene la fila en `borrador`).
+        motor: DespacharEmailService,
       ) =>
         new ActualizarReservaUseCase({
           unidadDeTrabajo,
           cargarReserva: (
             comando: ActualizarReservaComando,
           ): Promise<ReservaActualizable | null> => cargador.cargar(comando),
+          cargarBorradorE1Pendiente,
+          regenerarBorrador: {
+            actualizarContenidoBorrador: (params) =>
+              motor.actualizarContenidoBorrador(params),
+          },
         }),
     },
     // US-051 §Punto 2 — POST /reservas/{id}/cambiar-fecha: operación ATÓMICA (liberar la fecha

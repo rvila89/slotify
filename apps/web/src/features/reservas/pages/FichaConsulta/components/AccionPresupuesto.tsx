@@ -1,4 +1,4 @@
-import { FileText, Info, Pencil } from 'lucide-react';
+import { CalendarPlus, FileText, Info } from 'lucide-react';
 import {
   camposCompletitudFaltantes,
   motivoNoPuedeGenerar,
@@ -14,12 +14,15 @@ import type { Reserva } from '../../../model/types';
  * solo en fase `consulta` NO terminal; habilitado en `2a/2b/2c/2v` con datos de evento
  * completos (US-051 §Punto 3) y bloqueado con motivo (enumerando lo que falta) en
  * `2d`/incompleto. En sub-estados terminales (`2x/2y/2z`) NO se renderiza nada
- * (US-051 §Punto 4). El backend revalida de forma defensiva (409/422).
+ * (US-051 §Punto 4). Cuando el bloqueo se debe a la FALTA DE FECHA (`2a`), junto al
+ * botón bloqueado se ofrece el CTA "Añadir fecha" que resuelve el bloqueo por su
+ * flujo atómico (NO un segundo "Editar consulta"; change `consulta-fecha-borrador-fix`
+ * §D-4). El backend revalida de forma defensiva (409/422).
  */
 const claseBotonPresupuesto =
   'inline-flex h-14 w-full items-center justify-center gap-2 rounded-full bg-accent-success px-10 font-display text-base text-accent-success-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-16';
 
-const claseBotonEditar =
+const claseBotonFecha =
   'inline-flex h-12 w-full items-center justify-center gap-2 rounded-full border border-border-default bg-canvas px-8 font-body text-base font-medium text-text-secondary transition hover:bg-surface-muted sm:w-auto';
 
 const claseTextoInfo = 'flex items-start gap-3 font-body text-sm text-text-secondary';
@@ -27,10 +30,11 @@ const claseTextoInfo = 'flex items-start gap-3 font-body text-sm text-text-secon
 type Props = {
   reserva: Reserva;
   onGenerarPresupuesto: () => void;
-  onEditarConsulta: () => void;
+  /** Abre el flujo atómico "Añadir fecha" (`2a`) para resolver el bloqueo por falta de fecha. */
+  onAnadirFecha: () => void;
 };
 
-export const AccionPresupuesto = ({ reserva, onGenerarPresupuesto, onEditarConsulta }: Props) => {
+export const AccionPresupuesto = ({ reserva, onGenerarPresupuesto, onAnadirFecha }: Props) => {
   // Solo se muestra (habilitado o bloqueado) mientras la reserva sigue en fase
   // `consulta` NO terminal; en `pre_reserva`+ desaparece (ya hay presupuesto/UC-15)
   // y en terminales (`2x/2y/2z`) tampoco se ofrece (US-051 §Punto 4).
@@ -45,9 +49,10 @@ export const AccionPresupuesto = ({ reserva, onGenerarPresupuesto, onEditarConsu
     horario: reserva.horario,
   };
   const puede = puedeGenerarPresupuesto(guarda);
-  // Cuando el bloqueo se debe a datos incompletos (no al estado), se ofrece el
-  // atajo a "Editar consulta" para corregirlos (US-051 §Punto 3).
-  const faltanDatos = camposCompletitudFaltantes(guarda).length > 0 && reserva.subEstado !== '2d';
+  // Cuando el bloqueo se debe a la falta de FECHA (no al estado ni a `2d`), se ofrece
+  // el atajo "Añadir fecha" —el flujo atómico— para resolverlo (change fecha-borrador §D-4).
+  const faltaFecha =
+    camposCompletitudFaltantes(guarda).includes('fechaEvento') && reserva.subEstado !== '2d';
 
   return (
     <div className="flex flex-col gap-3">
@@ -84,15 +89,15 @@ export const AccionPresupuesto = ({ reserva, onGenerarPresupuesto, onEditarConsu
               <FileText aria-hidden className="size-5" />
               Generar presupuesto
             </button>
-            {faltanDatos && (
+            {faltaFecha && (
               <button
                 type="button"
-                data-testid="boton-editar-consulta-presupuesto"
-                onClick={onEditarConsulta}
-                className={claseBotonEditar}
+                data-testid="boton-anadir-fecha"
+                onClick={onAnadirFecha}
+                className={claseBotonFecha}
               >
-                <Pencil aria-hidden className="size-5" />
-                Editar consulta
+                <CalendarPlus aria-hidden className="size-5" />
+                Añadir fecha
               </button>
             )}
           </div>

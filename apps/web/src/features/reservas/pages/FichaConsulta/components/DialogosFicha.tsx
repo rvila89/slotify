@@ -55,13 +55,13 @@ type Props = {
     descartar: [boolean, Setter<boolean>];
     descartarPreReserva: [boolean, Setter<boolean>];
   };
-  onResuelto: Setter<Reserva | null>;
+  /** Desenlace de la asignación de fecha (US-005). La página también hace scroll al
+      aviso, por eso el tipo es un callback plano (no un setter con updater). */
+  onResuelto: (reserva: Reserva | null) => void;
   /** Cambio atómico de una fecha ya bloqueada (US-051 §D-2.1). */
-  onCambiadaFecha: Setter<Reserva | null>;
+  onCambiadaFecha: (reserva: Reserva | null) => void;
   /** Edición de campos simples con éxito (US-051 §Punto 2). */
   onEditado: () => void;
-  /** Abre el flujo de fecha adecuado (añadir/cambiar) desde el editor. */
-  onGestionarFecha: () => void;
   onResueltoInvitados: Setter<PendienteInvitadosResultado | null>;
   onResueltoVisita: Setter<Reserva | null>;
   onResueltoInteresado: Setter<Reserva | null>;
@@ -87,7 +87,6 @@ export const DialogosFicha = ({
   onResuelto,
   onCambiadaFecha,
   onEditado,
-  onGestionarFecha,
   onResueltoInvitados,
   onResueltoVisita,
   onResueltoInteresado,
@@ -123,7 +122,6 @@ export const DialogosFicha = ({
       abierto={dialogos.editar[0]}
       onAbiertoChange={dialogos.editar[1]}
       onEditado={onEditado}
-      onGestionarFecha={onGestionarFecha}
     />
     <PendienteInvitadosDialog
       reservaId={reservaId}

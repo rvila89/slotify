@@ -30,6 +30,7 @@
  */
 import type { AuditLogPort } from '../../shared/audit/audit-log.port';
 import type { EstadoReserva, SubEstadoConsulta } from '../domain/maquina-estados';
+import { renderMensajeTransicionFecha } from './plantilla-transicion-fecha';
 
 // ---------------------------------------------------------------------------
 // Tipos del dominio de la aplicación
@@ -88,6 +89,17 @@ export interface ReservaActualizable {
   numInvitadosFinal: number | null;
   horario: string | null;
   notas: string | null;
+  /**
+   * Idioma de la RESERVA (`'ca'` → catalán; resto → castellano). Se usa para re-renderizar
+   * el borrador E1 pendiente en el idioma correcto (change `consulta-fecha-borrador-fix`,
+   * design.md §D-3).
+   */
+  idioma: string;
+  /**
+   * Nombre de pila del CLIENTE para el saludo del borrador E1 regenerado (design.md §D-3).
+   * Opcional: si falta, el saludo usa cadena vacía (el render no rompe).
+   */
+  nombreCliente?: string | null;
 }
 
 /** Resultado del caso de uso: la RESERVA con los campos simples ya actualizados. */
@@ -152,12 +164,64 @@ export interface UnidadDeTrabajoActualizarReservaPort {
   ): Promise<unknown>;
 }
 
+/**
+ * Referencia mínima al borrador E1 pendiente de una RESERVA (`codigo_email='E1'` y
+ * `estado='borrador'`). `null` cuando no existe (ya `enviado`/`fallido`/inexistente).
+ */
+export interface BorradorE1Pendiente {
+  idComunicacion: string;
+}
+
+/** Parámetros de la carga del borrador E1 pendiente (scoped por tenant + reserva, RLS). */
+export interface CargarBorradorE1PendienteParams {
+  tenantId: string;
+  reservaId: string;
+}
+
+/**
+ * Puerto de LECTURA del borrador E1 pendiente (change `consulta-fecha-borrador-fix`,
+ * design.md §D-3). El adaptador (RLS) solo devuelve la fila `E1` en `borrador` de la
+ * RESERVA; `null` en cualquier otro caso.
+ */
+export interface CargarBorradorE1PendientePort {
+  cargarBorradorE1Pendiente(
+    params: CargarBorradorE1PendienteParams,
+  ): Promise<BorradorE1Pendiente | null>;
+}
+
+/** Parámetros del UPDATE de contenido del borrador E1 (mantiene la fila en `borrador`). */
+export interface RegenerarBorradorE1Params {
+  tenantId: string;
+  idComunicacion: string;
+  asunto: string;
+  cuerpo: string;
+}
+
+/**
+ * Puerto de UPDATE post-commit del CONTENIDO del borrador E1 (design.md §D-3). Lo SATISFACE
+ * el `DespacharEmailService.actualizarContenidoBorrador`: sobrescribe `asunto`/`cuerpo`
+ * manteniendo la fila en `borrador` (guarda de estado en el repositorio).
+ */
+export interface RegenerarBorradorE1Port {
+  actualizarContenidoBorrador(
+    params: RegenerarBorradorE1Params,
+  ): Promise<unknown>;
+}
+
 /** Dependencias del caso de uso (puertos inyectados, hexagonal). */
 export interface ActualizarReservaDeps {
   unidadDeTrabajo: UnidadDeTrabajoActualizarReservaPort;
   cargarReserva(
     comando: ActualizarReservaComando,
   ): Promise<ReservaActualizable | null>;
+  /**
+   * Lectura del borrador E1 pendiente para regenerarlo tras el PATCH (design.md §D-3).
+   * Opcional: si no se inyecta, no hay regeneración (degradación graceful; montajes de test
+   * que no lo necesitan no rompen).
+   */
+  cargarBorradorE1Pendiente?: CargarBorradorE1PendientePort;
+  /** UPDATE post-commit del contenido del borrador E1. Opcional (design.md §D-3). */
+  regenerarBorrador?: RegenerarBorradorE1Port;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +280,28 @@ const A_SNAKE_CASE: Record<keyof CamposReservaParcial, string> = {
   horario: 'horario',
 };
 
+/**
+ * Personas para el borrador E1 regenerado: el aforo canónico de la RESERVA (espejo de
+ * `aforoDeReserva` del frontend, US-050). Usa `numInvitadosFinal` cuando está presente
+ * y, si no, la suma del desglose `numAdultosNinosMayores4 + numNinosMenores4` (lo que el
+ * gestor edita en "Editar consulta"); `null` cuando no hay ningún dato de aforo, para que
+ * la plantilla interpole el placeholder `___`. Coalescer es imprescindible: el editor de
+ * consulta escribe `numAdultosNinosMayores4`, NO `numInvitadosFinal`, así que leer solo
+ * este último dejaría el borrador con `___` pese a haber introducido las personas.
+ */
+const derivarPersonasBorrador = (
+  reserva: Pick<
+    ReservaActualizable,
+    'numInvitadosFinal' | 'numAdultosNinosMayores4' | 'numNinosMenores4'
+  >,
+): number | null => {
+  if (reserva.numInvitadosFinal != null) return reserva.numInvitadosFinal;
+  const adultos = reserva.numAdultosNinosMayores4;
+  const ninos = reserva.numNinosMenores4;
+  if (adultos == null && ninos == null) return null;
+  return (adultos ?? 0) + (ninos ?? 0);
+};
+
 // ---------------------------------------------------------------------------
 // Caso de uso
 // ---------------------------------------------------------------------------
@@ -258,9 +344,58 @@ export class ActualizarReservaUseCase {
       });
     });
 
-    return {
-      reserva: { ...reserva, ...camposPresentes },
-    };
+    const reservaActualizada: ReservaActualizable = { ...reserva, ...camposPresentes };
+
+    // 3. POST-COMMIT best-effort (design.md §D-3): si existe un borrador E1 pendiente,
+    //    regenerar su asunto/cuerpo con los datos YA actualizados para que refleje las
+    //    personas/horas nuevas (sobrescribe el placeholder `___`). Fuera de la unidad de
+    //    trabajo del PATCH: un fallo NO revierte la edición (el PATCH resuelve con éxito).
+    await this.regenerarBorradorE1SiProcede(comando, reservaActualizada);
+
+    return { reserva: reservaActualizada };
+  }
+
+  /**
+   * Regenera (post-commit, best-effort) el contenido del borrador E1 pendiente con los
+   * datos actualizados de la RESERVA (design.md §D-3). No hay guarda 409: editar con
+   * borrador pendiente está permitido. Sin borrador (enviado/inexistente) o sin los puertos
+   * inyectados → no hace nada. Un fallo se traga (no revierte el PATCH ya commiteado).
+   */
+  private async regenerarBorradorE1SiProcede(
+    comando: ActualizarReservaComando,
+    reserva: ReservaActualizable,
+  ): Promise<void> {
+    const cargar = this.deps.cargarBorradorE1Pendiente;
+    const regenerar = this.deps.regenerarBorrador;
+    if (cargar === undefined || regenerar === undefined) {
+      return;
+    }
+    try {
+      const borrador = await cargar.cargarBorradorE1Pendiente({
+        tenantId: comando.tenantId,
+        reservaId: reserva.idReserva,
+      });
+      if (borrador === null) {
+        return;
+      }
+      const { asunto, cuerpo } = renderMensajeTransicionFecha({
+        // 2d → cola; cualquier otro sub-estado con fecha (2b) → disponible.
+        tipo: reserva.subEstado === '2d' ? 'cola' : 'disponible',
+        idioma: reserva.idioma,
+        nombre: reserva.nombreCliente ?? '',
+        fechaEvento: reserva.fechaEvento ?? new Date(),
+        personas: derivarPersonasBorrador(reserva),
+        horas: reserva.duracionHoras,
+      });
+      await regenerar.actualizarContenidoBorrador({
+        tenantId: comando.tenantId,
+        idComunicacion: borrador.idComunicacion,
+        asunto,
+        cuerpo,
+      });
+    } catch {
+      // Best-effort (design.md §D-3): el PATCH ya commiteó; no se propaga el fallo.
+    }
   }
 
   /**

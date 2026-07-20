@@ -367,6 +367,12 @@ export interface FinalizarEnvioEmailParams {
   destinatario: string;
   asunto: string;
   cuerpo: string;
+  /**
+   * Formato del `cuerpo` (change `consulta-fecha-borrador-fix`, design.md §D-2): el E1 del
+   * alta se renderiza como HTML del catálogo (`cuerpoHtml`), por eso viaja `true` para que
+   * el borde de envío NO lo doble-escape.
+   */
+  cuerpoEsHtml?: boolean;
   codigoEmail: 'E1';
   /** Adjuntos opcionales (ej. dossier) a incluir en el envío. */
   adjuntos?: AdjuntoRef[];
@@ -726,6 +732,8 @@ export class AltaConsultaUseCase {
       destinatario: email,
       asunto,
       cuerpo,
+      // El cuerpo del E1 del alta es HTML del catálogo (`cuerpoHtml`): no doble-escapar (§D-2).
+      cuerpoEsHtml: true,
       codigoEmail: 'E1',
       ...(dossierRef !== undefined ? { adjuntos: [dossierRef] } : {}),
     });

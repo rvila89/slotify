@@ -102,13 +102,12 @@ export const FichaConsultaPage = () => {
   // `2a` (sin fecha) usa "Añadir fecha" (`POST /fecha`); `2b/2c/2v` (fecha ya
   // bloqueada) usa el cambio atómico (`POST /cambiar-fecha`). El editor se cierra
   // antes de abrir el diálogo de fecha para no anidar diálogos.
-  const gestionarFecha = () => {
-    setDialogoEditarAbierto(false);
-    if (subEstado === '2a') {
-      setResultado(null);
-      setDialogoAbierto(true);
-    } else {
-      setDialogoCambiarFechaAbierto(true);
+  // Desenlace de la transición de fecha (US-005 / cambio atómico): además de alimentar
+  // el aviso 2b/2d, desplaza la vista al aviso para que el gestor lo vea (§D-4). SSR-safe.
+  const mostrarResultadoFecha = (r: Reserva | null) => {
+    setResultado(r);
+    if (r && typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -202,6 +201,10 @@ export const FichaConsultaPage = () => {
             setResultado(null);
             setDialogoAbierto(true);
           }}
+          onCambiarFecha={() => {
+            setResultado(null);
+            setDialogoCambiarFechaAbierto(true);
+          }}
           onPendienteInvitados={() => {
             setResultadoInvitados(null);
             setDialogoInvitadosAbierto(true);
@@ -272,10 +275,9 @@ export const FichaConsultaPage = () => {
               setDialogoDescartarPreReservaAbierto,
             ],
           }}
-          onResuelto={setResultado}
-          onCambiadaFecha={setResultado}
+          onResuelto={mostrarResultadoFecha}
+          onCambiadaFecha={mostrarResultadoFecha}
           onEditado={() => {}}
-          onGestionarFecha={gestionarFecha}
           onResueltoInvitados={setResultadoInvitados}
           onResueltoVisita={setResultadoVisita}
           onResueltoInteresado={setResultadoInteresado}

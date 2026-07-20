@@ -1,13 +1,4 @@
-import {
-  CalendarClock,
-  CalendarPlus,
-  ClipboardCheck,
-  Flag,
-  Info,
-  Mail,
-  Timer,
-  Users,
-} from 'lucide-react';
+import { CalendarClock, ClipboardCheck, Flag, Info, Mail, Timer, Users } from 'lucide-react';
 import { puedeEditarPresupuesto } from '@/features/presupuestos';
 import { puedeConfirmarSenal } from '@/features/confirmacion';
 import { aforoDeReserva } from '../../../lib/aforo';
@@ -17,6 +8,8 @@ import { puedeForzarInicioEvento } from '../../../lib/forzarInicioEvento';
 import { puedeArchivarReserva } from '../../../lib/archivarReserva';
 import { esConsultaTerminal } from '../../../lib/estadoTerminal';
 import { AccionArchivar } from './AccionArchivar';
+import { AccionCambiarFecha } from './AccionCambiarFecha';
+import { AccionesBorradorPendiente } from './AccionesBorradorPendiente';
 import { AccionDescartar } from './AccionDescartar';
 import { AccionEditarConsulta } from './AccionEditarConsulta';
 import { AccionForzarInicio } from './AccionForzarInicio';
@@ -59,6 +52,7 @@ const FallbackSinAcciones = () => (
 type Props = {
   reserva: Reserva;
   onAnadirFecha: () => void;
+  onCambiarFecha: () => void;
   onPendienteInvitados: () => void;
   onProgramarVisita: () => void;
   onRegistrarResultadoVisita: () => void;
@@ -77,6 +71,7 @@ type Props = {
 export const AccionesConsulta = ({
   reserva,
   onAnadirFecha,
+  onCambiarFecha,
   onPendienteInvitados,
   onProgramarVisita,
   onRegistrarResultadoVisita,
@@ -91,18 +86,19 @@ export const AccionesConsulta = ({
   onArchivarReserva,
   onDescartarConsulta,
 }: Props) => {
-  // US-047 (Step 7): mientras exista un borrador E1 pendiente de envío, el cliente
-  // aún no sabe que la consulta existe, así que NINGUNA acción tiene sentido (incluida
-  // "Marcar como descartada"). Se sustituye todo el bloque de acciones por un aviso.
-  if (reserva.tieneBorradorE1Pendiente) {
+  // change `consulta-fecha-borrador-fix` (§D-4): mientras exista un borrador E1
+  // pendiente de envío, el DESBLOQUEO es PARCIAL —no total—. Se permiten "Editar
+  // consulta" y la GESTIÓN DE FECHA (añadir/cambiar); las acciones downstream
+  // (presupuesto, visita, descartar…) siguen sin ofrecerse hasta enviar el E1. El
+  // bloque vive en `AccionesBorradorPendiente` para respetar `max-lines`.
+  if (reserva.tieneBorradorE1Pendiente && reserva.estado === 'consulta') {
     return (
-      <div
-        data-testid="aviso-borrador-e1-pendiente"
-        className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 font-body text-sm text-amber-800"
-      >
-        <Mail aria-hidden className="mt-0.5 size-5 shrink-0 text-amber-600" />
-        <span>Revisa y envía el correo de confirmación antes de continuar.</span>
-      </div>
+      <AccionesBorradorPendiente
+        reserva={reserva}
+        onAnadirFecha={onAnadirFecha}
+        onCambiarFecha={onCambiarFecha}
+        onEditarConsulta={onEditarConsulta}
+      />
     );
   }
 
@@ -188,28 +184,23 @@ export const AccionesConsulta = ({
       <AccionPresupuesto
         reserva={reserva}
         onGenerarPresupuesto={onGenerarPresupuesto}
-        onEditarConsulta={onEditarConsulta}
+        onAnadirFecha={onAnadirFecha}
       />
 
-      {/* US-051 §Punto 2: "Editar consulta" — visible mientras la consulta esté ACTIVA. */}
+      {/* US-051 §Punto 2: "Editar consulta" — ÚNICO botón de edición de campos, visible
+          mientras la consulta esté ACTIVA. La fecha se gestiona aparte (flujo atómico). */}
       <AccionEditarConsulta reserva={reserva} onEditarConsulta={onEditarConsulta} />
 
+      {/* change fecha-borrador §D-4: "Cambiar fecha" (flujo atómico) en `2b/2c/2v`,
+          separado de "Editar consulta". En `2a` la gestión es "Añadir fecha" (junto al
+          presupuesto bloqueado por falta de fecha). */}
+      <AccionCambiarFecha reserva={reserva} onCambiarFecha={onCambiarFecha} />
+
       {esExploratoria && (
-        <div className="flex flex-col gap-3">
-          <p className="font-body text-sm text-text-secondary">
-            Esta consulta es exploratoria (sin fecha). Añade una fecha para intentar bloquearla; si
-            está ocupada, podrás entrar en la cola de espera.
-          </p>
-          <button
-            type="button"
-            data-testid="boton-anadir-fecha"
-            onClick={onAnadirFecha}
-            className={claseBotonAccion}
-          >
-            <CalendarPlus aria-hidden className="size-5" />
-            Añadir fecha
-          </button>
-        </div>
+        <p className="font-body text-sm text-text-secondary">
+          Esta consulta es exploratoria (sin fecha). Añade una fecha para intentar bloquearla; si
+          está ocupada, podrás entrar en la cola de espera.
+        </p>
       )}
 
       {puedePendienteInvitados && (
