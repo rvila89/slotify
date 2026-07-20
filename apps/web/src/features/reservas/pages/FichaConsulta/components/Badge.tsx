@@ -1,4 +1,6 @@
 import { cn } from '@/lib/utils';
+import type { Reserva } from '../../../model/types';
+import { etiquetaEstadoPrincipal } from '../../../lib/etiquetaEstado';
 
 const SUB_ESTADO_LABEL: Record<string, string> = {
   '2a': 'Consulta exploratoria',
@@ -11,9 +13,22 @@ const SUB_ESTADO_LABEL: Record<string, string> = {
   '2z': 'Cerrada',
 };
 
-/** Insignia tonal del sub-estado de la consulta. */
-export const Badge = ({ subEstado }: { subEstado?: string }) => {
-  if (!subEstado) return null;
+/**
+ * Insignia tonal del estado de la reserva. Muestra SIEMPRE algo visible: si hay
+ * `subEstado` (consulta), la etiqueta del sub-estado (`2a…2z`); si no, la etiqueta
+ * del ESTADO PRINCIPAL (`pre_reserva → «Pre-reserva»`, etc.). Solo devuelve `null`
+ * cuando no hay ni sub-estado ni un estado principal mapeable.
+ */
+export const Badge = ({
+  subEstado,
+  estado,
+}: {
+  subEstado?: string;
+  estado?: Reserva['estado'];
+}) => {
+  const etiquetaEstado = estado ? etiquetaEstadoPrincipal(estado) : null;
+  const texto = subEstado ? (SUB_ESTADO_LABEL[subEstado] ?? subEstado) : etiquetaEstado;
+  if (!texto) return null;
   const tono =
     subEstado === '2b'
       ? 'border-state-confirmada/40 bg-state-confirmada/15 text-[#5b2615]'
@@ -29,7 +44,7 @@ export const Badge = ({ subEstado }: { subEstado?: string }) => {
       )}
     >
       <span aria-hidden className="size-2 rounded-full bg-current opacity-70" />
-      {SUB_ESTADO_LABEL[subEstado] ?? subEstado}
+      {texto}
     </span>
   );
 };

@@ -79,6 +79,7 @@ export class DispararE2Adapter implements DispararE2Port {
         telefono: reserva.cliente.telefono ?? '',
       },
       adjuntos,
+      idioma: reserva.idioma,
     });
   }
 }

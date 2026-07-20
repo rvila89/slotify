@@ -122,7 +122,7 @@ export const FichaConsultaPage = () => {
           <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
             Consulta {reserva.codigo}
           </h1>
-          <Badge subEstado={subEstado} />
+          <Badge subEstado={subEstado} estado={reserva.estado} />
         </div>
         <p className="font-body text-sm text-text-secondary sm:text-base">
           Ficha del lead. Revisa los datos y gestiona la consulta según su estado.
@@ -300,7 +300,14 @@ export const FichaConsultaPage = () => {
           onResueltoInteresado={setResultadoInteresado}
           onResueltoReservaInmediata={setResultadoReservaInmediata}
           onResueltoExtension={setResultadoExtension}
-          onConfirmadoPresupuesto={setResultadoPresupuesto}
+          onConfirmadoPresupuesto={(resultado) => {
+            setResultadoPresupuesto(resultado);
+            // Sube al top para que el banner "Presupuesto generado…" quede visible
+            // (precedente vivo: NuevaConsultaPage).
+            if (typeof window !== 'undefined') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          }}
           onEditadoPresupuesto={(datos) => setResultadoEdicion({ clase: 'edicion', datos })}
           onReenviadoPresupuesto={(datos) => setResultadoEdicion({ clase: 'reenvio', datos })}
           onConfirmadoSenal={setResultadoSenal}

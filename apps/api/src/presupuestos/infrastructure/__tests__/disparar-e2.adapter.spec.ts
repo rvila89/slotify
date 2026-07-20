@@ -40,9 +40,10 @@ const TENANT = '00000000-0000-0000-0000-000000000001';
 const RESERVA_ID = 'res-2b';
 
 /** Fila RESERVA (con cliente) que resuelve la tx del adapter. */
-const reservaConCliente = () => ({
+const reservaConCliente = (idioma = 'es') => ({
   idReserva: RESERVA_ID,
   codigo: 'R-0001',
+  idioma,
   cliente: {
     idCliente: 'cli-1',
     nombre: 'Anna',
@@ -259,5 +260,44 @@ describe('DispararE2Adapter — fallo de condiciones no propaga (2.7e)', () => {
         pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
       },
     ]);
+  });
+});
+
+// ===========================================================================
+// 3.2 — El disparo de E2 PROPAGA el idioma de la RESERVA al motor.
+//        Change `presupuesto-confirmar-ux-e2-idioma`, workstream D — fase TDD RED.
+//
+// Trazabilidad: spec-delta `comunicaciones` (MODIFIED "La activación de pre_reserva
+// dispara el email E2 …": "El disparo (`DispararE2Adapter`) DEBE propagar el idioma de
+// la RESERVA (`idioma: RESERVA.idioma`) en el comando del motor"; Scenario "El disparo
+// de E2 propaga el idioma de la RESERVA al motor").
+//
+// RED: hoy `disparar-e2.adapter.ts` NO lee `reserva.idioma` ni lo incluye en el comando
+// `motorEmail.despachar(...)`, de modo que el motor cae al idioma del TENANT_SETTINGS.
+// El `expect.objectContaining({ idioma: 'ca' })` falla por comportamiento hasta que
+// `backend-developer` propague `idioma: reserva.idioma`. GREEN es de `backend-developer`.
+// ===========================================================================
+
+describe('DispararE2Adapter — propaga el idioma de la RESERVA al motor (3.2)', () => {
+  it('debe_pasar_idioma_ca_al_motor_cuando_la_reserva_esta_en_catalan', async () => {
+    // Arrange
+    const motor = motorFalso();
+    const adaptador = new DispararE2Adapter(
+      motor as unknown as DespacharEmailService,
+      prismaFalso(reservaConCliente('ca')),
+      condicionesQueDevuelve(null),
+    );
+
+    // Act
+    await adaptador.disparar({
+      tenantId: TENANT,
+      reservaId: RESERVA_ID,
+      pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
+    });
+
+    // Assert — el comando del motor lleva el idioma del lead (RESERVA.idioma), no el del tenant.
+    expect(motor.despachar).toHaveBeenCalledWith(
+      expect.objectContaining({ idioma: 'ca' }),
+    );
   });
 });
