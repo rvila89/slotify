@@ -980,15 +980,15 @@ flowchart TD
 5. Si el cambio de invitados dispara `tarifa_a_consultar = true` (>50): el sistema devuelve importes a `null` y habilita precio manual; la confirmación no está disponible hasta que el Gestor introduzca el precio
 6. El Gestor revisa el borrador y elige **enviar** (`enviar: true`) o **guardar borrador** (`enviar: false`) vía `POST /reservas/{id}/presupuesto/edicion`
 7. El sistema ejecuta la confirmación en **una única transacción**: (a) inserta `PRESUPUESTO version = MAX(version)+1`, `tarifa_congelada = true`, `estado = 'enviado'` o `'borrador'` según `enviar`; si `enviado`, asigna `numero_presupuesto = AAAANNN` de la secuencia del régimen (con reintento `P2002` sobre `(tenantId, regimenIva, numeroPresupuesto)`); si `borrador`, `numero_presupuesto = null`; (b) persiste las líneas `RESERVA_EXTRA` con `precio_unitario` congelado al precio actual del catálogo para las líneas **nuevas** (las existentes conservan su precio); (c) registra `AUDIT_LOG accion='actualizar'`
-8. Post-commit (solo si `enviar = true`): regenera el PDF de la nueva versión; actualiza `pdf_url`; dispara E2 con `es_reenvio = true` vía motor US-045; registra `COMUNICACION` con `codigo_email = 'E2'`, `es_reenvio = true`, `estado = 'enviado'`
+8. Post-commit (solo si `enviar = true`): regenera el PDF de la nueva versión; actualiza `PRESUPUESTO.pdf_url` (best-effort, patrón `guardarPdfUrl`; permite que futuros reenvíos reutilicen el PDF); dispara E2 via `DespacharEmailService.despacharReenvio` con `esEdicion=true` (asunto y párrafo de "presupuesto actualizado" en ES/CA); el motor escribe la **única** `COMUNICACION` con `codigo_email = 'E2'`, `es_reenvio = true`, `estado ∈ {'enviado','fallido'}` — fuente única post-commit, sin fila contable en la transacción
 9. El sistema responde `201` con la nueva versión del PRESUPUESTO; `RESERVA.estado` y `FECHA_BLOQUEADA.ttl_expiracion` permanecen inalterados
 
 **Flujo Básico B — reenvío sin cambios:**
 1. El Gestor abre la ficha de pre_reserva y hace clic en "Reenviar presupuesto" sin modificar ningún campo
 2. El sistema valida la guarda de precondición (igual que flujo A)
 3. El Gestor confirma el reenvío vía `POST /reservas/{id}/presupuesto/reenvio`
-4. El sistema **NO** crea una nueva versión de PRESUPUESTO; reenvía el PDF de la versión vigente
-5. El sistema registra `COMUNICACION` con `codigo_email = 'E2'`, `es_reenvio = true`, `estado = 'enviado'` y `AUDIT_LOG accion='actualizar'`
+4. El sistema **NO** crea una nueva versión de PRESUPUESTO; usa el `PRESUPUESTO.pdf_url` de la versión vigente como adjunto (regenera el PDF si `pdf_url` es `null`, p. ej. en presupuestos históricos); dispara E2 via `DespacharEmailService.despacharReenvio` con `esEdicion=false` (texto E2 estándar, sin marca de edición)
+5. El motor escribe la única `COMUNICACION` con `codigo_email = 'E2'`, `es_reenvio = true`, `estado ∈ {'enviado','fallido'}` y `AUDIT_LOG accion='actualizar'`
 6. El sistema responde `200`; la versión vigente permanece en su estado; `RESERVA.estado` y `FECHA_BLOQUEADA.ttl_expiracion` no cambian
 
 **Flujos Alternativos:**
@@ -2045,7 +2045,7 @@ flowchart TD
 | ID | Trigger | Contenido | Estado plantilla |
 |----|---------|-----------|-----------------|
 | E1 | (1) Lead entrante (UC-03) · (2) Transición de fecha `2.a → 2.b` (disponible) o `2.a → 2.d` (cola) (UC-04 / US-005) | (1) Respuesta inicial + tarifa estimada · (2) Borrador dinámico bilingüe ("disponible" o "cola"), sin auto-envío; revisión/envío manual del gestor (flujo US-046) | Activa |
-| E2 | (1) Activar pre-reserva (UC-14) · (2) Reenvío de presupuesto actualizado UC-15 (`es_reenvio=true`) | Presupuesto PDF + instrucciones señal | Inactiva (diferida) |
+| E2 | (1) Activar pre-reserva (UC-14) · (2) Edición del presupuesto con envío (UC-15, `esEdicion=true`) · (3) Reenvío sin cambios (UC-15, `esEdicion=false`) | (1)(3) Presupuesto PDF + instrucciones señal (texto estándar) · (2) Asunto y párrafo de "presupuesto actualizado" (ES/CA) + mismo PDF adjunto | Activa (UC-14 / UC-15 — change `presupuesto-edicion-reenvio-email-real`) |
 | E3 | Acción manual del gestor: "Enviar factura 40%" — `POST /reservas/{id}/facturas/senal/enviar` (US-023, 6.4b) | Factura 40% + condicions particulars (adjunto opcional) | Activa |
 | E4 | Inicio sub-proceso liquidación | Factura liquidación + recibo fianza | Inactiva (diferida) |
 | E5 | Evento finalizado | Agradecimiento + solicitud IBAN | Inactiva (diferida) |
@@ -2053,9 +2053,11 @@ flowchart TD
 | E7 | Visita realizada + interés | Confirmación bloqueo post-visita | Inactiva (diferida) |
 | E8 | Cliente proporciona IBAN | Confirmación recepción + próximos pasos | Inactiva (diferida) |
 
-> **Nota**: E1 y E3 son las únicas plantillas activas en el catálogo de plantillas del backend. E3 usa `EnviarEmailPort` directo (sin `DespacharEmailService`) para garantizar rollback atómico si el proveedor falla. Las demás están diseñadas pero con cableado diferido.
+> **Nota**: E1, E2 y E3 son las plantillas activas en el catálogo del backend. E3 usa `EnviarEmailPort` directo (sin `DespacharEmailService`) para garantizar rollback atómico si el proveedor falla. Las demás están diseñadas pero con cableado diferido.
 >
 > **Gap E2 resuelto (US-015 / D1 — decisión PO/humano 2026-07-15):** UC-15 (editar/reenviar presupuesto estando ya en `pre_reserva`) no tenía código `E` propio asignado. Tras revisar las opciones en el gate SDD (crear `E2b`/`E9` vs reutilizar `E2`), el PO aprobó la **opción A**: reutilizar el template **E2** con `COMUNICACION.es_reenvio = true`. Esto encaja con el índice UNIQUE parcial `(reserva_id, codigo_email) WHERE es_reenvio = false` (permite N reenvíos por reserva) y con el precedente de US-023/US-028. Sin migración del enum `CodigoEmail`.
+>
+> **Envío real del E2 en edición y reenvío (change `presupuesto-edicion-reenvio-email-real`, 2026-07-20):** antes de este change, la edición cortocircuitaba el proveedor (camino idempotente devolvía `motivo='idempotente'`) y el reenvío sin cambios era un stub no-op. Ambos flujos ahora invocan al proveedor via `DespacharEmailService.despacharReenvio`. En la edición con envío, la variable `esEdicion=true` (derivada en servidor, no entra por el contrato) activa asunto y párrafo de "presupuesto actualizado" en ES y CA. El reenvío usa `esEdicion=false` (texto E2 estándar). El `PRESUPUESTO.pdf_url` se persiste ahora en el flujo de generación (UC-14) y en el de edición (UC-15); el reenvío sin cambios reutiliza ese `pdf_url` sin regenerar. La `COMUNICACION` E2 es fuente única post-commit (sin fila contable duplicada en la transacción).
 
 **Flujo Básico:**
 1. El sistema detecta el trigger

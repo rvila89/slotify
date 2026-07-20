@@ -34,6 +34,7 @@ export class DispararE2Adapter implements DispararE2Port {
     tenantId: string;
     reservaId: string;
     pdfUrl: string | null;
+    esEdicion?: boolean;
   }): Promise<void> {
     const reserva = await this.prisma.$transaction(async (tx) => {
       await this.prisma.fijarTenant(tx, params.tenantId);
@@ -67,9 +68,9 @@ export class DispararE2Adapter implements DispararE2Port {
       });
     }
 
-    await this.motorEmail.despachar({
+    const comando = {
       tenantId: params.tenantId,
-      codigoEmail: 'E2',
+      codigoEmail: 'E2' as const,
       reserva: { idReserva: reserva.idReserva, codigo: reserva.codigo },
       cliente: {
         idCliente: reserva.cliente.idCliente,
@@ -80,6 +81,17 @@ export class DispararE2Adapter implements DispararE2Port {
       },
       adjuntos,
       idioma: reserva.idioma,
-    });
+    };
+
+    // EDICIÓN (D1/D2): envío REAL por el camino de reenvío (salta la idempotencia,
+    // crea la ÚNICA fila COMUNICACION `es_reenvio=true` y ENVÍA por el transporte) con
+    // la marca de edición hasta el render de E2 ("presupuesto actualizado"). El primer
+    // envío (US-014) NO trae `esEdicion` → sigue por el camino IDEMPOTENTE `despachar`.
+    if (params.esEdicion === true) {
+      await this.motorEmail.despacharReenvio({ ...comando, esEdicion: true });
+      return;
+    }
+
+    await this.motorEmail.despachar(comando);
   }
 }

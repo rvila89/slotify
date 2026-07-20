@@ -18,8 +18,6 @@
 import { Injectable } from '@nestjs/common';
 import {
   AccionAudit,
-  CodigoEmail as CodigoEmailPrisma,
-  EstadoComunicacion as EstadoComunicacionPrisma,
   EstadoPresupuesto as EstadoPresupuestoPrisma,
   MetodoPago as MetodoPagoPrisma,
   OrigenExtra as OrigenExtraPrisma,
@@ -29,8 +27,6 @@ import {
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type {
   AuditoriaEdicionPort,
-  ComunicacionE2Reenvio,
-  ComunicacionesRepositoryPort,
   CrearVersionParams,
   ExtrasRepositoryPort,
   LineaExtraAMaterializar,
@@ -161,56 +157,6 @@ class ExtrasPrismaRepository implements ExtrasRepositoryPort {
   }
 }
 
-/** Repositorio tx-bound de COMUNICACION (E2 de reenvío, `es_reenvio=true`). */
-class ComunicacionesPrismaRepository implements ComunicacionesRepositoryPort {
-  constructor(private readonly tx: Prisma.TransactionClient) {}
-
-  async registrarE2Reenvio(params: {
-    tenantId: string;
-    reservaId: string;
-    codigoEmail: 'E2';
-    estado: 'enviado';
-    esReenvio: true;
-  }): Promise<ComunicacionE2Reenvio> {
-    const reserva = await this.tx.reserva.findFirst({
-      where: { idReserva: params.reservaId, tenantId: params.tenantId },
-      include: { cliente: true },
-    });
-    if (reserva === null || reserva.cliente === null) {
-      throw new Error(
-        `No se encontró la RESERVA/CLIENTE para registrar la COMUNICACION E2 (${params.reservaId})`,
-      );
-    }
-    const fila = await this.tx.comunicacion.create({
-      data: {
-        tenantId: params.tenantId,
-        reservaId: params.reservaId,
-        clienteId: reserva.clienteId,
-        codigoEmail: CodigoEmailPrisma.E2,
-        asunto: 'Presupuesto actualizado',
-        cuerpo: null,
-        destinatarioEmail: reserva.cliente.email ?? '',
-        estado: EstadoComunicacionPrisma.enviado,
-        fechaEnvio: new Date(),
-        // es_reenvio=true para quedar FUERA del índice UNIQUE parcial (US-028 D-4).
-        esReenvio: true,
-      },
-      select: {
-        idComunicacion: true,
-        codigoEmail: true,
-        estado: true,
-        esReenvio: true,
-      },
-    });
-    return {
-      idComunicacion: fila.idComunicacion,
-      codigoEmail: fila.codigoEmail,
-      estado: fila.estado,
-      esReenvio: fila.esReenvio,
-    };
-  }
-}
-
 /** Repositorio tx-bound de AUDIT_LOG (`accion='actualizar'`). */
 class AuditoriaEdicionPrismaRepository implements AuditoriaEdicionPort {
   constructor(private readonly tx: Prisma.TransactionClient) {}
@@ -248,7 +194,6 @@ export class EditarPresupuestoUoWPrismaAdapter
       const repos: ReposEditarPresupuesto = {
         presupuestos: new PresupuestoVersionPrismaRepository(tx),
         extras: new ExtrasPrismaRepository(tx),
-        comunicaciones: new ComunicacionesPrismaRepository(tx),
         auditoria: new AuditoriaEdicionPrismaRepository(tx),
       };
       return trabajo(repos);

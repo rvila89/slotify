@@ -162,6 +162,8 @@ export const DialogosFicha = ({
       onAbiertoChange={dialogos.editarPresupuesto[1]}
       onEditado={onEditadoPresupuesto}
       onReenviado={onReenviadoPresupuesto}
+      invitadosIniciales={reserva.numAdultosNinosMayores4 ?? undefined}
+      duracionInicial={reserva.duracionHoras ?? undefined}
     />
     <ConfirmarSenalDialog
       reservaId={reservaId}

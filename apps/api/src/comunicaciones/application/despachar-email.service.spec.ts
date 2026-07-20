@@ -130,7 +130,7 @@ const crearComunicacionesFake = (
     ),
     // fix-borrador-e1-cuerpo-prerelleno: UPDATE de contenido del borrador (ajeno al motor).
     actualizarContenidoBorrador: jest.fn(
-      async (p: { asunto: string; cuerpo: string }): Promise<ComunicacionRegistrada> => {
+      async (_p: { asunto: string; cuerpo: string }): Promise<ComunicacionRegistrada> => {
         creado = { ...(creado as ComunicacionRegistrada) };
         return creado;
       },
@@ -196,6 +196,63 @@ const montar = (opts: Montaje = {}) => {
     clock,
   };
 };
+
+// ===========================================================================
+// esEdicion — propagación de la MARCA DE EDICIÓN hasta el render
+//   (change `presupuesto-edicion-reenvio-email-real`, tasks.md 3.3 motor) — TDD RED.
+//
+// D2: `esEdicion` es un flag OPCIONAL de `DespacharEmailComando` (default `false`) que
+// `construirVariables` DEBE inyectar en el mapa de variables pasado a `render(...)`, de
+// modo que la plantilla E2 pueda decidir la variante "presupuesto actualizado". Se
+// verifica sobre el camino REAL de la edición (`despacharReenvio`) y también sobre
+// `despachar`; y que su ausencia NO ensucia las variables (reenvío sin marca).
+//
+// RED: hoy `construirVariables` NO conoce `esEdicion` → el render recibe variables SIN
+// esa clave y estas aserciones FALLAN por comportamiento. GREEN es de `backend-developer`.
+// ===========================================================================
+
+describe('DespacharEmailService — propagación de esEdicion al render', () => {
+  // `esEdicion` es un flag opcional server-side de `DespacharEmailComando`. Se pasa por
+  // cast mientras el tipo no lo declare, para que el RED sea de COMPORTAMIENTO (variables
+  // sin la marca) y no un fallo de tipos del resto de la suite.
+  const conEsEdicion = (
+    over: Partial<DespacharEmailComando> = {},
+  ): DespacharEmailComando =>
+    ({ ...comandoBase(over), esEdicion: true }) as DespacharEmailComando & {
+      esEdicion: boolean;
+    };
+
+  it('despacharReenvio_debe_propagar_esEdicion_true_a_las_variables_del_render', async () => {
+    const plantilla = crearPlantillaFake();
+    const { motor } = montar({ catalogo: crearCatalogoFake(plantilla) });
+
+    await motor.despacharReenvio(conEsEdicion());
+
+    const variables = plantilla.render.mock.calls[0][0];
+    expect(variables).toMatchObject({ esEdicion: true });
+  });
+
+  it('despachar_debe_propagar_esEdicion_true_a_las_variables_del_render', async () => {
+    const plantilla = crearPlantillaFake();
+    const { motor } = montar({ catalogo: crearCatalogoFake(plantilla) });
+
+    await motor.despachar(conEsEdicion());
+
+    const variables = plantilla.render.mock.calls[0][0];
+    expect(variables).toMatchObject({ esEdicion: true });
+  });
+
+  it('sin_esEdicion_el_render_no_recibe_la_marca_como_true_reenvio_sin_marca', async () => {
+    const plantilla = crearPlantillaFake();
+    const { motor } = montar({ catalogo: crearCatalogoFake(plantilla) });
+
+    await motor.despacharReenvio(comandoBase());
+
+    const variables = plantilla.render.mock.calls[0][0] as Record<string, unknown>;
+    // Reenvío sin cambios: la marca NO va a true (default false o ausente).
+    expect(variables.esEdicion ?? false).toBe(false);
+  });
+});
 
 // ===========================================================================
 // 2.1 — Selección de plantilla por código + idioma del tenant (fallback `es`)

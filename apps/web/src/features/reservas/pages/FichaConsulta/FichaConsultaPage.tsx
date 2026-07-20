@@ -289,8 +289,20 @@ export const FichaConsultaPage = () => {
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }
           }}
-          onEditadoPresupuesto={(datos) => avisos.mostrarEdicion({ clase: 'edicion', datos })}
-          onReenviadoPresupuesto={(datos) => avisos.mostrarEdicion({ clase: 'reenvio', datos })}
+          onEditadoPresupuesto={(datos) => {
+            avisos.mostrarEdicion({ clase: 'edicion', datos });
+            // Sube al top para que el banner de éxito quede visible (mismo patrón
+            // que onConfirmadoPresupuesto).
+            if (typeof window !== 'undefined') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          }}
+          onReenviadoPresupuesto={(datos) => {
+            avisos.mostrarEdicion({ clase: 'reenvio', datos });
+            if (typeof window !== 'undefined') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          }}
           onConfirmadoSenal={avisos.mostrarSenal}
           onForzado={avisos.mostrarForzar}
           onFinalizado={avisos.mostrarFinalizar}

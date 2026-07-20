@@ -50,6 +50,7 @@ import type {
   CalculadoraTarifaService,
   CalculoTarifaResultado,
 } from '../../tarifas/domain/calculadora-tarifa.service';
+import type { GuardarPdfUrlPresupuestoPort } from './generar-presupuesto.use-case';
 
 // ---------------------------------------------------------------------------
 // Tipos de comando / entrada
@@ -240,6 +241,12 @@ export interface DispararE2EdicionPort {
     tenantId: string;
     reservaId: string;
     pdfUrl: string | null;
+    /**
+     * Marca de EDICIÓN (D1/D2): cuando el disparo proviene de una edición con envío,
+     * el adaptador enruta por `despacharReenvio` (envío real, no idempotente) y propaga
+     * la marca hasta el render de E2 ("presupuesto actualizado").
+     */
+    esEdicion?: boolean;
   }): Promise<void>;
 }
 
@@ -322,23 +329,16 @@ export interface ExtrasRepositoryPort {
   }): Promise<{ lineas: unknown[] }>;
 }
 
-/** COMUNICACION E2 de reenvío registrada. */
+/**
+ * COMUNICACION E2 de reenvío proyectada (respuesta HTTP optimista). La fila real la
+ * escribe el motor de email post-commit (`despacharReenvio`), fuente única (D1): la
+ * edición/reenvío YA NO persiste una segunda fila COMUNICACION dentro de la tx.
+ */
 export interface ComunicacionE2Reenvio {
   idComunicacion: string;
   codigoEmail: string;
   estado: string;
   esReenvio: boolean;
-}
-
-/** Repositorio tx-bound de COMUNICACION (E2 de reenvío, `es_reenvio=true`). */
-export interface ComunicacionesRepositoryPort {
-  registrarE2Reenvio(params: {
-    tenantId: string;
-    reservaId: string;
-    codigoEmail: 'E2';
-    estado: 'enviado';
-    esReenvio: true;
-  }): Promise<ComunicacionE2Reenvio>;
 }
 
 /** Registro de auditoría de la edición/reenvío. */
@@ -357,11 +357,14 @@ export interface AuditoriaEdicionPort {
   registrar(registro: RegistroAuditoriaEdicion): Promise<void>;
 }
 
-/** Conjunto de repositorios disponibles dentro de la unidad de trabajo. */
+/**
+ * Conjunto de repositorios disponibles dentro de la unidad de trabajo. NO incluye
+ * COMUNICACION: la fila E2 la escribe el motor de email post-commit (fuente única D1),
+ * nunca dentro de la tx de edición (evita el doble-registro).
+ */
 export interface ReposEditarPresupuesto {
   presupuestos: PresupuestoVersionRepositoryPort;
   extras: ExtrasRepositoryPort;
-  comunicaciones: ComunicacionesRepositoryPort;
   auditoria: AuditoriaEdicionPort;
 }
 
@@ -391,6 +394,8 @@ export interface EditarPresupuestoDeps {
   clock: ClockPort;
   /** Disparo del E2 post-commit (opcional en tests unitarios sin BD). */
   dispararE2?: DispararE2EdicionPort;
+  /** Persistencia best-effort de `pdf_url` de la v2 (opcional en tests sin BD). */
+  guardarPdfUrl?: GuardarPdfUrlPresupuestoPort;
 }
 
 /**
@@ -415,6 +420,14 @@ export interface ReenviarPresupuestoDeps {
   registrarE2Reenvio(params: Record<string, unknown>): Promise<ComunicacionE2Reenvio>;
   registrarAuditoria(registro: Record<string, unknown>): Promise<void>;
   clock: ClockPort;
+  /**
+   * (Re)generación del PDF del presupuesto vigente (best-effort, opcional). Se usa para
+   * presupuestos HISTÓRICOS previos al fix de persistencia de `pdf_url`: si el vigente no
+   * tiene `pdf_url` (null), se regenera antes de despachar para que el reenvío siga
+   * llevando adjunto. Sin puerto configurado (tests sin BD) → se reenvía con el
+   * `pdf_url` vigente tal cual.
+   */
+  generarPdf?: GenerarPdfEdicionPort;
 }
 
 // ---------------------------------------------------------------------------
@@ -707,7 +720,6 @@ export class EditarPresupuestoUseCase {
     ): Promise<{
       presupuesto: PresupuestoVersionCreada;
       lineas: unknown[];
-      comunicacion: ComunicacionE2Reenvio | null;
     }> => {
       const maxVersion = await repos.presupuestos.versionMaxima({
         tenantId: comando.tenantId,
@@ -758,17 +770,10 @@ export class EditarPresupuestoUseCase {
         lineas,
       });
 
-      // COMUNICACION E2 (es_reenvio=true) solo al ENVIAR.
-      let comunicacion: ComunicacionE2Reenvio | null = null;
-      if (comando.enviar) {
-        comunicacion = await repos.comunicaciones.registrarE2Reenvio({
-          tenantId: comando.tenantId,
-          reservaId: comando.reservaId,
-          codigoEmail: 'E2',
-          estado: 'enviado',
-          esReenvio: true,
-        });
-      }
+      // D1 (fuente única post-commit): la fila COMUNICACION E2 (`es_reenvio=true`) YA NO
+      // se escribe dentro de la transacción — la persiste el motor de email post-commit
+      // (`despacharReenvio` vía `dispararE2PostCommit`), evitando el doble registro. La
+      // respuesta HTTP proyecta `comunicacion` con estado OPTIMISTA (ver más abajo).
 
       // AUDIT_LOG accion='actualizar' referenciando el nuevo PRESUPUESTO (siempre).
       await repos.auditoria.registrar({
@@ -784,13 +789,12 @@ export class EditarPresupuestoUseCase {
         },
       });
 
-      return { presupuesto, lineas: lineasPersistidas, comunicacion };
+      return { presupuesto, lineas: lineasPersistidas };
     };
 
     let salida: {
       presupuesto: PresupuestoVersionCreada;
       lineas: unknown[];
-      comunicacion: ComunicacionE2Reenvio | null;
     } | null = null;
     for (let intento = 0; intento < MAX_REINTENTOS_VERSION; intento += 1) {
       try {
@@ -800,7 +804,6 @@ export class EditarPresupuestoUseCase {
         )) as {
           presupuesto: PresupuestoVersionCreada;
           lineas: unknown[];
-          comunicacion: ComunicacionE2Reenvio | null;
         };
         break;
       } catch (error) {
@@ -817,10 +820,21 @@ export class EditarPresupuestoUseCase {
     }
 
     // Post-commit (FUERA de la tx): PDF + E2 (solo al enviar). Un fallo aquí NO
-    // revierte la versión ya comprometida.
+    // revierte la versión ya comprometida. El envío enruta por `despacharReenvio`
+    // (envío REAL, no idempotente) con la marca de edición (D1/D2).
+    let comunicacion: ComunicacionE2Reenvio | null = null;
     if (comando.enviar) {
       const pdfUrl = await this.generarPdfPostCommit(comando, salida.presupuesto);
       await this.dispararE2PostCommit(comando, pdfUrl ?? salida.presupuesto.pdfUrl);
+      // Proyección OPTIMISTA (D1): la fila real (con su estado enviado/fallido) la
+      // escribe el motor post-commit; la respuesta HTTP proyecta el encolado como
+      // `enviado` / `esReenvio=true` sin depender de la fila de la tx (ya eliminada).
+      comunicacion = {
+        idComunicacion: '',
+        codigoEmail: 'E2',
+        estado: 'enviado',
+        esReenvio: true,
+      };
     }
 
     return {
@@ -828,7 +842,7 @@ export class EditarPresupuestoUseCase {
       tarifaId,
       reparto,
       lineasExtras: salida.lineas,
-      comunicacion: salida.comunicacion,
+      comunicacion,
     };
   }
 
@@ -1091,13 +1105,18 @@ export class EditarPresupuestoUseCase {
     }
   }
 
-  /** Genera el PDF de la nueva versión post-commit. Un fallo se traga (no revierte). */
+  /**
+   * Genera el PDF de la nueva versión post-commit y PERSISTE su `pdf_url` en la fila
+   * (best-effort) para que el REENVÍO sin cambios disponga del adjunto. Un fallo (de la
+   * generación o de la persistencia) se traga: NO revierte la versión ya comprometida.
+   */
   private async generarPdfPostCommit(
     comando: EditarPresupuestoConfirmarComando,
     presupuesto: PresupuestoVersionCreada,
   ): Promise<string | null> {
+    let pdfUrl: string | null;
     try {
-      return await this.deps.generarPdf({
+      pdfUrl = await this.deps.generarPdf({
         tenantId: comando.tenantId,
         reservaId: comando.reservaId,
         idPresupuesto: presupuesto.idPresupuesto,
@@ -1105,9 +1124,35 @@ export class EditarPresupuestoUseCase {
     } catch {
       return null;
     }
+    if (pdfUrl !== null) {
+      await this.persistirPdfUrl(comando.tenantId, presupuesto.idPresupuesto, pdfUrl);
+    }
+    return pdfUrl;
   }
 
-  /** Dispara el E2 post-commit (idempotente). Sin puerto configurado → no-op. */
+  /** Persiste `pdf_url` en la fila del PRESUPUESTO (best-effort; un fallo NO propaga). */
+  private async persistirPdfUrl(
+    tenantId: string,
+    idPresupuesto: string,
+    pdfUrl: string,
+  ): Promise<void> {
+    if (this.deps.guardarPdfUrl === undefined) {
+      return;
+    }
+    try {
+      await this.deps.guardarPdfUrl({ tenantId, idPresupuesto, pdfUrl });
+    } catch {
+      // Best-effort: si no se puede persistir la URL no se revierte nada (el envío usa
+      // la URL en memoria); el reenvío defensivo regenerará el PDF si `pdf_url` sigue null.
+    }
+  }
+
+  /**
+   * Dispara el E2 post-commit de la EDICIÓN. Enruta por el camino de reenvío real del
+   * motor (`despacharReenvio`, no idempotente) y propaga la MARCA DE EDICIÓN
+   * (`esEdicion=true`, derivada en servidor) hasta el render de E2. Sin puerto
+   * configurado → no-op (tests unitarios sin BD). Best-effort: un fallo no revierte.
+   */
   private async dispararE2PostCommit(
     comando: EditarPresupuestoConfirmarComando,
     pdfUrl: string | null,
@@ -1119,6 +1164,7 @@ export class EditarPresupuestoUseCase {
       tenantId: comando.tenantId,
       reservaId: comando.reservaId,
       pdfUrl,
+      esEdicion: true,
     });
   }
 }
@@ -1161,11 +1207,14 @@ export class ReenviarPresupuestoUseCase {
       throw new PresupuestoNoEditableError();
     }
 
-    // Reenvía el PDF de la versión vigente (SIN crear versión ni número).
+    // Reenvía el PDF de la versión vigente (SIN crear versión ni número). Para
+    // presupuestos HISTÓRICOS sin `pdf_url` persistido (previos al fix), se regenera el
+    // PDF del vigente para que el reenvío siga llevando adjunto (best-effort).
+    const pdfUrl = await this.resolverPdfVigente(comando, vigente);
     await this.deps.reenviarE2({
       tenantId: comando.tenantId,
       reservaId: comando.reservaId,
-      pdfUrl: vigente.pdfUrl,
+      pdfUrl,
     });
 
     const comunicacion = await this.deps.registrarE2Reenvio({
@@ -1186,5 +1235,29 @@ export class ReenviarPresupuestoUseCase {
     });
 
     return { presupuesto: vigente, comunicacion };
+  }
+
+  /**
+   * Resuelve el `pdf_url` a adjuntar en el reenvío. Si el vigente ya tiene URL (flujo
+   * normal tras el fix de persistencia), la reutiliza. Si es null (presupuesto histórico
+   * previo al fix) y hay puerto de generación, regenera el PDF del vigente (best-effort:
+   * un fallo NO impide el reenvío, solo lo deja sin adjunto).
+   */
+  private async resolverPdfVigente(
+    comando: ReenviarPresupuestoComando,
+    vigente: PresupuestoVigente,
+  ): Promise<string | null> {
+    if (vigente.pdfUrl !== null || this.deps.generarPdf === undefined) {
+      return vigente.pdfUrl;
+    }
+    try {
+      return await this.deps.generarPdf({
+        tenantId: comando.tenantId,
+        reservaId: comando.reservaId,
+        idPresupuesto: vigente.idPresupuesto,
+      });
+    } catch {
+      return null;
+    }
   }
 }

@@ -236,3 +236,159 @@ describe('CatalogoPlantillasEnCodigo — E2 en español con texto de marca (work
     expect(render?.asunto).not.toContain('(');
   });
 });
+
+// ===========================================================================
+// MARCA DE EDICIÓN E2 (`esEdicion`) — change `presupuesto-edicion-reenvio-email-real`,
+//   tasks.md 3.1 — fase TDD RED.
+//
+// La plantilla E2 recibe una variable OPCIONAL `esEdicion` (booleana, derivada en
+// servidor, default `false`; NO entra por el contrato). Cuando es `true` (envío
+// disparado por una EDICIÓN del presupuesto), renderiza la variante "presupuesto
+// actualizado": cambia el ASUNTO y ANTEPONE un párrafo tras el saludo «Hola {nombre},».
+// Con `esEdicion` ausente/false conserva el texto E2 ESTÁNDAR (primer envío / reenvío
+// sin cambios). `variablesRequeridas` sigue `['nombre','codigoReserva']` (`esEdicion`
+// NO es requerida).
+//
+// Trazabilidad: design.md D2 (propagación server-side; reenvío sin marca); spec-delta
+// `presupuestos` §ADDED "Marca de edición en el email E2 (asunto y párrafo, ES/CA)"
+// (Scenarios ES/CA y "Sin marca de edición se conserva el E2 estándar").
+//
+// RED: hoy `renderE2`/`renderE2Ca` IGNORAN `variables.esEdicion` → el asunto es siempre
+// «Tu presupuesto…»/«El teu pressupost…» y no hay párrafo de "actualizado". Estas
+// aserciones FALLAN por comportamiento hasta que `backend-developer` amplíe el render.
+// GREEN es de `backend-developer`.
+// ===========================================================================
+
+const CODIGO_EDICION = '26-0001';
+
+// Copys EXACTOS de la marca de edición (proposal.md / spec-delta ADDED).
+const ASUNTO_EDICION_ES = `Hemos actualizado tu presupuesto para el evento (reserva ${CODIGO_EDICION})`;
+const ASUNTO_EDICION_CA = `Hem actualitzat el teu pressupost per a l'esdeveniment (reserva ${CODIGO_EDICION})`;
+const PARRAFO_EDICION_ES =
+  'Hemos actualizado el presupuesto que te enviamos con los cambios solicitados. Te adjuntamos la versión revisada.';
+const PARRAFO_EDICION_CA =
+  "Hem actualitzat el pressupost que et vam enviar amb els canvis sol·licitats. T'adjuntem la versió revisada.";
+
+describe('CatalogoPlantillasEnCodigo — E2 marca de edición esEdicion=true (ES)', () => {
+  it('debe_renderizar_el_asunto_de_presupuesto_actualizado_en_ES', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const render = catalogo
+      .seleccionar('E2', 'es')
+      ?.render({ nombre: 'Marta', codigoReserva: CODIGO_EDICION, esEdicion: true });
+
+    expect(render?.asunto).toBe(ASUNTO_EDICION_ES);
+    // NO conserva el asunto estándar del primer envío.
+    expect(render?.asunto).not.toBe(
+      `Tu presupuesto para el evento (reserva ${CODIGO_EDICION})`,
+    );
+  });
+
+  it('debe_anteponer_el_parrafo_de_actualizado_tras_el_saludo_en_ES', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const render = catalogo
+      .seleccionar('E2', 'es')
+      ?.render({ nombre: 'Marta', codigoReserva: CODIGO_EDICION, esEdicion: true });
+
+    expect(render?.cuerpoTexto).toContain(PARRAFO_EDICION_ES);
+    expect(render?.cuerpoHtml).toContain('Hemos actualizado el presupuesto que te enviamos');
+    // El párrafo va JUSTO tras el saludo «Hola Marta,» (antes del resto de marca).
+    const idxSaludo = render!.cuerpoTexto.indexOf('Hola Marta,');
+    const idxParrafo = render!.cuerpoTexto.indexOf(PARRAFO_EDICION_ES);
+    expect(idxSaludo).toBeGreaterThanOrEqual(0);
+    expect(idxParrafo).toBeGreaterThan(idxSaludo);
+  });
+
+  it('debe_conservar_el_resto_del_texto_de_marca_del_tenant_en_la_edicion_ES', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const render = catalogo
+      .seleccionar('E2', 'es')
+      ?.render({ nombre: 'Marta', codigoReserva: CODIGO_EDICION, esEdicion: true });
+    const cuerpo = `${render?.cuerpoTexto} ${render?.cuerpoHtml}`;
+
+    expect(cuerpo).toContain('40%');
+    expect(cuerpo).toContain('Canoliart, SL');
+    expect(cuerpo).toContain('Ari');
+  });
+});
+
+describe('CatalogoPlantillasEnCodigo — E2 marca de edición esEdicion=true (CA)', () => {
+  it('debe_renderizar_el_asunto_de_pressupost_actualitzat_en_CA', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const render = catalogo
+      .seleccionar('E2', 'ca')
+      ?.render({ nombre: 'Marta', codigoReserva: CODIGO_EDICION, esEdicion: true });
+
+    expect(render?.asunto).toBe(ASUNTO_EDICION_CA);
+    expect(render?.asunto).not.toBe(
+      `El teu pressupost per a l'esdeveniment (reserva ${CODIGO_EDICION})`,
+    );
+  });
+
+  it('debe_anteponer_el_parrafo_de_actualitzat_tras_el_saludo_en_CA', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const render = catalogo
+      .seleccionar('E2', 'ca')
+      ?.render({ nombre: 'Marta', codigoReserva: CODIGO_EDICION, esEdicion: true });
+
+    expect(render?.cuerpoTexto).toContain(PARRAFO_EDICION_CA);
+    expect(render?.cuerpoHtml).toContain('Hem actualitzat el pressupost que et vam enviar');
+    const idxSaludo = render!.cuerpoTexto.indexOf('Hola Marta,');
+    const idxParrafo = render!.cuerpoTexto.indexOf(PARRAFO_EDICION_CA);
+    expect(idxSaludo).toBeGreaterThanOrEqual(0);
+    expect(idxParrafo).toBeGreaterThan(idxSaludo);
+  });
+});
+
+describe('CatalogoPlantillasEnCodigo — E2 SIN marca de edición conserva el texto estándar', () => {
+  it('con_esEdicion_false_el_asunto_ES_es_el_estandar_sin_el_parrafo_de_actualizado', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const render = catalogo
+      .seleccionar('E2', 'es')
+      ?.render({ nombre: 'Marta', codigoReserva: CODIGO_EDICION, esEdicion: false });
+
+    expect(render?.asunto).toBe(`Tu presupuesto para el evento (reserva ${CODIGO_EDICION})`);
+    expect(render?.cuerpoTexto).not.toContain(PARRAFO_EDICION_ES);
+  });
+
+  it('con_esEdicion_ausente_el_asunto_ES_es_el_estandar_sin_el_parrafo_de_actualizado', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const render = catalogo
+      .seleccionar('E2', 'es')
+      ?.render({ nombre: 'Marta', codigoReserva: CODIGO_EDICION });
+
+    expect(render?.asunto).toBe(`Tu presupuesto para el evento (reserva ${CODIGO_EDICION})`);
+    expect(render?.cuerpoTexto).not.toContain(PARRAFO_EDICION_ES);
+  });
+
+  it('con_esEdicion_ausente_el_asunto_CA_es_el_estandar_sin_el_parrafo_de_actualitzat', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const render = catalogo
+      .seleccionar('E2', 'ca')
+      ?.render({ nombre: 'Marta', codigoReserva: CODIGO_EDICION });
+
+    expect(render?.asunto).toBe(
+      `El teu pressupost per a l'esdeveniment (reserva ${CODIGO_EDICION})`,
+    );
+    expect(render?.cuerpoTexto).not.toContain(PARRAFO_EDICION_CA);
+  });
+
+  it('la_marca_de_edicion_no_cambia_las_variablesRequeridas_de_E2', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    // `esEdicion` es OPCIONAL: no se añade a `variablesRequeridas`.
+    expect(catalogo.seleccionar('E2', 'es')?.variablesRequeridas).toEqual(
+      ['nombre', 'codigoReserva'],
+    );
+    expect(catalogo.seleccionar('E2', 'ca')?.variablesRequeridas).toEqual(
+      ['nombre', 'codigoReserva'],
+    );
+  });
+});
