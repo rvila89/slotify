@@ -22,19 +22,30 @@
  * flujo, garantizando exactamente-una-vez sin estado intermedio observable.
  */
 import { Injectable } from '@nestjs/common';
-import { AccionAudit, Prisma, SubEstadoConsulta } from '@prisma/client';
+import {
+  AccionAudit,
+  CodigoEmail,
+  EstadoComunicacion,
+  Prisma,
+  SubEstadoConsulta,
+} from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import {
   CambiarFechaConflictoError,
+  type ComunicacionesCambioFechaPort,
+  type CrearBorradorE1Params,
+  type EntradaColaHermana,
   type EstadoFechaDestino,
   type FechaBloqueadaCambioRepositoryPort,
   type PromocionColaCambioPort,
   type RegistroAuditoriaCambiarFecha,
+  type ReordenamientoCola,
   type RepositoriosCambiarFecha,
   type ReservaCambioFecha,
   type ReservaCambioFechaRepositoryPort,
   type UnidadDeTrabajoCambiarFechaPort,
 } from '../application/cambiar-fecha.use-case';
+import { renderMensajeTransicionFecha } from '../application/plantilla-transicion-fecha';
 import type { EstadoReserva as EstadoReservaDominio } from '../domain/maquina-estados';
 import {
   planificarPromocionCola,
@@ -48,6 +59,7 @@ import {
   subEstadoPrismaADominio,
   type SubEstadoConsultaPrisma,
 } from './sub-estado-consulta.mapper';
+import { duracionHorasPrismaANumero } from './duracion-horas.mapper';
 
 const formatearFecha = (fecha: Date): string => fecha.toISOString().slice(0, 10);
 
@@ -76,13 +88,29 @@ const esColisionFecha = (error: unknown): boolean => {
   );
 };
 
-/** Fila cruda de la RESERVA bloqueada con `SELECT … FOR UPDATE`. */
+/** Fila cruda de la RESERVA bloqueada con `SELECT … FOR UPDATE` (+ datos de cola/cliente). */
 interface FilaReserva {
   id_reserva: string;
   tenant_id: string;
   estado: EstadoReservaDominio;
   sub_estado: SubEstadoConsultaPrisma | null;
   fecha_evento: Date | null;
+  posicion_cola: number | null;
+  consulta_bloqueante_id: string | null;
+  cliente_id: string;
+  idioma: string;
+  num_invitados_final: number | null;
+  duracion_horas: string | null;
+  cliente_nombre: string | null;
+  cliente_email: string | null;
+}
+
+/** Fila cruda de un hermano de la cola vieja (rama 2d). */
+interface FilaColaHermana {
+  id_reserva: string;
+  sub_estado: SubEstadoConsultaPrisma | null;
+  posicion_cola: number | null;
+  consulta_bloqueante_id: string | null;
 }
 
 /** Fila cruda del estado de la fecha destino (JOIN FECHA_BLOQUEADA × RESERVA). */
@@ -107,17 +135,27 @@ interface FilaColaBloqueada {
 class ReservaCambioFechaPrismaRepository
   implements ReservaCambioFechaRepositoryPort
 {
-  constructor(private readonly tx: Prisma.TransactionClient) {}
+  constructor(
+    private readonly tx: Prisma.TransactionClient,
+    private readonly ttlConsultaDias: number,
+  ) {}
 
   async buscarPorId(params: {
     tenantId: string;
     reservaId: string;
   }): Promise<ReservaCambioFecha | null> {
+    // Se carga también cola (posicion/bloqueante) y datos de cliente para la rama 2d
+    // (salida de cola + borrador E1). El JOIN a cliente no rompe la 2b/2c/2v (campos
+    // opcionales en la proyección). `FOR UPDATE OF r` serializa SOLO la fila de reserva.
     const filas = await this.tx.$queryRaw<FilaReserva[]>(Prisma.sql`
-      SELECT id_reserva, tenant_id, estado, sub_estado, fecha_evento
-      FROM reserva
-      WHERE id_reserva = ${params.reservaId} AND tenant_id = ${params.tenantId}
-      FOR UPDATE
+      SELECT r.id_reserva, r.tenant_id, r.estado, r.sub_estado, r.fecha_evento,
+             r.posicion_cola, r.consulta_bloqueante_id, r.cliente_id, r.idioma,
+             r.num_invitados_final, r.duracion_horas,
+             c.nombre AS cliente_nombre, c.email AS cliente_email
+      FROM reserva r
+      JOIN cliente c ON c.id_cliente = r.cliente_id
+      WHERE r.id_reserva = ${params.reservaId} AND r.tenant_id = ${params.tenantId}
+      FOR UPDATE OF r
     `);
     if (filas.length === 0) {
       return null;
@@ -130,6 +168,14 @@ class ReservaCambioFechaPrismaRepository
       subEstado:
         fila.sub_estado === null ? null : subEstadoPrismaADominio(fila.sub_estado),
       fechaEvento: fila.fecha_evento,
+      posicionCola: fila.posicion_cola,
+      consultaBloqueanteId: fila.consulta_bloqueante_id,
+      clienteId: fila.cliente_id,
+      idioma: fila.idioma,
+      clienteNombre: fila.cliente_nombre ?? '',
+      clienteEmail: fila.cliente_email ?? '',
+      numInvitadosFinal: fila.num_invitados_final,
+      duracionHoras: duracionHorasPrismaANumero(fila.duracion_horas),
     };
   }
 
@@ -151,6 +197,134 @@ class ReservaCambioFechaPrismaRepository
           : subEstadoPrismaADominio(fila.subEstado as SubEstadoConsultaPrisma),
       fechaEvento: fila.fechaEvento,
     };
+  }
+
+  async moverFueraDeCola(params: {
+    idReserva: string;
+    fechaEvento: Date;
+  }): Promise<ReservaCambioFecha> {
+    // TTL del bloqueo blando (now()+ttl_consulta_dias del tenant), coherente con `bloquear`.
+    const plan = resolverPlanBloqueo({
+      fase: '2.b',
+      ahora: new Date(),
+      settings: {
+        ttlConsultaDias: this.ttlConsultaDias,
+        ttlPrereservaDias: this.ttlConsultaDias,
+      },
+    });
+    const fila = await this.tx.reserva.update({
+      where: { idReserva: params.idReserva },
+      data: {
+        fechaEvento: params.fechaEvento,
+        subEstado: subEstadoDominioAPrisma('2b') as SubEstadoConsulta,
+        posicionCola: null,
+        consultaBloqueanteId: null,
+        ttlExpiracion: plan.ttl,
+      },
+    });
+    return {
+      idReserva: fila.idReserva,
+      tenantId: fila.tenantId,
+      estado: fila.estado as EstadoReservaDominio,
+      subEstado:
+        fila.subEstado === null
+          ? null
+          : subEstadoPrismaADominio(fila.subEstado as SubEstadoConsultaPrisma),
+      fechaEvento: fila.fechaEvento,
+    };
+  }
+
+  async leerColaHermana(params: {
+    tenantId: string;
+    consultaBloqueanteId: string;
+  }): Promise<EntradaColaHermana[]> {
+    // Serializa las filas de la cola vieja (mismo bloqueante) con FOR UPDATE.
+    const filas = await this.tx.$queryRaw<FilaColaHermana[]>(Prisma.sql`
+      SELECT id_reserva, sub_estado, posicion_cola, consulta_bloqueante_id
+      FROM reserva
+      WHERE tenant_id = ${params.tenantId}
+        AND consulta_bloqueante_id = ${params.consultaBloqueanteId}
+        AND sub_estado = 's2d'
+      FOR UPDATE
+    `);
+    return filas.map((fila) => ({
+      reservaId: fila.id_reserva,
+      subEstado:
+        fila.sub_estado === null ? '2d' : subEstadoPrismaADominio(fila.sub_estado),
+      posicionCola: fila.posicion_cola ?? 0,
+      consultaBloqueanteId: fila.consulta_bloqueante_id ?? '',
+    }));
+  }
+
+  async reordenarCola(reordenamientos: ReordenamientoCola[]): Promise<void> {
+    // Orden ASCENDENTE de posición destino para no violar el índice UNIQUE parcial
+    // (tenant_id, consulta_bloqueante_id, posicion_cola).
+    const ordenados = [...reordenamientos].sort(
+      (a, b) => a.posicionCola - b.posicionCola,
+    );
+    for (const reordenamiento of ordenados) {
+      await this.tx.reserva.update({
+        where: { idReserva: reordenamiento.idReserva },
+        data: { posicionCola: reordenamiento.posicionCola },
+      });
+    }
+  }
+}
+
+/**
+ * Repositorio de COMUNICACION tx-bound de la rama 2d: crea el borrador E1 `'disponible'`
+ * (upsert por `(reserva, E1)`, sin envío). Reutiliza `renderMensajeTransicionFecha` (misma
+ * plantilla que la transición de fecha). Coherente con el patrón del change
+ * `email-transicion-fecha-borrador`.
+ */
+class ComunicacionCambioFechaPrismaRepository
+  implements ComunicacionesCambioFechaPort
+{
+  constructor(private readonly tx: Prisma.TransactionClient) {}
+
+  async crearBorradorE1(params: CrearBorradorE1Params): Promise<void> {
+    const { asunto, cuerpo } = renderMensajeTransicionFecha({
+      tipo: params.tipo,
+      idioma: params.idioma,
+      nombre: params.clienteNombre,
+      fechaEvento: params.fechaEvento,
+      personas: params.personas,
+      horas: params.horas,
+    });
+
+    const existente = await this.tx.comunicacion.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        reservaId: params.reservaId,
+        codigoEmail: CodigoEmail.E1,
+      },
+      select: { idComunicacion: true },
+    });
+
+    const datos = {
+      asunto,
+      cuerpo,
+      destinatarioEmail: params.clienteEmail,
+      estado: EstadoComunicacion.borrador,
+      fechaEnvio: params.fechaEnvio,
+    };
+
+    if (existente === null) {
+      await this.tx.comunicacion.create({
+        data: {
+          tenantId: params.tenantId,
+          reservaId: params.reservaId,
+          clienteId: params.clienteId,
+          codigoEmail: CodigoEmail.E1,
+          ...datos,
+        },
+      });
+      return;
+    }
+    await this.tx.comunicacion.update({
+      where: { idComunicacion: existente.idComunicacion },
+      data: datos,
+    });
   }
 }
 
@@ -460,7 +634,7 @@ export class CambiarFechaUoWPrismaAdapter
       // RLS: primera operación de la transacción (SET LOCAL app.tenant_id).
       await this.prisma.fijarTenant(tx, tenantId);
       const repos: RepositoriosCambiarFecha = {
-        reservas: new ReservaCambioFechaPrismaRepository(tx),
+        reservas: new ReservaCambioFechaPrismaRepository(tx, ttlConsultaDias),
         fechaBloqueada: new FechaBloqueadaCambioPrismaRepository(
           tx,
           this.fechaBloqueadaAdapter,
@@ -471,6 +645,7 @@ export class CambiarFechaUoWPrismaAdapter
           this.fechaBloqueadaAdapter,
           ttlConsultaDias,
         ),
+        comunicaciones: new ComunicacionCambioFechaPrismaRepository(tx),
         auditoria: new AuditLogCambioFechaPrismaRepository(tx),
       };
       return trabajo(repos);
