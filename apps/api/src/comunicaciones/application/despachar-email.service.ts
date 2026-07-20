@@ -37,6 +37,7 @@ import type {
 import { ComunicacionDuplicadaError } from '../domain/comunicacion.repository.port';
 import type { TenantSettingsPort } from '../domain/tenant-settings.port';
 import type { CodigoEmail } from '../domain/codigo-email';
+import type { SubtipoEmail } from '../domain/subtipo-email';
 import type {
   AdjuntoRef,
   EnviarEmailComando,
@@ -84,6 +85,13 @@ export interface DespacharEmailComando {
   idioma?: string;
   /** Adjuntos por referencia disponibles para el envío. */
   adjuntos?: AdjuntoRef[];
+  /**
+   * Subtipo semántico del E1 (change `historial-completo-comunicaciones`, §D-autosend).
+   * Clava la idempotencia sobre la TERNA `(reserva, codigo, subtipo)`: un envío consumado
+   * de OTRO subtipo NO cortocircuita este despacho. Ausente para E2–E8 (idempotencia por
+   * `(reserva, codigo, NULL)`).
+   */
+  subtipo?: SubtipoEmail;
 }
 
 /** Motivo del resultado del despacho. */
@@ -154,11 +162,15 @@ export class DespacharEmailService {
       (await this.deps.tenantSettings.obtenerIdioma(tenantId)) ??
       IDIOMA_DEFECTO;
 
-    // 2. Idempotencia: si ya existe la comunicación, no duplica ni reenvía.
+    // 2. Idempotencia (§D-autosend): SOLO un envío CONSUMADO de la MISMA terna
+    //    `(reserva, codigo, subtipo)` frena un nuevo auto-envío. Subtipos distintos o
+    //    borradores previos NO cortocircuitan (son emails legítimos distintos).
     const existente = await this.deps.comunicaciones.buscarPorReservaYCodigo({
       tenantId,
       reservaId: reserva.idReserva,
       codigoEmail,
+      subtipo: comando.subtipo ?? null,
+      estado: 'enviado',
     });
     if (existente !== null) {
       return { comunicacion: existente, motivo: 'idempotente' };
@@ -201,6 +213,7 @@ export class DespacharEmailService {
         destinatarioEmail: cliente.email ?? '',
         estado: 'borrador',
         fechaEnvio: null,
+        subtipo: comando.subtipo ?? null,
       });
       return { comunicacion: borrador, motivo: 'borrador' };
     }
@@ -245,6 +258,7 @@ export class DespacharEmailService {
         destinatarioEmail: cliente.email as string,
         estado: 'borrador',
         fechaEnvio: null,
+        subtipo: comando.subtipo ?? null,
       });
     } catch (error) {
       if (error instanceof ComunicacionDuplicadaError) {
@@ -252,6 +266,8 @@ export class DespacharEmailService {
           tenantId,
           reservaId: reserva.idReserva,
           codigoEmail,
+          subtipo: comando.subtipo ?? null,
+          estado: 'enviado',
         });
         return { comunicacion: yaExiste, motivo: 'idempotente' };
       }

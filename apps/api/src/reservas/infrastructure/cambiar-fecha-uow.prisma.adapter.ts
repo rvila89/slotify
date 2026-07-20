@@ -28,6 +28,7 @@ import {
   EstadoComunicacion,
   Prisma,
   SubEstadoConsulta,
+  SubtipoEmail as SubtipoEmailPrisma,
 } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import {
@@ -272,10 +273,17 @@ class ReservaCambioFechaPrismaRepository
 }
 
 /**
- * Repositorio de COMUNICACION tx-bound de la rama 2d: crea el borrador E1 `'disponible'`
- * (upsert por `(reserva, E1)`, sin envío). Reutiliza `renderMensajeTransicionFecha` (misma
- * plantilla que la transición de fecha). Coherente con el patrón del change
- * `email-transicion-fecha-borrador`.
+ * Repositorio de COMUNICACION tx-bound del cambio de fecha: INSERTA una fila NUEVA E1
+ * `borrador` con el `subtipo` que le pasa el caso de uso (change
+ * `historial-completo-comunicaciones`, §D-insert-no-upsert / §D-subtipo). El subtipo es
+ * DEPENDIENTE de la RAMA (no del `tipo` de plantilla): salida de cola (2d → 2b) →
+ * `fecha_disponible`; cambio de fecha de una 2b → `cambio_fecha`. Reutiliza
+ * `renderMensajeTransicionFecha` (misma plantilla `disponible` de transición de fecha).
+ *
+ * Se ABANDONA el upsert manual (`findFirst` + `update`) previo: cada evento es un email
+ * distinto, no una sobrescritura del E1 anterior; el historial conserva todas las E1. No
+ * colisiona con el índice UNIQUE parcial: este solo restringe la terna en filas
+ * `estado = 'enviado'`, y esta E1 nace `borrador`, `es_reenvio = false`.
  */
 class ComunicacionCambioFechaPrismaRepository
   implements ComunicacionesCambioFechaPort
@@ -292,38 +300,20 @@ class ComunicacionCambioFechaPrismaRepository
       horas: params.horas,
     });
 
-    const existente = await this.tx.comunicacion.findFirst({
-      where: {
+    await this.tx.comunicacion.create({
+      data: {
         tenantId: params.tenantId,
         reservaId: params.reservaId,
+        clienteId: params.clienteId,
         codigoEmail: CodigoEmail.E1,
+        asunto,
+        cuerpo,
+        destinatarioEmail: params.clienteEmail,
+        estado: EstadoComunicacion.borrador,
+        fechaEnvio: params.fechaEnvio,
+        // §D-subtipo: el caso de uso decide el subtipo según la RAMA.
+        subtipo: params.subtipo as SubtipoEmailPrisma,
       },
-      select: { idComunicacion: true },
-    });
-
-    const datos = {
-      asunto,
-      cuerpo,
-      destinatarioEmail: params.clienteEmail,
-      estado: EstadoComunicacion.borrador,
-      fechaEnvio: params.fechaEnvio,
-    };
-
-    if (existente === null) {
-      await this.tx.comunicacion.create({
-        data: {
-          tenantId: params.tenantId,
-          reservaId: params.reservaId,
-          clienteId: params.clienteId,
-          codigoEmail: CodigoEmail.E1,
-          ...datos,
-        },
-      });
-      return;
-    }
-    await this.tx.comunicacion.update({
-      where: { idComunicacion: existente.idComunicacion },
-      data: datos,
     });
   }
 }

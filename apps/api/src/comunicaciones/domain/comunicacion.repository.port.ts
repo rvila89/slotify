@@ -10,6 +10,7 @@
  * trata como "ya existe" sin error de usuario (red de seguridad ante carreras).
  */
 import type { CodigoEmail, EstadoComunicacion } from './codigo-email';
+import type { SubtipoEmail } from './subtipo-email';
 
 /** Proyección de una `COMUNICACION` registrada (lo que el motor necesita). */
 export interface ComunicacionRegistrada {
@@ -46,14 +47,32 @@ export interface RegistrarComunicacionParams {
    * automático normal, protegido por el índice. Default en persistencia: `false`.
    */
   esReenvio?: boolean;
+  /**
+   * Subtipo semántico del E1 (change `historial-completo-comunicaciones`, §D-subtipo).
+   * Participa en la TERNA `(reserva_id, codigo_email, subtipo)` del índice UNIQUE parcial.
+   * `null`/ausente para E2–E8, `manual` y filas legadas.
+   */
+  subtipo?: SubtipoEmail | null;
 }
 
-/** Clave de búsqueda idempotente por reserva + código. */
+/**
+ * Clave de búsqueda idempotente clavada sobre la TERNA `(reserva, codigo, subtipo)`
+ * (change `historial-completo-comunicaciones`, §D-autosend). El chequeo previo del motor
+ * solo cortocircuita ante un envío CONSUMADO (`estado = 'enviado'`) de la MISMA terna;
+ * subtipos distintos y borradores no frenan un nuevo auto-envío.
+ */
 export interface BuscarComunicacionParams {
   /** Tenant emisor (del trigger): se fija como contexto RLS en la búsqueda. */
   tenantId: string;
   reservaId: string;
   codigoEmail: CodigoEmail;
+  /** Subtipo de la terna (`null`/ausente para E2–E8). */
+  subtipo?: SubtipoEmail | null;
+  /**
+   * Estado a exigir en la fila buscada. El motor lo fija a `'enviado'` (§D-autosend):
+   * solo un envío consumado de la terna se trata como idempotente.
+   */
+  estado?: EstadoComunicacion;
 }
 
 /** Parámetros de actualización del estado tras el resultado del envío. */
@@ -105,6 +124,11 @@ export interface ComunicacionListItem {
   /** Cuerpo real de la fila (lo precarga el diálogo de revisión del frontend). */
   cuerpo: string | null;
   destinatarioEmail: string;
+  /**
+   * Subtipo semántico del E1 (change `historial-completo-comunicaciones`, §D-subtipo):
+   * `null` para E2–E8, `manual` y filas legadas. El frontend renderiza su etiqueta humana.
+   */
+  subtipo: SubtipoEmail | null;
   fechaCreacion: Date;
   fechaEnvio: Date | null;
   esReenvio: boolean;
@@ -114,7 +138,12 @@ export interface ComunicacionListItem {
 
 /** Repositorio de la trazabilidad de comunicaciones. */
 export interface ComunicacionRepositoryPort {
-  /** Comunicación existente para `(reservaId, codigoEmail)` o `null` (idempotencia). */
+  /**
+   * Comunicación existente para la TERNA `(reservaId, codigoEmail, subtipo)` filtrando
+   * por `estado` cuando se aporta, o `null` (idempotencia §D-autosend). El motor lo llama
+   * con `estado: 'enviado'` para tratar como idempotente SOLO un envío consumado de la
+   * misma terna (subtipos distintos coexisten).
+   */
   buscarPorReservaYCodigo(
     params: BuscarComunicacionParams,
   ): Promise<ComunicacionRegistrada | null>;

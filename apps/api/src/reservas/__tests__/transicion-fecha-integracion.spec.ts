@@ -244,19 +244,17 @@ describe('Transición sobre fecha LIBRE → 2.b + bloqueo blando atómico (3.2)'
 });
 
 // ===========================================================================
-// BUG 2 (US-005 QA) — Colisión de COMUNICACION E1 en el camino normal: el alta
+// HISTORIAL (historial-completo-comunicaciones §D-insert-no-upsert) — El alta
 // (US-003/004) crea SIEMPRE una E1 (reserva, E1); la transición sobre una reserva
-// que YA tiene su E1 debe HACER UPSERT (no `create`), evitando el P2002 del UNIQUE
-// parcial `uq_comunicacion_reserva_codigo`. Tras la operación debe existir EXACTAMENTE
-// UNA fila (reserva, E1).
-//
-// CAMBIO (email-transicion-fecha-borrador): el UPSERT deja la E1 en `borrador` con el
-// texto DINÁMICO de la plantilla "disponible" (no el texto viejo hardcodeado) y NO la
-// auto-envía (fecha_envio = null, estado NO pasa a `enviado`).
+// que YA tiene su E1 (incluso `enviado`) INSERTA una fila NUEVA `borrador` etiquetada
+// con su `subtipo` (NO sobrescribe la previa, NO P2002). El E1 `enviado` previo lleva
+// subtipo NULL y `borrador` nuevo lleva `fecha_disponible`: distintos en la terna y
+// fuera del predicado `estado = 'enviado'` del índice, así que coexisten. Tras la
+// operación hay DOS filas (reserva, E1): la enviada legada + la borrador nueva.
 // ===========================================================================
 
-describe('Transición sobre reserva 2.a CON E1 previa → UPSERT a borrador sin P2002 (BUG 2)', () => {
-  it('debe_transicionar_a_2b_sin_P2002_y_dejar_exactamente_una_E1_en_borrador_con_la_plantilla_disponible', async () => {
+describe('Transición sobre reserva 2.a CON E1 previa → INSERT de una E1 borrador nueva sin P2002 (historial)', () => {
+  it('debe_transicionar_a_2b_sin_P2002_y_conservar_la_E1_previa_e_insertar_una_E1_borrador_fecha_disponible', async () => {
     const { reservaId, clienteId } = await sembrarReservaConCliente({
       estado: EstadoReserva.consulta,
       subEstado: SubEstadoConsulta.s2a,
@@ -284,20 +282,28 @@ describe('Transición sobre reserva 2.a CON E1 previa → UPSERT a borrador sin 
     const reserva = await prisma.reserva.findUnique({ where: { idReserva: reservaId } });
     expect(reserva?.subEstado).toBe(SubEstadoConsulta.s2b);
 
-    // (b) Existe EXACTAMENTE UNA fila (reserva, E1): el upsert reutilizó la previa.
+    // (b) Existen DOS filas (reserva, E1): la previa enviada se CONSERVA (no se
+    //     sobrescribe) y se INSERTA la nueva del evento «añadir fecha».
     const e1s = await prisma.comunicacion.findMany({
       where: { reservaId, codigoEmail: CodigoEmail.E1 },
+      orderBy: { fechaCreacion: 'asc' },
     });
-    expect(e1s).toHaveLength(1);
+    expect(e1s).toHaveLength(2);
 
-    // (c) NUEVO: queda en `borrador`, sin envío (fecha_envio = null), con la plantilla
-    //     dinámica "disponible" — no el texto viejo hardcodeado.
-    expect(e1s[0]?.estado).toBe(EstadoComunicacion.borrador);
-    expect(e1s[0]?.fechaEnvio).toBeNull();
-    expect(e1s[0]?.asunto).not.toBe('Hemos reservado provisionalmente tu fecha');
-    expect(e1s[0]?.cuerpo).not.toContain('bloqueado provisionalmente la fecha');
-    expect(e1s[0]?.cuerpo).toContain('disponible');
-    expect(e1s[0]?.cuerpo).toContain("Ari — Masia l'Encís");
+    // (c) La previa sigue `enviado` intacta.
+    const previa = e1s.find((c) => c.estado === EstadoComunicacion.enviado);
+    expect(previa?.asunto).toBe('Respuesta inicial a tu consulta');
+
+    // (d) La NUEVA es `borrador`, sin envío, subtipo `fecha_disponible`, con la
+    //     plantilla dinámica "disponible" — no el texto viejo hardcodeado.
+    const nueva = e1s.find((c) => c.estado === EstadoComunicacion.borrador);
+    expect(nueva).toBeDefined();
+    expect(nueva?.fechaEnvio).toBeNull();
+    expect(nueva?.subtipo).toBe('fecha_disponible');
+    expect(nueva?.asunto).not.toBe('Hemos reservado provisionalmente tu fecha');
+    expect(nueva?.cuerpo).not.toContain('bloqueado provisionalmente la fecha');
+    expect(nueva?.cuerpo).toContain('disponible');
+    expect(nueva?.cuerpo).toContain("Ari — Masia l'Encís");
   });
 });
 
@@ -318,9 +324,11 @@ describe('Transición LIBRE → borrador E1 "disponible" SIN envío (3.2 email-b
     const e1s = await prisma.comunicacion.findMany({
       where: { reservaId, codigoEmail: CodigoEmail.E1 },
     });
-    // Exactamente una E1, en borrador, sin fecha de envío.
+    // Exactamente una E1 (la reserva sembrada NO traía E1 previa), en borrador, sin
+    // fecha de envío, etiquetada con subtipo `fecha_disponible` (historial §D-subtipo).
     expect(e1s).toHaveLength(1);
     expect(e1s[0]?.estado).toBe(EstadoComunicacion.borrador);
+    expect(e1s[0]?.subtipo).toBe('fecha_disponible');
     expect(e1s[0]?.fechaEnvio).toBeNull();
     // Texto de la plantilla "disponible" (redacción dinámica), no el literal viejo.
     expect(e1s[0]?.asunto?.trim().length ?? 0).toBeGreaterThan(0);
@@ -417,6 +425,7 @@ describe('Transición sobre fecha bloqueada por 2.b → cola 2.d (3.3)', () => {
     });
     expect(e1s).toHaveLength(1);
     expect(e1s[0]?.estado).toBe(EstadoComunicacion.borrador);
+    expect(e1s[0]?.subtipo).toBe('cola_espera');
     expect(e1s[0]?.fechaEnvio).toBeNull();
     expect(e1s[0]?.asunto?.trim().length ?? 0).toBeGreaterThan(0);
     // Frase clave de la plantilla "cola" (castellano por defecto: reserva sin idioma 'ca').

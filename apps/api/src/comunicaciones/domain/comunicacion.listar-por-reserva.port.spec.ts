@@ -43,6 +43,8 @@ const filaBorrador: ComunicacionListItem = {
   asunto: 'Consulta recibida',
   cuerpo: '<p>Borrador de la consulta recibida</p>',
   destinatarioEmail: EMAIL,
+  // historial-completo-comunicaciones (§D-subtipo): el E1 lleva su subtipo semántico.
+  subtipo: 'consulta_exploratoria',
   fechaCreacion: new Date('2026-07-15T08:00:00.000Z'),
   fechaEnvio: null,
   esReenvio: false,
@@ -57,6 +59,8 @@ const filaEnviada: ComunicacionListItem = {
   asunto: 'Presupuesto enviado',
   cuerpo: '<p>Presupuesto enviado</p>',
   destinatarioEmail: EMAIL,
+  // E2 no lleva subtipo (`null`): la taxonomía de subtipo solo aplica a E1.
+  subtipo: null,
   fechaCreacion: new Date('2026-07-16T09:00:00.000Z'),
   fechaEnvio: new Date('2026-07-16T09:05:00.000Z'),
   esReenvio: false,

@@ -356,11 +356,14 @@ describe('DespacharEmailService — E1 auto-envío vía adaptador FAKE', () => {
 });
 
 // ===========================================================================
-// 2.3 — Idempotencia (reserva_id, codigo_email): no duplica + carrera.
+// 2.3 — Idempotencia por la TERNA (reserva, codigo, subtipo) + estado='enviado': no
+//       duplica + carrera. (historial-completo-comunicaciones §D-autosend: el motor
+//       clava el chequeo sobre la terna y solo un envío CONSUMADO la cortocircuita; con
+//       subtipo ausente/NULL —E2–E8— se comporta como antes.)
 // ===========================================================================
 
-describe('DespacharEmailService — idempotencia por (reserva, código) (2.3)', () => {
-  it('no_debe_duplicar_ni_reenviar_cuando_ya_existe_una_comunicacion_del_mismo_codigo', async () => {
+describe('DespacharEmailService — idempotencia por la terna (reserva, código, subtipo) (2.3)', () => {
+  it('no_debe_duplicar_ni_reenviar_cuando_ya_existe_un_enviado_de_la_misma_terna', async () => {
     const existente: ComunicacionRegistrada = {
       idComunicacion: 'com-existente',
       tenantId: TENANT,
@@ -378,8 +381,15 @@ describe('DespacharEmailService — idempotencia por (reserva, código) (2.3)', 
 
     const resultado = await motor.despachar(comandoBase());
 
+    // §D-autosend: el chequeo previo clava sobre la terna (subtipo NULL para este comando
+    // sin subtipo) + estado 'enviado'.
     expect(comunicaciones.buscarPorReservaYCodigo).toHaveBeenCalledWith(
-      expect.objectContaining({ reservaId: RESERVA_ID, codigoEmail: 'E1' }),
+      expect.objectContaining({
+        reservaId: RESERVA_ID,
+        codigoEmail: 'E1',
+        subtipo: null,
+        estado: 'enviado',
+      }),
     );
     expect(comunicaciones.crear).not.toHaveBeenCalled();
     expect(enviarEmail.enviar).not.toHaveBeenCalled();

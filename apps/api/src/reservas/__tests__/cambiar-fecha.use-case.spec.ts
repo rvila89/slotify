@@ -236,6 +236,29 @@ describe('CambiarFecha — a fecha libre: bloquea nueva, mueve, libera antigua (
       expect(repos.reservas.actualizarFecha).toHaveBeenCalledTimes(1);
     },
   );
+
+  // historial-completo-comunicaciones (§D-insert-no-upsert / §D-subtipo): el cambio de
+  // fecha de una 2b (rama NO cola) ahora INSERTA un borrador E1 que informa de la NUEVA
+  // fecha, etiquetado `subtipo='cambio_fecha'`. Antes esta rama no generaba comunicación.
+  it('debe_insertar_un_borrador_E1_cambio_fecha_al_cambiar_la_fecha_de_una_2b', async () => {
+    const { deps, repos } = construir({ estadoFechaDestino: { tipo: 'libre' } });
+    const uc = new CambiarFechaUseCase(deps);
+
+    await uc.ejecutar(comando());
+
+    expect(repos.comunicaciones.crearBorradorE1).toHaveBeenCalledTimes(1);
+    expect(repos.comunicaciones.crearBorradorE1).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reservaId: RESERVA_ID,
+        codigoEmail: 'E1',
+        estado: 'borrador',
+        tipo: 'disponible',
+        subtipo: 'cambio_fecha',
+        fechaEvento: F2,
+        fechaEnvio: null,
+      }),
+    );
+  });
 });
 
 // ===========================================================================

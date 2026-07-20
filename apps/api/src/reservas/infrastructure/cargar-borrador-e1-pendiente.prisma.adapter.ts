@@ -31,6 +31,9 @@ export class CargarBorradorE1PendientePrismaAdapter
   ): Promise<BorradorE1Pendiente | null> {
     return this.prisma.$transaction(async (tx) => {
       await this.prisma.fijarTenant(tx, params.tenantId);
+      // §D-regenera-en-sitio: con historial completo pueden coexistir varias E1
+      // `borrador` (una por evento). La reedición de datos sin cambio de estado regenera
+      // EN SITIO el borrador ACTUAL, esto es, el más reciente (`fecha_creacion` desc).
       const fila = await tx.comunicacion.findFirst({
         where: {
           reservaId: params.reservaId,
@@ -38,6 +41,7 @@ export class CargarBorradorE1PendientePrismaAdapter
           codigoEmail: 'E1' as CodigoEmailPrisma,
           estado: 'borrador' as EstadoComunicacionPrisma,
         },
+        orderBy: { fechaCreacion: 'desc' },
         select: { idComunicacion: true },
       });
       if (fila === null) {
