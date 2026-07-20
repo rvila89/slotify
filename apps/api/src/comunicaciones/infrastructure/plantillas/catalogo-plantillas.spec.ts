@@ -75,8 +75,10 @@ describe('CatalogoPlantillasEnCodigo — E1 activa y E2–E8 diseñadas/inactiva
     const catalogo = new CatalogoPlantillasEnCodigo();
 
     // El MVP entrega `es` y `ca`; cualquier otro idioma (ej. `fr`) no está provisto →
-    // registro `es` como fallback, nunca una entrada específica de ese idioma.
-    expect(catalogo.seleccionar('E1', 'fr')?.idioma).toBe('es');
+    // `seleccionar` devuelve `null` para que el FALLBACK a `es` + AUDIT_LOG lo aplique el
+    // MOTOR (`DespacharEmailService`), no el catálogo (change
+    // `presupuesto-confirmar-ux-e2-idioma`, workstream E).
+    expect(catalogo.seleccionar('E1', 'fr')).toBeNull();
   });
 });
 

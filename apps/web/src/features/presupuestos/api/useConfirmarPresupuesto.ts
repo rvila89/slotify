@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api-client';
 import { reservaQueryKey } from '@/features/reservas';
+import { comunicacionesReservaQueryKey } from '@/features/comunicaciones';
 import { normalizarErrorPresupuesto } from './normalizarError';
 import type {
   ConfirmarPresupuestoRequest,
@@ -53,6 +54,9 @@ export const useConfirmarPresupuesto = () => {
         prev ? { ...prev, ...reserva } : reserva,
       );
       void queryClient.invalidateQueries({ queryKey: reservaQueryKey(id) });
+      // El presupuesto dispara el email E2 (post-commit): refresca también el
+      // listado de comunicaciones para que la nueva entrada aparezca sin recargar.
+      void queryClient.invalidateQueries({ queryKey: comunicacionesReservaQueryKey(id) });
     },
   });
 };

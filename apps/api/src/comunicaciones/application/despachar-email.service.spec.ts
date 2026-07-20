@@ -45,6 +45,7 @@ import type { TenantSettingsPort } from '../domain/tenant-settings.port';
 import type { EnviarEmailPort } from '../domain/enviar-email.port';
 import type { AuditLogPort } from '../../shared/audit/audit-log.port';
 import { FakeEmailAdapter } from '../infrastructure/fake-email.adapter';
+import { CatalogoPlantillasEnCodigo } from '../infrastructure/plantillas/catalogo-plantillas';
 
 // ---------------------------------------------------------------------------
 // Datos canónicos (alineados con apps/api/prisma/seed.ts — Masia l'Encís)
@@ -674,5 +675,83 @@ describe('DespacharEmailService — finalizarEnvio (envío post-commit de fila y
     const { motor } = montar({ comunicaciones, enviarEmail });
 
     await expect(motor.finalizarEnvio(paramsBase())).resolves.toBeDefined();
+  });
+});
+
+// ===========================================================================
+// 3.3 — El motor selecciona/renderiza E2 por el IDIOMA del comando (CA) contra el
+//        CATÁLOGO REAL, y cae a `es` (PLANTILLA_E2_ES) auditándolo cuando no hay
+//        variante E2 en el idioma pedido (p. ej. 'fr').
+//        Change `presupuesto-confirmar-ux-e2-idioma` — fase TDD RED.
+//
+// Trazabilidad: spec-delta `comunicaciones` (Scenario "E2 se selecciona por el idioma
+// del lead (RESERVA.idioma)": elige `PLANTILLA_E2_CA`; Scenario "E2 en un idioma sin
+// variante cae al español por defecto y lo audita": usa `PLANTILLA_E2_ES` + AUDIT_LOG).
+//
+// A diferencia de las baterías 2.x (catálogo FAKE), estos casos usan el catálogo REAL
+// `CatalogoPlantillasEnCodigo` para verificar que el motor selecciona la variante CA por
+// el `comando.idioma` y renderiza el texto CA. El comando necesita el adjunto
+// `presupuesto` (E2 lo requiere) para no bloquearse en el paso 6.
+//
+// RED: hoy `registroCa` NO tiene E2, así que `seleccionar('E2','ca')` cae a la plantilla
+// ES; el motor renderiza el asunto/cuerpo en español, no en catalán. La aserción del
+// asunto CA falla por comportamiento hasta que `backend-developer` registre
+// `PLANTILLA_E2_CA`. GREEN es de `backend-developer`.
+// ===========================================================================
+
+const comandoE2 = (idioma?: string): DespacharEmailComando => ({
+  tenantId: TENANT,
+  codigoEmail: 'E2',
+  reserva: { idReserva: RESERVA_ID, codigo: 'R-0001' },
+  cliente: {
+    idCliente: CLIENTE_ID,
+    nombre: 'Flori',
+    apellidos: 'Bosch',
+    email: EMAIL,
+    telefono: '600111222',
+  },
+  ...(idioma !== undefined ? { idioma } : {}),
+  adjuntos: [{ clave: 'presupuesto', nombre: 'p.pdf', pdfUrl: 'https://x/p.pdf' }],
+});
+
+describe('DespacharEmailService — E2 por idioma contra el catálogo REAL (3.3)', () => {
+  it('debe_seleccionar_y_renderizar_la_plantilla_E2_en_catalan_cuando_comando_idioma_es_ca', async () => {
+    const catalogoReal = new CatalogoPlantillasEnCodigo();
+    const { motor, enviarEmail } = montar({
+      catalogo: catalogoReal as unknown as CatalogoFake,
+    });
+
+    await motor.despachar(comandoE2('ca'));
+
+    expect(enviarEmail.enviar).toHaveBeenCalledTimes(1);
+    const comandoEnvio = (enviarEmail.enviar as jest.Mock).mock.calls[0][0];
+    expect(comandoEnvio.idioma).toBe('ca');
+    expect(comandoEnvio.asunto).toBe(
+      "El teu pressupost per a l'esdeveniment (reserva R-0001)",
+    );
+    // `comandoEnvio.cuerpo` es el HTML del render, donde el apóstrofo de `l'Encís` viaja
+    // htmlEscapeado (`l&#39;Encís`) — mismo escaping que exige la batería de catálogo E2.
+    expect(comandoEnvio.cuerpo).toContain(
+      'Moltes gràcies per confiar en la Masia l&#39;Encís',
+    );
+  });
+
+  it('debe_caer_a_PLANTILLA_E2_ES_y_auditar_el_fallback_cuando_el_idioma_no_tiene_variante_E2', async () => {
+    const catalogoReal = new CatalogoPlantillasEnCodigo();
+    const { motor, enviarEmail, auditoria } = montar({
+      catalogo: catalogoReal as unknown as CatalogoFake,
+    });
+
+    // 'fr' no tiene variante E2 → cae a `es` (PLANTILLA_E2_ES) y lo audita.
+    await motor.despachar(comandoE2('fr'));
+
+    const comandoEnvio = (enviarEmail.enviar as jest.Mock).mock.calls[0][0];
+    expect(comandoEnvio.idioma).toBe('es');
+    expect(comandoEnvio.asunto).toBe('Tu presupuesto para el evento (reserva R-0001)');
+    // Constancia del fallback de idioma en AUDIT_LOG.
+    expect(auditoria.registrar).toHaveBeenCalled();
+    const auditoriaSerializada = JSON.stringify(auditoria.registrar.mock.calls);
+    expect(auditoriaSerializada).toContain('fallback_idioma');
+    expect(auditoriaSerializada).toContain('fr');
   });
 });

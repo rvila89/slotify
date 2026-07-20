@@ -4,8 +4,8 @@
  *
  * INFRAESTRUCTURA que implementa el puerto de dominio `CatalogoPlantillasPort`:
  * registro tipado, indexado por `codigoEmail` + idioma, con render por interpolación
- * (sin motor de plantillas externo). MVP entrega el idioma `es`; otros idiomas
- * devuelven `null` para que el motor aplique el fallback a `es` + AUDIT_LOG.
+ * (sin motor de plantillas externo). Idiomas soportados: `es` y `ca`; cualquier otro
+ * idioma devuelve `null` para que el motor aplique el fallback a `es` + AUDIT_LOG.
  *
  * Cobertura E1–E8: **E1 está ACTIVA** (render real). **E2–E8** quedan DECLARADAS
  * como diseñadas/INACTIVAS (sin trigger cableado en este change); su render real se
@@ -144,41 +144,52 @@ const renderInactivo = (codigo: CodigoEmail) => (
 });
 
 /**
- * Render real de la plantilla E2 (presupuesto enviado al cliente). Se activa en el change
- * `presupuesto-prereserva-cta-descarte-y-e2` (workstream C / D-1): el cliente recibe el
- * presupuesto (PDF adjunto REQUERIDO) con la referencia de su reserva y los próximos pasos para
- * confirmar. Modelado sobre `renderE3`.
+ * Render real de la plantilla E2 en castellano (presupuesto enviado al cliente). Texto de marca
+ * definitivo del tenant (Masia l'Encís): pago anticipado del 40%, recálculo del listado final una
+ * semana antes, instrucciones de transferencia (destinatario "Canoliart, SL", concepto "Masia
+ * l'Encís"), condiciones particulares a devolver firmadas y firma «Ari — Masia l'Encís». El PDF del
+ * presupuesto es el adjunto REQUERIDO. `{nombre}` = nombre de pila; `{codigoReserva}` en el asunto.
  */
 const renderE2 = (variables: Record<string, unknown>): RenderPlantilla => {
   const nombre = texto(variables.nombre);
   const codigoReserva = texto(variables.codigoReserva);
   const referencia = codigoReserva === '' ? '' : ` (reserva ${codigoReserva})`;
   const asunto = `Tu presupuesto para el evento${referencia}`;
-  const cuerpoTexto = [
+  const parrafos = [
     `Hola ${nombre},`,
-    '',
-    'Adjuntamos el presupuesto para tu evento. En el PDF adjunto encontrarás el',
-    `detalle de la propuesta económica de tu reserva ${codigoReserva}.`,
-    '',
-    'Próximos pasos:',
-    '- Revisa con calma el presupuesto adjunto.',
-    '- Responde a este correo para confirmar y avanzar con la reserva.',
-    '- Cuando confirmes, coordinaremos contigo el pago de la señal.',
-    '',
-    'Un saludo.',
-  ].join('\n');
-  const cuerpoHtml = [
-    `<p>Hola ${htmlEscape(nombre)},</p>`,
-    '<p>Adjuntamos el presupuesto para tu evento. En el PDF adjunto encontrarás el ' +
-      `detalle de la propuesta económica de tu reserva ${htmlEscape(codigoReserva)}.</p>`,
-    '<p>Próximos pasos:</p>',
-    '<ul>',
-    '<li>Revisa con calma el presupuesto adjunto.</li>',
-    '<li>Responde a este correo para confirmar y avanzar con la reserva.</li>',
-    '<li>Cuando confirmes, coordinaremos contigo el pago de la señal.</li>',
-    '</ul>',
-    '<p>Un saludo.</p>',
-  ].join('');
+    "¡Muchas gracias por confiar en la Masia l'Encís!",
+    'Te adjuntamos el presupuesto para que podáis efectuar el pago anticipado del 40% del importe total y así dejar confirmada la reserva.\nEl presupuesto está basado en las personas que tienes confirmadas actualmente y, una semana antes de la reserva, nos pondremos en contacto contigo para concretar el listado final de asistentes. En ese momento recalcularemos el importe total si es necesario.',
+    'A la hora de realizar la transferencia, debes indicar como destinatario "Canoliart, SL" y, en el concepto, "Masia l\'Encís".\nTambién te adjuntamos las condiciones particulares, que deberéis devolver debidamente firmadas antes de la fecha de la reserva.',
+    'Si tienes cualquier duda o necesitas adaptar algún detalle del presupuesto, ¡estaremos encantados de ayudarte!\nUn abrazo,\nAri\nMasia l\'Encís',
+  ];
+  const cuerpoTexto = parrafos.join('\n\n');
+  const cuerpoHtml = parrafos
+    .map((p) => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  return { asunto, cuerpoHtml, cuerpoTexto };
+};
+
+/**
+ * Render real de la plantilla E2 en catalán (presupuesto enviado al cliente). Variante catalana del
+ * texto de marca del tenant, análoga a `renderE2` (ES). `{nombre}` = nombre de pila;
+ * `{codigoReserva}` en el asunto.
+ */
+const renderE2Ca = (variables: Record<string, unknown>): RenderPlantilla => {
+  const nombre = texto(variables.nombre);
+  const codigoReserva = texto(variables.codigoReserva);
+  const referencia = codigoReserva === '' ? '' : ` (reserva ${codigoReserva})`;
+  const asunto = `El teu pressupost per a l'esdeveniment${referencia}`;
+  const parrafos = [
+    `Hola ${nombre},`,
+    "Moltes gràcies per confiar en la Masia l'Encís!",
+    "T'adjuntem el pressupost perquè pugueu efectuar el pagament anticipat del 40% de l'import total i així deixar confirmada la reserva.\nEl pressupost està basat en les persones que tens confirmades actualment i, una setmana abans de la reserva, ens posarem en contacte amb tu per concretar el llistat final d'assistents. En aquest moment recalcularem l'import total si cal.",
+    "A l'hora de realitzar la transferència, cal indicar com a destinatari \"Canoliart, SL\" i, en el concepte, \"Masia l'Encís\".\nTambé t'adjuntem les condicions particulars, que haureu de retornar degudament signades abans de la data de la reserva.",
+    "Si tens qualsevol dubte o necessites adaptar algun detall del pressupost, estarem encantats d'ajudar-te!\nUna abraçada,\nAri\nMasia l'Encís",
+  ];
+  const cuerpoTexto = parrafos.join('\n\n');
+  const cuerpoHtml = parrafos
+    .map((p) => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
   return { asunto, cuerpoHtml, cuerpoTexto };
 };
 
@@ -255,6 +266,20 @@ const PLANTILLA_E2_ES: Plantilla = {
 };
 
 /**
+ * Plantilla E2 ACTIVA en `ca` (presupuesto enviado, workstream E del change
+ * `presupuesto-confirmar-ux-e2-idioma`). Mismo contrato que la variante `es`
+ * (`variablesRequeridas`, `adjuntosRequeridos`), con el texto de marca en catalán.
+ */
+const PLANTILLA_E2_CA: Plantilla = {
+  codigoEmail: 'E2',
+  idioma: 'ca',
+  activa: true,
+  variablesRequeridas: ['nombre', 'codigoReserva'],
+  adjuntosRequeridos: ['presupuesto'],
+  render: renderE2Ca,
+};
+
+/**
  * Plantilla E3 ACTIVA en `es` (factura de señal + condicions particulars, 6.4b). La factura de
  * señal es el adjunto REQUERIDO; las condicions particulars son OPCIONALES (degradan sin tumbar
  * el envío, §D-adjunto-condiciones), por eso NO figuran en `adjuntosRequeridos`.
@@ -321,6 +346,7 @@ export class CatalogoPlantillasEnCodigo implements CatalogoPlantillasPort {
     Plantilla
   >([
     ['E1', PLANTILLA_E1_CA],
+    ['E2', PLANTILLA_E2_CA],
     ...CODIGOS_DIFERIDOS.map(
       (codigo): [CodigoEmail, Plantilla] => [codigo, plantillaInactivaCa(codigo)],
     ),
@@ -330,7 +356,10 @@ export class CatalogoPlantillasEnCodigo implements CatalogoPlantillasPort {
     if (idioma === 'ca') {
       return this.registroCa.get(codigoEmail) ?? null;
     }
-    // 'es' y cualquier otro idioma → registro español.
-    return this.registroEs.get(codigoEmail) ?? null;
+    if (idioma === 'es') {
+      return this.registroEs.get(codigoEmail) ?? null;
+    }
+    // Idioma no soportado → `null` para que el motor active su fallback auditado a `es`.
+    return null;
   }
 }
