@@ -41,6 +41,13 @@ export interface EnviarEmailComando {
   asunto: string;
   /** Cuerpo del mensaje (texto/HTML según el adaptador). */
   cuerpo: string;
+  /**
+   * Formato del `cuerpo` en el borde de envío (change `consulta-fecha-borrador-fix`,
+   * design.md §D-2). `true` → el cuerpo YA es HTML (catálogo E1/E2/E3) y se envía intacto
+   * (sin doble-escape). `false`/ausente → el cuerpo es TEXTO PLANO (E1 de transición /
+   * email manual) y el adaptador lo convierte a HTML preservando párrafos y saltos.
+   */
+  cuerpoEsHtml?: boolean;
   /** Código de plantilla del catálogo (E1…E8 o manual). */
   codigoEmail: CodigoEmail;
   /** Idioma de la plantilla aplicada (opcional, US-045). */

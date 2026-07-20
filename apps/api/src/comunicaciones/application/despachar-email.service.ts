@@ -114,6 +114,12 @@ export interface FinalizarEnvioParams {
   asunto: string;
   cuerpo: string;
   codigoEmail: CodigoEmail;
+  /**
+   * Formato del `cuerpo` (design.md §D-2): `true` → ya es HTML (borrador del catálogo);
+   * `false`/ausente → texto plano (E1 de transición / email manual), se convierte a HTML
+   * en el borde de envío. El llamador declara el formato del cuerpo que persistió.
+   */
+  cuerpoEsHtml?: boolean;
   /** Adjuntos por referencia opcionales (ej. dossier de E1). */
   adjuntos?: AdjuntoRef[];
 }
@@ -411,6 +417,10 @@ export class DespacharEmailService {
         destinatario: params.destinatario,
         asunto: params.asunto,
         cuerpo: params.cuerpo,
+        // Propaga el formato declarado por el llamador (design.md §D-2).
+        ...(params.cuerpoEsHtml !== undefined
+          ? { cuerpoEsHtml: params.cuerpoEsHtml }
+          : {}),
         codigoEmail: params.codigoEmail,
         tenantId: params.tenantId,
         ...(params.adjuntos !== undefined && params.adjuntos.length > 0
@@ -503,6 +513,8 @@ export class DespacharEmailService {
       destinatario: comando.cliente.email as string,
       asunto: render.asunto,
       cuerpo: render.cuerpoHtml,
+      // El catálogo YA renderiza HTML (`cuerpoHtml`): se envía intacto (design.md §D-2).
+      cuerpoEsHtml: true,
       codigoEmail: comando.codigoEmail,
       idioma,
       tenantId: comando.tenantId,

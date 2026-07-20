@@ -36,6 +36,7 @@ const renderAcciones = (r: Reserva) =>
     <AccionesConsulta
       reserva={r}
       onAnadirFecha={noop}
+      onCambiarFecha={noop}
       onPendienteInvitados={noop}
       onProgramarVisita={noop}
       onRegistrarResultadoVisita={noop}
@@ -115,5 +116,75 @@ describe('AccionesConsulta — saneo de acciones en terminales', () => {
     renderAcciones(reserva());
     expect(screen.getAllByRole('button').length).toBeGreaterThan(0);
     expect(screen.queryByTestId('sin-acciones')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * change `consulta-fecha-borrador-fix` (design.md §D-4, spec-delta `consultas`):
+ *  - Un ÚNICO "Editar consulta": el CTA junto a "Generar presupuesto" bloqueado deja de
+ *    ser un segundo "Editar consulta" y pasa a resolver la falta de fecha ("Añadir fecha").
+ *  - "Cambiar fecha" visible en 2b/2c/2v (fecha ya bloqueada), ausente en 2a.
+ *  - Con borrador E1 pendiente: DESBLOQUEO PARCIAL — se ven "Editar consulta" y el CTA de
+ *    fecha junto al aviso ámbar; NO se ofrecen las downstream (presupuesto, visita…).
+ */
+describe('AccionesConsulta — un solo "Editar consulta" (dedupe)', () => {
+  it('en_2a_sin_datos_existe_un_unico_boton_editar_consulta', () => {
+    renderAcciones(reserva({ subEstado: '2a', fechaEvento: null }));
+    expect(screen.getAllByTestId('boton-editar-consulta')).toHaveLength(1);
+  });
+
+  it('el_CTA_junto_a_presupuesto_bloqueado_es_anadir_fecha_no_un_segundo_editar_consulta', () => {
+    // 2a sin fecha → presupuesto bloqueado por falta de fecha; el atajo resuelve el bloqueo
+    // con "Añadir fecha", NO duplicando "Editar consulta".
+    renderAcciones(reserva({ subEstado: '2a', fechaEvento: null }));
+
+    expect(screen.queryByTestId('boton-editar-consulta-presupuesto')).not.toBeInTheDocument();
+    expect(screen.getByTestId('boton-anadir-fecha')).toBeInTheDocument();
+  });
+});
+
+describe('AccionesConsulta — "Cambiar fecha" según el sub-estado', () => {
+  it.each(['2b', '2c', '2v'] as const)('se_muestra_en_%s_con_fecha_ya_bloqueada', (sub) => {
+    renderAcciones(reserva({ subEstado: sub }));
+    expect(screen.getByTestId('boton-cambiar-fecha')).toBeInTheDocument();
+  });
+
+  it('no_se_muestra_en_2a_exploratoria', () => {
+    renderAcciones(reserva({ subEstado: '2a', fechaEvento: null }));
+    expect(screen.queryByTestId('boton-cambiar-fecha')).not.toBeInTheDocument();
+  });
+});
+
+describe('AccionesConsulta — desbloqueo PARCIAL con borrador E1 pendiente', () => {
+  const conBorrador = (over: Partial<Reserva> = {}) =>
+    reserva({ subEstado: '2b', tieneBorradorE1Pendiente: true, ...over } as Partial<Reserva>);
+
+  it('muestra_editar_consulta_y_el_CTA_de_fecha_junto_al_aviso_ambar', () => {
+    renderAcciones(conBorrador());
+
+    expect(screen.getByTestId('aviso-borrador-e1-pendiente')).toBeInTheDocument();
+    expect(screen.getByTestId('boton-editar-consulta')).toBeInTheDocument();
+    // Gestión de fecha disponible: en 2b es "Cambiar fecha".
+    expect(screen.getByTestId('boton-cambiar-fecha')).toBeInTheDocument();
+  });
+
+  it('no_oculta_todas_las_acciones_editar_sigue_disponible', () => {
+    renderAcciones(conBorrador());
+    expect(screen.getByTestId('boton-editar-consulta')).toBeInTheDocument();
+  });
+
+  it('no_ofrece_las_acciones_downstream_presupuesto_ni_visita', () => {
+    renderAcciones(conBorrador());
+
+    expect(screen.queryByTestId('boton-generar-presupuesto')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('boton-programar-visita')).not.toBeInTheDocument();
+  });
+
+  it('en_2a_con_borrador_pendiente_ofrece_anadir_fecha_como_gestion_de_fecha', () => {
+    renderAcciones(conBorrador({ subEstado: '2a', fechaEvento: null }));
+
+    expect(screen.getByTestId('boton-editar-consulta')).toBeInTheDocument();
+    expect(screen.getByTestId('boton-anadir-fecha')).toBeInTheDocument();
+    expect(screen.queryByTestId('boton-generar-presupuesto')).not.toBeInTheDocument();
   });
 });

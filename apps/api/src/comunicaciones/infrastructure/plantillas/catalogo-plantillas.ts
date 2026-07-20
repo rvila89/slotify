@@ -18,23 +18,15 @@ import type {
   RenderPlantilla,
 } from '../../domain/catalogo-plantillas.port';
 import type { CodigoEmail } from '../../domain/codigo-email';
+import {
+  htmlEscape,
+  textoPlanoAHtml,
+} from '../../application/texto-plano-a-html';
 import { formatarFechaCA, formatarFechaES } from './formato-fecha';
 
 /** Texto seguro a partir de una variable (evita `undefined`/`null` en el render). */
 const texto = (valor: unknown): string =>
   valor === null || valor === undefined ? '' : String(valor);
-
-/**
- * Escapa caracteres HTML especiales en texto de usuario antes de interpolarlo en HTML.
- * Previene email content injection cuando el valor viene de input externo (ej. nombre del cliente).
- */
-const htmlEscape = (s: string): string =>
-  s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 
 /** Las 4 casuísticas de E1 según el estado de la fecha del evento. */
 type TipoE1 = 'sin_fecha' | 'fecha_disponible' | 'fecha_confirmada' | 'fecha_cola';
@@ -77,10 +69,7 @@ const renderE1Ca = (variables: Record<string, unknown>): RenderPlantilla => {
   }
 
   const cuerpoTexto = `Hola ${nombre},\n\n${blocIntro}\n\n${blocCentral}\n\n${blocCompartir}\n\n${blocContacte}`;
-  const cuerpoHtml = cuerpoTexto
-    .split('\n\n')
-    .map(p => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
-    .join('');
+  const cuerpoHtml = textoPlanoAHtml(cuerpoTexto);
 
   return { asunto, cuerpoHtml, cuerpoTexto };
 };
@@ -123,10 +112,7 @@ const renderE1Es = (variables: Record<string, unknown>): RenderPlantilla => {
   }
 
   const cuerpoTexto = `Hola ${nombre},\n\n${blocIntro}\n\n${blocCentral}\n\n${blocCompartir}\n\n${blocContacte}`;
-  const cuerpoHtml = cuerpoTexto
-    .split('\n\n')
-    .map(p => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
-    .join('');
+  const cuerpoHtml = textoPlanoAHtml(cuerpoTexto);
 
   return { asunto, cuerpoHtml, cuerpoTexto };
 };

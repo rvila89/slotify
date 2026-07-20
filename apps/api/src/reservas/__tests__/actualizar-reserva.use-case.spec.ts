@@ -66,6 +66,8 @@ const reservaActualizable = (
   numInvitadosFinal: null,
   horario: '11:00',
   notas: 'Prefieren jardín',
+  // Idioma de la RESERVA (proyección ampliada en `consulta-fecha-borrador-fix` §D-3).
+  idioma: 'es',
   ...over,
 });
 

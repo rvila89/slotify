@@ -17,6 +17,7 @@ import type {
   EnviarEmailComando,
   EnviarEmailPort,
 } from '../domain/enviar-email.port';
+import { textoPlanoAHtml } from '../application/texto-plano-a-html';
 
 /** Dirección de prueba de Resend usada en modo sandbox (no alcanza al cliente). */
 const DESTINATARIO_SANDBOX = 'delivered@resend.dev';
@@ -42,11 +43,20 @@ export class ResendEmailAdapter implements EnviarEmailPort {
       ? DESTINATARIO_SANDBOX
       : comando.destinatario;
 
+    // Borde de envío (design.md §D-2): el `html` preserva el formato. Si el cuerpo YA es
+    // HTML (catálogo E1/E2/E3, `cuerpoEsHtml === true`) se envía intacto (sin doble-escape);
+    // si es TEXTO PLANO (E1 de transición / email manual) se convierte con `textoPlanoAHtml`
+    // (`\n\n → <p>`, `\n → <br>`, escape). El `text` conserva siempre el cuerpo crudo.
+    const html =
+      comando.cuerpoEsHtml === true
+        ? comando.cuerpo
+        : textoPlanoAHtml(comando.cuerpo);
+
     const { data, error } = await this.cliente.emails.send({
       from: this.config.from,
       to: [destinatario],
       subject: comando.asunto,
-      html: comando.cuerpo,
+      html,
       text: comando.cuerpo,
       ...this.adjuntosResend(comando.adjuntos),
     });
