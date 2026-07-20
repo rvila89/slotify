@@ -56,24 +56,34 @@ export class ConfiguracionDocumentoPrismaAdapter
         conceptoTransferencia: fila.conceptoTransferencia,
       },
       textos: {
-        plantillaConceptoFiscal: fila.plantillaConceptoFiscal,
-        validesaTexto: fila.validesaTexto,
-        pieLegal: fila.pieLegal,
+        plantillaConceptoFiscal: {
+          ca: fila.plantillaConceptoFiscalCa,
+          es: fila.plantillaConceptoFiscalEs,
+        },
+        validesaTexto: {
+          ca: fila.validesaTextoCa,
+          es: fila.validesaTextoEs,
+        },
+        pieLegal: {
+          ca: fila.pieLegalCa,
+          es: fila.pieLegalEs,
+        },
       },
       condiciones: this.aCondiciones(fila.condiciones),
     };
   }
 
   /**
-   * Mapea la columna JSON `condiciones` (épico #6, 6.4a) al bloque del VO. La
-   * columna es `Json` (default `'{}'`): tolera filas sin poblar devolviendo un
-   * bloque vacío con secciones `[]` (la degradación a `null` la decide el adapter
-   * real, D3).
+   * Mapea la columna JSON `condiciones` (épico #6, 6.4a; bilingüe en
+   * `pdf-presupuesto-horario-idioma`) al bloque del VO. La columna es `Json` (default
+   * `'{}'`): tolera filas sin poblar devolviendo un bloque vacío con secciones `[]` (la
+   * degradación a `null` la decide el adapter real, D3).
    */
   private aCondiciones(valor: PlantillaDocumentoTenant['condiciones']): CondicionesDocumento {
     const bruto = (valor ?? {}) as Partial<CondicionesDocumento>;
+    const tituloVacio = { ca: '', es: '' };
     return {
-      titulo: bruto.titulo ?? '',
+      titulo: bruto.titulo ?? tituloVacio,
       secciones: Array.isArray(bruto.secciones) ? bruto.secciones : [],
     };
   }

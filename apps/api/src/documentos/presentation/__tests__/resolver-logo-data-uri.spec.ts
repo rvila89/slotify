@@ -43,11 +43,17 @@ const configConLogoUrl = (logoUrl: string | null): ConfiguracionDocumentoTenant 
     conceptoTransferencia: "Masia l'Encís",
   },
   textos: {
-    plantillaConceptoFiscal: 'Gestió ús espai de {nombreComercial} per esdeveniment',
-    validesaTexto: '10 DIES',
-    pieLegal: 'Validesa 10 dies.',
+    plantillaConceptoFiscal: {
+      ca: 'Gestió ús espai de {nombreComercial} per esdeveniment',
+      es: 'Gestión de uso del espacio de {nombreComercial} para evento',
+    },
+    validesaTexto: { ca: '10 DIES', es: '10 DÍAS' },
+    pieLegal: { ca: 'Validesa 10 dies.', es: 'Validez 10 días.' },
   },
-  condiciones: { titulo: 'Condicions Particulars', secciones: [] },
+  condiciones: {
+    titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
+    secciones: [],
+  },
 });
 
 const CLAVE_LOGO = `logos/${TENANT}.jpg`;

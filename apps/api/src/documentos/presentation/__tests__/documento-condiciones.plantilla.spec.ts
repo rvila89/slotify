@@ -55,19 +55,34 @@ const base = (): Omit<ConfiguracionDocumentoTenant, 'condiciones'> => ({
     conceptoTransferencia: "Masia l'Encís",
   },
   textos: {
-    plantillaConceptoFiscal: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
-    validesaTexto: '10 DIES',
-    pieLegal: 'Validesa 10 dies.',
+    plantillaConceptoFiscal: {
+      ca: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
+      es: 'Gestión del uso del espacio de {nombreComercial} para evento',
+    },
+    validesaTexto: { ca: '10 DIES', es: '10 DÍAS' },
+    pieLegal: { ca: 'Validesa 10 dies.', es: 'Validez 10 días.' },
   },
 });
 
 const configPiloto = (): ConfiguracionDocumentoTenant => ({
   ...base(),
   condiciones: {
-    titulo: 'Condicions Particulars',
+    titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
     secciones: [
-      { titulo: 'Reserva i pagament', cuerpo: 'La reserva es formalitza amb la senyal.' },
-      { titulo: 'Fiança', cuerpo: 'Es requereix una fiança abans de l’esdeveniment.' },
+      {
+        titulo: { ca: 'Reserva i pagament', es: 'Reserva y pago' },
+        cuerpo: {
+          ca: 'La reserva es formalitza amb la senyal.',
+          es: 'La reserva se formaliza con la señal.',
+        },
+      },
+      {
+        titulo: { ca: 'Fiança', es: 'Fianza' },
+        cuerpo: {
+          ca: 'Es requereix una fiança abans de l’esdeveniment.',
+          es: 'Se requiere una fianza antes del evento.',
+        },
+      },
     ],
   },
 });
@@ -76,14 +91,22 @@ const configOtroTenant = (): ConfiguracionDocumentoTenant => ({
   ...base(),
   tenantId: '00000000-0000-0000-0000-0000000000ff',
   condiciones: {
-    titulo: 'Condiciones Generales',
-    secciones: [{ titulo: 'Depósito', cuerpo: 'Se exige un depósito.' }],
+    titulo: { ca: 'Condiciones Generales', es: 'Condiciones Generales' },
+    secciones: [
+      {
+        titulo: { ca: 'Depósito', es: 'Depósito' },
+        cuerpo: { ca: 'Se exige un depósito.', es: 'Se exige un depósito.' },
+      },
+    ],
   },
 });
 
 const configSinSecciones = (): ConfiguracionDocumentoTenant => ({
   ...base(),
-  condiciones: { titulo: 'Condicions Particulars', secciones: [] },
+  condiciones: {
+    titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
+    secciones: [],
+  },
 });
 
 // ===========================================================================

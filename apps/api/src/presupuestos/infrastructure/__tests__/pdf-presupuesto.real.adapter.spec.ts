@@ -57,17 +57,24 @@ const config = (): ConfiguracionDocumentoTenant => ({
     conceptoTransferencia: "Masia l'Encís",
   },
   textos: {
-    plantillaConceptoFiscal: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
-    validesaTexto: '10 DIES',
-    pieLegal: 'Validesa 10 dies.',
+    plantillaConceptoFiscal: {
+      ca: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
+      es: 'Gestión del uso del espacio de {nombreComercial} para evento',
+    },
+    validesaTexto: { ca: '10 DIES', es: '10 DÍAS' },
+    pieLegal: { ca: 'Validesa 10 dies.', es: 'Validez 10 días.' },
   },
-  condiciones: { titulo: 'Condicions Particulars', secciones: [] },
+  condiciones: {
+    titulo: { ca: 'Condicions Particulars', es: 'Condiciones Particulares' },
+    secciones: [],
+  },
 });
 
 const datosCargados = (): DatosDocumentoPresupuestoCargados => ({
   numeroPresupuesto: '2026001',
   fecha: new Date('2026-07-13T00:00:00.000Z'),
   regimen: 'con_iva',
+  idioma: 'ca',
   cliente: {
     nombre: 'Anna',
     apellidos: 'Puig Soler',
@@ -78,6 +85,7 @@ const datosCargados = (): DatosDocumentoPresupuestoCargados => ({
     provincia: 'Barcelona',
   },
   fechaEvento: new Date('2027-09-12T00:00:00.000Z'),
+  horario: '12:00',
   duracionHoras: 8,
   numPersonas: 80,
   extras: [{ descripcion: 'Neteja', importeEur: '100.00' }],
