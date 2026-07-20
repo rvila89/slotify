@@ -24,6 +24,16 @@
  *
  * RED: aún NO existe `confirmacion/application/confirmar-pago-senal.use-case.ts`. La
  * batería está en ROJO por AUSENCIA DE IMPLEMENTACIÓN. GREEN es de `backend-developer`.
+ *
+ * ── fix-importe-total-confirmar-senal ──
+ * La guarda de importe deja de leer `RESERVA.importe_total` (que ninguna operación de
+ * producción poblaba → siempre NULL → 422 permanente) y pasa a validar el `total` del
+ * PRESUPUESTO VIGENTE de la reserva (`MAX(version)`, `estado='enviado'`), proyectado en
+ * `ReservaConfirmacion.presupuestoVigente: { idPresupuesto, total } | null`. Dentro de la
+ * tx: se congela `RESERVA.importe_total = presupuesto.total` (nuevo campo
+ * `ConfirmarSenalReservaParams.importeTotal`) y se marca ese presupuesto como `aceptado`
+ * (`repos.presupuestos.aceptar({ idPresupuesto })`). Los importes de señal/liquidación se
+ * derivan del total recién congelado con `TENANT_SETTINGS.pct_senal`.
  */
 import {
   ConfirmarPagoSenalUseCase,
@@ -52,10 +62,23 @@ const MB = 1024 * 1024;
 const AHORA = new Date('2026-07-03T10:00:00.000Z');
 const FECHA_EVENTO = new Date('2027-09-15T00:00:00.000Z');
 const relojFijo: ClockPort = { ahora: () => AHORA };
+const PRESUPUESTO_ID = 'presu-vigente-1';
 
 // ---------------------------------------------------------------------------
-// Dobles de datos: RESERVA en pre_reserva con importe_total fijado en US-014.
+// Dobles de datos: RESERVA en pre_reserva SIN importe_total prefijado. El total
+// procede del PRESUPUESTO VIGENTE (MAX(version), estado='enviado') proyectado en
+// `presupuestoVigente`; ese total se congela y el presupuesto pasa a `aceptado`.
 // ---------------------------------------------------------------------------
+
+/**
+ * Ayuda para fijar el presupuesto vigente de la reserva. `null` = no hay
+ * presupuesto en `enviado` (→ IMPORTE_TOTAL_INVALIDO).
+ */
+const presupuestoVigente = (
+  total: string | null,
+  idPresupuesto = PRESUPUESTO_ID,
+): { idPresupuesto: string; total: string } | null =>
+  total === null ? null : { idPresupuesto, total };
 
 const reservaEnPreReserva = (
   over: Partial<ReservaConfirmacion> = {},
@@ -65,7 +88,7 @@ const reservaEnPreReserva = (
   estado: 'pre_reserva',
   subEstado: null,
   fechaEvento: FECHA_EVENTO,
-  importeTotal: '3000.00',
+  presupuestoVigente: presupuestoVigente('3000.00'),
   comentarios: null,
   ...over,
 });
@@ -88,6 +111,7 @@ const justificanteValido = (over: Partial<JustificanteSubido> = {}): Justificant
 interface ReposFake extends RepositoriosConfirmacion {
   documentos: { crearJustificante: jest.Mock };
   reservas: { confirmarSenal: jest.Mock };
+  presupuestos: { aceptar: jest.Mock };
   fechaBloqueada: { upgradeAFirme: jest.Mock };
   fichaOperativa: { buscarPorReserva: jest.Mock; crearVacia: jest.Mock };
   auditoria: { registrar: jest.Mock };
@@ -96,6 +120,7 @@ interface ReposFake extends RepositoriosConfirmacion {
 type PuntoDeFallo =
   | 'crearJustificante'
   | 'confirmarSenal'
+  | 'aceptarPresupuesto'
   | 'upgradeAFirme'
   | 'crearFicha'
   | 'auditoria';
@@ -113,6 +138,12 @@ const crearReposFake = (opciones: {
   reservas: {
     confirmarSenal: jest.fn(async () => {
       if (opciones.fallarEn === 'confirmarSenal') throw new Error('FALLO_CONFIRMARSENAL');
+      return undefined;
+    }),
+  },
+  presupuestos: {
+    aceptar: jest.fn(async () => {
+      if (opciones.fallarEn === 'aceptarPresupuesto') throw new Error('FALLO_ACEPTARPRESUPUESTO');
       return undefined;
     }),
   },
@@ -328,18 +359,35 @@ describe('ConfirmarPagoSenalUseCase — guarda de origen ORIGEN_INVALIDO (3.1)',
 });
 
 // ===========================================================================
-// IMPORTE_TOTAL_INVALIDO — importe_total 0/null/negativo (sin presupuesto
-//        aceptado previo válido) → rechazo SIN efectos.
+// IMPORTE_TOTAL_INVALIDO (fix-importe-total-confirmar-senal) — la guarda valida
+//        el `total` del PRESUPUESTO VIGENTE (`presupuestoVigente`), NO un
+//        `RESERVA.importe_total` prefijado. Sin presupuesto vigente (`null`) o con
+//        `total ≤ 0` (0/negativo) → rechazo SIN efectos: no abre la tx, no congela
+//        importe_total, no marca el presupuesto como aceptado.
 // ===========================================================================
 
-describe('ConfirmarPagoSenalUseCase — IMPORTE_TOTAL_INVALIDO', () => {
-  const importesInvalidos: ReadonlyArray<string | null> = [null, '0.00', '-100.00'];
+describe('ConfirmarPagoSenalUseCase — IMPORTE_TOTAL_INVALIDO (presupuesto vigente)', () => {
+  it('debe_lanzar_IMPORTE_TOTAL_INVALIDO_cuando_no_hay_presupuesto_vigente_enviado_sin_efectos', async () => {
+    const { useCase, repos, uow } = montar({
+      reserva: reservaEnPreReserva({ presupuestoVigente: null }),
+    });
 
-  it.each(importesInvalidos)(
-    'debe_lanzar_IMPORTE_TOTAL_INVALIDO_cuando_importe_total_es_%s_sin_efectos',
-    async (importeTotal) => {
+    const promesa = useCase.ejecutar(comando());
+    await expect(promesa).rejects.toBeInstanceOf(ImporteTotalInvalidoError);
+    await expect(promesa).rejects.toMatchObject({ codigo: 'IMPORTE_TOTAL_INVALIDO' });
+
+    expect(uow.ejecutar).not.toHaveBeenCalled();
+    expect(repos.reservas.confirmarSenal).not.toHaveBeenCalled();
+    expect(repos.presupuestos.aceptar).not.toHaveBeenCalled();
+  });
+
+  const totalesInvalidos: ReadonlyArray<string> = ['0.00', '-100.00'];
+
+  it.each(totalesInvalidos)(
+    'debe_lanzar_IMPORTE_TOTAL_INVALIDO_cuando_el_total_del_presupuesto_vigente_es_%s_sin_efectos',
+    async (total) => {
       const { useCase, repos, uow } = montar({
-        reserva: reservaEnPreReserva({ importeTotal }),
+        reserva: reservaEnPreReserva({ presupuestoVigente: presupuestoVigente(total) }),
       });
 
       const promesa = useCase.ejecutar(comando());
@@ -348,8 +396,88 @@ describe('ConfirmarPagoSenalUseCase — IMPORTE_TOTAL_INVALIDO', () => {
 
       expect(uow.ejecutar).not.toHaveBeenCalled();
       expect(repos.reservas.confirmarSenal).not.toHaveBeenCalled();
+      expect(repos.presupuestos.aceptar).not.toHaveBeenCalled();
     },
   );
+});
+
+// ===========================================================================
+// fix-importe-total-confirmar-senal — congelado de `importe_total` desde el
+//        PRESUPUESTO VIGENTE y aceptación de ese presupuesto DENTRO de la tx.
+// ===========================================================================
+
+describe('ConfirmarPagoSenalUseCase — congelar importe_total y aceptar presupuesto vigente', () => {
+  it('debe_congelar_importe_total_con_el_total_del_presupuesto_vigente', async () => {
+    const { useCase, repos } = montar({
+      reserva: reservaEnPreReserva({
+        presupuestoVigente: presupuestoVigente('3000.00'),
+      }),
+    });
+
+    await useCase.ejecutar(comando());
+
+    const args = repos.reservas.confirmarSenal.mock.calls[0][0];
+    expect(args.importeTotal).toBe('3000.00');
+  });
+
+  it('debe_marcar_el_presupuesto_vigente_como_aceptado_por_su_idPresupuesto', async () => {
+    const { useCase, repos } = montar({
+      reserva: reservaEnPreReserva({
+        presupuestoVigente: presupuestoVigente('3000.00', 'presu-vig-42'),
+      }),
+    });
+
+    await useCase.ejecutar(comando());
+
+    expect(repos.presupuestos.aceptar).toHaveBeenCalledTimes(1);
+    expect(repos.presupuestos.aceptar.mock.calls[0][0]).toMatchObject({
+      idPresupuesto: 'presu-vig-42',
+    });
+  });
+
+  it('debe_derivar_importe_senal_y_liquidacion_del_total_congelado_del_presupuesto', async () => {
+    const { useCase, repos } = montar({
+      reserva: reservaEnPreReserva({
+        presupuestoVigente: presupuestoVigente('3000.00'),
+      }),
+      settings: { pctSenal: 40 },
+    });
+
+    await useCase.ejecutar(comando());
+
+    const args = repos.reservas.confirmarSenal.mock.calls[0][0];
+    expect(args.importeTotal).toBe('3000.00');
+    expect(args.importeSenal).toBe('1200.00');
+    expect(args.importeLiquidacion).toBe('1800.00');
+    expect(Number(args.importeSenal) + Number(args.importeLiquidacion)).toBe(
+      Number(args.importeTotal),
+    );
+  });
+
+  it('debe_aceptar_el_presupuesto_dentro_de_la_unica_unidad_de_trabajo', async () => {
+    const { useCase, uow, repos } = montar();
+    const orden: string[] = [];
+    uow.ejecutar.mockImplementationOnce(
+      async (
+        _tenantId: string,
+        trabajo: (r: RepositoriosConfirmacion) => Promise<unknown>,
+      ) => {
+        orden.push('tx:inicio');
+        const resultado = await trabajo(repos);
+        orden.push('tx:fin');
+        return resultado;
+      },
+    );
+    repos.presupuestos.aceptar.mockImplementation(async () => {
+      orden.push('aceptar');
+    });
+
+    await useCase.ejecutar(comando());
+
+    // La aceptación ocurre DENTRO de la tx (entre inicio y fin), no post-commit.
+    expect(orden.indexOf('aceptar')).toBeGreaterThan(orden.indexOf('tx:inicio'));
+    expect(orden.indexOf('aceptar')).toBeLessThan(orden.indexOf('tx:fin'));
+  });
 });
 
 // ===========================================================================
@@ -361,7 +489,7 @@ describe('ConfirmarPagoSenalUseCase — IMPORTE_TOTAL_INVALIDO', () => {
 describe('ConfirmarPagoSenalUseCase — congelado de importes señal/liquidación (3.5)', () => {
   it('debe_congelar_1200_de_senal_y_1800_de_liquidacion_para_3000_al_40_por_ciento', async () => {
     const { useCase, repos } = montar({
-      reserva: reservaEnPreReserva({ importeTotal: '3000.00' }),
+      reserva: reservaEnPreReserva({ presupuestoVigente: presupuestoVigente('3000.00') }),
       settings: { pctSenal: 40 },
     });
 
@@ -376,7 +504,7 @@ describe('ConfirmarPagoSenalUseCase — congelado de importes señal/liquidació
 
   it('debe_derivar_el_porcentaje_de_TENANT_SETTINGS_1000_1000_para_2000_al_50_por_ciento', async () => {
     const { useCase, repos } = montar({
-      reserva: reservaEnPreReserva({ importeTotal: '2000.00' }),
+      reserva: reservaEnPreReserva({ presupuestoVigente: presupuestoVigente('2000.00') }),
       settings: { pctSenal: 50 },
     });
 
@@ -393,7 +521,7 @@ describe('ConfirmarPagoSenalUseCase — congelado de importes señal/liquidació
     // NO 600.006→600.01 (que también sería 600.01 aquí, pero la resta lo garantiza
     // en TODOS los casos): señal + liquidación = total EXACTO.
     const { useCase, repos } = montar({
-      reserva: reservaEnPreReserva({ importeTotal: '1000.01' }),
+      reserva: reservaEnPreReserva({ presupuestoVigente: presupuestoVigente('1000.01') }),
       settings: { pctSenal: 40 },
     });
 
@@ -573,6 +701,7 @@ describe('ConfirmarPagoSenalUseCase — propagación de fallo para rollback', ()
   it.each([
     'crearJustificante',
     'confirmarSenal',
+    'aceptarPresupuesto',
     'upgradeAFirme',
     'crearFicha',
     'auditoria',

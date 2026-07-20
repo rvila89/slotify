@@ -23,6 +23,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   AccionAudit,
+  EstadoPresupuesto,
   EstadoReserva,
   FianzaStatus,
   LiquidacionStatus,
@@ -45,6 +46,7 @@ import type {
   FechaBloqueadaConfirmacionRepositoryPort,
   FichaOperativaConfirmacionRepositoryPort,
   FichaOperativaExistente,
+  PresupuestoConfirmacionRepositoryPort,
   RegistroAuditoriaConfirmacion,
   RepositoriosConfirmacion,
   ReservaConfirmacionRepositoryPort,
@@ -95,12 +97,31 @@ class ReservaConfirmacionPrismaRepository
       data: {
         estado: EstadoReserva.reserva_confirmada,
         ttlExpiracion: null,
+        importeTotal: new Prisma.Decimal(params.importeTotal),
         importeSenal: new Prisma.Decimal(params.importeSenal),
         importeLiquidacion: new Prisma.Decimal(params.importeLiquidacion),
         preEventoStatus: PreEventoStatus.pendiente,
         liquidacionStatus: LiquidacionStatus.pendiente,
         fianzaStatus: FianzaStatus.pendiente,
       },
+    });
+  }
+}
+
+/**
+ * Repositorio tx-bound de PRESUPUESTO: marca el presupuesto vigente como `aceptado`
+ * dentro de la misma transacción de confirmación (congela la decisión comercial junto
+ * al `importe_total` de la RESERVA).
+ */
+class PresupuestoConfirmacionPrismaRepository
+  implements PresupuestoConfirmacionRepositoryPort
+{
+  constructor(private readonly tx: Prisma.TransactionClient) {}
+
+  async aceptar(params: { idPresupuesto: string }): Promise<void> {
+    await this.tx.presupuesto.update({
+      where: { idPresupuesto: params.idPresupuesto },
+      data: { estado: EstadoPresupuesto.aceptado },
     });
   }
 }
@@ -246,6 +267,7 @@ export class ConfirmarPagoSenalUoWPrismaAdapter
       const repos: RepositoriosConfirmacion = {
         documentos: new DocumentoConfirmacionPrismaRepository(tx),
         reservas: new ReservaConfirmacionPrismaRepository(tx),
+        presupuestos: new PresupuestoConfirmacionPrismaRepository(tx),
         fechaBloqueada: new FechaBloqueadaConfirmacionPrismaRepository(tx, bloqueo),
         fichaOperativa: new FichaOperativaConfirmacionPrismaRepository(tx),
         auditoria: new AuditoriaConfirmacionPrismaRepository(tx),

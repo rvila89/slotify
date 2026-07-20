@@ -2,7 +2,7 @@
 
 > **Documento**: Modelo de Datos (definición de entidades, campos y reglas)
 > **Proyecto**: Slotify — Plataforma SaaS de Gestión Integral para Espacios Boutique de Eventos Privados
-> **Versión**: 2.10
+> **Versión**: 3.1
 > **Fecha**: 20/07/2026
 > **Fuente canónica del ERD**: [er-diagram.md](./er-diagram.md) · **Arquitectura**: [architecture.md](./architecture.md) · **Casos de uso**: [use-cases.md](./use-cases.md)
 
@@ -209,7 +209,7 @@ Recorre toda la máquina de estados. Incluye campos de cola, visita, sub-proceso
 | `num_adultos_ninos_mayores4` | `Int?` | Cuenta para tarifa |
 | `num_ninos_menores4` | `Int?` | Informativo, no afecta tarifa |
 | `num_invitados_final` | `Int?` | Nº final confirmado |
-| `importe_total` | `Decimal? @db.Decimal(10,2)` | Total del presupuesto aceptado |
+| `importe_total` | `Decimal? @db.Decimal(10,2)` | Total congelado al confirmar el pago de la señal (UC-17/US-021). El sistema toma `PRESUPUESTO.total` del presupuesto vigente (`MAX(version)` con `estado='enviado'`), valida `> 0` y lo escribe en este campo dentro de la misma transacción atómica. Permanece `NULL` hasta esa transición. |
 | `importe_senal` | `Decimal? @db.Decimal(10,2)` | 40% de señal |
 | `importe_liquidacion` | `Decimal? @db.Decimal(10,2)` | 60% de liquidación |
 | `ttl_expiracion` | `DateTime?` | Expiración del bloqueo blando vigente |
@@ -465,7 +465,7 @@ La restricción `@@unique([reserva_id, version])` garantiza que no existan dos p
 **Mapa de estados del PRESUPUESTO:**
 - `borrador` — en UC-15 el Gestor puede guardar la edición sin enviar (`numero_presupuesto=null`, sin COMUNICACION); en UC-14 el preview no persiste (no se inserta fila)
 - `enviado` — al confirmar en UC-14 o al confirmar la edición con `enviar=true` en UC-15; `numero_presupuesto` asignado; PDF adjuntado en E2
-- `aceptado` — cuando el cliente acepta; guarda de UC-15: un presupuesto `aceptado` no puede editarse
+- `aceptado` — producido por UC-17/US-021 al confirmar el pago de la señal: dentro de la transacción atómica de confirmación, el sistema marca el presupuesto vigente (`MAX(version)`, `estado='enviado'`) como `aceptado` y congela `RESERVA.importe_total = presupuesto.total`. Guarda de UC-15: un presupuesto `aceptado` no puede editarse
 - `rechazado` — cuando el cliente rechaza
 
 ### 3.12 Factura
@@ -692,6 +692,8 @@ El diagrama Mermaid completo y con cardinalidades está en [er-diagram.md §2](.
 - **Auditoría:** toda transición de estado de `Reserva` y toda emisión de `Factura` genera un `AuditLog`.
 
 ---
+
+*Documento de modelo de datos v3.1 (20/07/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v4.12. v3.1: refleja change `fix-importe-total-confirmar-senal` — corrige y completa la documentación del campo `RESERVA.importe_total` en §3.5 (se congela en UC-17/US-021, no en UC-14; el sistema toma `PRESUPUESTO.total` del presupuesto vigente `MAX(version)` con `estado='enviado'`, valida `> 0` y lo escribe en la transacción atómica; permanece NULL hasta esa transición); corrige el bullet `aceptado` del mapa de estados del PRESUPUESTO en §3.11 (productor es UC-17/US-021, no un aceptado explícito del cliente; dentro de la misma transacción se marca el presupuesto vigente como `aceptado` y se congela `importe_total`). Sin migración de BD, sin cambio de contrato OpenAPI.*
 
 *Documento de modelo de datos v3.0 (20/07/2026). Derivado y consistente con [er-diagram.md](./er-diagram.md) v4.10. v3.0: refleja change `cambiar-fecha-consulta-en-cola` — añade en §3.5 Reserva la nota de la nueva transición `2d → 2b` (cambio atómico de fecha con salida de cola): guarda declarativa separada `esOrigenCambiarFechaEnCola`, INSERT de bloqueo blando de la fecha nueva, `sub_estado 2d → 2b`, salida de cola con reordenación (mecánica US-013), borrador E1 rama `'disponible'`, AUDIT_LOG `actualizar`; 409 terminal si la fecha nueva está ocupada, sin re-encolar. Sin migración de BD. Sin cambio de esquema de contrato OpenAPI (solo documental).*
 

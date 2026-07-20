@@ -30,6 +30,7 @@ import { ConfigModule } from '@nestjs/config';
 import {
   CanalEntrada,
   DuracionHoras,
+  EstadoPresupuesto,
   EstadoReserva,
   TipoBloqueo,
   TipoEvento,
@@ -73,11 +74,16 @@ const comando = (reservaId: string): ConfirmarPagoSenalComando => ({
   justificante: justificanteValido(),
 });
 
-/** Siembra una RESERVA en `pre_reserva` con FECHA_BLOQUEADA blanda + TTL vigente. */
+/**
+ * Siembra una RESERVA en `pre_reserva` con FECHA_BLOQUEADA blanda + TTL vigente.
+ * fix-importe-total-confirmar-senal: SIN `importe_total`; el total vive en un
+ * PRESUPUESTO vigente `enviado` (version 1, total 3000). Devuelve reservaId e
+ * idPresupuesto para verificar que solo UNA confirmación lo acepta.
+ */
 const sembrarPreReserva = async (params: {
   fecha: Date;
   conBloqueoBlando?: boolean;
-}): Promise<string> => {
+}): Promise<{ reservaId: string; idPresupuesto: string }> => {
   const cliente = await prisma.cliente.create({
     data: {
       tenantId: TENANT,
@@ -103,8 +109,21 @@ const sembrarPreReserva = async (params: {
       tipoEvento: TipoEvento.boda,
       numAdultosNinosMayores4: 40,
       numNinosMenores4: 5,
-      importeTotal: '3000.00',
+      // SIN importe_total: se congela al confirmar desde el presupuesto vigente.
       ttlExpiracion: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  });
+  // PRESUPUESTO vigente (MAX(version)) en `estado='enviado'`, total 3000.
+  const presupuesto = await prisma.presupuesto.create({
+    data: {
+      tenantId: TENANT,
+      reservaId: reserva.idReserva,
+      version: 1,
+      baseImponible: '2479.34',
+      ivaPorcentaje: '21.00',
+      ivaImporte: '520.66',
+      total: '3000.00',
+      estado: EstadoPresupuesto.enviado,
     },
   });
   if (params.conBloqueoBlando ?? true) {
@@ -118,7 +137,7 @@ const sembrarPreReserva = async (params: {
       },
     });
   }
-  return reserva.idReserva;
+  return { reservaId: reserva.idReserva, idPresupuesto: presupuesto.idPresupuesto };
 };
 
 const limpiar = async (): Promise<void> => {
@@ -138,6 +157,7 @@ const limpiar = async (): Promise<void> => {
     await prisma.documento.deleteMany({ where: { reservaId: { in: ids } } });
     await prisma.fechaBloqueada.deleteMany({ where: { reservaId: { in: ids } } });
     await prisma.comunicacion.deleteMany({ where: { reservaId: { in: ids } } });
+    await prisma.presupuesto.deleteMany({ where: { reservaId: { in: ids } } });
     // US-022: el disparo post-commit crea una FACTURA de señal por la reserva confirmada.
     await prisma.pago.deleteMany({ where: { factura: { reservaId: { in: ids } } } });
     await prisma.factura.deleteMany({ where: { reservaId: { in: ids } } });
@@ -178,7 +198,7 @@ beforeEach(async () => {
 
 describe('Confirmar señal — doble clic sobre la misma reserva (3.2)', () => {
   it('debe_confirmar_una_sola_vez_y_rechazar_la_segunda_como_reserva_ya_confirmada', async () => {
-    const reservaId = await sembrarPreReserva({ fecha: FECHA_DOBLE_CLIC });
+    const { reservaId, idPresupuesto } = await sembrarPreReserva({ fecha: FECHA_DOBLE_CLIC });
 
     const resultados = await Promise.allSettled([
       useCase.ejecutar(comando(reservaId)),
@@ -198,6 +218,19 @@ describe('Confirmar señal — doble clic sobre la misma reserva (3.2)', () => {
     // Estado final coherente:
     const reserva = await prisma.reserva.findUnique({ where: { idReserva: reservaId } });
     expect(reserva?.estado).toBe(EstadoReserva.reserva_confirmada);
+
+    // fix-importe-total-confirmar-senal: SOLO una confirmación congela el
+    // importe_total (desde el presupuesto vigente) y marca el presupuesto como
+    // `aceptado`. La segunda observa `reserva_confirmada` y no re-congela ni re-acepta.
+    expect(Number(reserva?.importeTotal)).toBe(3000);
+    expect(Number(reserva?.importeSenal)).toBe(1200);
+    expect(Number(reserva?.importeLiquidacion)).toBe(1800);
+    const presupuesto = await prisma.presupuesto.findUnique({
+      where: { idPresupuesto },
+    });
+    expect(presupuesto?.estado).toBe(EstadoPresupuesto.aceptado);
+    // Sigue habiendo UNA sola versión de presupuesto (no se duplicó/re-aceptó otra).
+    expect(await prisma.presupuesto.count({ where: { reservaId } })).toBe(1);
 
     // UNA sola fila de FECHA_BLOQUEADA para (tenant, fecha), firme, ttl NULL.
     const filas = await prisma.fechaBloqueada.findMany({
@@ -227,7 +260,7 @@ describe('Confirmar señal — doble clic sobre la misma reserva (3.2)', () => {
 describe('Confirmar señal — fecha ya en firme de otra reserva (3.2)', () => {
   it('debe_rechazar_con_fecha_no_disponible_y_no_mutar_la_segunda_reserva', async () => {
     // Reserva OCUPANTE ya confirmada con bloqueo FIRME de la fecha.
-    const ocupante = await sembrarPreReserva({
+    const { reservaId: ocupante } = await sembrarPreReserva({
       fecha: FECHA_OTRA_FIRME,
       conBloqueoBlando: false,
     });
@@ -246,7 +279,7 @@ describe('Confirmar señal — fecha ya en firme de otra reserva (3.2)', () => {
     });
     // Segunda reserva en pre_reserva sobre la MISMA fecha (sin fila propia): al
     // intentar fijar (tenant, fecha) chocará con el UNIQUE (P2002).
-    const segunda = await sembrarPreReserva({
+    const { reservaId: segunda } = await sembrarPreReserva({
       fecha: FECHA_OTRA_FIRME,
       conBloqueoBlando: false,
     });

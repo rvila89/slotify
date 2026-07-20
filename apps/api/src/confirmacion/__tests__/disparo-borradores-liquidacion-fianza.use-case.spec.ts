@@ -50,7 +50,7 @@ const reservaEnPreReserva = (
   estado: 'pre_reserva',
   subEstado: null,
   fechaEvento: FECHA_EVENTO,
-  importeTotal: '3000.00',
+  presupuestoVigente: { idPresupuesto: 'presu-vigente-1', total: '3000.00' },
   comentarios: null,
   ...over,
 });
@@ -68,6 +68,7 @@ const justificanteValido = (over: Partial<JustificanteSubido> = {}): Justificant
 interface ReposFake extends RepositoriosConfirmacion {
   documentos: { crearJustificante: jest.Mock };
   reservas: { confirmarSenal: jest.Mock };
+  presupuestos: { aceptar: jest.Mock };
   fechaBloqueada: { upgradeAFirme: jest.Mock };
   fichaOperativa: { buscarPorReserva: jest.Mock; crearVacia: jest.Mock };
   auditoria: { registrar: jest.Mock };
@@ -82,6 +83,7 @@ const crearReposFake = (): ReposFake => ({
     })),
   },
   reservas: { confirmarSenal: jest.fn(async () => undefined) },
+  presupuestos: { aceptar: jest.fn(async () => undefined) },
   fechaBloqueada: { upgradeAFirme: jest.fn(async () => undefined) },
   fichaOperativa: {
     buscarPorReserva: jest.fn(async () => null),

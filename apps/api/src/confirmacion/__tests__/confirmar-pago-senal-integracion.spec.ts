@@ -28,6 +28,7 @@ import { ConfigModule } from '@nestjs/config';
 import {
   CanalEntrada,
   DuracionHoras,
+  EstadoPresupuesto,
   EstadoReserva,
   TipoBloqueo,
   TipoDocumento,
@@ -89,16 +90,21 @@ const comando = (
 });
 
 /**
- * Siembra una RESERVA en `pre_reserva` con su fila FECHA_BLOQUEADA en `blando` +
- * TTL vigente para la fecha dada, y su `importe_total` fijado en la pre-reserva.
+ * fix-importe-total-confirmar-senal — La RESERVA se crea en `pre_reserva` SIN
+ * `importe_total` (ninguna operación de producción lo poblaba). El total vive en el
+ * PRESUPUESTO VIGENTE, que se siembra con `estado='enviado'` (por defecto version 1).
+ * La confirmación debe leer ese total, congelarlo en `RESERVA.importe_total` y marcar
+ * el presupuesto como `aceptado`. Devuelve tanto el `reservaId` como el
+ * `idPresupuesto` vigente para poder verificar la aceptación en BD.
  */
 const sembrarPreReserva = async (params: {
   fecha: Date;
-  importeTotal?: string;
+  /** Total del presupuesto vigente (enviado). `null` = NO se siembra presupuesto. */
+  totalPresupuesto?: string | null;
   tenantId?: string;
   conBloqueoBlando?: boolean;
   comentarios?: string;
-}): Promise<string> => {
+}): Promise<{ reservaId: string; idPresupuesto: string | null }> => {
   const tenantId = params.tenantId ?? TENANT;
   const cliente = await prisma.cliente.create({
     data: {
@@ -126,11 +132,27 @@ const sembrarPreReserva = async (params: {
       tipoEvento: TipoEvento.boda,
       numAdultosNinosMayores4: 40,
       numNinosMenores4: 5,
-      importeTotal: params.importeTotal ?? '3000.00',
+      // SIN importe_total: se congela al confirmar desde el presupuesto vigente.
       ttlExpiracion: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       ...(params.comentarios !== undefined ? { comentarios: params.comentarios } : {}),
     },
   });
+
+  // PRESUPUESTO vigente (MAX(version)) en `estado='enviado'`. Total por defecto 3000.
+  // Con `totalPresupuesto: null` no se siembra (caso 422 sin presupuesto vigente).
+  let idPresupuesto: string | null = null;
+  const total = 'totalPresupuesto' in params ? params.totalPresupuesto : '3000.00';
+  if (total !== null && total !== undefined) {
+    const presupuesto = await sembrarPresupuesto({
+      reservaId: reserva.idReserva,
+      tenantId,
+      version: 1,
+      total,
+      estado: EstadoPresupuesto.enviado,
+    });
+    idPresupuesto = presupuesto;
+  }
+
   if (params.conBloqueoBlando ?? true) {
     await prisma.fechaBloqueada.create({
       data: {
@@ -142,7 +164,36 @@ const sembrarPreReserva = async (params: {
       },
     });
   }
-  return reserva.idReserva;
+  return { reservaId: reserva.idReserva, idPresupuesto };
+};
+
+/**
+ * Siembra un PRESUPUESTO para una reserva. `base_imponible` e `iva_importe` se derivan
+ * del `total` con IVA 21% (irrelevante para la guarda: la confirmación usa `total`).
+ */
+const sembrarPresupuesto = async (params: {
+  reservaId: string;
+  tenantId?: string;
+  version: number;
+  total: string;
+  estado: EstadoPresupuesto;
+}): Promise<string> => {
+  const totalNum = Number(params.total);
+  const baseImponible = (totalNum / 1.21).toFixed(2);
+  const ivaImporte = (totalNum - Number(baseImponible)).toFixed(2);
+  const presupuesto = await prisma.presupuesto.create({
+    data: {
+      tenantId: params.tenantId ?? TENANT,
+      reservaId: params.reservaId,
+      version: params.version,
+      baseImponible,
+      ivaPorcentaje: '21.00',
+      ivaImporte,
+      total: params.total,
+      estado: params.estado,
+    },
+  });
+  return presupuesto.idPresupuesto;
 };
 
 const limpiar = async (): Promise<void> => {
@@ -162,6 +213,7 @@ const limpiar = async (): Promise<void> => {
     await prisma.documento.deleteMany({ where: { reservaId: { in: ids } } });
     await prisma.fechaBloqueada.deleteMany({ where: { reservaId: { in: ids } } });
     await prisma.comunicacion.deleteMany({ where: { reservaId: { in: ids } } });
+    await prisma.presupuesto.deleteMany({ where: { reservaId: { in: ids } } });
     // US-022: el disparo post-commit crea una FACTURA de señal por la reserva confirmada.
     await prisma.pago.deleteMany({ where: { factura: { reservaId: { in: ids } } } });
     await prisma.factura.deleteMany({ where: { reservaId: { in: ids } } });
@@ -199,7 +251,7 @@ beforeEach(async () => {
 
 describe('Confirmar señal — upgrade del bloqueo blando a firme por UPDATE (3.4)', () => {
   it('debe_promover_la_fila_a_firme_ttl_null_conservando_reserva_id_sin_crear_segunda_fila', async () => {
-    const reservaId = await sembrarPreReserva({ fecha: FECHA_UPGRADE });
+    const { reservaId } = await sembrarPreReserva({ fecha: FECHA_UPGRADE });
     const filaAntes = await prisma.fechaBloqueada.findFirst({
       where: { tenantId: TENANT, fecha: FECHA_UPGRADE },
     });
@@ -225,7 +277,7 @@ describe('Confirmar señal — upgrade del bloqueo blando a firme por UPDATE (3.
   });
 
   it('debe_inicializar_los_tres_subprocesos_en_pendiente_al_confirmar', async () => {
-    const reservaId = await sembrarPreReserva({ fecha: FECHA_UPGRADE });
+    const { reservaId } = await sembrarPreReserva({ fecha: FECHA_UPGRADE });
 
     await useCase.ejecutar(comando(reservaId));
 
@@ -237,23 +289,121 @@ describe('Confirmar señal — upgrade del bloqueo blando a firme por UPDATE (3.
 });
 
 // ===========================================================================
-// 3.5 — Congelado de importes: total 3000 + pct_senal 40 → señal 1200 /
-//        liquidación 1800; señal + liquidación = total EXACTO.
+// 3.5 + fix-importe-total-confirmar-senal — Congelado de importes desde el
+//        PRESUPUESTO VIGENTE: total 3000 (enviado) + pct_senal 40 → congela
+//        importe_total=3000, señal 1200 / liquidación 1800; señal + liquidación =
+//        total EXACTO; y el presupuesto vigente pasa a `aceptado`.
 // ===========================================================================
 
-describe('Confirmar señal — congelado de importes 40/60 (3.5)', () => {
-  it('debe_congelar_importe_senal_1200_e_importe_liquidacion_1800_para_3000_al_40', async () => {
-    const reservaId = await sembrarPreReserva({ fecha: FECHA_IMPORTES, importeTotal: '3000.00' });
+describe('Confirmar señal — congela importe_total del presupuesto vigente y lo acepta (3.5)', () => {
+  it('debe_congelar_importe_total_3000_senal_1200_liquidacion_1800_y_aceptar_el_presupuesto', async () => {
+    const { reservaId, idPresupuesto } = await sembrarPreReserva({
+      fecha: FECHA_IMPORTES,
+      totalPresupuesto: '3000.00',
+    });
 
     await useCase.ejecutar(comando(reservaId));
 
     const reserva = await prisma.reserva.findUnique({ where: { idReserva: reservaId } });
+    // El importe_total se congeló desde el total del presupuesto vigente.
+    expect(Number(reserva?.importeTotal)).toBe(3000);
     expect(Number(reserva?.importeSenal)).toBe(1200);
     expect(Number(reserva?.importeLiquidacion)).toBe(1800);
     // Invariante contable: señal + liquidación = total.
     expect(Number(reserva?.importeSenal) + Number(reserva?.importeLiquidacion)).toBe(
       Number(reserva?.importeTotal),
     );
+    // La reserva quedó confirmada.
+    expect(reserva?.estado).toBe(EstadoReserva.reserva_confirmada);
+
+    // El presupuesto vigente pasó a `aceptado`.
+    const presupuesto = await prisma.presupuesto.findUnique({
+      where: { idPresupuesto: idPresupuesto! },
+    });
+    expect(presupuesto?.estado).toBe(EstadoPresupuesto.aceptado);
+  });
+});
+
+// ===========================================================================
+// fix-importe-total-confirmar-senal — Con varias versiones se toma el total de
+//        la VIGENTE (MAX(version)) y se acepta ESA versión. v1 (3000, obsoleto:
+//        rechazado) + v2 (3500, enviado, vigente) → congela 3500, acepta v2.
+// ===========================================================================
+const FECHA_MAX_VERSION = new Date('2028-03-10T00:00:00.000Z');
+FECHAS.push(FECHA_MAX_VERSION);
+
+describe('Confirmar señal — MAX(version) del presupuesto vigente (fix-importe-total)', () => {
+  it('debe_congelar_el_total_de_la_version_vigente_3500_y_aceptar_esa_version', async () => {
+    // Reserva SIN presupuesto inicial (lo sembramos a mano con dos versiones).
+    const { reservaId } = await sembrarPreReserva({
+      fecha: FECHA_MAX_VERSION,
+      totalPresupuesto: null,
+    });
+    // v1: total 3000, obsoleto (rechazado) — no debe elegirse.
+    await sembrarPresupuesto({
+      reservaId,
+      version: 1,
+      total: '3000.00',
+      estado: EstadoPresupuesto.rechazado,
+    });
+    // v2: total 3500, enviado, vigente (MAX(version)).
+    const idV2 = await sembrarPresupuesto({
+      reservaId,
+      version: 2,
+      total: '3500.00',
+      estado: EstadoPresupuesto.enviado,
+    });
+
+    await useCase.ejecutar(comando(reservaId));
+
+    const reserva = await prisma.reserva.findUnique({ where: { idReserva: reservaId } });
+    // Se congela el total de la versión vigente (3500), no el de la v1 (3000).
+    expect(Number(reserva?.importeTotal)).toBe(3500);
+    expect(reserva?.estado).toBe(EstadoReserva.reserva_confirmada);
+
+    // La v2 (vigente) queda aceptada; la v1 sigue intacta (rechazada).
+    const v2 = await prisma.presupuesto.findUnique({ where: { idPresupuesto: idV2 } });
+    expect(v2?.estado).toBe(EstadoPresupuesto.aceptado);
+    const v1 = await prisma.presupuesto.findFirst({
+      where: { reservaId, version: 1 },
+    });
+    expect(v1?.estado).toBe(EstadoPresupuesto.rechazado);
+  });
+});
+
+// ===========================================================================
+// fix-importe-total-confirmar-senal — Sin PRESUPUESTO vigente `enviado` →
+//        HTTP 422 IMPORTE_TOTAL_INVALIDO SIN efectos: RESERVA sigue en
+//        pre_reserva sin importe_total, ningún presupuesto marcado, sin DOCUMENTO
+//        ni FICHA_OPERATIVA, bloqueo sigue blando.
+// ===========================================================================
+const FECHA_SIN_PRESUPUESTO = new Date('2028-03-11T00:00:00.000Z');
+FECHAS.push(FECHA_SIN_PRESUPUESTO);
+
+describe('Confirmar señal — sin presupuesto vigente enviado → 422 sin efectos (fix-importe-total)', () => {
+  it('debe_rechazar_con_IMPORTE_TOTAL_INVALIDO_sin_congelar_ni_aceptar_nada', async () => {
+    const { reservaId } = await sembrarPreReserva({
+      fecha: FECHA_SIN_PRESUPUESTO,
+      totalPresupuesto: null,
+    });
+
+    await expect(useCase.ejecutar(comando(reservaId))).rejects.toMatchObject({
+      codigo: 'IMPORTE_TOTAL_INVALIDO',
+    });
+
+    // Sin efectos: RESERVA intacta en pre_reserva, sin importes congelados.
+    const reserva = await prisma.reserva.findUnique({ where: { idReserva: reservaId } });
+    expect(reserva?.estado).toBe(EstadoReserva.pre_reserva);
+    expect(reserva?.importeTotal).toBeNull();
+    expect(reserva?.importeSenal).toBeNull();
+    expect(reserva?.importeLiquidacion).toBeNull();
+    // Sin DOCUMENTO ni FICHA_OPERATIVA; el bloqueo sigue blando.
+    expect(await prisma.documento.count({ where: { reservaId } })).toBe(0);
+    expect(await prisma.fichaOperativa.count({ where: { reservaId } })).toBe(0);
+    const fila = await prisma.fechaBloqueada.findFirst({
+      where: { tenantId: TENANT, fecha: FECHA_SIN_PRESUPUESTO },
+    });
+    expect(fila?.tipoBloqueo).toBe(TipoBloqueo.blando);
   });
 });
 
@@ -263,7 +413,7 @@ describe('Confirmar señal — congelado de importes 40/60 (3.5)', () => {
 
 describe('Confirmar señal — DOCUMENTO justificante + FICHA_OPERATIVA vacía', () => {
   it('debe_crear_un_DOCUMENTO_justificante_pago_y_una_FICHA_OPERATIVA_vacia', async () => {
-    const reservaId = await sembrarPreReserva({ fecha: FECHA_IMPORTES });
+    const { reservaId } = await sembrarPreReserva({ fecha: FECHA_IMPORTES });
 
     await useCase.ejecutar(
       comando(reservaId, { justificante: justificanteValido({ mimeType: 'image/png' }) }),
@@ -309,7 +459,7 @@ FECHAS.push(FECHA_SIEMBRA_CON, FECHA_SIEMBRA_BLANCO, FECHA_SIEMBRA_IDEMP);
 
 describe('Confirmar señal — siembra de notasOperativas con comentarios (mejoras-detalle-consulta 3.2)', () => {
   it('debe_sembrar_notasOperativas_con_los_comentarios_de_la_reserva', async () => {
-    const reservaId = await sembrarPreReserva({
+    const { reservaId } = await sembrarPreReserva({
       fecha: FECHA_SIEMBRA_CON,
       comentarios: 'El cliente pidió menú sin gluten y barra libre hasta las 3',
     });
@@ -324,7 +474,7 @@ describe('Confirmar señal — siembra de notasOperativas con comentarios (mejor
   });
 
   it('debe_dejar_notasOperativas_null_cuando_la_reserva_no_tiene_comentarios', async () => {
-    const reservaId = await sembrarPreReserva({ fecha: FECHA_SIEMBRA_BLANCO });
+    const { reservaId } = await sembrarPreReserva({ fecha: FECHA_SIEMBRA_BLANCO });
 
     await useCase.ejecutar(comando(reservaId));
 
@@ -335,7 +485,7 @@ describe('Confirmar señal — siembra de notasOperativas con comentarios (mejor
   it('no_debe_re_sembrar_ni_sobreescribir_notasOperativas_si_la_ficha_ya_existe_idempotencia', async () => {
     // La ficha ya existía (reintento) con notas propias; la confirmación NO la
     // re-siembra ni la pisa con `comentarios`. Idempotencia US-021 intacta.
-    const reservaId = await sembrarPreReserva({
+    const { reservaId } = await sembrarPreReserva({
       fecha: FECHA_SIEMBRA_IDEMP,
       comentarios: 'Comentario del cliente que NO debe sobrescribir la ficha',
     });
@@ -359,7 +509,7 @@ describe('Confirmar señal — siembra de notasOperativas con comentarios (mejor
 
 describe('Confirmar señal — idempotencia de FICHA_OPERATIVA (3.6)', () => {
   it('no_debe_duplicar_la_ficha_si_ya_existe_y_debe_completar_la_confirmacion', async () => {
-    const reservaId = await sembrarPreReserva({ fecha: FECHA_FICHA_IDEMP });
+    const { reservaId } = await sembrarPreReserva({ fecha: FECHA_FICHA_IDEMP });
     // Ficha preexistente (por un error/reintento previo).
     await prisma.fichaOperativa.create({ data: { reservaId, fichaCerrada: false } });
 
@@ -381,7 +531,7 @@ describe('Confirmar señal — idempotencia de FICHA_OPERATIVA (3.6)', () => {
 
 describe('Confirmar señal — auditoría de la transición', () => {
   it('debe_registrar_una_entrada_de_transicion_pre_reserva_a_reserva_confirmada', async () => {
-    const reservaId = await sembrarPreReserva({ fecha: FECHA_UPGRADE });
+    const { reservaId } = await sembrarPreReserva({ fecha: FECHA_UPGRADE });
 
     await useCase.ejecutar(comando(reservaId));
 
@@ -405,7 +555,7 @@ describe('Confirmar señal — auditoría de la transición', () => {
 describe('Confirmar señal — rollback total ante fecha ya en firme de otra reserva (3.3)', () => {
   it('debe_revertir_todo_dejando_la_reserva_en_pre_reserva_sin_documento_ni_ficha', async () => {
     // OTRA reserva ya confirmada bloquea la MISMA fecha en FIRME.
-    const ocupante = await sembrarPreReserva({
+    const { reservaId: ocupante } = await sembrarPreReserva({
       fecha: FECHA_ROLLBACK,
       conBloqueoBlando: false,
     });
@@ -424,7 +574,7 @@ describe('Confirmar señal — rollback total ante fecha ya en firme de otra res
     });
     // La reserva que intenta confirmar tiene la MISMA fecha pero sin fila propia:
     // el upgrade intentará fijar (tenant, fecha) que YA está ocupada en firme → P2002.
-    const reservaId = await sembrarPreReserva({
+    const { reservaId } = await sembrarPreReserva({
       fecha: FECHA_ROLLBACK,
       conBloqueoBlando: false,
     });
@@ -456,7 +606,7 @@ describe('Confirmar señal — rollback total ante fecha ya en firme de otra res
 
 describe('Confirmar señal — guarda de origen sobre reserva ya confirmada', () => {
   it('debe_rechazar_sin_efectos_cuando_la_reserva_ya_esta_en_reserva_confirmada', async () => {
-    const reservaId = await sembrarPreReserva({ fecha: FECHA_OCUPANTE });
+    const { reservaId } = await sembrarPreReserva({ fecha: FECHA_OCUPANTE });
     // Confirmamos una primera vez (deja la reserva en reserva_confirmada + firme).
     await useCase.ejecutar(comando(reservaId));
     const docsTras1 = await prisma.documento.count({ where: { reservaId } });
@@ -479,7 +629,7 @@ describe('Confirmar señal — guarda de origen sobre reserva ya confirmada', ()
 
 describe('Confirmar señal — aislamiento multi-tenant / RLS', () => {
   it('debe_rechazar_y_no_mutar_cuando_el_tenant_del_jwt_no_es_dueno', async () => {
-    const reservaId = await sembrarPreReserva({ fecha: FECHA_TENANT });
+    const { reservaId } = await sembrarPreReserva({ fecha: FECHA_TENANT });
 
     await expect(
       useCase.ejecutar(comando(reservaId, { tenantId: OTRO_TENANT })),
