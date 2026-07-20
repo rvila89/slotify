@@ -56,6 +56,10 @@ const HOY = new Date('2026-06-28T00:00:00.000Z');
 type ReservaRepoFake = {
   buscarPorId: jest.Mock;
   actualizarFecha: jest.Mock;
+  /** Puertos de la rama 2d (no invocados desde 2b/2c/2v): stubs para tipar el fake. */
+  moverFueraDeCola: jest.Mock;
+  leerColaHermana: jest.Mock;
+  reordenarCola: jest.Mock;
 };
 
 type FechaBloqueadaFake = {
@@ -69,6 +73,7 @@ interface ReposFake extends RepositoriosCambiarFecha {
   reservas: ReservaRepoFake;
   fechaBloqueada: FechaBloqueadaFake;
   promocionCola: { promoverPrimeroEnCola: jest.Mock };
+  comunicaciones: { crearBorradorE1: jest.Mock };
   auditoria: AuditLogPort & { registrar: jest.Mock };
 }
 
@@ -96,6 +101,9 @@ const crearReposFake = (opciones: {
       ...(reserva ?? {}),
       fechaEvento: p.fechaEvento,
     })),
+    moverFueraDeCola: jest.fn(async () => reserva ?? reservaOrigen()),
+    leerColaHermana: jest.fn(async () => []),
+    reordenarCola: jest.fn(async () => undefined),
   };
   const fechaBloqueada: FechaBloqueadaFake = {
     leerEstadoFecha: jest.fn(async () => opciones.estadoFechaDestino),
@@ -104,8 +112,9 @@ const crearReposFake = (opciones: {
     tieneCola: jest.fn(async () => opciones.antiguaTieneCola ?? false),
   };
   const promocionCola = { promoverPrimeroEnCola: jest.fn(async () => undefined) };
+  const comunicaciones = { crearBorradorE1: jest.fn(async () => undefined) };
   const auditoria = { registrar: jest.fn(async () => undefined) };
-  return { reservas, fechaBloqueada, promocionCola, auditoria };
+  return { reservas, fechaBloqueada, promocionCola, comunicaciones, auditoria };
 };
 
 const crearUoWFake = (
@@ -313,13 +322,15 @@ describe('CambiarFecha — fecha nueva ocupada aborta con conflicto (escenario 4
 });
 
 // ===========================================================================
-// Guarda de ORIGEN — solo `2b/2c/2v`; `2a`/`2d`/terminales/pre_reserva+ → 422 sin efectos.
+// Guarda de ORIGEN de ESTA rama (2b/2c/2v) — `2a`/terminales/pre_reserva+ → 422 sin
+// efectos. NOTA: `2d` ya NO es 422 aquí (change `cambiar-fecha-consulta-en-cola`: pasa a
+// ser una rama SEPARADA con su propia semántica; su cobertura vive en
+// `cambiar-fecha-en-cola.use-case.spec.ts`).
 // ===========================================================================
 
 describe('CambiarFecha — guarda de origen (solo 2b/2c/2v)', () => {
   it.each([
     ['consulta', '2a'],
-    ['consulta', '2d'],
     ['consulta', '2x'],
     ['consulta', '2y'],
     ['consulta', '2z'],

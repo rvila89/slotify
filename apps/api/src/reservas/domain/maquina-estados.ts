@@ -463,6 +463,97 @@ export const esOrigenValidoParaCambiarFecha = (
   );
 
 // ---------------------------------------------------------------------------
+// Guarda + transición de ORIGEN de la operación «cambiar fecha DESDE LA COLA»
+// (change `cambiar-fecha-consulta-en-cola` / design.md §D-1, §D-4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tabla declarativa de ORÍGENES válidos de la operación «cambiar la fecha de una RESERVA
+ * en COLA de espera» (change `cambiar-fecha-consulta-en-cola`, skill `state-machine`, NO
+ * condicionales dispersos). Es una guarda SEPARADA de `ORIGENES_CAMBIAR_FECHA_BLOQUEADA`
+ * (§D-1): la rama `2.d` tiene semántica DISTINTA (la consulta en cola NO posee fila
+ * `FECHA_BLOQUEADA` propia; al mover a fecha libre INSERTA un bloqueo nuevo y sale de la
+ * cola, sin liberar/mover ninguna fila). Por eso NO se mezcla `2.d` dentro de la tabla de
+ * `2b/2c/2v`: son ramas disjuntas. ÚNICO origen legal: `consulta/2d`. Cualquier otro
+ * `(estado, sub_estado)` distinto de `2d` (incluidos `2b/2c/2v`, los terminales `2x/2y/2z`
+ * y todo estado principal distinto de `consulta`) NO es origen de esta rama.
+ */
+export const ORIGENES_CAMBIAR_FECHA_EN_COLA: ReadonlyArray<OrigenTransicion> = [
+  { estado: 'consulta', subEstado: '2d' },
+];
+
+/**
+ * Guarda declarativa: ¿es `(estado, subEstado)` un ORIGEN legal de la operación «cambiar
+ * la fecha desde la cola» (change `cambiar-fecha-consulta-en-cola`)? Consulta la tabla
+ * `ORIGENES_CAMBIAR_FECHA_EN_COLA`: solo `consulta/2d` lo es. DISJUNTA de
+ * `esOrigenValidoParaCambiarFecha` (§D-1): ningún `(estado, subEstado)` satisface ambas.
+ * Se evalúa (y se re-evalúa bajo el lock) ANTES de mutar; cualquier otro origen no `2d` ni
+ * `2b/2c/2v` se rechaza sin efectos con 422.
+ */
+export const esOrigenCambiarFechaEnCola = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): boolean =>
+  ORIGENES_CAMBIAR_FECHA_EN_COLA.some(
+    (origen) => origen.estado === estado && origen.subEstado === subEstado,
+  );
+
+/**
+ * Destino resuelto de la transición «cambiar fecha desde la cola»: el `(estado, subEstado)`
+ * al que pasa la RESERVA en `2.d` cuando el gestor le asigna una fecha nueva LIBRE. Es el
+ * resultado puro de `resolverCambioFechaEnCola`; `null` indica que el origen NO es válido.
+ */
+export interface ResultadoCambioFechaEnCola {
+  estado: EstadoReserva;
+  subEstado: SubEstadoConsulta;
+}
+
+/**
+ * Entrada de la tabla declarativa de la transición «cambiar fecha desde la cola»: `origen`
+ * candidato → `destino`. Modela la transición como ESTRUCTURA DE DATOS (skill
+ * `state-machine`, NO condicionales dispersos), en paralelo estricto a
+ * `MAPA_PROMOCION_COLA` (US-018): mismo par `2d → 2b`, distinta causa (aquí, un cambio de
+ * fecha explícito del gestor, no la promoción automática al liberarse la fecha).
+ */
+interface TransicionCambioFechaEnCola {
+  origen: { estado: EstadoReserva; subEstado: SubEstadoConsulta | null };
+  destino: ResultadoCambioFechaEnCola;
+}
+
+/**
+ * Tabla declarativa `MAPA_CAMBIAR_FECHA_EN_COLA` (change `cambiar-fecha-consulta-en-cola`,
+ * §D-4): mapea el ÚNICO origen de la rama cola a su destino. Única fuente de verdad de qué
+ * transiciona y a dónde (no `if` dispersos):
+ *   { consulta, 2d } → { consulta, 2b }
+ *
+ * Cualquier otro origen (`2a/2b/2c/2v`, terminales, estados no `consulta`) NO es válido:
+ * `resolverCambioFechaEnCola` devuelve `null` (la aplicación mapea a 422).
+ */
+export const MAPA_CAMBIAR_FECHA_EN_COLA: ReadonlyArray<TransicionCambioFechaEnCola> = [
+  {
+    origen: { estado: 'consulta', subEstado: '2d' },
+    destino: { estado: 'consulta', subEstado: '2b' },
+  },
+];
+
+/**
+ * Guarda + resolución declarativa de la transición «cambiar fecha desde la cola» (§D-4):
+ * función PURA que consulta `MAPA_CAMBIAR_FECHA_EN_COLA` y devuelve el destino del origen
+ * `(estado, subEstado)`, o `null` si NO es un origen válido (guarda ESTRICTA: solo
+ * `consulta/2d`). Al ser pura y re-evaluable, se invoca DENTRO de la transacción bajo el
+ * lock.
+ */
+export const resolverCambioFechaEnCola = (
+  estado: EstadoReserva,
+  subEstado: SubEstadoConsulta | null,
+): ResultadoCambioFechaEnCola | null => {
+  const transicion = MAPA_CAMBIAR_FECHA_EN_COLA.find(
+    (t) => t.origen.estado === estado && t.origen.subEstado === subEstado,
+  );
+  return transicion ? transicion.destino : null;
+};
+
+// ---------------------------------------------------------------------------
 // Guarda de ORIGEN de la transición «descartar pre-reserva»
 // (change presupuesto-prereserva-cta-descarte-y-e2, workstream B / D-2)
 // ---------------------------------------------------------------------------

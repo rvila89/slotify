@@ -37,10 +37,15 @@ import {
   type ClockPort,
 } from '../domain/bloquear-fecha.service';
 import {
+  esOrigenCambiarFechaEnCola,
   esOrigenValidoParaCambiarFecha,
   type EstadoReserva,
   type SubEstadoConsulta,
 } from '../domain/maquina-estados';
+import {
+  planificarSalidaDeCola,
+  type EntradaColaSalida,
+} from '../domain/salida-de-cola';
 
 export type { ClockPort };
 
@@ -68,6 +73,28 @@ export interface ReservaCambioFecha {
   subEstado: SubEstadoConsulta | null;
   /** Fecha ANTIGUA (ya bloqueada) que se liberará. */
   fechaEvento: Date | null;
+  /**
+   * (Rama `2d`) Posición de la RESERVA en la cola vieja. `null`/ausente en la rama
+   * `2b/2c/2v` (que no está en cola).
+   */
+  posicionCola?: number | null;
+  /**
+   * (Rama `2d`) RESERVA que bloquea la fecha de la cola vieja. `null`/ausente en la rama
+   * `2b/2c/2v`.
+   */
+  consultaBloqueanteId?: string | null;
+  /** (Rama `2d`) Cliente de la RESERVA, para enlazar el borrador E1. */
+  clienteId?: string;
+  /** (Rama `2d`) Idioma de la RESERVA (`'ca'` → catalán; cualquier otro → castellano). */
+  idioma?: string;
+  /** (Rama `2d`) Nombre de pila del cliente, para el saludo del borrador E1. */
+  clienteNombre?: string;
+  /** (Rama `2d`) Email del cliente, destinatario del borrador E1. */
+  clienteEmail?: string;
+  /** (Rama `2d`) Nº de invitados final; `null` → placeholder `___` en el E1. */
+  numInvitadosFinal?: number | null;
+  /** (Rama `2d`) Horas del evento; `null` → placeholder `___` en el E1. */
+  duracionHoras?: number | null;
 }
 
 /** Resultado del cambio: la RESERVA con su nueva `fechaEvento` (estado/subEstado intactos). */
@@ -93,6 +120,24 @@ export type EstadoFechaDestino =
       subEstadoBloqueante: SubEstadoConsulta | null;
     };
 
+/**
+ * Reordenamiento de un hermano de la cola vieja (rama `2d`): su nueva `posicion_cola` tras
+ * cerrar el hueco de la saliente. NO re-apunta `consulta_bloqueante_id` (la bloqueante no
+ * cambia).
+ */
+export interface ReordenamientoCola {
+  idReserva: string;
+  posicionCola: number;
+}
+
+/** Entrada de la cola hermana (rama `2d`) leída para reordenar tras la salida. */
+export interface EntradaColaHermana {
+  reservaId: string;
+  subEstado: SubEstadoConsulta;
+  posicionCola: number;
+  consultaBloqueanteId: string;
+}
+
 /** Repositorio de RESERVA tx-bound: lee el origen (bajo lock) y actualiza la fecha. */
 export interface ReservaCambioFechaRepositoryPort {
   /** `SELECT … FOR UPDATE` de la RESERVA por id bajo RLS; `null` si no existe. */
@@ -105,6 +150,52 @@ export interface ReservaCambioFechaRepositoryPort {
     idReserva: string;
     fechaEvento: Date;
   }): Promise<ReservaCambioFecha>;
+  /**
+   * (Rama `2d`) Saca la RESERVA de la cola y la pasa a `2b`: `fecha_evento=F2`,
+   * `sub_estado 2d→2b`, `posicion_cola→NULL`, `consulta_bloqueante_id→NULL`, fijando el
+   * `ttl_expiracion` del bloqueo blando (el TTL lo resuelve el adaptador con los settings
+   * del tenant, coherente con `bloquear`).
+   */
+  moverFueraDeCola(params: {
+    idReserva: string;
+    fechaEvento: Date;
+  }): Promise<ReservaCambioFecha>;
+  /**
+   * (Rama `2d`) Lee los hermanos de la cola vieja (mismo `consulta_bloqueante_id`) bajo
+   * `SELECT … FOR UPDATE` para calcular la reordenación tras la salida.
+   */
+  leerColaHermana(params: {
+    tenantId: string;
+    consultaBloqueanteId: string;
+  }): Promise<EntradaColaHermana[]>;
+  /**
+   * (Rama `2d`) Aplica los decrementos de posición de la cola vieja (orden ascendente
+   * para no violar el índice UNIQUE parcial). NO re-apunta la bloqueante.
+   */
+  reordenarCola(reordenamientos: ReordenamientoCola[]): Promise<void>;
+}
+
+/** Parámetros de creación del borrador E1 (rama `2d`) en la misma transacción. */
+export interface CrearBorradorE1Params {
+  tenantId: string;
+  reservaId: string;
+  clienteId: string;
+  codigoEmail: 'E1';
+  estado: 'borrador';
+  /** Rama de la plantilla de transición de fecha: siempre `'disponible'` en `2d`. */
+  tipo: 'disponible';
+  idioma: string;
+  clienteNombre: string;
+  clienteEmail: string;
+  fechaEvento: Date;
+  personas: number | null;
+  horas: number | null;
+  fechaEnvio: null;
+}
+
+/** Puerto de COMUNICACION tx-bound: crea el borrador E1 `'disponible'` (rama `2d`). */
+export interface ComunicacionesCambioFechaPort {
+  crearBorradorE1(params: CrearBorradorE1Params): Promise<void>;
 }
 
 /**
@@ -159,6 +250,7 @@ export interface RepositoriosCambiarFecha {
   reservas: ReservaCambioFechaRepositoryPort;
   fechaBloqueada: FechaBloqueadaCambioRepositoryPort;
   promocionCola: PromocionColaCambioPort;
+  comunicaciones: ComunicacionesCambioFechaPort;
   auditoria: AuditLogPort<RegistroAuditoriaCambiarFecha>;
 }
 
@@ -268,10 +360,17 @@ export class CambiarFechaUseCase {
           throw new ReservaNoEncontradaError(comando.reservaId);
         }
 
-        // Guarda de origen declarativa: solo `consulta/{2b,2c,2v}` (§D-2.1).
+        // Bifurcación por ORIGEN (guardas declarativas SEPARADAS, §D-1). La rama `2d`
+        // (cola de espera) tiene semántica distinta a `2b/2c/2v` (no posee bloqueo propio).
+        if (esOrigenCambiarFechaEnCola(reserva.estado, reserva.subEstado)) {
+          return this.cambiarDesdeCola(repos, comando, reserva);
+        }
+
+        // Guarda de origen declarativa: solo `consulta/{2b,2c,2v}` (§D-2.1). Cualquier
+        // otro origen que tampoco sea `2d` → 422 sin efectos.
         if (!esOrigenValidoParaCambiarFecha(reserva.estado, reserva.subEstado)) {
           throw new CambiarFechaValidacionError(
-            'Solo se puede cambiar la fecha de una consulta con fecha bloqueada (sub-estado 2b/2c/2v)',
+            'Solo se puede cambiar la fecha de una consulta con fecha bloqueada (sub-estado 2b/2c/2v) o en cola (2d)',
             'guarda',
           );
         }
@@ -343,5 +442,120 @@ export class CambiarFechaUseCase {
     )) as ReservaCambioFecha;
 
     return { reserva: resultado };
+  }
+
+  /**
+   * Rama `2d` (§D-2..§D-6): la RESERVA en cola NO posee bloqueo propio. Con la fecha nueva
+   * LIBRE, en la MISMA transacción: (1) INSERTA el bloqueo blando de F2; (2) saca la
+   * RESERVA de la cola a `2b` (fecha=F2, posición/bloqueante→NULL, TTL); (3) reordena la
+   * cola vieja cerrando el hueco; (4) crea el borrador E1 `'disponible'`; (5) AUDIT_LOG
+   * `actualizar`. NO promueve ninguna cola ni toca la bloqueante ni su FECHA_BLOQUEADA.
+   * Con la fecha OCUPADA → `CambiarFechaConflictoError` (409 terminal, rollback total).
+   */
+  private async cambiarDesdeCola(
+    repos: RepositoriosCambiarFecha,
+    comando: CambiarFechaComando,
+    reserva: ReservaCambioFecha,
+  ): Promise<ReservaCambioFecha> {
+    // Estado de la fecha NUEVA bajo el lock (`SELECT … FOR UPDATE`).
+    const estadoDestino = await repos.fechaBloqueada.leerEstadoFecha({
+      tenantId: comando.tenantId,
+      fecha: comando.fechaEvento,
+    });
+
+    // Fecha nueva OCUPADA por otra RESERVA → conflicto terminal, rollback total (no muta nada).
+    if (estadoDestino.tipo === 'bloqueada') {
+      throw new CambiarFechaConflictoError(MOTIVO_CONFLICTO);
+    }
+
+    const fechaAntigua = reserva.fechaEvento;
+    const posicionAntigua = reserva.posicionCola ?? null;
+    const bloqueanteId = reserva.consultaBloqueanteId ?? null;
+
+    // 1. INSERTAR el bloqueo blando de F2 para ESTA reserva (primitiva atómica; `P2002` →
+    //    conflicto/rollback total). La 2d no tenía fila propia: es un bloqueo nuevo.
+    await repos.fechaBloqueada.bloquear({
+      tenantId: comando.tenantId,
+      fecha: comando.fechaEvento,
+      reservaId: reserva.idReserva,
+    });
+
+    // 2. Leer la cola vieja ANTES de sacar la reserva: `planificarSalidaDeCola` exige que la
+    //    saliente SIGA en la cola (calcula la contigüidad sobre el conjunto COMPLETO y busca
+    //    la saliente por id). Si se leyera tras `moverFueraDeCola` —que ya puso su
+    //    `consulta_bloqueante_id → NULL`— la saliente faltaría y el plan caería en anomalía
+    //    (cola no contigua / saliente ausente) sin cerrar el hueco. Sin bloqueante no hay
+    //    cola que reordenar.
+    let reordenamientos: { idReserva: string; posicionCola: number }[] = [];
+    if (bloqueanteId !== null) {
+      const hermanos = await repos.reservas.leerColaHermana({
+        tenantId: comando.tenantId,
+        consultaBloqueanteId: bloqueanteId,
+      });
+      const cola: EntradaColaSalida[] = hermanos.map((h) => ({
+        reservaId: h.reservaId,
+        subEstado: h.subEstado,
+        posicionCola: h.posicionCola,
+        consultaBloqueanteId: h.consultaBloqueanteId,
+      }));
+      const plan = planificarSalidaDeCola(cola, reserva.idReserva);
+      // Ante una anomalía de la cola vieja el plan no reordena a nadie: se registra el
+      // hueco pero NO se corrige en silencio.
+      reordenamientos = plan.reordenamientos.map((r) => ({
+        idReserva: r.reservaId,
+        posicionCola: r.posicionColaDestino,
+      }));
+    }
+
+    // 3. Sacar la RESERVA de la cola → `2b` con F2 (posición/bloqueante NULL + TTL).
+    const actualizada = await repos.reservas.moverFueraDeCola({
+      idReserva: reserva.idReserva,
+      fechaEvento: comando.fechaEvento,
+    });
+
+    // 4. Aplicar la reordenación de la cola vieja (cerrar el hueco) tras la salida.
+    if (reordenamientos.length > 0) {
+      await repos.reservas.reordenarCola(reordenamientos);
+    }
+
+    // 5. Borrador E1 `'disponible'` (no autoenviado): nace `borrador` en la misma tx.
+    await repos.comunicaciones.crearBorradorE1({
+      tenantId: comando.tenantId,
+      reservaId: reserva.idReserva,
+      clienteId: reserva.clienteId ?? '',
+      codigoEmail: 'E1',
+      estado: 'borrador',
+      tipo: 'disponible',
+      idioma: reserva.idioma ?? '',
+      clienteNombre: reserva.clienteNombre ?? '',
+      clienteEmail: reserva.clienteEmail ?? '',
+      fechaEvento: comando.fechaEvento,
+      personas: reserva.numInvitadosFinal ?? null,
+      horas: reserva.duracionHoras ?? null,
+      fechaEnvio: null,
+    });
+
+    // 6. AUDIT_LOG `actualizar` (F1 → F2 + salida de cola), en la misma transacción.
+    await repos.auditoria.registrar({
+      tenantId: comando.tenantId,
+      usuarioId: comando.usuarioId,
+      accion: 'actualizar',
+      entidad: 'RESERVA',
+      entidadId: reserva.idReserva,
+      datosAnteriores: {
+        fecha_evento: fechaAntigua,
+        sub_estado: '2d',
+        posicion_cola: posicionAntigua,
+        consulta_bloqueante_id: bloqueanteId,
+      },
+      datosNuevos: {
+        fecha_evento: comando.fechaEvento,
+        sub_estado: '2b',
+        posicion_cola: null,
+        consulta_bloqueante_id: null,
+      },
+    });
+
+    return actualizada;
   }
 }
