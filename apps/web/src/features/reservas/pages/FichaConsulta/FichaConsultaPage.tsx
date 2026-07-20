@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { CalendarPlus, User } from 'lucide-react';
-import type { ConfirmarPresupuestoResponse } from '@/features/presupuestos';
-import type { ConfirmarSenalResponse } from '@/features/confirmacion';
 import { useReserva } from '../../api/useReserva';
 import { formatearFecha } from '../../lib/fecha';
 import { Badge } from './components/Badge';
@@ -11,12 +9,9 @@ import { DetallesEvento } from './components/DetallesEvento';
 import { AccionesConsulta } from './components/AccionesConsulta';
 import { AvisosFicha } from './components/AvisosFicha';
 import { DialogosFicha } from './components/DialogosFicha';
-import type { ResultadoEdicion } from './components/AvisosEdicionPresupuesto';
 import { SeccionesFicha } from './components/SeccionesFicha';
-import type { PendienteInvitadosResultado, Reserva } from '../../model/types';
-import type { components } from '@/api-client';
-type FinalizarEventoResponse = components['schemas']['FinalizarEventoResponse'];
-type ForzarInicioEventoResponse = components['schemas']['ForzarInicioEventoResponse'];
+import { useAvisosFicha } from './useAvisosFicha';
+import type { Reserva } from '../../model/types';
 
 const claseSeccion =
   'flex flex-col gap-6 rounded-[20px] border border-border-default/20 bg-surface-subtle/30 p-4 sm:p-6 lg:p-8';
@@ -46,36 +41,11 @@ export const FichaConsultaPage = () => {
   const [dialogoDescartarAbierto, setDialogoDescartarAbierto] = useState(false);
   const [dialogoDescartarPreReservaAbierto, setDialogoDescartarPreReservaAbierto] =
     useState(false);
-  // RESERVA resultante de la transición de fecha (US-005): alimenta el aviso 2b/2d.
-  const [resultado, setResultado] = useState<Reserva | null>(null);
-  // Resultado de la transición 2.b → 2.c (US-007): alimenta su aviso (TTL + cola).
-  const [resultadoInvitados, setResultadoInvitados] = useState<PendienteInvitadosResultado | null>(
-    null,
-  );
-  // RESERVA resultante de la transición a 2.v (US-008): alimenta su aviso (visita + TTL).
-  const [resultadoVisita, setResultadoVisita] = useState<Reserva | null>(null);
-  // RESERVA resultante del resultado de visita "interesado" (US-009, 2.v → 2.b): alimenta su aviso.
-  const [resultadoInteresado, setResultadoInteresado] = useState<Reserva | null>(null);
-  // RESERVA resultante de "reserva inmediata" (US-010, 2.v → pre_reserva): alimenta su aviso.
-  const [resultadoReservaInmediata, setResultadoReservaInmediata] = useState<Reserva | null>(null);
-  // RESERVA resultante de la extensión del bloqueo (US-006): alimenta su aviso (nuevo TTL).
-  const [resultadoExtension, setResultadoExtension] = useState<Reserva | null>(null);
-  // Resultado de la confirmación del presupuesto (US-014): alimenta su aviso (pre_reserva).
-  const [resultadoPresupuesto, setResultadoPresupuesto] =
-    useState<ConfirmarPresupuestoResponse | null>(null);
-  // Resultado de la edición/reenvío del presupuesto (US-015): edición enviada/guardada
-  // (`clase='edicion'`) o reenvío sin cambios (`clase='reenvio'`).
-  const [resultadoEdicion, setResultadoEdicion] = useState<ResultadoEdicion | null>(null);
-  // Resultado de la confirmación de señal (US-021): alimenta su aviso (reserva_confirmada).
-  const [resultadoSenal, setResultadoSenal] = useState<ConfirmarSenalResponse | null>(null);
-  // Resultado del forzado del inicio de evento (US-032, evento_en_curso + precondiciones).
-  const [resultadoForzar, setResultadoForzar] = useState<ForzarInicioEventoResponse | null>(null);
-  // Resultado de la finalización del evento (US-034, post_evento + E5 + docs pendiente).
-  const [resultadoFinalizar, setResultadoFinalizar] = useState<FinalizarEventoResponse | null>(null);
-  // Envío MANUAL del borrador E1 confirmado (mejoras-detalle-consulta §D-3): alimenta el
-  // aviso de éxito arriba, como el E1 automático. El refetch de la reserva (invalidación
-  // en `useEnviarBorrador`) desbloquea las acciones sin recargar.
-  const [emailEnviado, setEmailEnviado] = useState(false);
+  // Estado centralizado de TODOS los avisos de desenlace. Garantiza el invariante de
+  // "como máximo un aviso visible a la vez (el último)": cada `mostrar*` limpia los
+  // demás y `cerrar()` los limpia todos. Antes eran ~14 useState independientes que
+  // podían coexistir (change `2026-07-20-descarte-aviso-inline-ficha`).
+  const avisos = useAvisosFicha();
   if (isLoading) {
     return (
       <p data-testid="ficha-cargando" className="font-body text-sm text-text-secondary">
@@ -109,8 +79,12 @@ export const FichaConsultaPage = () => {
   // Desenlace de la transición de fecha (US-005 / cambio atómico): además de alimentar
   // el aviso 2b/2d, desplaza la vista al aviso para que el gestor lo vea (§D-4). SSR-safe.
   const mostrarResultadoFecha = (r: Reserva | null) => {
-    setResultado(r);
-    if (r && typeof window !== 'undefined') {
+    if (!r) {
+      avisos.cerrar();
+      return;
+    }
+    avisos.mostrarResultado(r);
+    if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -130,30 +104,32 @@ export const FichaConsultaPage = () => {
       </header>
 
       <AvisosFicha
-        resultado={resultado}
-        invitados={resultadoInvitados}
-        visita={resultadoVisita}
-        interesado={resultadoInteresado}
-        reservaInmediata={resultadoReservaInmediata}
-        extension={resultadoExtension}
-        presupuesto={resultadoPresupuesto}
-        edicion={resultadoEdicion}
-        senal={resultadoSenal}
-        forzar={resultadoForzar}
-        finalizar={resultadoFinalizar}
-        onCerrarResultado={() => setResultado(null)}
-        onCerrarInvitados={() => setResultadoInvitados(null)}
-        onCerrarVisita={() => setResultadoVisita(null)}
-        onCerrarInteresado={() => setResultadoInteresado(null)}
-        onCerrarReservaInmediata={() => setResultadoReservaInmediata(null)}
-        onCerrarExtension={() => setResultadoExtension(null)}
-        onCerrarPresupuesto={() => setResultadoPresupuesto(null)}
-        onCerrarEdicion={() => setResultadoEdicion(null)}
-        onCerrarSenal={() => setResultadoSenal(null)}
-        onCerrarForzar={() => setResultadoForzar(null)}
-        onCerrarFinalizar={() => setResultadoFinalizar(null)}
-        emailEnviado={emailEnviado}
-        onCerrarEmailEnviado={() => setEmailEnviado(false)}
+        resultado={avisos.resultado}
+        invitados={avisos.invitados}
+        visita={avisos.visita}
+        interesado={avisos.interesado}
+        reservaInmediata={avisos.reservaInmediata}
+        extension={avisos.extension}
+        presupuesto={avisos.presupuesto}
+        edicion={avisos.edicion}
+        senal={avisos.senal}
+        forzar={avisos.forzar}
+        finalizar={avisos.finalizar}
+        onCerrarResultado={avisos.cerrar}
+        onCerrarInvitados={avisos.cerrar}
+        onCerrarVisita={avisos.cerrar}
+        onCerrarInteresado={avisos.cerrar}
+        onCerrarReservaInmediata={avisos.cerrar}
+        onCerrarExtension={avisos.cerrar}
+        onCerrarPresupuesto={avisos.cerrar}
+        onCerrarEdicion={avisos.cerrar}
+        onCerrarSenal={avisos.cerrar}
+        onCerrarForzar={avisos.cerrar}
+        onCerrarFinalizar={avisos.cerrar}
+        emailEnviado={avisos.emailEnviado}
+        onCerrarEmailEnviado={avisos.cerrar}
+        descarte={avisos.descarte}
+        onCerrarDescarte={avisos.cerrar}
       />
 
       <section className={claseSeccion} aria-labelledby="ficha-cliente">
@@ -204,54 +180,59 @@ export const FichaConsultaPage = () => {
         <AccionesConsulta
           reserva={reserva}
           onAnadirFecha={() => {
-            setResultado(null);
+            avisos.cerrar();
             setDialogoAbierto(true);
           }}
           onCambiarFecha={() => {
-            setResultado(null);
+            avisos.cerrar();
             setDialogoCambiarFechaAbierto(true);
           }}
           onPendienteInvitados={() => {
-            setResultadoInvitados(null);
+            avisos.cerrar();
             setDialogoInvitadosAbierto(true);
           }}
           onProgramarVisita={() => {
-            setResultadoVisita(null);
+            avisos.cerrar();
             setDialogoVisitaAbierto(true);
           }}
           onRegistrarResultadoVisita={() => {
-            setResultadoInteresado(null);
-            setResultadoReservaInmediata(null);
+            avisos.cerrar();
             setDialogoResultadoAbierto(true);
           }}
           onExtenderBloqueo={() => {
-            setResultadoExtension(null);
+            avisos.cerrar();
             setDialogoExtenderAbierto(true);
           }}
           onGenerarPresupuesto={() => {
-            setResultadoPresupuesto(null);
+            avisos.cerrar();
             setDialogoPresupuestoAbierto(true);
           }}
           onEditarConsulta={() => setDialogoEditarAbierto(true)}
           onEditarPresupuesto={() => {
-            setResultadoEdicion(null);
+            avisos.cerrar();
             setDialogoEditarPresupuestoAbierto(true);
           }}
           onConfirmarSenal={() => {
-            setResultadoSenal(null);
+            avisos.cerrar();
             setDialogoSenalAbierto(true);
           }}
           onForzarInicioEvento={() => {
-            setResultadoForzar(null);
+            avisos.cerrar();
             setDialogoForzarInicioAbierto(true);
           }}
           onFinalizarEvento={() => {
-            setResultadoFinalizar(null);
+            avisos.cerrar();
             setDialogoFinalizarAbierto(true);
           }}
           onArchivarReserva={() => setDialogoArchivarAbierto(true)}
-          onDescartarConsulta={() => setDialogoDescartarAbierto(true)}
-          onDescartarPreReserva={() => setDialogoDescartarPreReservaAbierto(true)}
+          onDescartarConsulta={() => {
+            avisos.cerrar();
+            setDialogoDescartarAbierto(true);
+          }}
+          onDescartarPreReserva={() => {
+            avisos.cerrar();
+            setDialogoDescartarPreReservaAbierto(true);
+          }}
         />
       </section>
 
@@ -260,7 +241,7 @@ export const FichaConsultaPage = () => {
           reservaId={id}
           reserva={reserva}
           onEmailEnviado={() => {
-            setEmailEnviado(true);
+            avisos.mostrarEmailEnviado();
             if (typeof window !== 'undefined') {
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }
@@ -295,33 +276,36 @@ export const FichaConsultaPage = () => {
           onResuelto={mostrarResultadoFecha}
           onCambiadaFecha={mostrarResultadoFecha}
           onEditado={() => {}}
-          onResueltoInvitados={setResultadoInvitados}
-          onResueltoVisita={setResultadoVisita}
-          onResueltoInteresado={setResultadoInteresado}
-          onResueltoReservaInmediata={setResultadoReservaInmediata}
-          onResueltoExtension={setResultadoExtension}
+          onResueltoInvitados={avisos.mostrarInvitados}
+          onResueltoVisita={avisos.mostrarVisita}
+          onResueltoInteresado={avisos.mostrarInteresado}
+          onResueltoReservaInmediata={avisos.mostrarReservaInmediata}
+          onResueltoExtension={avisos.mostrarExtension}
           onConfirmadoPresupuesto={(resultado) => {
-            setResultadoPresupuesto(resultado);
+            avisos.mostrarPresupuesto(resultado);
             // Sube al top para que el banner "Presupuesto generado…" quede visible
             // (precedente vivo: NuevaConsultaPage).
             if (typeof window !== 'undefined') {
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }
           }}
-          onEditadoPresupuesto={(datos) => setResultadoEdicion({ clase: 'edicion', datos })}
-          onReenviadoPresupuesto={(datos) => setResultadoEdicion({ clase: 'reenvio', datos })}
-          onConfirmadoSenal={setResultadoSenal}
-          onForzado={setResultadoForzar}
-          onFinalizado={setResultadoFinalizar}
-          // Desenlaces terminales (archivado US-038 / descarte US-013): toast +
-          // refetch en el diálogo; la página no guarda estado. Al descartar,
-          // devolvemos el "puntero" al inicio de la página para que el foco
-          // visual vuelva a la cabecera (mismo patrón que NuevaConsultaPage).
+          onEditadoPresupuesto={(datos) => avisos.mostrarEdicion({ clase: 'edicion', datos })}
+          onReenviadoPresupuesto={(datos) => avisos.mostrarEdicion({ clase: 'reenvio', datos })}
+          onConfirmadoSenal={avisos.mostrarSenal}
+          onForzado={avisos.mostrarForzar}
+          onFinalizado={avisos.mostrarFinalizar}
+          // Desenlaces terminales (archivado US-038 / descarte US-013): el descarte
+          // muestra un aviso inline verde en la cabecera (en sustitución del toast de
+          // Sonner) y desplaza la vista al inicio para que el gestor lo vea.
           onArchivado={() => {}}
-          onDescartado={() => {
+          onDescartado={(reserva) => {
+            avisos.mostrarDescarte({ reserva, tipo: 'consulta' });
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
-          onDescartadoPreReserva={() => {}}
+          onDescartadoPreReserva={(reserva) => {
+            avisos.mostrarDescarte({ reserva, tipo: 'prereserva' });
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
         />
       )}
     </div>
