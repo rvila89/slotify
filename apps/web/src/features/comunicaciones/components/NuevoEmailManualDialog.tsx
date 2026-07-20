@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Send, X } from 'lucide-react';
-import { toast } from 'sonner';
+import { notify } from '@/lib/notify';
 import {
   Dialog,
   DialogContent,
@@ -70,7 +70,7 @@ export const NuevoEmailManualDialog = ({ reservaId, abierto, onAbiertoChange }: 
       { reservaId, asunto, cuerpo },
       {
         onSuccess: () => {
-          toast.success('Email manual enviado correctamente al cliente.');
+          notify.success('Email manual enviado correctamente al cliente.');
           onAbiertoChange(false);
         },
       },

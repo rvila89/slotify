@@ -107,7 +107,7 @@ Layout de dos columnas, **solo para usuarios autenticados** (el login NO usa est
 ```
 ┌─────────────┬───────────────────────────────────────────────┐
 │  SIDEBAR    │  HEADER (Top App Bar)                          │
-│  288px      │  título + subtítulo  ·  badge · 🔔 · [+ Nueva] │
+│  192px      │  título + subtítulo  ·  badge · 🔔 · [+ Nueva] │
 │             ├───────────────────────────────────────────────┤
 │  Slotify    │                                                │
 │             │   CONTENT OUTLET                               │
@@ -120,7 +120,7 @@ Layout de dos columnas, **solo para usuarios autenticados** (el login NO usa est
 └─────────────┴───────────────────────────────────────────────┘
 ```
 
-### Sidebar (`Aside - Sidebar Navigation`, 288px)
+### Sidebar (`Aside - Sidebar Navigation`, 192px / 12rem)
 - Fondo `surface.canvas` (`#fcf9f4`), borde derecho `border.default`.
 - **Marca**: "Slotify" en `type.brand`, color `brand.primary`. Padding 32px.
 - **Nav** (px 16, gap 8): cada item es pill (`radius.full`), px16 py12, icono 18–20px + label `type.label`.
@@ -146,7 +146,7 @@ Layout de dos columnas, **solo para usuarios autenticados** (el login NO usa est
 
 Breakpoints (defaults de Tailwind): `sm 640 · md 768 · lg 1024 · xl 1280`. Corte mobile↔desktop del shell en **`lg` (1024px)**.
 
-- **Desktop (`≥ lg`)**: layout de dos columnas tal cual arriba (sidebar fijo 288px + header + content).
+- **Desktop (`≥ lg`)**: layout de dos columnas tal cual arriba (sidebar fijo 192px / 12rem + header + content).
 - **Móvil / tablet (`< lg`)**: el **sidebar se oculta** (`hidden lg:flex`) y su contenido (marca + nav + card de usuario) se sirve en un **drawer off-canvas** (`Sheet` de shadcn / Radix Dialog, lado izquierdo) que abre un **botón hamburguesa** en el header (`lg:hidden`, con `aria-label`/`aria-expanded`/`aria-controls`). El drawer cierra al navegar, con Escape o al pulsar el overlay (focus-trap de Radix).
 - **Header compacto en `< lg`**: el badge "N reservas hoy" se oculta en móvil (`hidden md:flex`); el botón **"+ Nueva Reserva"** colapsa a solo-icono (`<span className="hidden sm:inline">Nueva Reserva</span>`). Padding-x `px-4 lg:px-8`.
 - **Content**: padding `p-4 md:p-6 lg:p-8`; sin overflow horizontal.
