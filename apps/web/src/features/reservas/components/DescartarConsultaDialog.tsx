@@ -3,7 +3,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AlertTriangle, UserX, X } from 'lucide-react';
-import { notify } from '@/lib/notify';
 import {
   Dialog,
   DialogContent,
@@ -26,9 +25,11 @@ type Reserva = components['schemas']['Reserva'];
  * escribe, el backend lo anexa a `RESERVA.notas`; su ausencia NO bloquea ni
  * retrasa la transición (US-013 §Validación, FA "motivo no proporcionado").
  *
- * Al éxito muestra un toast y la consulta pasa a `2z` (sale del pipeline; si el
- * origen tenía cola, la promoción/reordenación A15 se refleja al re-consultar el
- * pipeline — ver `useDescartarConsulta`). El error del backend se muestra inline:
+ * Al éxito notifica `onDescartado(reserva)` (la consulta pasa a `2z`, sale del
+ * pipeline; si el origen tenía cola, la promoción/reordenación A15 se refleja al
+ * re-consultar el pipeline — ver `useDescartarConsulta`); la confirmación se muestra
+ * como aviso inline verde en la cabecera de la ficha (no como toast). El error del
+ * backend se muestra inline:
  *  - 409 `transicion_no_permitida` (RC-3 doble descarte / origen terminal) →
  *    mensaje informativo del contrato; la UI no se rompe.
  *
@@ -42,8 +43,9 @@ type Reserva = components['schemas']['Reserva'];
  */
 type Props = {
   reservaId: string;
-  /** Código de la RESERVA (p. ej. `SLO-2026-0013`) para el toast de éxito. */
-  codigo: string;
+  /** Código de la RESERVA (p. ej. `SLO-2026-0013`); lo consume el aviso inline de la
+      ficha vía `onDescartado`, no este diálogo. */
+  codigo?: string;
   abierto: boolean;
   onAbiertoChange: (abierto: boolean) => void;
   /** Se invoca con la RESERVA descartada (`subEstado='2z'`) tras un 200. */
@@ -69,7 +71,6 @@ const claseTextarea =
 
 export const DescartarConsultaDialog = ({
   reservaId,
-  codigo,
   abierto,
   onAbiertoChange,
   onDescartado,
@@ -96,7 +97,6 @@ export const DescartarConsultaDialog = ({
       { id: reservaId, motivo },
       {
         onSuccess: (reserva) => {
-          notify.success(`Consulta ${codigo} marcada como descartada por el cliente.`);
           onDescartado(reserva);
           onAbiertoChange(false);
         },

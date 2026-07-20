@@ -3,7 +3,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AlertTriangle, Ban, X } from 'lucide-react';
-import { notify } from '@/lib/notify';
 import {
   Dialog,
   DialogContent,
@@ -27,10 +26,11 @@ type Reserva = components['schemas']['Reserva'];
  * escribe, el backend lo audita en `AUDIT_LOG`; su ausencia NO bloquea la
  * transición.
  *
- * Al éxito muestra un toast y la reserva pasa a `reserva_cancelada` (sale del
- * pipeline; si la fecha tenía cola, la promoción/reordenación A15 se refleja al
- * re-consultar el pipeline — ver `useDescartarPreReserva`). El error del backend se
- * muestra inline:
+ * Al éxito notifica `onDescartado(reserva)` (la reserva pasa a `reserva_cancelada`,
+ * sale del pipeline; si la fecha tenía cola, la promoción/reordenación A15 se refleja
+ * al re-consultar el pipeline — ver `useDescartarPreReserva`); la confirmación se
+ * muestra como aviso inline verde en la cabecera de la ficha (no como toast). El error
+ * del backend se muestra inline:
  *  - 409 `transicion_no_permitida` (RESERVA ya terminal / carrera perdida) →
  *    mensaje informativo; la UI no se rompe.
  *  - 422 origen inválido (estado no descartable) → mensaje informativo.
@@ -44,8 +44,9 @@ type Reserva = components['schemas']['Reserva'];
  */
 type Props = {
   reservaId: string;
-  /** Código de la RESERVA (p. ej. `SLO-2026-0021`) para el toast de éxito. */
-  codigo: string;
+  /** Código de la RESERVA (p. ej. `SLO-2026-0021`); lo consume el aviso inline de la
+      ficha vía `onDescartado`, no este diálogo. */
+  codigo?: string;
   abierto: boolean;
   onAbiertoChange: (abierto: boolean) => void;
   /** Se invoca con la RESERVA descartada (`estado='reserva_cancelada'`) tras un 200. */
@@ -71,7 +72,6 @@ const claseTextarea =
 
 export const DescartarPreReservaDialog = ({
   reservaId,
-  codigo,
   abierto,
   onAbiertoChange,
   onDescartado,
@@ -98,7 +98,6 @@ export const DescartarPreReservaDialog = ({
       { id: reservaId, motivo },
       {
         onSuccess: (reserva) => {
-          notify.success(`Pre-reserva ${codigo} descartada.`);
           onDescartado(reserva);
           onAbiertoChange(false);
         },
