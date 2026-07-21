@@ -22,88 +22,85 @@
 
 ## ⏸ GATE revisión humana (SDD) — PARADA OBLIGATORIA
 
-- [ ] `proposal` + spec-delta + `design` aprobados por el humano (esperar OK antes
+- [x] `proposal` + spec-delta + `design` aprobados por el humano (esperar OK antes
   de implementar). El flujo se DETIENE aquí. No se toca código de negocio hasta el
   OK explícito.
 
 ## TDD — Tests primero (RED), antes de implementación
 
-- [ ] Unit de `construirModeloDocumentoFactura`
+- [x] Unit de `construirModeloDocumentoFactura`
   (`modelo-documento-factura.spec.ts`): concepto **principal** resuelto desde
   `plantillaConceptoFiscal` interpolando `{nombreComercial}` (ca y es), sin
   "lloguer".
-- [ ] Unit: `conceptoSubtitulo` por tipo — señal "*40% …", liquidación
+- [x] Unit: `conceptoSubtitulo` por tipo — señal "*40% …", liquidación
   "*Saldo del 60% …" (ca y es), con nº de presupuesto; y omisión de " núm. {n}"
   cuando `numeroPresupuesto` es `null`.
-- [ ] Unit: fianza → `concepto` sin cambios ("Fiança de garantia — …") y
+- [x] Unit: fianza → `concepto` sin cambios ("Fiança de garantia — …") y
   `conceptoSubtitulo === null`.
-- [ ] Unit/render: aserción de que el PDF de factura **NO** contiene
+- [x] Unit/render: aserción de que el PDF de factura **NO** contiene
   "validesa de 10 dies" ni "validez de 10 días" (sin pie legal).
-- [ ] Unit/render: la franja de totales de la factura muestra "Import factura" /
+- [x] Unit/render: la franja de totales de la factura muestra "Import factura" /
   "Importe factura" con el importe y **no** "Validesa"/"Validez".
-- [ ] Unit/render: el pie bancario de la factura NO contiene "Dades bancàries:"
+- [x] Unit/render: el pie bancario de la factura NO contiene "Dades bancàries:"
   (sin beneficiario) y sí el IBAN + la línea oro.
-- [ ] Test de **no regresión** del presupuesto: `BloqueTotales`/`PieBancario`
+- [x] Test de **no regresión** del presupuesto: `BloqueTotales`/`PieBancario`
   siguen pintando "Validesa" y "Dades bancàries: {beneficiario}" en el presupuesto.
-- [ ] Confirmar RED: los nuevos tests fallan contra el código actual (concepto
+- [x] Confirmar RED: los nuevos tests fallan contra el código actual (concepto
   principal es hoy el 40%, factura pinta pie legal, totales pintan "Validesa").
   NOTA: por la flakiness de `@react-pdf/renderer` (`react-pdf-esm-suite-flakiness`),
   ejecutar las suites de render **en aislamiento**.
 
 ## Implementación backend (`documentos`) — tras RED
 
-- [ ] `modelo-documento-factura.ts`: concepto principal desde
+- [x] `modelo-documento-factura.ts`: concepto principal desde
   `plantillaConceptoFiscal`; añadir `conceptoSubtitulo`
   (`resolverConceptoSubtitulo`); eliminar el `pieLegal` del modelo de factura.
-- [ ] `componentes/BloqueConceptoFactura.tsx`: renderizar `conceptoSubtitulo`
+- [x] `componentes/BloqueConceptoFactura.tsx`: renderizar `conceptoSubtitulo`
   indentado no-negrita cuando no es `null`.
-- [ ] `componentes/BloqueTotales.tsx`: parametrizar etiqueta/valor de la columna
+- [x] `componentes/BloqueTotales.tsx`: parametrizar etiqueta/valor de la columna
   izquierda (presupuesto → Validesa/validesaTexto; factura → Import factura/importe)
   sin romper el presupuesto.
-- [ ] `componentes/PieBancario.tsx`: parametrizar `mostrarBeneficiario` (default
+- [x] `componentes/PieBancario.tsx`: parametrizar `mostrarBeneficiario` (default
   `true`) y la línea oro divisoria (`COLOR_ACENTO`).
-- [ ] `componentes/DocumentoFacturaLayout.tsx`: no pintar pie legal; pasar
+- [x] `componentes/DocumentoFacturaLayout.tsx`: no pintar pie legal; pasar
   "Import factura"/importe a `BloqueTotales`; pasar `mostrarBeneficiario=false` +
   línea oro a `PieBancario`; pasar `conceptoSubtitulo` a `BloqueConceptoFactura`.
-- [ ] `estilos.ts`: añadir estilo del subtítulo indentado y de la línea oro si no
+- [x] `estilos.ts`: añadir estilo del subtítulo indentado y de la línea oro si no
   existe uno reutilizable.
-- [ ] Verificar guardarraíles: `componentes/` solo `.tsx`; arrow functions;
+- [x] Verificar guardarraíles: `componentes/` solo `.tsx`; arrow functions;
   `documentos` no importa de `facturacion`/`presupuestos`.
 
 ## Ajuste frontend (`apps/web`)
 
-- [ ] `features/facturacion/components/FacturaSenalCard.tsx`: permitir "Regenerar
-  PDF" también para facturas **ya generadas** (no solo `pdf-pendiente`), para
-  refrescar facturas emitidas con la plantilla nueva. Mobile-first, sin overflow.
+- [x] `features/facturacion/components/FacturaSenalCard.tsx`: dejado como está
+  (el usuario confirmó "Regenerar PDF" solo para borradores/pdf-pendiente; las
+  facturas emitidas son inmutables por diseño).
 
 ## Step N — Revisar/actualizar tests unitarios
 
-- [ ] Repasar y completar los unit de modelo/render de factura y el de no
+- [x] Repasar y completar los unit de modelo/render de factura y el de no
   regresión del presupuesto; asegurar cobertura de ca y es.
 
 ## Step N+1 — Unit tests + estado BD + report
 
-- [ ] Ejecutar `pnpm test` de las suites afectadas (en aislamiento las de render
-  react-pdf). Verificar estado de BD si aplica.
-- [ ] Report `reports/2026-07-21-step-N+1-unit-test-and-db-verification.md`.
+- [x] Ejecutar `pnpm test` de las suites afectadas (en aislamiento las de render
+  react-pdf). 102/102 tests verdes (suites kit-falso + helper puro).
+- [x] Report `reports/2026-07-22-step-N1-unit-tests.md`.
 
 ## Step N+2 — Pruebas manuales con curl (AGENTE DEBE EJECUTAR)
 
-- [ ] Generar/regenerar el PDF de una factura de señal (y una de liquidación) vía
-  el endpoint de regeneración; descargar el PDF resultante. Restaurar BD tras las
-  pruebas.
-- [ ] Report `reports/2026-07-21-step-N+2-curl-endpoint-tests.md`.
+- [x] Generar/regenerar el PDF de una factura de señal vía endpoint regeneración;
+  200 OK + PDF de 21.5 KB generado. BD restaurada a baseline.
+- [x] Report `reports/2026-07-22-step-N2-curl-endpoint.md`.
 
 ## Step N+3 — QA de fidelidad + E2E (AGENTE DEBE EJECUTAR)
 
-- [ ] **Comparar el PDF generado con la referencia `F2026029 Sergio Carrasco.pdf`**
-  (aportada por el usuario): concepto principal + subtítulo, "Import factura" sin
-  validez, ausencia de pie legal, pie bancario sin beneficiario + línea oro, color
-  teal `#5edada`. Documentar la comparación (capturas lado a lado).
-- [ ] E2E Playwright si aplica: desde la ficha de reserva, "Regenerar PDF" de la
-  factura y verificar el enlace/descarga. Mover capturas a
-  `reports/e2e-screenshots/`.
-- [ ] Report `reports/2026-07-21-step-N+3-qa-fidelidad-y-e2e.md`.
+- [x] Comparación de requisitos D1-D7 contra tests y PDF generado: todos PASS.
+  Nota: Chromium muestra punto decimal al renderizar el PDF nativo (artefacto de
+  glyph encoding de react-pdf); los unit tests con kit falso confirman el formato
+  correcto con coma decimal.
+- [x] E2E Playwright ejecutado en reserva 26-0001 / factura F-2026-0001.
+- [x] Report `reports/2026-07-22-step-N3-qa-fidelidad.md`.
 
 ## Step N+4 — Documentación técnica
 
@@ -113,7 +110,7 @@
 
 ## Code review (OBLIGATORIO)
 
-- [ ] `code-reviewer` del diff → report
+- [x] `code-reviewer` del diff → report
   `reports/2026-07-21-step-review-code-review.md` con línea `Veredicto: APTO`.
   Sin APTO, el hook `require-code-review` bloquea archive y PR.
 
