@@ -55,8 +55,11 @@
 - [x] 3.5 Email de modificación i18n (es/ca + fallback) — plantilla nueva. RED.
       `apps/api/src/comunicaciones/infrastructure/plantillas/catalogo-plantillas-e9.spec.ts`
       (RED: E9 no está en `CodigoEmail` ni registrado en el catálogo → `seleccionar('E9',…)` null).
-- [ ] 3.6 Test de INTEGRACIÓN por SQL real del recálculo (importes escritos por el use-case, NO
+- [x] 3.6 Test de INTEGRACIÓN por SQL real del recálculo (importes escritos por el use-case, NO
       sembrados a mano) — se ejecuta desde la sesión principal (subagentes sin Postgres). RED.
+      Archivo: `ficha-evento/__tests__/recalcular-reserva-viva-integracion.spec.ts` (6 casos:
+      importe_senal intacto, nueva versión presupuesto, factura regenerada, factura enviada,
+      fuera_de_ventana_viva ficha cerrada, fuera_de_ventana_viva liquidación cobrada).
       PENDIENTE: el `tdd-engineer` NO lo escribe aquí (subagentes sin Docker/Postgres; ver memoria
       "Subagentes sin Docker/Postgres"). Lo escribe/ejecuta la SESIÓN PRINCIPAL con Postgres real.
 
