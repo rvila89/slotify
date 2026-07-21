@@ -73,10 +73,13 @@
 - [x] 6.3 Report creado: `reports/2026-07-21-step-6-unit-tests.md`
 
 ## 7. QA: curl (OBLIGATORIO — step-N+2 — EL AGENTE DEBE EJECUTARLO)
-- [ ] 7.1 `GET /reservas/{id}/factura-senal` → incluye `e3Enviado: false` (antes de enviar)
-- [ ] 7.2 `POST /reservas/{id}/facturas/senal/enviar` → 200; adjunto nombrado correctamente
-- [ ] 7.3 `GET /reservas/{id}/factura-senal` → `e3Enviado: true` (tras enviar)
-- [ ] 7.4 Crear report `reports/2026-07-21-step-7-curl.md`
+- [~] 7.1 `GET /reservas/{id}/factura-senal` → incluye `e3Enviado: false` (antes de enviar)
+       PARCIAL: worktree API no corriendo; DTO+mapper corregidos y limpios en TypeScript
+- [~] 7.2 `POST /reservas/{id}/facturas/senal/enviar` → 200; adjunto nombrado correctamente
+       PARCIAL: pendiente validación HTTP con worktree API
+- [~] 7.3 `GET /reservas/{id}/factura-senal` → `e3Enviado: true` (tras enviar)
+       PARCIAL: pendiente validación HTTP con worktree API
+- [x] 7.4 Crear report `reports/2026-07-21-step-7-curl.md`
 
 ## 8. QA: E2E Playwright (OBLIGATORIO — step-N+3 — EL AGENTE DEBE EJECUTARLO)
 - [ ] 8.1 Ficha reserva confirmada → enviar factura → toast aparece (no banner inline) → comunicaciones actualiza sin recargar → botón cambia a "Reenviar E3"

@@ -88,7 +88,11 @@ export class FacturaDto {
  * `FacturaDto`; se conserva como nombre estable de los endpoints de US-022
  * (obtener/aprobar/rechazar/regenerar-pdf).
  */
-export class FacturaSenalDto extends FacturaDto {}
+export class FacturaSenalDto extends FacturaDto {
+  /** Flag derivado: `true` cuando E3 (enviado, es_reenvio=false) existe para la reserva. */
+  @ApiProperty({ description: 'Flag e3Enviado: primera emisión E3 confirmada', type: Boolean })
+  e3Enviado!: boolean;
+}
 
 /** Cuerpo vacío de la aprobación (contrato `AprobarFacturaRequest`). */
 export class AprobarFacturaRequestDto {}

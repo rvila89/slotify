@@ -165,6 +165,7 @@ const aDto = (r: FacturaSenalResultado): FacturaSenalDto => ({
   fechaEmision: r.fechaEmision === null ? null : r.fechaEmision.toISOString(),
   esBorradorInvalido: r.esBorradorInvalido,
   pdfPendiente: r.pdfPendiente,
+  e3Enviado: r.e3Enviado ?? false,
 });
 
 /**
