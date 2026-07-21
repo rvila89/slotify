@@ -16,8 +16,23 @@ const claseArea =
 
 const claseLabel = 'px-1 font-body text-xs font-medium tracking-[0.48px] text-text-secondary';
 
+const tipoInput = (tipo: 'numero' | 'texto' | 'area' | 'email' | 'hora'): string => {
+  if (tipo === 'numero') return 'number';
+  if (tipo === 'email') return 'email';
+  if (tipo === 'hora') return 'time';
+  return 'text';
+};
+
+const modoEntrada = (
+  tipo: 'numero' | 'texto' | 'area' | 'email' | 'hora',
+): 'numeric' | 'email' | undefined => {
+  if (tipo === 'numero') return 'numeric';
+  if (tipo === 'email') return 'email';
+  return undefined;
+};
+
 /**
- * Rejilla de los 7 campos de la ficha operativa (US-025). Mobile-first: una columna
+ * Rejilla de los campos de la ficha operativa (US-025). Mobile-first: una columna
  * en móvil, dos columnas en `sm:`; los campos de texto largo ocupan ancho completo.
  * Los inputs se registran contra el RHF del formulario padre (fuente de verdad del
  * estado). Sin overflow horizontal; objetivos táctiles ≥ 48px (`h-12`).
@@ -45,8 +60,8 @@ export const CamposFicha = ({ register, errors }: Props) => (
           ) : (
             <input
               id={idCampo}
-              type={tipo === 'numero' ? 'number' : 'text'}
-              inputMode={tipo === 'numero' ? 'numeric' : undefined}
+              type={tipoInput(tipo)}
+              inputMode={modoEntrada(tipo)}
               min={tipo === 'numero' ? 0 : undefined}
               step={tipo === 'numero' ? 1 : undefined}
               placeholder={placeholder}
