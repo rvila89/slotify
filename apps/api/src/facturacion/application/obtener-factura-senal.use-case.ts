@@ -37,12 +37,21 @@ export class FacturaSenalNoEncontradaError extends Error {
   }
 }
 
+/**
+ * Puerto de verificación de si la factura de señal ya se envió por E3 (COMUNICACION E3 `enviado`
+ * y NO reenvío). Aislado por tenant (RLS). Token `VERIFICAR_E3_ENVIADO_PORT`.
+ */
+export interface VerificarE3EnviadoPort {
+  (params: { tenantId: string; reservaId: string }): Promise<boolean>;
+}
+
 /** Dependencias del caso de uso. */
 export interface ObtenerFacturaSenalDeps {
   unidadDeTrabajo: UnidadDeTrabajoFacturacionPort;
   cargarReserva: CargarReservaFacturablePort;
   cargarCliente: CargarClienteFiscalPort;
   cargarFacturaParaPdf: CargarFacturaParaPdfPort;
+  verificarE3Enviado: VerificarE3EnviadoPort;
 }
 
 export class ObtenerFacturaSenalUseCase {
@@ -67,7 +76,16 @@ export class ObtenerFacturaSenalUseCase {
     if (factura === null) {
       throw new FacturaSenalNoEncontradaError(comando.reservaId);
     }
-    return this.conFlags(comando.tenantId, factura, reserva.clienteId);
+    const resultado = await this.conFlags(
+      comando.tenantId,
+      factura,
+      reserva.clienteId,
+    );
+    const e3Enviado = await this.deps.verificarE3Enviado({
+      tenantId: comando.tenantId,
+      reservaId: comando.reservaId,
+    });
+    return { ...resultado, e3Enviado };
   }
 
   /** Lee la factura por su id y deriva sus flags (respuesta tras aprobar/rechazar). */

@@ -25,6 +25,7 @@ import type {
   CargarReservaSenalEmisionPort,
   ReservaSenalEmision,
 } from '../application/enviar-factura-senal.use-case';
+import type { VerificarE3EnviadoPort } from '../application/obtener-factura-senal.use-case';
 import type {
   BuscarDocumentoCondicionesPort,
   BuscarE3PreviaPort,
@@ -91,9 +92,10 @@ export class CargarReservaSenalEmisionPrismaAdapter {
           tenantId: true,
           clienteId: true,
           codigo: true,
+          idioma: true,
           condPartEnviadasFecha: true,
           condPartFirmadas: true,
-          cliente: { select: { email: true } },
+          cliente: { select: { email: true, nombre: true, apellidos: true } },
         },
       });
     });
@@ -106,10 +108,39 @@ export class CargarReservaSenalEmisionPrismaAdapter {
       clienteId: fila.clienteId,
       codigo: fila.codigo,
       clienteEmail: fila.cliente.email ?? '',
+      idioma: fila.idioma,
+      clienteNombre: fila.cliente.nombre,
+      clienteApellidos: fila.cliente.apellidos ?? '',
       condPartEnviadasFecha: fila.condPartEnviadasFecha,
       condPartFirmadas: fila.condPartFirmadas,
     };
     return reserva;
+  };
+}
+
+/**
+ * Verifica si ya se envió E3 (COMUNICACION E3 `enviado`, `es_reenvio=false`) para la reserva,
+ * bajo el RLS del tenant. Alimenta el flag `e3Enviado` de la lectura de la factura de señal.
+ */
+@Injectable()
+export class VerificarE3EnviadoPrismaAdapter {
+  constructor(private readonly prisma: PrismaService) {}
+
+  readonly verificar: VerificarE3EnviadoPort = async (params) => {
+    const fila = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.fijarTenant(tx, params.tenantId);
+      return tx.comunicacion.findFirst({
+        where: {
+          reservaId: params.reservaId,
+          tenantId: params.tenantId,
+          codigoEmail: 'E3',
+          estado: 'enviado',
+          esReenvio: false,
+        },
+        select: { idComunicacion: true },
+      });
+    });
+    return fila !== null;
   };
 }
 
@@ -206,8 +237,9 @@ export class CargarReservaReenvioE3PrismaAdapter {
           tenantId: true,
           clienteId: true,
           codigo: true,
+          idioma: true,
           condPartEnviadasFecha: true,
-          cliente: { select: { email: true } },
+          cliente: { select: { email: true, nombre: true, apellidos: true } },
         },
       });
     });
@@ -220,6 +252,9 @@ export class CargarReservaReenvioE3PrismaAdapter {
       clienteId: fila.clienteId,
       codigo: fila.codigo,
       clienteEmail: fila.cliente.email ?? '',
+      idioma: fila.idioma,
+      clienteNombre: fila.cliente.nombre,
+      clienteApellidos: fila.cliente.apellidos ?? '',
       condPartEnviadasFecha: fila.condPartEnviadasFecha,
     };
     return reserva;

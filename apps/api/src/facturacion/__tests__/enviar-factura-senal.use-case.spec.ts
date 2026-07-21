@@ -546,6 +546,89 @@ describe('EnviarFacturaSenal — sin condiciones en E3 (Mejora B)', () => {
 });
 
 // ===========================================================================
+// IDIOMA + NOMBRE ADJUNTO — factura-senal-pdf-idioma-email-ux (TDD RED).
+//
+// `ReservaSenalEmision` debe incluir `idioma`, `clienteNombre`, `clienteApellidos`.
+// El use-case debe:
+//   1. Propagar `idioma` en `EnviarE3EmisionParams` para que el adapter seleccione
+//      la plantilla correcta del catálogo.
+//   2. Nombrar el adjunto de la señal como
+//      `{numeroFactura} {clienteNombre} {clienteApellidos}.pdf`.
+//
+// RED: `ReservaSenalEmision` no tiene estos campos; `EnviarE3EmisionParams` tampoco;
+// el adjunto usa `'factura-senal.pdf'` hardcodeado → los asserts FALLAN. GREEN es de
+// `backend-developer`.
+// ===========================================================================
+
+const reservaEmisionConIdioma = (
+  over: Partial<ReservaSenalEmision> = {},
+): ReservaSenalEmision => ({
+  ...reservaEmision(),
+  // Los campos nuevos no existen aún en ReservaSenalEmision → error de tipo (RED)
+  ...(({ idioma: 'es', clienteNombre: 'Sergio', clienteApellidos: 'Carrasco' }) as unknown as Partial<ReservaSenalEmision>),
+  ...over,
+});
+
+describe('EnviarFacturaSenal — idioma propagado a E3 (factura-senal-pdf-idioma-email-ux)', () => {
+  it('debe_propagar_idioma_es_en_los_params_de_envio_E3', async () => {
+    const { useCase, enviarE3 } = montar({
+      reserva: reservaEmisionConIdioma({ ...(({ idioma: 'es' }) as unknown as Partial<ReservaSenalEmision>) }),
+    });
+
+    await useCase.ejecutar(comando());
+
+    const args = enviarE3.mock.calls[0][0];
+    // `idioma` debe viajar en los params para que el adapter del catálogo lo use.
+    expect((args as Record<string, unknown>).idioma).toBe('es');
+  });
+
+  it('debe_propagar_idioma_ca_en_los_params_de_envio_E3', async () => {
+    const { useCase, enviarE3 } = montar({
+      reserva: reservaEmisionConIdioma({ ...(({ idioma: 'ca' }) as unknown as Partial<ReservaSenalEmision>) }),
+    });
+
+    await useCase.ejecutar(comando());
+
+    const args = enviarE3.mock.calls[0][0];
+    expect((args as Record<string, unknown>).idioma).toBe('ca');
+  });
+});
+
+describe('EnviarFacturaSenal — nombre del adjunto con nombre cliente (factura-senal-pdf-idioma-email-ux)', () => {
+  it('debe_nombrar_el_adjunto_senal_con_el_numero_factura_y_el_nombre_del_cliente', async () => {
+    const { useCase, enviarE3 } = montar({ reserva: reservaEmisionConIdioma() });
+
+    await useCase.ejecutar(comando());
+
+    const adjuntos = enviarE3.mock.calls[0][0].adjuntos as ReadonlyArray<{
+      clave: string;
+      nombre: string;
+      pdfUrl: string;
+    }>;
+    const adjuntoSenal = adjuntos.find((a) => a.clave === 'senal');
+    // Formato: `{numeroFactura} {clienteNombre} {clienteApellidos}.pdf`
+    // La factura piloto tiene numeroFactura='F-2026-0007', clienteNombre='Sergio', clienteApellidos='Carrasco'.
+    expect(adjuntoSenal?.nombre).toBe('F-2026-0007 Sergio Carrasco.pdf');
+  });
+
+  it('debe_usar_Factura_como_fallback_cuando_el_numero_de_factura_es_null', async () => {
+    const { useCase, enviarE3 } = montar({
+      senal: facturaSenal({ numeroFactura: null }),
+      reserva: reservaEmisionConIdioma(),
+    });
+
+    await useCase.ejecutar(comando());
+
+    const adjuntos = enviarE3.mock.calls[0][0].adjuntos as ReadonlyArray<{
+      clave: string;
+      nombre: string;
+    }>;
+    const adjuntoSenal = adjuntos.find((a) => a.clave === 'senal');
+    expect(adjuntoSenal?.nombre).toBe('Factura Sergio Carrasco.pdf');
+  });
+});
+
+// ===========================================================================
 // 3.7 — 404: no existe factura de señal / reserva cross-tenant (RLS). Ante la
 //        guarda de existencia NO se muta nada ni se envía E3.
 // ===========================================================================

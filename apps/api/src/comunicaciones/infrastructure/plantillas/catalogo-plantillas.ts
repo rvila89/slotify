@@ -196,40 +196,52 @@ const renderE2Ca = (variables: Record<string, unknown>): RenderPlantilla => {
 };
 
 /**
- * Render real de la plantilla E3 (factura de señal 40% + condicions particulars). Se activa en
- * la rebanada 6.4b (`documentos-enviar-factura-senal-e3`): cierra el hito de confirmación con la
- * factura de señal adjunta y anuncia al cliente los próximos hitos del evento.
+ * Render real de la plantilla E3 en castellano (factura de señal 40%). Texto de marca aprobado
+ * del tenant (Masia l'Encís): agradece la confianza, adjunta la factura del primer pago (40%),
+ * recuerda el 60% restante antes del evento y cierra con la firma «Ari — Masia l'Encís». Las
+ * condicions particulars ya se enviaron en E2, así que E3 NO las repite.
  */
 const renderE3 = (variables: Record<string, unknown>): RenderPlantilla => {
   const nombre = texto(variables.nombre);
   const codigoReserva = texto(variables.codigoReserva);
-  const referencia = codigoReserva === '' ? '' : ` (reserva ${codigoReserva})`;
-  const asunto = `Confirmación de tu reserva y factura de señal${referencia}`;
-  const cuerpoTexto = [
+  const referencia = codigoReserva === '' ? '' : ` — reserva ${codigoReserva}`;
+  const asunto = `Factura de señal${referencia}`;
+  const parrafos = [
     `Hola ${nombre},`,
-    '',
-    'Hemos confirmado tu reserva. Adjuntamos la factura de la señal (40%) y las',
-    'condicions particulars de tu evento.',
-    '',
-    'Próximos hitos:',
-    '- Revisa y firma las condicions particulars adjuntas.',
-    '- Coordinaremos contigo los detalles del evento en las próximas semanas.',
-    '- La liquidación del importe restante se emitirá tras el evento.',
-    '',
-    'Un saludo.',
-  ].join('\n');
-  const cuerpoHtml = [
-    `<p>Hola ${htmlEscape(nombre)},</p>`,
-    '<p>Hemos confirmado tu reserva. Adjuntamos la factura de la señal (40%) y las ' +
-      'condicions particulars de tu evento.</p>',
-    '<p>Próximos hitos:</p>',
-    '<ul>',
-    '<li>Revisa y firma las condicions particulars adjuntas.</li>',
-    '<li>Coordinaremos contigo los detalles del evento en las próximas semanas.</li>',
-    '<li>La liquidación del importe restante se emitirá tras el evento.</li>',
-    '</ul>',
-    '<p>Un saludo.</p>',
-  ].join('');
+    "¡Muchas gracias por confiar en la Masia l'Encís!",
+    'Te adjuntamos la factura correspondiente al primer pago realizado, equivalente al 40% del importe total de la reserva.',
+    'Te recordamos que antes de la fecha del evento, será necesario efectuar el pago del 60% restante.',
+    'Si tienes cualquier duda o necesitas que te ayudemos con cualquier detalle, estaremos encantados de atenderte.',
+    "¡Muchas gracias!\nUn abrazo,\nAri\nMasia l'Encís",
+  ];
+  const cuerpoTexto = parrafos.join('\n\n');
+  const cuerpoHtml = parrafos
+    .map((p) => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  return { asunto, cuerpoHtml, cuerpoTexto };
+};
+
+/**
+ * Render real de la plantilla E3 en catalán (factura de senyal 40%). Variante catalana del texto
+ * de marca aprobado, análoga a `renderE3` (ES). Las condicions particulars ya se enviaron en E2.
+ */
+const renderE3Ca = (variables: Record<string, unknown>): RenderPlantilla => {
+  const nombre = texto(variables.nombre);
+  const codigoReserva = texto(variables.codigoReserva);
+  const referencia = codigoReserva === '' ? '' : ` — reserva ${codigoReserva}`;
+  const asunto = `Factura de senyal${referencia}`;
+  const parrafos = [
+    `Hola ${nombre},`,
+    "Moltes gràcies per confiar en la Masia l'Encís!",
+    "T'adjuntem la factura corresponent al primer pagament realitzat, equivalent al 40% de l'import total de la reserva.",
+    "Et recordem que abans de la data de l'esdeveniment, serà necessari efectuar el pagament del 60% restant.",
+    "Si tens qualsevol dubte o necessites que t'ajudem amb algun detall, estarem encantats d'atendre't.",
+    "Moltes gràcies!\nUna abraçada,\nAri\nMasia l'Encís",
+  ];
+  const cuerpoTexto = parrafos.join('\n\n');
+  const cuerpoHtml = parrafos
+    .map((p) => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
   return { asunto, cuerpoHtml, cuerpoTexto };
 };
 
@@ -282,17 +294,29 @@ const PLANTILLA_E2_CA: Plantilla = {
 };
 
 /**
- * Plantilla E3 ACTIVA en `es` (factura de señal + condicions particulars, 6.4b). La factura de
- * señal es el adjunto REQUERIDO; las condicions particulars son OPCIONALES (degradan sin tumbar
- * el envío, §D-adjunto-condiciones), por eso NO figuran en `adjuntosRequeridos`.
+ * Plantilla E3 ACTIVA en `es` (factura de señal, texto aprobado). La factura de señal es el
+ * adjunto REQUERIDO. Requiere `nombre` y `codigoReserva` (el email ya no es variable de plantilla).
  */
 const PLANTILLA_E3_ES: Plantilla = {
   codigoEmail: 'E3',
   idioma: 'es',
   activa: true,
-  variablesRequeridas: ['nombre', 'email', 'codigoReserva'],
+  variablesRequeridas: ['nombre', 'codigoReserva'],
   adjuntosRequeridos: ['senal'],
   render: renderE3,
+};
+
+/**
+ * Plantilla E3 ACTIVA en `ca` (factura de senyal, texto aprobado). Mismo contrato que la variante
+ * `es`, con el texto de marca en catalán.
+ */
+const PLANTILLA_E3_CA: Plantilla = {
+  codigoEmail: 'E3',
+  idioma: 'ca',
+  activa: true,
+  variablesRequeridas: ['nombre', 'codigoReserva'],
+  adjuntosRequeridos: ['senal'],
+  render: renderE3Ca,
 };
 
 /**
@@ -349,6 +373,7 @@ export class CatalogoPlantillasEnCodigo implements CatalogoPlantillasPort {
   >([
     ['E1', PLANTILLA_E1_CA],
     ['E2', PLANTILLA_E2_CA],
+    ['E3', PLANTILLA_E3_CA],
     ...CODIGOS_DIFERIDOS.map(
       (codigo): [CodigoEmail, Plantilla] => [codigo, plantillaInactivaCa(codigo)],
     ),

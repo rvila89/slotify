@@ -7,6 +7,12 @@
  */
 import type { components } from '@/api-client';
 
+/**
+ * Factura de señal (US-022 · UC-18). Es `FacturaDto` extendida con el flag DERIVADO
+ * `e3Enviado: boolean` (true cuando ya existe una COMUNICACION E3 enviada, no reenvío):
+ * la UI lo usa para mostrar sólo "Enviar factura 40%" antes del primer envío y sólo
+ * "Reenviar E3" después, nunca ambas a la vez.
+ */
 export type FacturaSenal = components['schemas']['FacturaSenalDto'];
 
 /**

@@ -51,6 +51,8 @@ export interface DatosDocumentoFactura {
   extras: ReadonlyArray<ExtraFactura>;
   /** Desglose fiscal congelado en `facturacion` (`calcularDesgloseFactura`). */
   desglose: DesgloseDocumento;
+  /** Idioma del documento (`'ca'`/`'es'`); ausente/desconocido cae a catalán. */
+  idioma?: string;
 }
 
 /** Parámetros del builder del modelo de vista de la factura. */
@@ -73,6 +75,8 @@ export interface ModeloDocumentoFactura {
   totales: TotalesModelo;
   pieLegal: string;
   pieBancario: PieBancarioModelo;
+  /** Idioma del documento (`'ca'`/`'es'`); el layout elige las etiquetas fijas. */
+  idioma?: string;
 }
 
 /**
@@ -83,7 +87,18 @@ const resolverConcepto = (
   tipo: TipoDocumentoFactura,
   numeroPresupuesto: string | null,
   nombreComercial: string,
+  idioma: string,
 ): string => {
+  if (idioma === 'es') {
+    if (tipo === 'fianza') {
+      return `Fianza de garantía — ${nombreComercial}`;
+    }
+    const referencia = numeroPresupuesto === null ? '' : ` núm. ${numeroPresupuesto}`;
+    if (tipo === 'senal') {
+      return `40% del importe total anticipado del presupuesto${referencia}`;
+    }
+    return `Saldo del 60% del importe del presupuesto${referencia}`;
+  }
   if (tipo === 'fianza') {
     return `Fiança de garantia — ${nombreComercial}`;
   }
@@ -128,6 +143,7 @@ export const construirModeloDocumentoFactura = ({
       datos.tipo,
       datos.numeroPresupuesto,
       config.identidadFiscal.nombreComercial,
+      datos.idioma ?? 'ca',
     ),
     extras: datos.extras.map((extra) => ({
       descripcion: extra.descripcion,
@@ -140,13 +156,14 @@ export const construirModeloDocumentoFactura = ({
       ivaImporte: datos.desglose.ivaImporte,
       total: datos.desglose.total,
     },
-    // La factura NO cambia de idioma en este change (design.md D6): pie legal en catalán.
-    pieLegal: config.textos.pieLegal.ca,
+    pieLegal:
+      datos.idioma === 'es' ? config.textos.pieLegal.es : config.textos.pieLegal.ca,
     pieBancario: {
       mostrar: conIva,
       iban: config.banca.iban,
       beneficiario: config.banca.beneficiarioTransferencia,
       concepto: config.banca.conceptoTransferencia,
     },
+    idioma: datos.idioma,
   };
 };

@@ -220,6 +220,6 @@ import {
         }),
     },
   ],
-  exports: [ENVIAR_EMAIL_PORT, DespacharEmailService],
+  exports: [ENVIAR_EMAIL_PORT, DespacharEmailService, CATALOGO_PLANTILLAS_PORT],
 })
 export class ComunicacionesModule {}

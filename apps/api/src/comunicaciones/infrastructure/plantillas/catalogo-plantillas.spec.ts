@@ -125,7 +125,12 @@ describe('CatalogoPlantillasEnCodigo — E3 activa con render real (3.8)', () =>
 
     const plantilla = catalogo.seleccionar('E3', 'es');
 
-    expect(plantilla?.variablesRequeridas).toEqual(expect.arrayContaining(['email']));
+    // factura-senal-pdf-idioma-email-ux: E3 requiere `nombre` + `codigoReserva`; `email`
+    // ya no es variable de plantilla (el destinatario lo aporta el use-case).
+    expect(plantilla?.variablesRequeridas).toEqual(
+      expect.arrayContaining(['nombre', 'codigoReserva']),
+    );
+    expect(plantilla?.variablesRequeridas).not.toContain('email');
   });
 
   it('debe_requerir_la_factura_de_senal_como_adjunto_y_dejar_las_condiciones_opcionales', () => {

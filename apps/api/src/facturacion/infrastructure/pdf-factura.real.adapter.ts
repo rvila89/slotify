@@ -79,6 +79,7 @@ export class PdfFacturaRealAdapter {
         },
         extras: datos.extras,
         desglose: datos.desglose,
+        idioma: datos.idioma,
       },
     });
 

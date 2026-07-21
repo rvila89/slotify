@@ -1,7 +1,7 @@
 import type {
   CampoFiscalFaltante,
   EstadoFactura,
-  FacturaSenal,
+  Factura,
   TipoFactura,
 } from '../model/types';
 
@@ -22,8 +22,12 @@ export type EstadoVisualFactura =
   | 'pdf-pendiente'
   | 'borrador';
 
-/** Deriva el estado visual de la factura a partir de su DTO. */
-export const estadoVisualFactura = (factura: FacturaSenal): EstadoVisualFactura => {
+/**
+ * Deriva el estado visual de la factura a partir de su DTO. Acepta el tipo base
+ * `Factura` (`FacturaDto`) porque solo lee `estado`/`esBorradorInvalido`/`pdfPendiente`;
+ * la `FacturaSenal` (superset con `e3Enviado`) encaja igualmente.
+ */
+export const estadoVisualFactura = (factura: Factura): EstadoVisualFactura => {
   if (factura.estado !== 'borrador') return 'enviada';
   if (factura.esBorradorInvalido) return 'borrador-invalido';
   if (factura.pdfPendiente) return 'pdf-pendiente';
@@ -35,15 +39,15 @@ export const estadoVisualFactura = (factura: FacturaSenal): EstadoVisualFactura 
  * del backend (422 si datos fiscales incompletos o PDF pendiente; 409 si ya no es
  * borrador); es solo para habilitar/mostrar la acción, el servidor revalida.
  */
-export const puedeAprobar = (factura: FacturaSenal): boolean =>
+export const puedeAprobar = (factura: Factura): boolean =>
   estadoVisualFactura(factura) === 'borrador';
 
 /** El rechazo solo aplica mientras la factura sigue en `borrador`. */
-export const puedeRechazar = (factura: FacturaSenal): boolean =>
+export const puedeRechazar = (factura: Factura): boolean =>
   factura.estado === 'borrador';
 
 /** El PDF solo se regenera sobre un borrador (una factura emitida es inmutable). */
-export const puedeRegenerarPdf = (factura: FacturaSenal): boolean =>
+export const puedeRegenerarPdf = (factura: Factura): boolean =>
   factura.estado === 'borrador';
 
 /** Etiqueta legible del estado del ciclo de vida de la factura. */

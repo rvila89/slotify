@@ -53,6 +53,8 @@ export interface EtiquetasDocumento {
   transferenciaCompte: string;
   /** Rótulo del bloque bancario ("Dades bancàries:"/"Datos bancarios:"). */
   dadesBancaries: string;
+  /** Rótulo del importe de la factura ("Import factura"/"Importe factura"). */
+  importFactura: string;
 }
 
 const ETIQUETAS_CA: EtiquetasDocumento = {
@@ -76,6 +78,7 @@ const ETIQUETAS_CA: EtiquetasDocumento = {
   transferenciaCompte:
     'El pagament es pot efectuar mitjançant transferència al núm. de compte:',
   dadesBancaries: 'Dades bancàries:',
+  importFactura: 'Import factura',
 };
 
 const ETIQUETAS_ES: EtiquetasDocumento = {
@@ -99,6 +102,7 @@ const ETIQUETAS_ES: EtiquetasDocumento = {
   transferenciaCompte:
     'El pago puede efectuarse mediante transferencia al núm. de cuenta:',
   dadesBancaries: 'Datos bancarios:',
+  importFactura: 'Importe factura',
 };
 
 /** Devuelve las etiquetas fijas del idioma; `idioma` desconocido cae a castellano. */

@@ -147,6 +147,12 @@ export interface ReservaSenalEmision {
   clienteId: string;
   codigo: string;
   clienteEmail: string;
+  /** Idioma de la reserva (`'ca'`/`'es'`); elige la plantilla E3 del catálogo. */
+  idioma?: string;
+  /** Nombre de pila del cliente (nombre del adjunto + saludo del email). */
+  clienteNombre?: string;
+  /** Apellidos del cliente (nombre del adjunto de la señal). */
+  clienteApellidos?: string;
   condPartEnviadasFecha: Date | null;
   condPartFirmadas: boolean;
 }
@@ -173,6 +179,10 @@ export interface EnviarE3EmisionParams {
   clienteId: string;
   destinatario: string;
   codigoReserva: string;
+  /** Idioma de la reserva (`'ca'`/`'es'`); el adapter selecciona la plantilla E3. */
+  idioma?: string;
+  /** Nombre de pila del cliente para el saludo de la plantilla. */
+  nombre?: string;
   adjuntos: AdjuntoSenalEmision[];
   /** Índice laxo: permite que el doble de test tipe los params como `Record`. */
   [extra: string]: unknown;
@@ -366,7 +376,7 @@ export class EnviarFacturaSenalUseCase {
     const adjuntos: AdjuntoSenalEmision[] = [
       {
         clave: 'senal',
-        nombre: 'factura-senal.pdf',
+        nombre: `${senal.numeroFactura ?? 'Factura'} ${reserva.clienteNombre ?? ''} ${reserva.clienteApellidos ?? ''}.pdf`,
         pdfUrl: senal.pdfUrl,
       },
     ];
@@ -382,6 +392,8 @@ export class EnviarFacturaSenalUseCase {
         clienteId: reserva.clienteId,
         destinatario: reserva.clienteEmail,
         codigoReserva: reserva.codigo,
+        idioma: reserva.idioma,
+        nombre: reserva.clienteNombre,
         adjuntos,
       });
     } catch (error) {

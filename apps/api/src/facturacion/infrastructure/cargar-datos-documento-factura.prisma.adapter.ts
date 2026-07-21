@@ -98,6 +98,7 @@ export class CargarDatosDocumentoFacturaPrismaAdapter
           },
           reserva: {
             select: {
+              idioma: true,
               cliente: {
                 select: {
                   nombre: true,
@@ -142,6 +143,7 @@ export class CargarDatosDocumentoFacturaPrismaAdapter
       fechaEmision: factura.fechaEmision,
       numeroPresupuesto: presupuesto?.numeroPresupuesto ?? null,
       regimenIva: presupuesto?.regimenIva === 'sin_iva' ? 'sin_iva' : 'con_iva',
+      idioma: factura.reserva.idioma,
       cliente: {
         nombre: cliente.nombre,
         apellidos: cliente.apellidos ?? '',
