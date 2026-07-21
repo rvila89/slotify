@@ -79,10 +79,10 @@
 
 ## GATE — Revisión humana final (⏸ PARADA OBLIGATORIA)
 
-- [ ] Code-review **APTO** + validación manual aprobados por el humano (esperar OK)
-      antes de archive/PR.
+- [x] Code-review **APTO** + validación manual aprobados por el humano (OK recibido
+      2026-07-21) antes de archive/PR.
 
 ## Archive
 
-- [ ] `openspec archive condiciones-idioma-e2-firma-banner`; actualizar specs vivas;
+- [x] `openspec archive condiciones-idioma-e2-firma-banner`; actualizar specs vivas;
       abrir PR (solo tras gate final y code-review APTO).

@@ -249,8 +249,9 @@ sistema genere las condiciones particulares (US-023); mientras la factura esté 
 ### Requirement: Precondiciones y validación del fichero antes de registrar la firma
 
 El sistema SHALL (DEBE) validar en el servidor, **antes** de cualquier mutación, que: (1)
-`RESERVA.cond_part_enviadas_fecha` **no es nulo** (las condiciones se enviaron al cliente en E3,
-US-023); (2) `RESERVA.estado ∈ {reserva_confirmada, evento_en_curso, post_evento}` (nunca un estado
+`RESERVA.cond_part_enviadas_fecha` **no es nulo** (las condiciones se enviaron al cliente en E2,
+al confirmar el presupuesto — change `condiciones-idioma-e2-firma-banner`); (2) `RESERVA.estado ∈
+{reserva_confirmada, evento_en_curso, post_evento}` (nunca un estado
 terminal `reserva_completada` / `reserva_cancelada` ni ningún otro); y (3) el Gestor ha adjuntado
 **exactamente un** fichero con `mime_type ∈ {image/jpeg, image/png, application/pdf}` y tamaño ≤ 10 MB.
 Si `cond_part_enviadas_fecha` es nulo, el sistema DEBE rechazar la operación con el mensaje **"Las
@@ -277,17 +278,7 @@ no esperado`, `§Formato de fichero no válido`; UC-19; patrón `US-021 confirma
   informado
 - **WHEN** se intenta registrar la firma de condiciones particulares
 - **THEN** el sistema rechaza con "No se puede registrar la firma en una reserva en estado terminal"
-- **AND** no se modifica ninguna entidad
-
-#### Scenario: Fichero ausente, con formato no permitido o tamaño excedido se rechaza
-
-- **GIVEN** una RESERVA válida (`cond_part_enviadas_fecha` informado, estado
-  `reserva_confirmada`/`evento_en_curso`/`post_evento`) y un fichero `.docx`, un fichero > 10 MB, o
-  ningún fichero
-- **WHEN** el Gestor intenta confirmar el registro
-- **THEN** el sistema muestra un error de validación específico (formato no permitido / tamaño
-  excedido / fichero obligatorio)
-- **AND** no se crea `DOCUMENTO`, no se modifica `RESERVA` y no se registra `AUDIT_LOG`
+- **AND** no se crea `DOCUMENTO` y no se modifica la RESERVA
 
 ### Requirement: Registro de la firma con creación del DOCUMENTO firmado y actualización de la reserva
 

@@ -1,6 +1,6 @@
 # Spec-delta: condiciones-idioma-e2-firma-banner (capability `ficha-consulta-ui`)
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Registrar firma de condicions particulars muestra banner inline, no toast
 

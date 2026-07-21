@@ -457,7 +457,10 @@ ANTES / EN el disparo de E2** (el post-commit de `generar-presupuesto.use-case.t
 **path local** (dev sin S3) se envía como `content` **Buffer** (`resend.email.adapter.ts` ya lo
 soporta: el SDK de Resend no lee paths locales), y si es una **URL** debe ser **alcanzable por
 Resend**. El adjunto de **condicions particulars** lo añade el adapter de forma **best-effort**
-(no figura en `adjuntosRequeridos`): si degrada a `null`, se omite sin romper el E2. El sistema
+usando el **idioma de la RESERVA** (`RESERVA.idioma`, normalizado a `'es' | 'ca'`): si la
+generación falla o devuelve `null` post-commit, el adjunto se omite sin romper el E2 (la guarda
+pre-tx en `GenerarPresupuestoUseCase.confirmar()` garantiza que la config existe, por lo que un
+`null` post-commit es un fallo transitorio de render/subida). El sistema
 DEBE registrar el resultado en `COMUNICACION` con `codigo_email = 'E2'`, `reserva_id` = la
 RESERVA, `cliente_id` = el CLIENTE de esa RESERVA y el `tenant_id` correspondiente, y registrar
 la operación en `AUDIT_LOG`. La idempotencia por `(reserva_id, codigo_email)` del motor de
@@ -468,7 +471,8 @@ sistemática** y se corrige de modo que el adjunto **se envíe de verdad** (path
 URL ⇒ alcanzable) — la corrección es **ruta crítica**, NO un fallback que omita el adjunto.
 (Fuente: workstream D del change; `US-014 §Email relacionado E2`, `§Happy Path`; UC-14; E2 §9.3;
 US-045 §Catálogo de plantillas, §Interfaz de adjuntos, §Idempotencia; `catalogo-plantillas.ts`,
-`disparar-e2.adapter.ts`, `generar-presupuesto.use-case.ts`, `resend.email.adapter.ts`.)
+`disparar-e2.adapter.ts`, `generar-presupuesto.use-case.ts`, `resend.email.adapter.ts`;
+change `condiciones-idioma-e2-firma-banner` Mejora A+B.)
 
 #### Scenario: El disparo de E2 propaga el idioma de la RESERVA al motor
 
@@ -499,6 +503,20 @@ US-045 §Catálogo de plantillas, §Interfaz de adjuntos, §Idempotencia; `catal
 - **AND** por la idempotencia `(reserva_id, 'E2')` el E2 puede **reintentarse** una vez el PDF esté
   generado y alcanzable, entregándose entonces CON el presupuesto adjunto
 
+#### Scenario: E2 adjunta condicions en español en el idioma de la reserva
+
+- **GIVEN** una RESERVA con `idioma = 'es'` y un tenant con condicions configuradas
+- **WHEN** se confirma el presupuesto y se dispara E2
+- **THEN** el email E2 lleva adjunto el PDF de condicions generado en español
+- **AND** la clave del PDF en el almacén es `condiciones/{tenantId}-es.pdf`
+
+#### Scenario: E2 adjunta condicions en catalán en el idioma de la reserva
+
+- **GIVEN** una RESERVA con `idioma = 'ca'` y un tenant con condicions configuradas
+- **WHEN** se confirma el presupuesto y se dispara E2
+- **THEN** el email E2 lleva adjunto el PDF de condicions generado en catalán
+- **AND** la clave del PDF en el almacén es `condiciones/{tenantId}-ca.pdf`
+
 #### Scenario: E2 no se duplica ante un segundo disparo sobre la misma RESERVA
 
 - **GIVEN** una RESERVA que ya tiene una `COMUNICACION` con `codigo_email = 'E2'`
@@ -513,6 +531,8 @@ US-045 §Catálogo de plantillas, §Interfaz de adjuntos, §Idempotencia; `catal
 - **THEN** no se realiza ninguna llamada de red al proveedor externo
 - **AND** el disparo de E2 y su registro en `COMUNICACION` quedan verificables para las
   aserciones de los tests
+
+---
 
 ### Requirement: El envío de E2 es posterior al commit y su fallo no revierte la pre_reserva
 
@@ -949,11 +969,10 @@ sistema DEBE crear una **nueva** `COMUNICACION` con `codigo_email = 'E8'`, `esta
 El sistema SHALL (DEBE) marcar la plantilla **E3 como ACTIVA** en el catálogo de plantillas
 (hoy E2–E8 están declaradas pero inactivas, US-045), con un render real en `es` (asunto y
 cuerpo con los próximos hitos del proceso de confirmación) y su contrato de variables y
-adjuntos: `adjuntosRequeridos` declara la **factura de señal como requerida** y las
-**condicions particulars como opcionales** (coherente con el delta `documentos`). La
+adjuntos: `adjuntosRequeridos` declara únicamente la **factura de señal como requerida**. La
 activación deja el catálogo consistente; el envío atómico de esta acción manual usa el
 puerto directo (ver requisito siguiente). (Fuente: US-045 §Catálogo (E3→US-021/022/023);
-`design.md §D-ruta-email`.)
+`design.md §D-ruta-email`; change `condiciones-idioma-e2-firma-banner` Mejora B.)
 
 #### Scenario: E3 deja de estar inactiva y expone su render real
 
@@ -961,31 +980,36 @@ puerto directo (ver requisito siguiente). (Fuente: US-045 §Catálogo (E3→US-0
 - **WHEN** se selecciona la plantilla E3 en idioma `es`
 - **THEN** la plantilla está `activa = true` y devuelve un asunto y cuerpo reales (no el
   placeholder de plantilla inactiva)
-- **AND** declara la factura de señal como adjunto requerido y las condiciones como opcional
+- **AND** declara la factura de señal como único adjunto requerido (sin condicions particulars)
+
+---
 
 ### Requirement: Cableado de E3 síncrono y confirmado por el puerto de envío directo
 
 El sistema SHALL (DEBE), al enviar la factura de señal (delta `facturacion`), disparar el
 envío del email **E3** al `CLIENTE.email` de la RESERVA por el **puerto de envío directo**
-(`EnviarEmailPort`, `codigo_email = 'E3'`), adjuntando **por referencia** el PDF de la
-**factura de señal** (`FACTURA(senal).pdf_url`) y, si está disponible, el PDF de las
-**condicions particulars**. El disparo es **síncrono y esperando la confirmación del
-proveedor**, de modo que si el proveedor **falla, el fallo PROPAGA** para que la emisión de
-la factura (delta `facturacion`) **revierta** (atomicidad). Este cableado **NO** usa el
-motor `DespacharEmailService`, que por diseño traza el fallo en `COMUNICACION` sin
-propagar y sería incompatible con el rollback exigido. El sistema DEBE registrar el
-resultado en `COMUNICACION` con `codigo_email = 'E3'`, `estado = 'enviado'`, `fecha_envio =
-now()`, `reserva_id`, `cliente_id` y `tenant_id` correctos, y en `AUDIT_LOG`. En entornos
-`test`/CI el transporte DEBE operar en **modo fake** (confirmación simulada, sin red).
+(`EnviarEmailPort`, `codigo_email = 'E3'`), adjuntando **únicamente** el PDF de la
+**factura de señal** (`FACTURA(senal).pdf_url`). E3 ya **no adjunta el PDF de condicions
+particulars** — las condicions se envían en E2 al confirmar el presupuesto. El disparo es
+**síncrono y esperando la confirmación del proveedor**, de modo que si el proveedor
+**falla, el fallo PROPAGA** para que la emisión de la factura (delta `facturacion`)
+**revierta** (atomicidad). Este cableado **NO** usa el motor `DespacharEmailService`, que por
+diseño traza el fallo en `COMUNICACION` sin propagar y sería incompatible con el rollback
+exigido. El sistema DEBE registrar el resultado en `COMUNICACION` con `codigo_email = 'E3'`,
+`estado = 'enviado'`, `fecha_envio = now()`, `reserva_id`, `cliente_id` y `tenant_id`
+correctos, y en `AUDIT_LOG`. En entornos `test`/CI el transporte DEBE operar en **modo fake**
+(confirmación simulada, sin red).
 (Fuente: `US-023 §Happy Path`, `§Fallo en el envío del email E3`; US-028 patrón E4;
-US-045 §Transporte real / modo sandbox; `design.md §D-ruta-email`.)
+US-045 §Transporte real / modo sandbox; `design.md §D-ruta-email`;
+change `condiciones-idioma-e2-firma-banner` Mejora B.)
 
-#### Scenario: Enviar factura de señal dispara E3 con ambos adjuntos y registra la comunicación
+#### Scenario: Enviar factura de señal dispara E3 con el adjunto de señal y registra la comunicación
 
 - **GIVEN** una emisión de señal cuya `FACTURA(senal).pdf_url` está disponible y
-  `CLIENTE.email` no es nulo, con las condicions particulars generables
+  `CLIENTE.email` no es nulo
 - **WHEN** el sistema envía E3
-- **THEN** el envío adjunta la factura de señal + las condicions particulars al `CLIENTE.email`
+- **THEN** el envío adjunta únicamente la factura de señal al `CLIENTE.email`
+- **AND** no se adjunta ningún PDF de condicions particulars en E3
 - **AND** se crea `COMUNICACION` con `codigo_email = 'E3'`, `estado = 'enviado'`,
   `fecha_envio` no nulo, `reserva_id`, `cliente_id` y `tenant_id` correctos
 - **AND** se registra la operación en `AUDIT_LOG`

@@ -573,108 +573,83 @@ helpers viven fuera de `componentes/`. (Fuente: `epico-6-documentos-pdf-roadmap`
 
 El sistema SHALL (DEBE) proveer un puerto de dominio
 **`GenerarPdfCondicionesPort`** con firma
-`(params: { tenantId: string }) => Promise<string | null>`, cuyo **adaptador
+`(params: { tenantId: string; idioma: 'es' | 'ca' }) => Promise<string | null>`, cuyo **adaptador
 real** (infraestructura de `documentos`): (1) obtiene la configuración del tenant
 vía `ObtenerConfiguracionDocumentoService`; si es `null` **degrada a `null`** sin
-renderizar ni subir; (2) renderiza el PDF con la plantilla de condiciones; (3)
+renderizar ni subir; (2) renderiza el PDF con la plantilla de condiciones **en el idioma
+indicado** (selecciona `titulo.{idioma}` y `secciones[].cuerpo.{idioma}` del JSON bilingüe); (3)
 sube los bytes por `AlmacenDocumentosPort.subir(bytes, clave)` con la **clave
-fija** `condiciones/{tenantId}.pdf` (documento idéntico por tenant → se
-reutiliza/sobrescribe); (4) devuelve la URL. El puerto se enlaza por el token
+por tenant e idioma** `condiciones/{tenantId}-{idioma}.pdf` (reutiliza/sobrescribe por tenant
+e idioma); (4) devuelve la URL. El puerto se enlaza por el token
 **`GENERAR_PDF_CONDICIONES_PORT`** en `DocumentosModule` (que lo exporta), y se
 provee un **adaptador fake** para tests. El render y el almacén son
 **infraestructura**; el puerto vive en dominio. (Fuente:
 `epico-6-documentos-pdf-roadmap` §6.4a; espejo de `PdfPresupuestoRealAdapter`
 6.1b; `documentos` 6.1a `AlmacenDocumentosPort`; `CLAUDE.md §Arquitectura`
-hexagonal, `§Multi-tenancy`.)
+hexagonal, `§Multi-tenancy`; change `condiciones-idioma-e2-firma-banner` Mejora A.)
 
-#### Scenario: Genera, sube con clave fija por tenant y devuelve la URL
+#### Scenario: Genera, sube con clave por tenant e idioma y devuelve la URL
 
-- **GIVEN** un tenant con configuración de documento (incluye `condiciones`)
-- **WHEN** se invoca el adaptador real con `{ tenantId }`
-- **THEN** se renderiza el PDF, se invoca `AlmacenDocumentosPort.subir(bytes,
-  'condiciones/{tenantId}.pdf')`
+- **GIVEN** un tenant con configuración de documento (incluye `condiciones`) e `idioma = 'es'`
+- **WHEN** se invoca el adaptador real con `{ tenantId, idioma: 'es' }`
+- **THEN** se renderiza el PDF en español, se invoca `AlmacenDocumentosPort.subir(bytes,
+  'condiciones/{tenantId}-es.pdf')`
 - **AND** se devuelve la URL resultante
+
+#### Scenario: Genera en catalán con clave diferenciada
+
+- **GIVEN** un tenant con configuración de documento e `idioma = 'ca'`
+- **WHEN** se invoca el adaptador real con `{ tenantId, idioma: 'ca' }`
+- **THEN** se renderiza el PDF en catalán con clave `condiciones/{tenantId}-ca.pdf`
 
 #### Scenario: Sin configuración del tenant degrada a null
 
 - **GIVEN** un tenant sin `ConfiguracionDocumentoTenant`
-- **WHEN** se invoca el adaptador real con `{ tenantId }`
+- **WHEN** se invoca el adaptador real con `{ tenantId, idioma: 'es' }`
 - **THEN** devuelve `null` sin renderizar ni subir nada
 
-#### Scenario: La clave aísla los objetos por tenant
+#### Scenario: La clave aísla los objetos por tenant e idioma
 
-- **GIVEN** dos tenants distintos
-- **WHEN** se genera el documento de condiciones para cada uno
-- **THEN** cada uno se sube a su propia clave `condiciones/{tenantId}.pdf`, sin
-  colisión entre tenants
+- **GIVEN** dos tenants distintos con dos idiomas distintos
+- **WHEN** se genera el documento de condiciones para cada combinación
+- **THEN** cada una tiene su propia clave `condiciones/{tenantId}-{idioma}.pdf`, sin
+  colisión entre tenants ni entre idiomas
+
+---
 
 ### Requirement: Reutilización del PDF de condicions particulars como adjunto de E3
 
-El sistema SHALL (DEBE), al enviar la factura de señal (E3), obtener el PDF de las
-**condicions particulars** del tenant reutilizando `GenerarPdfCondicionesPort.generar({
-tenantId })` (6.4a), que devuelve la URL del PDF (clave fija `condiciones/{tenantId}.pdf`)
-o **`null`** cuando degrada (tenant sin configuración o sin secciones). Si devuelve una
-URL, el sistema DEBE adjuntarla a E3 junto a la factura de señal. No se genera un documento
-por reserva: el documento es **idéntico por tenant** (6.4a). (Fuente: `US-023 §Happy Path`;
-6.4a `GenerarPdfCondicionesPort`; `design.md §D-adjunto-condiciones`.)
+El sistema SHALL (DEBE), al enviar la factura de señal (E3), adjuntar **únicamente** el PDF de
+la factura de señal. E3 ya **no** adjunta el PDF de condicions particulars — las condicions se
+envían en E2 al confirmar el presupuesto (change `condiciones-idioma-e2-firma-banner` Mejora B).
+El puerto `GenerarPdfCondicionesPort` no se invoca desde el adaptador de E3. (Fuente:
+`US-023`; change `condiciones-idioma-e2-firma-banner` Mejora B.)
 
-#### Scenario: Las condicions particulars se adjuntan a E3 cuando están configuradas
+#### Scenario: E3 se envía sin adjunto de condicions
 
-- **GIVEN** un tenant con las condicions particulars configuradas (6.4a) y una factura de
-  señal enviable
+- **GIVEN** una factura de señal enviable con su PDF disponible
 - **WHEN** el Gestor envía la factura de señal (E3)
-- **THEN** `GenerarPdfCondicionesPort.generar` devuelve la URL del PDF de condiciones
-- **AND** E3 se envía con dos adjuntos: la factura de señal y las condicions particulars
+- **THEN** el email E3 lleva solo el adjunto de la factura de señal
+- **AND** no se llama a `GenerarPdfCondicionesPort.generar` desde el envío E3
+
+---
 
 ### Requirement: El fallo del adjunto de condicions particulars no tumba el envío confirmado de E3
 
-El sistema SHALL (DEBE), en el envío CONFIRMADO/rollback de E3, tratar las **condicions
-particulars** como **adjunto imprescindible**: DEBE obtener el PDF vía
-`GenerarPdfCondicionesPort.generar`. Si devuelve `null` (tenant sin configuración/sin secciones),
-el sistema NO DEBE enviar E3, NO DEBE persistir el `DOCUMENTO` de condiciones y DEBE **abortar** la
-operación con un **error de negocio** (`CONDICIONES_NO_CONFIGURADAS`, recuperable), dejando la
-RESERVA sin `cond_part_enviadas_fecha` y la factura de señal en `borrador` (rollback total); el
-Gestor recibe la alerta "Configura las condiciones particulares del espacio para poder enviar E3".
-Si la generación **lanza** un error transitorio (p. ej. fallo de render/subida), el sistema DEBE
-tratarlo como error **recuperable** (reintentable) con rollback total, sin consolidar la emisión.
-En el camino feliz, E3 SIEMPRE se envía con **ambos** adjuntos (factura de señal + condiciones) y la
-respuesta expone `condPartAdjuntada = true`. (Fuente: `US-023 §Condiciones particulares del tenant
-no configuradas`, `§Reglas de negocio`; `design.md §D-condiciones-bloqueante`; reemplaza el criterio
-tolerante de 6.4b `§D-adjunto-condiciones`.)
+El sistema SHALL (DEBE), en el envío confirmado de E3, tratar las condicions particulars como
+**adjunto ya no requerido**: E3 solo lleva la factura de señal. La guarda dura de condicions
+configuradas (`CONDICIONES_NO_CONFIGURADAS`) se ha movido al paso de **confirmar presupuesto
+(E2)** — change `condiciones-idioma-e2-firma-banner` Mejora B. Por tanto, cuando el Gestor
+envía la factura de señal, `RESERVA.cond_part_enviadas_fecha` ya está fijado (lo fijó E2 al
+confirmar el presupuesto) y E3 no puede ni debe abortar por condicions no configuradas.
+(Fuente: `US-023`; change `condiciones-idioma-e2-firma-banner` Mejora B.)
 
-> **US-023 endurece el criterio de 6.4b (decisión cerrada — `design.md
-> §D-condiciones-bloqueante`).** 6.4b trataba el adjunto de condiciones como **tolerante/opcional**
-> (si degradaba a `null`, E3 se enviaba igual con `condPartAdjuntada = false`). US-023 revierte esa
-> concesión: las condiciones son el **contrato** del evento y pasan a ser **requisito duro** del
-> envío E3.
+#### Scenario: E3 no lanza CONDICIONES_NO_CONFIGURADAS
 
-#### Scenario: Sin condiciones configuradas, E3 no se envía y se alerta al Gestor
-
-- **GIVEN** un tenant SIN condicions particulars configuradas y una factura de señal enviable con su
-  PDF
+- **GIVEN** un tenant con o sin condicions configuradas y una factura de señal enviable
 - **WHEN** el Gestor envía la factura de señal (E3)
-- **THEN** `GenerarPdfCondicionesPort.generar` devuelve `null` y el sistema aborta con
-  `CONDICIONES_NO_CONFIGURADAS`
-- **AND** no se envía E3, no se persiste el `DOCUMENTO` de condiciones, la factura permanece en
-  `borrador` y `RESERVA.cond_part_enviadas_fecha` permanece `NULL`
-- **AND** el Gestor recibe la alerta "Configura las condiciones particulares del espacio para poder
-  enviar E3"
-
-#### Scenario: Un fallo de render de condiciones aborta la emisión de forma recuperable
-
-- **GIVEN** un tenant con condiciones configuradas cuya generación de PDF **lanza** un error
-  transitorio
-- **WHEN** el Gestor envía la factura de señal (E3)
-- **THEN** el sistema aborta con un error recuperable y hace rollback total (factura en `borrador`,
-  sin COMUNICACION E3 `enviado`, sin `DOCUMENTO` de condiciones)
-- **AND** el Gestor puede reintentar el envío
-
-#### Scenario: Con condiciones configuradas, E3 se envía con ambos adjuntos
-
-- **GIVEN** un tenant con condiciones configuradas y una factura de señal enviable con su PDF
-- **WHEN** el Gestor envía la factura de señal (E3) y el envío se confirma
-- **THEN** E3 se envía con dos adjuntos (factura de señal + condiciones particulares)
-- **AND** la respuesta expone `condPartAdjuntada = true` y se persiste el `DOCUMENTO` de condiciones
+- **THEN** el sistema no rechaza con 409 `CONDICIONES_NO_CONFIGURADAS`
+- **AND** E3 se envía con el adjunto de la factura de señal únicamente
 
 ### Requirement: Fidelidad visual de la plantilla de documentos al diseño real del tenant
 
@@ -759,46 +734,6 @@ presupuesto en amarillo.)
   `pieBancario.mostrar`
 - **AND** los tests de contenido del modelo de vista (datos: concepto, importes,
   reparto, validesa) siguen verdes sin cambios, porque el cambio es de presentación
-
-### Requirement: Persistencia idempotente del DOCUMENTO de condiciones particulares al enviar E3
-
-El sistema SHALL (DEBE), al enviar E3 (envío de la factura de señal), **persistir una fila
-`DOCUMENTO`** con `tipo = 'condiciones_particulares'`, `reserva_id`, `tenant_id`, `url` (la URL del
-PDF de condiciones ya generado por `GenerarPdfCondicionesPort`, clave `condiciones/{tenantId}.pdf`)
-y `mime_type = 'application/pdf'`. La persistencia DEBE ocurrir **dentro de la misma transacción
-atómica** del envío E3 (si E3 falla, la fila `DOCUMENTO` **revierte** junto al resto). La operación
-DEBE ser **idempotente por reserva**: solo puede existir **un** `DOCUMENTO` de
-`tipo = 'condiciones_particulares'` por `reserva_id`; si ya existe, el sistema DEBE **reutilizarlo**
-(no crea una segunda fila ni registra un segundo AUDIT_LOG). Cuando se crea la fila por primera vez,
-el sistema DEBE registrar `AUDIT_LOG` con `accion = 'crear'` para ese `DOCUMENTO`. El acceso DEBE
-respetar RLS multi-tenant (la búsqueda de idempotencia filtra por `tenant_id`; nunca reutiliza un
-documento de otro tenant). (Fuente: `US-023 §Happy Path`, `§Reglas de Validación`; `design.md
-§D-persistencia-documento`; `er-diagram.md §DOCUMENTO`.)
-
-#### Scenario: El primer envío de E3 crea el DOCUMENTO de condiciones y lo audita
-
-- **GIVEN** una RESERVA sin `DOCUMENTO` de `tipo = 'condiciones_particulares'` y un tenant con las
-  condiciones configuradas (el PDF de condiciones se genera correctamente)
-- **WHEN** el Gestor envía la factura de señal (E3) y el envío se confirma
-- **THEN** se persiste una fila `DOCUMENTO` con `tipo = 'condiciones_particulares'`, `reserva_id`,
-  `tenant_id`, `url` del PDF y `mime_type = 'application/pdf'`
-- **AND** la fila se consolida en la misma transacción que la emisión de la factura y la
-  actualización de `RESERVA.cond_part_enviadas_fecha`
-- **AND** `AUDIT_LOG` registra `accion = 'crear'` para ese `DOCUMENTO`
-
-#### Scenario: Un DOCUMENTO de condiciones ya existente se reutiliza sin duplicar
-
-- **GIVEN** una RESERVA que ya tiene un `DOCUMENTO` de `tipo = 'condiciones_particulares'`
-- **WHEN** el flujo de envío/reenvío de E3 vuelve a resolver el documento de condiciones
-- **THEN** el sistema reutiliza la fila existente y **no** crea una segunda fila `DOCUMENTO`
-- **AND** no registra un segundo `AUDIT_LOG accion = 'crear'` para el documento
-
-#### Scenario: El rollback del envío de E3 no deja DOCUMENTO huérfano
-
-- **GIVEN** una RESERVA sin `DOCUMENTO` de condiciones y un envío de E3 en curso
-- **WHEN** el envío de E3 falla dentro de la transacción
-- **THEN** no queda persistida ninguna fila `DOCUMENTO` de `tipo = 'condiciones_particulares'`
-  (la creación revierte junto al resto de la transacción)
 
 ### Requirement: Fecha y horario legibles del evento en el bloque de concepto
 
