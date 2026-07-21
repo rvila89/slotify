@@ -119,7 +119,13 @@ const crearUowFake = (
   ),
 });
 
-const montar = (opciones: { reserva?: ReservaFichaOperativa | null } = {}) => {
+const montar = (
+  opciones: {
+    reserva?: ReservaFichaOperativa | null;
+    // change `reserva-viva-edicion-recalculo-ficha`: recálculo en cascada inyectable.
+    recalcularReservaViva?: { ejecutar: jest.Mock };
+  } = {},
+) => {
   const reserva = 'reserva' in opciones ? opciones.reserva : reservaConFicha();
   const fichaBase = reserva?.ficha ?? fichaVacia();
   const repos = crearReposFake(fichaBase);
@@ -129,12 +135,19 @@ const montar = (opciones: { reserva?: ReservaFichaOperativa | null } = {}) => {
     unidadDeTrabajo: uow,
     cargarReservaConFicha,
     clock: relojFijo,
+    ...(opciones.recalcularReservaViva !== undefined
+      ? {
+          recalcularReservaViva:
+            opciones.recalcularReservaViva as unknown as GuardarFichaOperativaDeps['recalcularReservaViva'],
+        }
+      : {}),
   };
   return {
     useCase: new GuardarFichaOperativaUseCase(deps),
     repos,
     uow,
     cargarReservaConFicha,
+    recalcularReservaViva: opciones.recalcularReservaViva,
     deps,
   };
 };
@@ -344,6 +357,101 @@ describe('GuardarFichaOperativaUseCase — edición post-cierre no reabre el est
     expect(repos.auditoria.registrar).toHaveBeenCalled();
     const args = repos.auditoria.registrar.mock.calls[0][0];
     expect(args.entidad).toBe('FICHA_OPERATIVA');
+  });
+});
+
+// ===========================================================================
+// 6.1 — Enrutado de aforo/duración ESTRUCTURAL a la RESERVA (change
+//        reserva-viva-edicion-recalculo-ficha §D-1/§D-3): el guardado con campos
+//        `estructurales` (duracionHoras/desglose/precioManualEur) invoca
+//        `RecalcularReservaVivaUseCase`; sin ellos NO lo invoca; los campos
+//        operativos se guardan igual con o sin recálculo cableado.
+// ===========================================================================
+
+describe('GuardarFichaOperativaUseCase — enruta aforo/duración al recálculo (6.1)', () => {
+  it('debe_invocar_el_recalculo_cuando_llegan_campos_estructurales', async () => {
+    const recalcularReservaViva = { ejecutar: jest.fn(async () => undefined) };
+    const { useCase } = montar({ recalcularReservaViva });
+
+    await useCase.ejecutar(
+      comando({
+        campos: {},
+        estructurales: {
+          duracionHoras: 12,
+          numAdultosNinosMayores4: 48,
+          numNinosMenores4: 2,
+        },
+      }),
+    );
+
+    expect(recalcularReservaViva.ejecutar).toHaveBeenCalledTimes(1);
+    const args = (recalcularReservaViva.ejecutar.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >;
+    expect(args.reservaId).toBe(RESERVA_ID);
+    expect(args.duracionHoras).toBe(12);
+    expect(args.numAdultosNinosMayores4).toBe(48);
+    expect(args.numNinosMenores4).toBe(2);
+  });
+
+  it('debe_invocar_el_recalculo_cuando_solo_llega_precioManualEur', async () => {
+    const recalcularReservaViva = { ejecutar: jest.fn(async () => undefined) };
+    const { useCase } = montar({ recalcularReservaViva });
+
+    await useCase.ejecutar(
+      comando({ campos: {}, estructurales: { precioManualEur: '5000.00' } }),
+    );
+
+    expect(recalcularReservaViva.ejecutar).toHaveBeenCalledTimes(1);
+    const args = (recalcularReservaViva.ejecutar.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >;
+    expect(args.precioManualEur).toBe('5000.00');
+  });
+
+  it('no_debe_invocar_el_recalculo_cuando_no_llegan_campos_estructurales', async () => {
+    const recalcularReservaViva = { ejecutar: jest.fn(async () => undefined) };
+    const { useCase } = montar({ recalcularReservaViva });
+
+    await useCase.ejecutar(comando({ campos: { horaLlegada: '18:00' } }));
+
+    expect(recalcularReservaViva.ejecutar).not.toHaveBeenCalled();
+  });
+
+  it('debe_propagar_el_FueraDeVentanaVivaError_del_recalculo_sin_capturarlo', async () => {
+    const fueraDeVentana = Object.assign(new Error('fuera de la ventana viva'), {
+      codigo: 'fuera_de_ventana_viva',
+    });
+    const recalcularReservaViva = {
+      ejecutar: jest.fn(async () => {
+        throw fueraDeVentana;
+      }),
+    };
+    const { useCase } = montar({ recalcularReservaViva });
+
+    await expect(
+      useCase.ejecutar(comando({ campos: {}, estructurales: { duracionHoras: 4 } })),
+    ).rejects.toMatchObject({ codigo: 'fuera_de_ventana_viva' });
+  });
+
+  it('debe_guardar_los_campos_operativos_aunque_no_haya_recalculo_cableado', async () => {
+    // Compat: sin `recalcularReservaViva` en deps, los campos estructurales se ignoran
+    // y el guardado operativo sigue funcionando (tests legados de US-025).
+    const { useCase, repos } = montar({
+      reserva: reservaConFicha({ ficha: fichaVacia({ preEventoStatus: 'en_curso' }) }),
+    });
+
+    await useCase.ejecutar(
+      comando({ campos: { horaLlegada: '18:00' }, estructurales: { duracionHoras: 8 } }),
+    );
+
+    expect(repos.ficha.guardarCampos).toHaveBeenCalledTimes(1);
+    const [, campos] = repos.ficha.guardarCampos.mock.calls[0];
+    expect(campos.horaLlegada).toBe('18:00');
+    // El payload operativo NO contamina con los campos estructurales.
+    expect(campos).not.toHaveProperty('duracionHoras');
   });
 });
 

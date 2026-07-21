@@ -80,8 +80,20 @@
 - [x] 5.3 Responsive mobile-first (390 / 768 / 1280), sin overflow, barrel `@/features/...`.
 
 ## 6. Backend: revisar/actualizar tests unitarios existentes (OBLIGATORIO — step-N)
-- [ ] 6.1 Actualizar los tests de `ficha-evento` (guardado/lectura) y `confirmacion` (siembra)
+- [x] 6.1 Actualizar los tests de `ficha-evento` (guardado/lectura) y `confirmacion` (siembra)
       afectados por el cambio de aforo/duración estructural.
+      REVISIÓN: (a) `guardar-ficha-operativa.use-case.spec.ts` solo cubría el path OPERATIVO
+      legacy (`campos`) → HUECO real: no ejercitaba el enrutado de `estructurales`
+      (duracionHoras/desglose/precioManualEur) al `RecalcularReservaVivaUseCase`. AÑADIDO un
+      describe "enruta aforo/duración al recálculo (6.1)" con 5 casos: invoca el recálculo con
+      campos estructurales, con solo `precioManualEur`, NO lo invoca sin estructurales, propaga
+      `FueraDeVentanaVivaError`, y guarda operativos sin recálculo cableado (compat). 21/21 verde.
+      (b) La lectura con pre-relleno ya está CUBIERTA por el spec dedicado
+      `leer-ficha-operativa-prerelleno.use-case.spec.ts` (7 casos); el spec legado
+      `leer-ficha-operativa.use-case.spec.ts` sigue representativo (guarda de acceso + no-muta)
+      → sin cambios. (c) `confirmacion` (siembra): la siembra de la ficha NO toca aforo/duración
+      (viven en RESERVA desde consulta); `confirmar-pago-senal.use-case.spec.ts` no se ve
+      afectado → sin cambios. Suites verdes: ficha-evento guardado/lectura + confirmar-señal = 93/93.
 
 ## 7. QA: unit tests + verificación de BD (OBLIGATORIO — step-N+1 — EL AGENTE DEBE EJECUTARLO)
 - [ ] 7.1 Capturar baseline de BD (RESERVA importes, PRESUPUESTO versiones, FACTURA liquidación).
