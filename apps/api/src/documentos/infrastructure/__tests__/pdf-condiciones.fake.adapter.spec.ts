@@ -23,17 +23,17 @@ describe('PdfCondicionesFakeAdapter — URL sintética determinista (2.6)', () =
     const adaptador = new PdfCondicionesFakeAdapter();
 
     // Act
-    const url = await adaptador.generar({ tenantId: TENANT });
+    const url = await adaptador.generar({ tenantId: TENANT, idioma: 'ca' });
 
-    // Assert — URL sintética con clave `condiciones/{tenantId}.pdf`.
-    expect(url).toBe(`https://storage.local/condiciones/${TENANT}.pdf`);
+    // Assert — URL sintética con clave `condiciones/{tenantId}-{idioma}.pdf`.
+    expect(url).toBe(`https://storage.local/condiciones/${TENANT}-ca.pdf`);
   });
 
   it('debe_ser_determinista_para_el_mismo_tenant', async () => {
     const adaptador = new PdfCondicionesFakeAdapter();
 
-    const a = await adaptador.generar({ tenantId: TENANT });
-    const b = await adaptador.generar({ tenantId: TENANT });
+    const a = await adaptador.generar({ tenantId: TENANT, idioma: 'ca' });
+    const b = await adaptador.generar({ tenantId: TENANT, idioma: 'ca' });
 
     expect(a).toBe(b);
   });
@@ -41,8 +41,8 @@ describe('PdfCondicionesFakeAdapter — URL sintética determinista (2.6)', () =
   it('debe_generar_urls_distintas_para_tenants_distintos', async () => {
     const adaptador = new PdfCondicionesFakeAdapter();
 
-    const a = await adaptador.generar({ tenantId: TENANT });
-    const b = await adaptador.generar({ tenantId: OTRO_TENANT });
+    const a = await adaptador.generar({ tenantId: TENANT, idioma: 'ca' });
+    const b = await adaptador.generar({ tenantId: OTRO_TENANT, idioma: 'ca' });
 
     expect(a).not.toBe(b);
   });

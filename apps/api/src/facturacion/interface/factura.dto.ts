@@ -97,10 +97,11 @@ export class AprobarFacturaRequestDto {}
 export class EnviarFacturaSenalDto {}
 
 /**
- * Respuesta del envío de la factura de señal + condicions particulars por E3 (contrato
- * `EnviarFacturaSenalResponse`, 6.4b / US-023). Devuelve la factura de señal emitida
- * (`estado=enviada`, `numeroFactura`, `fechaEmision`), el timestamp del envío de E3
- * (`condPartEnviadasFecha`) y si las condicions particulars se adjuntaron (`condPartAdjuntada`).
+ * Respuesta del envío de la factura de señal por E3 (contrato `EnviarFacturaSenalResponse`,
+ * US-023 / change `condiciones-idioma-e2-firma-banner`). Devuelve la factura de señal emitida
+ * (`estado=enviada`, `numeroFactura`, `fechaEmision`) y el timestamp `condPartEnviadasFecha`
+ * (fijado al enviar las condiciones en E2, confirmar presupuesto). Mejora B: las condicions
+ * particulars YA NO se adjuntan en E3.
  */
 export class EnviarFacturaSenalResponseDto {
   @ApiProperty({
@@ -111,14 +112,10 @@ export class EnviarFacturaSenalResponseDto {
 
   @ApiProperty({
     format: 'date-time',
-    description: 'Timestamp del envío de E3 (RESERVA.cond_part_enviadas_fecha).',
+    description:
+      'Timestamp del envío de las condiciones (RESERVA.cond_part_enviadas_fecha), fijado en E2.',
   })
   condPartEnviadasFecha!: string;
-
-  @ApiProperty({
-    description: 'true si las condicions particulars se adjuntaron a E3; false si se omitieron.',
-  })
-  condPartAdjuntada!: boolean;
 }
 
 /** Cuerpo del rechazo: motivo obligatorio (contrato `RechazarFacturaRequest`). */

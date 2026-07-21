@@ -38,9 +38,7 @@ import {
   AuditoriaSenalEmisionPrismaRepository,
   ComunicacionSenalEmisionPrismaRepository,
   FacturaSenalEmisionPrismaRepository,
-  ReservaSenalEmisionPrismaRepository,
 } from './senal-emision-repository.prisma.adapter';
-import { DocumentoPrismaAdapter } from '../../documentos/infrastructure/documento.prisma.adapter';
 
 @Injectable()
 export class EmisionUoWPrismaAdapter implements UnidadDeTrabajoEmisionPort {
@@ -76,11 +74,8 @@ export class SenalEmisionUoWPrismaAdapter implements UnidadDeTrabajoSenalEmision
       await this.prisma.fijarTenant(tx, tenantId);
       const repos: RepositoriosSenalEmision = {
         facturas: new FacturaSenalEmisionPrismaRepository(tx),
-        reservas: new ReservaSenalEmisionPrismaRepository(tx),
         comunicaciones: new ComunicacionSenalEmisionPrismaRepository(tx),
         auditoria: new AuditoriaSenalEmisionPrismaRepository(tx),
-        // GAP 1 (US-023): DOCUMENTO de condiciones tx-bound (misma tx + RLS del envío E3).
-        documentos: new DocumentoPrismaAdapter(tx),
       };
       return trabajo(repos);
     });

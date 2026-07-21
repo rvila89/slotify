@@ -72,7 +72,6 @@ import {
   FacturaSenalNoEncontradaError as EnviarSenalNoEncontradaError,
   FacturaSenalNoEnviableError,
   E3YaEnviadoError,
-  CondicionesNoConfiguradasError,
   EmisionEnvioFallidoError as SenalEmisionEnvioFallidoError,
 } from '../application/enviar-factura-senal.use-case';
 import {
@@ -414,8 +413,7 @@ export class FacturaController {
           pdfUrl: senal.pdfUrl,
           fechaEmision: senal.fechaEmision,
         }),
-        condPartEnviadasFecha: resultado.condPartEnviadasFecha.toISOString(),
-        condPartAdjuntada: resultado.condPartAdjuntada,
+        condPartEnviadasFecha: (resultado.condPartEnviadasFecha ?? new Date(0)).toISOString(),
       };
     } catch (error) {
       this.aHttp(error);
@@ -738,7 +736,6 @@ export class FacturaController {
     }
     if (
       error instanceof E3YaEnviadoError ||
-      error instanceof CondicionesNoConfiguradasError ||
       error instanceof E3NoEnviadoPreviamenteError
     ) {
       throw new ConflictException({

@@ -24,7 +24,6 @@ import type {
   FacturaSenalEmitible,
   FacturasSenalEmisionPort,
   RegistroAuditoriaSenalEmision,
-  ReservasSenalEmisionPort,
 } from '../application/enviar-factura-senal.use-case';
 import type { TipoFactura } from '../domain/factura';
 
@@ -92,25 +91,6 @@ export class FacturaSenalEmisionPrismaRepository implements FacturasSenalEmision
         ...(params.numeroFactura !== null ? { numeroFactura: params.numeroFactura } : {}),
         estado: EstadoFacturaPrisma.enviada,
         fechaEmision: params.fechaEmision,
-      },
-    });
-  }
-}
-
-/** Repositorio tx-bound de la RESERVA (avance de los sub-procesos de condiciones). */
-export class ReservaSenalEmisionPrismaRepository implements ReservasSenalEmisionPort {
-  constructor(private readonly tx: Prisma.TransactionClient) {}
-
-  async fijarCondicionesEnviadas(params: {
-    reservaId: string;
-    condPartEnviadasFecha: Date;
-    condPartFirmadas: false;
-  }): Promise<void> {
-    await this.tx.reserva.update({
-      where: { idReserva: params.reservaId },
-      data: {
-        condPartEnviadasFecha: params.condPartEnviadasFecha,
-        condPartFirmadas: params.condPartFirmadas,
       },
     });
   }

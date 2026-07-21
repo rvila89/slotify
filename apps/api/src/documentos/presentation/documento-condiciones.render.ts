@@ -34,10 +34,12 @@ const importarNativo = (especificador: string): Promise<unknown> =>
 export const renderizarDocumentoCondicionesABytes = async (
   config: ConfiguracionDocumentoTenant,
   almacen?: AlmacenDocumentosPort,
+  idioma: 'es' | 'ca' = 'ca',
 ): Promise<Uint8Array> => {
   // 6.5: logo a data-URI desde el almacén (bytes, no HTTP); sin logo → solo-texto.
   const configConLogo = await resolverConfigConLogoDataUri(config, almacen);
-  const modelo = construirModeloDocumentoCondiciones(configConLogo);
+  // Mejora A: el idioma de la reserva selecciona el texto del JSON bilingüe.
+  const modelo = construirModeloDocumentoCondiciones(configConLogo, idioma);
   const reactPdf = (await importarNativo('@react-pdf/renderer')) as ModuloReactPdf;
   const kit: KitReactPdf = {
     Document: reactPdf.Document,

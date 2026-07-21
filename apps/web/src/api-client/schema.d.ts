@@ -4143,10 +4143,10 @@ export interface components {
         };
         PresupuestoGuardaOrigenError: components["schemas"]["ErrorResponse"] & {
             /**
-             * @description `ORIGEN_INVALIDO` (2d/terminal/pre_reserva+); `PRESUPUESTO_YA_EXISTE` (hay uno enviado/aceptado — usar UC-15); `FECHA_NO_DISPONIBLE` (carrera D4 sobre UNIQUE(tenant,fecha)).
+             * @description `ORIGEN_INVALIDO` (2d/terminal/pre_reserva+); `PRESUPUESTO_YA_EXISTE` (hay uno enviado/aceptado — usar UC-15); `FECHA_NO_DISPONIBLE` (carrera D4 sobre UNIQUE(tenant,fecha)); `CONDICIONES_NO_CONFIGURADAS` (change `condiciones-idioma-e2-firma-banner`): el tenant no tiene condiciones particulares configuradas y desde este change se adjuntan en E2 al confirmar el presupuesto — guard pre-tx sin efectos.
              * @enum {string}
              */
-            codigo: "ORIGEN_INVALIDO" | "PRESUPUESTO_YA_EXISTE" | "FECHA_NO_DISPONIBLE";
+            codigo: "ORIGEN_INVALIDO" | "PRESUPUESTO_YA_EXISTE" | "FECHA_NO_DISPONIBLE" | "CONDICIONES_NO_CONFIGURADAS";
             /** @description Mensaje legible para la UI (p. ej. "Fecha no disponible" o "Usa la edición del presupuesto"). */
             motivo: string;
         };
@@ -4389,11 +4389,9 @@ export interface components {
             factura: components["schemas"]["Factura"];
             /**
              * Format: date-time
-             * @description Timestamp del envío de E3, fijado en `RESERVA.cond_part_enviadas_fecha` al confirmar el envío de la factura de señal + condicions particulars.
+             * @description Timestamp del envío de las condiciones particulares, fijado en `RESERVA.cond_part_enviadas_fecha`. Desde el change `condiciones-idioma-e2-firma-banner` las condiciones se adjuntan en **E2** (confirmar presupuesto), no en E3; este campo refleja ese timestamp ya fijado.
              */
             condPartEnviadasFecha: string;
-            /** @description Indica si las condicions particulars se adjuntaron a E3. **Invariante US-023 (GAP 2, §D-condiciones-bloqueante):** en un 200 es SIEMPRE `true` — las condiciones son requisito duro del envío, por lo que un envío confirmado siempre las lleva adjuntas. El valor `false` queda documentado por compatibilidad histórica (6.4b, envío degradado sin condiciones) pero YA NO puede darse en un 200: si el tenant no tiene condiciones configuradas se responde 409 `CONDICIONES_NO_CONFIGURADAS` en lugar de un 200. */
-            condPartAdjuntada: boolean;
         };
         FacturaSenalEnvioError: components["schemas"]["ErrorResponse"] & {
             /**
@@ -6098,6 +6096,10 @@ export interface operations {
              *       la RESERVA ya no está en `{2a,2b,2c,2v}`.
              *     - **Guarda de origen / presupuesto existente**: la RESERVA está en `2d`/terminal/`pre_reserva`+
              *       o ya tiene un PRESUPUESTO `enviado`/`aceptado` (remite a la edición, UC-15).
+             *     - **Condiciones no configuradas** (change `condiciones-idioma-e2-firma-banner`):
+             *       `CONDICIONES_NO_CONFIGURADAS` — las condiciones particulares se adjuntan ahora en E2 (con el
+             *       presupuesto), por lo que la confirmación exige que el tenant las tenga configuradas. Guard
+             *       pre-tx sin efectos: alerta al gestor "Configura las condiciones particulares del espacio".
              */
             409: {
                 headers: {
@@ -6986,11 +6988,12 @@ export interface operations {
         };
         responses: {
             /**
-             * @description Factura de señal emitida y enviada por E3 con las condicions particulars. Devuelve la señal
-             *     con `estado='enviada'`, `numeroFactura` y `fechaEmision`, más el timestamp del envío de E3
-             *     (`condPartEnviadasFecha`) y `condPartAdjuntada`. **Invariante US-023 (GAP 2):** en un 200
-             *     `condPartAdjuntada` es SIEMPRE `true` — las condiciones son requisito duro; si no hay
-             *     condiciones no hay 200 (se responde 409 `CONDICIONES_NO_CONFIGURADAS`).
+             * @description Factura de señal emitida y enviada por E3. Devuelve la señal con `estado='enviada'`,
+             *     `numeroFactura` y `fechaEmision`, más el timestamp `condPartEnviadasFecha` (fijado al enviar
+             *     las condiciones en E2, confirmar presupuesto). Desde el change
+             *     `condiciones-idioma-e2-firma-banner` las condiciones particulares **ya no se adjuntan en E3**
+             *     (se envían con el presupuesto, E2); el guard duro `CONDICIONES_NO_CONFIGURADAS` se aplica
+             *     ahora al confirmar el presupuesto, no aquí.
              */
             200: {
                 headers: {

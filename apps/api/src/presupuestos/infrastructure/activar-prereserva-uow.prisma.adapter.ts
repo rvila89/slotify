@@ -142,6 +142,9 @@ class ReservaPrereservaPrismaRepository implements ReservaPrereservaRepositoryPo
         estado: 'pre_reserva',
         subEstado: null,
         ttlExpiracion: params.ttlExpiracion,
+        // Mejora B: las condiciones se envían en E2 al confirmar el presupuesto.
+        condPartEnviadasFecha: params.condPartEnviadasFecha,
+        condPartFirmadas: params.condPartFirmadas,
       },
     });
   }

@@ -34,6 +34,7 @@ export const useAvisosFicha = () => {
   const [finalizar, setFinalizar] = useState<FinalizarEventoResponse | null>(null);
   const [descarte, setDescarte] = useState<Descarte | null>(null);
   const [emailEnviado, setEmailEnviado] = useState(false);
+  const [firma, setFirma] = useState<'registrada' | 'reregistrada' | null>(null);
 
   // Limpia TODOS los avisos. Es la base del invariante: cada `mostrarX` la invoca
   // antes de fijar el suyo, de modo que solo el último queda no nulo.
@@ -51,6 +52,7 @@ export const useAvisosFicha = () => {
     setFinalizar(null);
     setDescarte(null);
     setEmailEnviado(false);
+    setFirma(null);
   }, []);
 
   const mostrarResultado = useCallback(
@@ -141,6 +143,13 @@ export const useAvisosFicha = () => {
     cerrar();
     setEmailEnviado(true);
   }, [cerrar]);
+  const mostrarFirma = useCallback(
+    (tipo: 'registrada' | 'reregistrada') => {
+      cerrar();
+      setFirma(tipo);
+    },
+    [cerrar],
+  );
 
   return {
     resultado,
@@ -156,6 +165,7 @@ export const useAvisosFicha = () => {
     finalizar,
     descarte,
     emailEnviado,
+    firma,
     mostrarResultado,
     mostrarInvitados,
     mostrarVisita,
@@ -169,6 +179,7 @@ export const useAvisosFicha = () => {
     mostrarFinalizar,
     mostrarDescarte,
     mostrarEmailEnviado,
+    mostrarFirma,
     cerrar,
   };
 };

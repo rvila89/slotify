@@ -7,12 +7,13 @@ import { AccionReenviarE3 } from './AccionReenviarE3';
 /**
  * Bloque de la acción **Enviar factura 40%** (rebanada 6.4b) dentro de la tarjeta de factura
  * de señal, cuando la factura está emitida (`estado='enviada'`). Remite al cliente la factura
- * de señal + las condicions particulars por email E3 (`useEnviarFacturaSenal`).
+ * de señal por email (`useEnviarFacturaSenal`). Desde el change
+ * `condiciones-idioma-e2-firma-banner` las condicions particulars se adjuntan en E2 (confirmar
+ * presupuesto), no en este envío.
  *
  * Estados y feedback (patrón de las acciones hermanas de facturación):
  *  - Carga: botón deshabilitado + spinner "Enviando…".
- *  - Éxito: toast de confirmación; si `condPartAdjuntada=false` avisa que el email salió sin las
- *    condiciones (tenant sin condiciones configuradas o fallo de render).
+ *  - Éxito: toast de confirmación del envío de la factura de señal.
  *  - Error: 409 `E3_YA_ENVIADO` → info "ya enviado" (idempotente, sin re-envío); 502
  *    `EMISION_ENVIO_FALLIDO` → advertencia reintentable (rollback total); resto → error. El
  *    detalle inline se muestra con `AvisoErrorEnvioSenal`.
@@ -41,15 +42,10 @@ export const EnvioFacturaSenal = ({ reservaId }: Props) => {
     enviarSenal.mutate(
       { reservaId },
       {
-        onSuccess: ({ condPartAdjuntada }) => {
-          if (condPartAdjuntada) {
-            notify.success('Factura de señal enviada al cliente con las condiciones particulares.');
-          } else {
-            notify.warning('Factura de señal enviada al cliente.', {
-              description:
-                'No se adjuntaron las condiciones particulares (sin condiciones configuradas o fallo al generarlas). Revísalo si el cliente debe recibirlas.',
-            });
-          }
+        onSuccess: () => {
+          // Desde el change condiciones-idioma-e2-firma-banner las condiciones particulares
+          // se adjuntan en E2 (confirmar presupuesto), no en E3; E3 solo emite la factura de señal.
+          notify.success('Factura de señal enviada al cliente.');
         },
         onError: (error) => {
           // 502 (recuperable) y 409 "ya enviado" se avisan sin alarmar; el resto como error.
@@ -73,7 +69,7 @@ export const EnvioFacturaSenal = ({ reservaId }: Props) => {
         className="flex items-start gap-2 rounded-[16px] border border-emerald-200 bg-emerald-50 p-4 font-body text-sm text-emerald-800"
       >
         <CheckCircle2 aria-hidden className="mt-0.5 size-4 shrink-0 text-emerald-600" />
-        Factura aprobada y lista para enviarse al cliente con las condiciones particulares.
+        Factura aprobada y lista para enviarse al cliente.
       </p>
 
       {enviarSenal.error && <AvisoErrorEnvioSenal error={enviarSenal.error} />}

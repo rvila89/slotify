@@ -181,6 +181,8 @@ import {
         PRESUPUESTOS_CLOCK_PORT,
         DISPARAR_E2_PORT,
         GUARDAR_PDF_URL_PRESUPUESTO_PORT,
+        // Mejora B: guarda dura de condiciones PRE-TX (mismo adapter de PDF de condiciones).
+        GENERAR_PDF_CONDICIONES_PORT,
       ],
       useFactory: (
         motorTarifa: CalculadoraTarifaService,
@@ -192,6 +194,7 @@ import {
         clock: ClockPort,
         dispararE2: DispararE2Port,
         guardarPdfUrl: GuardarPdfUrlPresupuestoPort,
+        generarCondicionesPort: GenerarPdfCondicionesPort,
       ) =>
         new GenerarPresupuestoUseCase({
           motorTarifa,
@@ -203,6 +206,7 @@ import {
           clock,
           dispararE2,
           guardarPdfUrl,
+          generarCondicionesPort,
         }),
     },
     // -----------------------------------------------------------------------

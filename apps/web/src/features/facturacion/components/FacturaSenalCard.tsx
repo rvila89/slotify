@@ -31,12 +31,13 @@ import type { FacturaSenal } from '../model/types';
  *  - `pdf-pendiente` (`pdfPendiente`): aviso de PDF en proceso + Regenerar PDF, sin
  *    Aprobar.
  *  - `enviada`: badge verde, enlace al PDF y acción **Enviar factura 40%** (rebanada 6.4b):
- *    remite al cliente la factura de señal emitida + las condicions particulars por email E3.
+ *    remite al cliente la factura de señal emitida. Desde el change
+ *    `condiciones-idioma-e2-firma-banner` las condicions particulars se adjuntan en E2
+ *    (confirmar presupuesto), no en este envío.
  *
  * La acción "Enviar factura 40%" (`useEnviarFacturaSenal`) es idempotente en backend: tras el
  * primer envío un re-disparo devuelve 409 `E3_YA_ENVIADO` (se avisa sin alarmar), y un fallo de
- * envío 502 `EMISION_ENVIO_FALLIDO` es recuperable/reintentable (rollback total). Si el email
- * salió sin las condiciones (`condPartAdjuntada=false`) se avisa al Gestor.
+ * envío 502 `EMISION_ENVIO_FALLIDO` es recuperable/reintentable (rollback total).
  *
  * Estado de servidor con TanStack Query sobre el SDK generado. Diseño adaptado con
  * los tokens del proyecto (sin frame propio en Figma "Slotify"); mobile-first: el

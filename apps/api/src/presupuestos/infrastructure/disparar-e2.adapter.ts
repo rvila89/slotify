@@ -57,8 +57,11 @@ export class DispararE2Adapter implements DispararE2Port {
     // react-pdf/subida, p. ej. la flakiness ESM). Al ser post-commit, un fallo del
     // adjunto NUNCA debe propagar ni tumbar la pre_reserva ya commiteada: se traga y se
     // omite el adjunto (mismo criterio que `generarPdfPostCommit` del use-case).
+    // El idioma de la reserva se persiste como String; se normaliza a 'es' | 'ca' (Mejora A)
+    // para elegir la clave y el texto bilingüe del PDF de condiciones (por defecto 'es').
+    const idiomaCondiciones: 'es' | 'ca' = reserva.idioma === 'ca' ? 'ca' : 'es';
     const urlCondiciones = await this.generarCondiciones
-      .generar({ tenantId: params.tenantId })
+      .generar({ tenantId: params.tenantId, idioma: idiomaCondiciones })
       .catch(() => null);
     if (urlCondiciones !== null) {
       adjuntos.push({

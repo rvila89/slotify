@@ -117,8 +117,8 @@ describe('DispararE2Adapter — dos adjuntos con presupuesto y condiciones (2.7a
         pdfUrl: 'https://storage.local/condiciones/T.pdf',
       },
     ]);
-    // Se pidió el PDF de condiciones para el tenant del disparo.
-    expect(condiciones.generar).toHaveBeenCalledWith({ tenantId: TENANT });
+    // Se pidió el PDF de condiciones para el tenant del disparo, en el idioma de la reserva.
+    expect(condiciones.generar).toHaveBeenCalledWith({ tenantId: TENANT, idioma: 'es' });
   });
 });
 

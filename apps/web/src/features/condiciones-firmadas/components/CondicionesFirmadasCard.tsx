@@ -13,9 +13,9 @@ import { RegistrarFirmaDialog } from './RegistrarFirmaDialog';
 /**
  * Tarjeta de la ficha de la reserva para "Registrar condiciones firmadas"
  * (US-024 · UC-19, segundo flujo). Encapsula los cuatro estados de la UI:
- *  1. **E3 no enviado** (`condPartFechaEnvio` nulo): acción NO disponible; mensaje
+ *  1. **E2 no enviado** (`condPartFechaEnvio` nulo): acción NO disponible; mensaje
  *     "Las condiciones particulares no han sido enviadas al cliente aún".
- *  2. **Pendiente de firma** (`condPartFirmadas=false`, E3 enviado): alerta
+ *  2. **Pendiente de firma** (`condPartFirmadas=false`, E2 enviado): alerta
  *     informativa no bloqueante (FA-01) + acción "Registrar condiciones firmadas".
  *  3. **Firmada** (`condPartFirmadas=true`): resumen con la fecha `condPartFechaFirma`.
  *  4. **Re-firma**: desde el estado firmado se puede volver a subir una versión.
@@ -27,12 +27,19 @@ import { RegistrarFirmaDialog } from './RegistrarFirmaDialog';
  */
 type Props = {
   reservaId: string;
-  /** `RESERVA.condPartFechaEnvio` — E3 enviado (US-023) si no es nulo. */
+  /** `RESERVA.condPartFechaEnvio` — E2 enviado (US-023) si no es nulo. */
   condPartFechaEnvio?: string | null;
   /** `RESERVA.condPartFirmadas` — copia firmada ya registrada. */
   condPartFirmadas?: boolean | null;
   /** `RESERVA.condPartFechaFirma` — timestamp del registro de la firma. */
   condPartFechaFirma?: string | null;
+  /**
+   * Callback de éxito del registro (Mejora C). Cuando se pasa, la Card NO emite
+   * `notify.success()`: el aviso lo pinta la página con un banner inline vía
+   * `useAvisosFicha`. Recibe `'reregistrada'` si ya estaba firmada, `'registrada'`
+   * en el primer registro.
+   */
+  onRegistrado?: (tipo: 'registrada' | 'reregistrada') => void;
 };
 
 const claseSeccion =
@@ -49,6 +56,7 @@ export const CondicionesFirmadasCard = ({
   condPartFechaEnvio,
   condPartFirmadas,
   condPartFechaFirma,
+  onRegistrado,
 }: Props) => {
   const [abierto, setAbierto] = useState(false);
 
@@ -74,7 +82,7 @@ export const CondicionesFirmadasCard = ({
         >
           <Info aria-hidden className="mt-0.5 size-5 shrink-0 text-amber-600" />
           {MENSAJE_CONDICIONES_NO_ENVIADAS}. Completa primero el envío de las condiciones al
-          cliente (E3).
+          cliente (E2).
         </p>
       ) : firmadas ? (
         <>
@@ -147,13 +155,19 @@ export const CondicionesFirmadasCard = ({
           yaFirmada={firmadas}
           abierto={abierto}
           onAbiertoChange={setAbierto}
-          onRegistrado={() =>
+          onRegistrado={() => {
+            // Con `onRegistrado` (prop): la página pinta el banner inline; sin ella,
+            // se conserva el toast de Sonner como fallback (compatibilidad hacia atrás).
+            if (onRegistrado) {
+              onRegistrado(firmadas ? 'reregistrada' : 'registrada');
+              return;
+            }
             notify.success(
               firmadas
                 ? 'Nueva versión de las condiciones firmadas registrada.'
                 : 'Firma de condiciones particulares registrada correctamente.',
-            )
-          }
+            );
+          }}
         />
       )}
     </section>

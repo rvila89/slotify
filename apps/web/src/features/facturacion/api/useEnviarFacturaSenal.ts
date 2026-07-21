@@ -12,23 +12,23 @@ export type EnviarFacturaSenalVars = {
 };
 
 /**
- * Mutación de **envío manual de la factura de señal (40%) + condicions particulars por email
- * E3** (rebanada 6.4b). Es la acción del Gestor que remite al cliente la factura de señal ya
- * emitida junto con las condicions particulars. Consume el SDK generado
+ * Mutación de **envío manual de la factura de señal (40%) por email** (rebanada 6.4b). Es la
+ * acción del Gestor que remite al cliente la factura de señal ya emitida. Desde el change
+ * `condiciones-idioma-e2-firma-banner` las condicions particulars se adjuntan en **E2**
+ * (confirmar presupuesto), no aquí. Consume el SDK generado
  * (`apiClient.POST('/reservas/{id}/facturas/senal/enviar')`, operación `enviarFacturaSenal`,
  * cuerpo vacío). No se edita el cliente generado a mano.
  *
  * Desenlaces (normalizados a `EnvioSenalError` en español):
- *  - 200: `EnviarFacturaSenalResponse` (`factura` enviada + `condPartEnviadasFecha` +
- *    `condPartAdjuntada`). Si `condPartAdjuntada=false` el email salió solo con la señal
- *    (tenant sin condiciones o fallo de render); la UI lo avisa.
+ *  - 200: `EnviarFacturaSenalResponse` (`factura` enviada + `condPartEnviadasFecha`, que
+ *    refleja el timestamp de E2 ya fijado en la RESERVA).
  *  - 404 `FACTURA_SENAL_NO_ENCONTRADA` → no existe factura de señal.
  *  - 409 `E3_YA_ENVIADO` → idempotencia: ya se envió, sin re-envío.
  *  - 409 `FACTURA_SENAL_NO_ENVIABLE` → la factura no está en un estado enviable.
  *  - 502 `EMISION_ENVIO_FALLIDO` → fallo recuperable, reintentable.
  *
  * Tras éxito invalida la factura de señal y la colección de facturas de la reserva para
- * reflejar el nuevo estado y la fecha de envío de E3.
+ * reflejar el nuevo estado de la factura enviada.
  */
 export const useEnviarFacturaSenal = () => {
   const queryClient = useQueryClient();

@@ -7,6 +7,7 @@
 export { CondicionesFirmadasCard } from './components/CondicionesFirmadasCard';
 export { RegistrarFirmaDialog } from './components/RegistrarFirmaDialog';
 export { AvisoErrorCondiciones } from './components/AvisoErrorCondiciones';
+export { AvisoCondicionesFirmadas } from './components/AvisoCondicionesFirmadas';
 export { useRegistrarCondicionesFirmadas } from './api/useRegistrarCondicionesFirmadas';
 export type { RegistrarCondicionesFirmadasVars } from './api/useRegistrarCondicionesFirmadas';
 export {

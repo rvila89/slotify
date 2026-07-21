@@ -130,6 +130,8 @@ export const FichaConsultaPage = () => {
         onCerrarEmailEnviado={avisos.cerrar}
         descarte={avisos.descarte}
         onCerrarDescarte={avisos.cerrar}
+        firma={avisos.firma}
+        onCerrarFirma={avisos.cerrar}
       />
 
       <section className={claseSeccion} aria-labelledby="ficha-cliente">
@@ -242,6 +244,12 @@ export const FichaConsultaPage = () => {
           reserva={reserva}
           onEmailEnviado={() => {
             avisos.mostrarEmailEnviado();
+            if (typeof window !== 'undefined') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          }}
+          onFirmaRegistrada={(tipo) => {
+            avisos.mostrarFirma(tipo);
             if (typeof window !== 'undefined') {
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }
