@@ -18,10 +18,12 @@
  *     `numeroPresupuesto`, y devuelve `ModeloDocumentoFactura`.
  *   - flags derivados de `ivaPorcentaje` (0 → SIN IVA): `cabecera.mostrarIdentidadFiscal`,
  *     `totales.mostrarDesgloseIva`, `pieBancario.mostrar` → false cuando ivaPorcentaje === 0.
- *   - `concepto` generado según el tipo (§D-2):
- *       señal      → "40% de l'import total anticipat del pressupost núm. {n}"
- *       liquidación→ "Saldo del 60% de l'import del pressupost núm. {n}"
- *       fianza     → "Fiança de garantia — {nombreComercial}" (sin nº presupuesto)
+ *   - `concepto` (principal) desde `plantillaConceptoFiscal` (señal/liquidación) o el texto
+ *     propio de la fianza; el 40/60 se mueve a `conceptoSubtitulo` (change
+ *     `factura-pdf-fiel-referencia`, §D1):
+ *       señal      → subtítulo "*40% de l'import total anticipat del pressupost núm. {n}"
+ *       liquidación→ subtítulo "*Saldo del 60% de l'import del pressupost núm. {n}"
+ *       fianza     → concepto "Fiança de garantia — {nombreComercial}", subtítulo null
  *
  * ESTRATEGIA (idéntica a 6.1b/6.2): las aserciones de CONTENIDO recaen sobre la función
  * PURA `construirModeloDocumentoFactura` (determinista, sin react-pdf). La verificación
@@ -61,8 +63,8 @@ const configPiloto = (logoUrl: string | null = null): ConfiguracionDocumentoTena
   },
   textos: {
     plantillaConceptoFiscal: {
-      ca: "Gestió de l'ús espai de {nombreComercial} per esdeveniment",
-      es: 'Gestión del uso del espacio de {nombreComercial} para evento',
+      ca: 'Gestió ús espai de {nombreComercial} per esdeveniment',
+      es: 'Gestión de uso del espacio de {nombreComercial} para evento',
     },
     validesaTexto: { ca: '10 DIES', es: '10 DÍAS' },
     pieLegal: {
@@ -158,14 +160,14 @@ describe('construirModeloDocumentoFactura — señal CON IVA activa todos los bl
     expect(modelo.pieBancario.mostrar).toBe(true);
   });
 
-  it('debe_generar_el_concepto_de_senal_con_el_40_por_ciento_y_el_numero_de_presupuesto', () => {
+  it('debe_generar_el_subtitulo_de_senal_con_el_40_por_ciento_y_el_numero_de_presupuesto', () => {
     const modelo = construirModeloDocumentoFactura({
       config: configPiloto(),
       datos: datosSenal({ numeroPresupuesto: '2026001' }),
     });
 
-    expect(modelo.concepto).toBe(
-      "40% de l'import total anticipat del pressupost núm. 2026001",
+    expect(modelo.conceptoSubtitulo).toBe(
+      "*40% de l'import total anticipat del pressupost núm. 2026001",
     );
   });
 });
@@ -186,14 +188,14 @@ describe('construirModeloDocumentoFactura — señal SIN IVA desactiva identidad
     expect(modelo.pieBancario.mostrar).toBe(false);
   });
 
-  it('debe_mantener_el_mismo_concepto_de_senal_en_sin_iva', () => {
+  it('debe_mantener_el_mismo_subtitulo_de_senal_en_sin_iva', () => {
     const modelo = construirModeloDocumentoFactura({
       config: configPiloto(),
       datos: datosSenalSinIva({ numeroPresupuesto: '2026001' }),
     });
 
-    expect(modelo.concepto).toBe(
-      "40% de l'import total anticipat del pressupost núm. 2026001",
+    expect(modelo.conceptoSubtitulo).toBe(
+      "*40% de l'import total anticipat del pressupost núm. 2026001",
     );
   });
 });
@@ -214,17 +216,17 @@ describe('construirModeloDocumentoFactura — liquidación CON IVA incluye conce
     expect(modelo.pieBancario.mostrar).toBe(true);
   });
 
-  it('debe_generar_el_concepto_de_liquidacion_con_el_saldo_del_60_y_el_numero_de_presupuesto', () => {
+  it('debe_generar_el_subtitulo_de_liquidacion_con_el_saldo_del_60_y_el_numero_de_presupuesto', () => {
     const modelo = construirModeloDocumentoFactura({
       config: configPiloto(),
       datos: datosLiquidacion({ numeroPresupuesto: '2026001' }),
     });
 
-    expect(modelo.concepto).toBe(
-      "Saldo del 60% de l'import del pressupost núm. 2026001",
+    expect(modelo.conceptoSubtitulo).toBe(
+      "*Saldo del 60% de l'import del pressupost núm. 2026001",
     );
-    // El número de presupuesto aparece en el concepto de la liquidación.
-    expect(modelo.concepto).toContain('2026001');
+    // El número de presupuesto aparece en el subtítulo de la liquidación.
+    expect(modelo.conceptoSubtitulo).toContain('2026001');
   });
 });
 
@@ -255,37 +257,36 @@ describe('construirModeloDocumentoFactura — fianza usa concepto sin referencia
 });
 
 // ===========================================================================
-// IDIOMA — factura-senal-pdf-idioma-email-ux (TDD RED).
+// IDIOMA — factura-senal-pdf-idioma-email-ux + factura-pdf-fiel-referencia (TDD RED).
 //
-// `DatosDocumentoFactura` debe incluir `idioma: string`. El builder
+// `DatosDocumentoFactura` incluye `idioma: string`. El builder
 // `construirModeloDocumentoFactura` debe:
-//   - derivar el `concepto` en el idioma indicado (CA o ES).
-//   - seleccionar `pieLegal` del bundle `config.textos.pieLegal[idioma]`.
-//
-// RED: el campo `idioma` NO existe todavía en `DatosDocumentoFactura` ni en los
-// params del builder → los asserts FALLAN. GREEN es de `backend-developer`.
+//   - derivar el `concepto` (principal) desde la plantilla en el idioma indicado,
+//   - derivar el `conceptoSubtitulo` (40/60) en el idioma indicado.
+// §D4: la factura ya NO expone `pieLegal` (la validez es del presupuesto), así que
+// los antiguos asserts de pieLegal por idioma se retiran.
 // ===========================================================================
 
-describe('construirModeloDocumentoFactura — IDIOMA ES (factura-senal-pdf-idioma-email-ux)', () => {
-  it('debe_generar_el_concepto_de_senal_en_espanol_cuando_idioma_es_es', () => {
+describe('construirModeloDocumentoFactura — IDIOMA ES (subtítulo 40/60 por idioma)', () => {
+  it('debe_generar_el_subtitulo_de_senal_en_espanol_cuando_idioma_es_es', () => {
     const modelo = construirModeloDocumentoFactura({
       config: configPiloto(),
       datos: datosSenal({ idioma: 'es', numeroPresupuesto: '2026001' } as Partial<DatosDocumentoFactura>),
     });
 
-    expect(modelo.concepto).toBe(
-      '40% del importe total anticipado del presupuesto núm. 2026001',
+    expect(modelo.conceptoSubtitulo).toBe(
+      '*40% del importe total anticipado del presupuesto núm. 2026001',
     );
   });
 
-  it('debe_generar_el_concepto_de_liquidacion_en_espanol_cuando_idioma_es_es', () => {
+  it('debe_generar_el_subtitulo_de_liquidacion_en_espanol_cuando_idioma_es_es', () => {
     const modelo = construirModeloDocumentoFactura({
       config: configPiloto(),
       datos: datosLiquidacion({ idioma: 'es', numeroPresupuesto: '2026001' } as Partial<DatosDocumentoFactura>),
     });
 
-    expect(modelo.concepto).toBe(
-      'Saldo del 60% del importe del presupuesto núm. 2026001',
+    expect(modelo.conceptoSubtitulo).toBe(
+      '*Saldo del 60% del importe del presupuesto núm. 2026001',
     );
   });
 
@@ -296,40 +297,30 @@ describe('construirModeloDocumentoFactura — IDIOMA ES (factura-senal-pdf-idiom
     });
 
     expect(modelo.concepto).toBe("Fianza de garantía — Masia l'Encís");
-  });
-
-  it('debe_usar_pieLegal_es_cuando_idioma_es_es', () => {
-    const modelo = construirModeloDocumentoFactura({
-      config: configPiloto(),
-      datos: datosSenal({ idioma: 'es' } as Partial<DatosDocumentoFactura>),
-    });
-
-    expect(modelo.pieLegal).toBe(
-      'Este documento tiene una validez de 10 días desde su emisión.',
-    );
+    expect(modelo.conceptoSubtitulo).toBeNull();
   });
 });
 
-describe('construirModeloDocumentoFactura — IDIOMA CA (factura-senal-pdf-idioma-email-ux)', () => {
-  it('debe_generar_el_concepto_de_senal_en_catalan_cuando_idioma_es_ca', () => {
+describe('construirModeloDocumentoFactura — IDIOMA CA (subtítulo 40/60 por idioma)', () => {
+  it('debe_generar_el_subtitulo_de_senal_en_catalan_cuando_idioma_es_ca', () => {
     const modelo = construirModeloDocumentoFactura({
       config: configPiloto(),
       datos: datosSenal({ idioma: 'ca', numeroPresupuesto: '2026001' } as Partial<DatosDocumentoFactura>),
     });
 
-    expect(modelo.concepto).toBe(
-      "40% de l'import total anticipat del pressupost núm. 2026001",
+    expect(modelo.conceptoSubtitulo).toBe(
+      "*40% de l'import total anticipat del pressupost núm. 2026001",
     );
   });
 
-  it('debe_generar_el_concepto_de_liquidacion_en_catalan_cuando_idioma_es_ca', () => {
+  it('debe_generar_el_subtitulo_de_liquidacion_en_catalan_cuando_idioma_es_ca', () => {
     const modelo = construirModeloDocumentoFactura({
       config: configPiloto(),
       datos: datosLiquidacion({ idioma: 'ca', numeroPresupuesto: '2026001' } as Partial<DatosDocumentoFactura>),
     });
 
-    expect(modelo.concepto).toBe(
-      "Saldo del 60% de l'import del pressupost núm. 2026001",
+    expect(modelo.conceptoSubtitulo).toBe(
+      "*Saldo del 60% de l'import del pressupost núm. 2026001",
     );
   });
 
@@ -340,17 +331,7 @@ describe('construirModeloDocumentoFactura — IDIOMA CA (factura-senal-pdf-idiom
     });
 
     expect(modelo.concepto).toBe("Fiança de garantia — Masia l'Encís");
-  });
-
-  it('debe_usar_pieLegal_ca_cuando_idioma_es_ca', () => {
-    const modelo = construirModeloDocumentoFactura({
-      config: configPiloto(),
-      datos: datosSenal({ idioma: 'ca' } as Partial<DatosDocumentoFactura>),
-    });
-
-    expect(modelo.pieLegal).toBe(
-      'Aquest document té una validesa de 10 dies des de la seva emissió.',
-    );
+    expect(modelo.conceptoSubtitulo).toBeNull();
   });
 });
 

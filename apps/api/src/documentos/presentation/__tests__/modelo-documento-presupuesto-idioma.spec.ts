@@ -224,7 +224,7 @@ describe('construirModeloDocumentoPresupuesto — etiquetas fijas por idioma', (
     expect(modelo.etiquetas.precio).toBe('PREU');
     expect(modelo.etiquetas.personas).toBe('persones');
     expect(modelo.etiquetas.validesa).toBe('Validesa');
-    expect(modelo.etiquetas.baseImponible).toBe('Base imposable');
+    expect(modelo.etiquetas.baseImponible).toBe('Base imp.');
     expect(modelo.etiquetas.total).toBe('Total');
     expect(modelo.etiquetas.condiciones).toBe('Condicions');
     expect(modelo.etiquetas.pagamentAnticipat).toBe('Pagament anticipat');
@@ -245,7 +245,7 @@ describe('construirModeloDocumentoPresupuesto — etiquetas fijas por idioma', (
     expect(modelo.etiquetas.precio).toBe('PRECIO');
     expect(modelo.etiquetas.personas).toBe('personas');
     expect(modelo.etiquetas.validesa).toBe('Validez');
-    expect(modelo.etiquetas.baseImponible).toBe('Base imponible');
+    expect(modelo.etiquetas.baseImponible).toBe('Base imp.');
     expect(modelo.etiquetas.total).toBe('Total');
     expect(modelo.etiquetas.condiciones).toBe('Condiciones');
     expect(modelo.etiquetas.pagamentAnticipat).toBe('Pago anticipado');

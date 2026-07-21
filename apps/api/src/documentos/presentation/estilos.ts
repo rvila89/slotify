@@ -146,6 +146,13 @@ export const construirEstilos = (StyleSheet: KitReactPdf['StyleSheet']): Estilos
     conceptoPrincipalTexto: { flex: 1, paddingRight: 8, fontFamily: 'Helvetica-Bold' },
     conceptoPrecio: { width: 90, textAlign: 'right' },
     conceptoDetalleLinea: { marginTop: 4, marginLeft: 10 },
+    // Subtítulo de referencia de la factura (change `factura-pdf-fiel-referencia`, §D1/§D2):
+    // línea indentada NO negrita bajo el concepto principal (el 40/60 con nº de presupuesto).
+    conceptoSubtituloLinea: {
+      marginTop: 3,
+      marginLeft: 10,
+      fontFamily: 'Helvetica',
+    },
     conceptoExtraFila: {
       flexDirection: 'row',
       justifyContent: 'space-between',

@@ -6,6 +6,7 @@
  * (señal/liquidación/fianza), con los extras como sub-conceptos con su subtotal.
  * Primitivas react-pdf inyectadas en `kit`.
  */
+import { formatearImporteDocumento } from '../formato-importe';
 import type { ExtraFactura } from '../modelo-documento-factura';
 import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
 
@@ -18,6 +19,11 @@ export interface BloqueConceptoFacturaProps {
   /** Cabecera de la columna de precio ("PREU"/"PRECIO"). */
   etiquetaPrecio: string;
   concepto: string;
+  /**
+   * Subtítulo de referencia indentado NO negrita bajo el concepto principal (§D1/§D2). Cuando
+   * es `null`/vacío/ausente, el bloque NO pinta la línea (fianza y compatibilidad).
+   */
+  conceptoSubtitulo?: string | null;
   /** PREU del concepto principal (total del documento) en formato "0.00". */
   precioTotal: string;
   extras?: ReadonlyArray<ExtraFactura>;
@@ -30,6 +36,7 @@ export const BloqueConceptoFactura = ({
   etiquetaConcepto,
   etiquetaPrecio,
   concepto,
+  conceptoSubtitulo,
   precioTotal,
   extras = [],
 }: BloqueConceptoFacturaProps) => {
@@ -43,12 +50,15 @@ export const BloqueConceptoFactura = ({
       <View style={estilos.conceptoCuerpo}>
         <View style={estilos.conceptoFilaPrincipal}>
           <Text style={estilos.conceptoPrincipalTexto}>{concepto}</Text>
-          <Text style={estilos.conceptoPrecio}>{precioTotal} €</Text>
+          <Text style={estilos.conceptoPrecio}>{formatearImporteDocumento(precioTotal)} €</Text>
         </View>
+        {conceptoSubtitulo ? (
+          <Text style={estilos.conceptoSubtituloLinea}>{conceptoSubtitulo}</Text>
+        ) : null}
         {extras.map((extra, indice) => (
           <View style={estilos.conceptoExtraFila} key={`${extra.descripcion}-${indice}`}>
             <Text style={estilos.conceptoExtraTexto}>{extra.descripcion}</Text>
-            <Text style={estilos.conceptoPrecio}>{extra.subtotal} €</Text>
+            <Text style={estilos.conceptoPrecio}>{`${formatearImporteDocumento(extra.subtotal)} €`}</Text>
           </View>
         ))}
       </View>

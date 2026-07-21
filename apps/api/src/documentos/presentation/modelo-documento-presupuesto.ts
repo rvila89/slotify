@@ -156,8 +156,13 @@ export interface ModeloDocumentoPresupuesto {
   pieBancario: PieBancarioModelo;
 }
 
-/** Sustituye el placeholder `{nombreComercial}` por el valor real del tenant. */
-const resolverConcepto = (
+/**
+ * Sustituye el placeholder `{nombreComercial}` por el valor real del tenant.
+ * Reutilizado por el modelo de vista de la factura (`modelo-documento-factura.ts`)
+ * para resolver el concepto principal desde `plantillaConceptoFiscal` (change
+ * `factura-pdf-fiel-referencia`, §D1): un único helper de interpolación, sin duplicar.
+ */
+export const interpolarNombreComercial = (
   plantilla: string,
   nombreComercial: string,
 ): string => plantilla.replaceAll('{nombreComercial}', nombreComercial);
@@ -203,7 +208,7 @@ export const construirModeloDocumentoPresupuesto = (
     horarioTexto: formatearHorario(datos.horario, datos.duracionHoras, idioma),
     duracionTexto: `(${datos.duracionHoras} hores)`,
     numPersonas: datos.numPersonas,
-    conceptoPrincipal: resolverConcepto(
+    conceptoPrincipal: interpolarNombreComercial(
       config.textos.plantillaConceptoFiscal[idioma],
       config.identidadFiscal.nombreComercial,
     ),

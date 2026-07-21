@@ -7,6 +7,7 @@
  * rótulos llegan traducidos en `etiquetas`; el resto del contenido, del modelo. Layout
  * fijo. Primitivas react-pdf inyectadas en `kit`. Reutilizable por factura (6.3).
  */
+import { formatearImporteDocumento } from '../formato-importe';
 import type { EtiquetasDocumento } from '../etiquetas-por-idioma';
 import type { TotalesModelo } from '../modelo-documento-presupuesto';
 import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
@@ -15,9 +16,18 @@ export interface BloqueTotalesProps {
   kit: KitReactPdf;
   estilos: EstilosReactPdf;
   totales: TotalesModelo;
-  /** Etiquetas fijas por idioma (validesa/baseImponible/ivaPct/total). */
+  /** Etiquetas fijas por idioma (baseImponible/ivaPct/total). */
   etiquetas: EtiquetasDocumento;
-  validesaTexto: string;
+  /**
+   * Etiqueta de la columna IZQUIERDA de la franja (change `factura-pdf-fiel-referencia`, §D3):
+   * presupuesto → `etiquetas.validesa`; factura → `etiquetas.importFactura`.
+   */
+  etiquetaIzquierda: string;
+  /**
+   * Valor bajo la etiqueta izquierda (§D3): presupuesto → `validesaTexto`; factura → `""`
+   * (celda vacía, fiel a la referencia).
+   */
+  valorIzquierda: string;
 }
 
 export const BloqueTotales = ({
@@ -25,14 +35,15 @@ export const BloqueTotales = ({
   estilos,
   totales,
   etiquetas,
-  validesaTexto,
+  etiquetaIzquierda,
+  valorIzquierda,
 }: BloqueTotalesProps) => {
   const { View, Text } = kit;
   return (
     <View style={estilos.totalesTabla}>
       <View style={estilos.totalesFilaEtiquetas}>
         <Text style={[estilos.totalesCeldaIzquierda, estilos.totalesEtiqueta]}>
-          {etiquetas.validesa}
+          {etiquetaIzquierda}
         </Text>
         {totales.mostrarDesgloseIva ? (
           <>
@@ -49,15 +60,19 @@ export const BloqueTotales = ({
         </Text>
       </View>
       <View style={estilos.totalesFilaValores}>
-        <Text style={estilos.totalesCeldaIzquierda}>{validesaTexto}</Text>
+        <Text style={estilos.totalesCeldaIzquierda}>{valorIzquierda}</Text>
         {totales.mostrarDesgloseIva ? (
           <>
-            <Text style={estilos.totalesCeldaDerecha}>{totales.baseImponible} €</Text>
-            <Text style={estilos.totalesCeldaDerecha}>{totales.ivaImporte} €</Text>
+            <Text style={estilos.totalesCeldaDerecha}>
+              {formatearImporteDocumento(totales.baseImponible)} €
+            </Text>
+            <Text style={estilos.totalesCeldaDerecha}>
+              {formatearImporteDocumento(totales.ivaImporte)} €
+            </Text>
           </>
         ) : null}
         <Text style={[estilos.totalesCeldaDerecha, estilos.totalesValorDestacado]}>
-          {totales.total} €
+          {formatearImporteDocumento(totales.total)} €
         </Text>
       </View>
     </View>
