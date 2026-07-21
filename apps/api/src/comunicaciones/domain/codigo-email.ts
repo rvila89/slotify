@@ -8,7 +8,10 @@
  * declarados aquí como uniones de literales para que el dominio no dependa del ORM.
  */
 
-/** Código de plantilla del catálogo: hitos E1–E8 del ciclo o envío `manual`. */
+/**
+ * Código de plantilla del catálogo: hitos E1–E8 del ciclo, `E9` (modificación de reserva
+ * en la ventana viva, change `reserva-viva-edicion-recalculo-ficha`) o envío `manual`.
+ */
 export type CodigoEmail =
   | 'E1'
   | 'E2'
@@ -18,6 +21,7 @@ export type CodigoEmail =
   | 'E6'
   | 'E7'
   | 'E8'
+  | 'E9'
   | 'manual';
 
 /** Estado de la trazabilidad de una comunicación. */

@@ -89,7 +89,7 @@ const limpiar = async (): Promise<void> => {
     await prisma.fechaBloqueada.deleteMany({
       where: { tenantId: TENANT, fecha: { in: FECHAS } },
     });
-    await prisma.auditLog.deleteMany({ where: { reservaId: { in: reservaIds } } });
+    await prisma.auditLog.deleteMany({ where: { entidadId: { in: reservaIds } } });
     await prisma.reserva.deleteMany({ where: { idReserva: { in: reservaIds } } });
   }
   await prisma.cliente.deleteMany({ where: { idCliente: { in: clienteIds } } });
@@ -180,7 +180,6 @@ const sembrarReservaConfirmada = async (params: {
 
   await prisma.fichaOperativa.create({
     data: {
-      tenantId: TENANT,
       reservaId: reserva.idReserva,
       contactoEventoCorreo: cliente.email ?? '',
     },
@@ -310,7 +309,7 @@ it(
     // El backend-developer añadirá la columna `origen` al modelo Presupuesto
     const rows = await prisma.$queryRaw<{ origen: string | null }[]>`
       SELECT origen FROM presupuesto
-      WHERE reserva_id = ${reservaId}::uuid AND version = 2
+      WHERE reserva_id = ${reservaId} AND version = 2
       LIMIT 1
     `;
     expect(rows[0]?.origen).toBe('modificacion');

@@ -98,6 +98,13 @@ export interface DespacharEmailComando {
    * "presupuesto actualizado" (asunto + párrafo). NO entra por el contrato ni el body.
    */
   esEdicion?: boolean;
+  /**
+   * Variables ADICIONALES específicas del trigger (derivadas en servidor), fusionadas
+   * con las base (`nombre`, `codigoReserva`, …) para el render de la plantilla. P. ej.
+   * E9 (modificación de reserva) inyecta `cambio` y `liquidacionRestante`. Nunca entra
+   * por el contrato ni el body.
+   */
+  variablesExtra?: Record<string, unknown>;
 }
 
 /** Motivo del resultado del despacho. */
@@ -525,6 +532,9 @@ export class DespacharEmailService {
       // renderizar la variante "presupuesto actualizado". Se propaga por `despachar`
       // y `despacharReenvio` (ambos usan este helper).
       esEdicion: comando.esEdicion ?? false,
+      // Variables adicionales del trigger (E9: cambio + liquidacionRestante). Se
+      // fusionan al final para no pisar las base salvo que el trigger lo pretenda.
+      ...(comando.variablesExtra ?? {}),
     };
   }
 

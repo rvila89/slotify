@@ -32,7 +32,6 @@ describe('CatalogoPlantillasEnCodigo — E9 modificación en español (3.5)', ()
   it('debe_registrar_la_plantilla_E9_en_es_como_activa', () => {
     const catalogo = new CatalogoPlantillasEnCodigo();
 
-    // @ts-expect-error 'E9' aún no está en el tipo CodigoEmail (RED): lo añade backend.
     const plantilla = catalogo.seleccionar('E9', 'es');
 
     expect(plantilla).not.toBeNull();
@@ -44,7 +43,6 @@ describe('CatalogoPlantillasEnCodigo — E9 modificación en español (3.5)', ()
   it('debe_renderizar_E9_en_es_indicando_la_liquidacion_restante', () => {
     const catalogo = new CatalogoPlantillasEnCodigo();
 
-    // @ts-expect-error 'E9' aún no está en el tipo CodigoEmail (RED).
     const render = catalogo.seleccionar('E9', 'es')?.render({
       nombre: NOMBRE,
       codigoReserva: CODIGO_RESERVA,
@@ -63,7 +61,6 @@ describe('CatalogoPlantillasEnCodigo — E9 modificación en español (3.5)', ()
   it('debe_incluir_el_nombre_y_el_codigoReserva_en_el_render_es', () => {
     const catalogo = new CatalogoPlantillasEnCodigo();
 
-    // @ts-expect-error 'E9' aún no está en el tipo CodigoEmail (RED).
     const render = catalogo.seleccionar('E9', 'es')?.render({
       nombre: NOMBRE,
       codigoReserva: CODIGO_RESERVA,
@@ -78,7 +75,6 @@ describe('CatalogoPlantillasEnCodigo — E9 modificación en español (3.5)', ()
   it('debe_formatear_la_liquidacionRestante_como_importe_en_el_render', () => {
     const catalogo = new CatalogoPlantillasEnCodigo();
 
-    // @ts-expect-error 'E9' aún no está en el tipo CodigoEmail (RED).
     const render = catalogo.seleccionar('E9', 'es')?.render({
       nombre: NOMBRE,
       codigoReserva: CODIGO_RESERVA,
@@ -100,7 +96,6 @@ describe('CatalogoPlantillasEnCodigo — E9 modificación en catalán (3.5)', ()
   it('debe_registrar_la_plantilla_E9_en_ca_como_activa', () => {
     const catalogo = new CatalogoPlantillasEnCodigo();
 
-    // @ts-expect-error 'E9' aún no está en el tipo CodigoEmail (RED).
     const plantilla = catalogo.seleccionar('E9', 'ca');
 
     expect(plantilla).not.toBeNull();
@@ -112,7 +107,6 @@ describe('CatalogoPlantillasEnCodigo — E9 modificación en catalán (3.5)', ()
   it('debe_renderizar_E9_en_ca_con_el_texto_catalan_de_la_liquidacio_restant', () => {
     const catalogo = new CatalogoPlantillasEnCodigo();
 
-    // @ts-expect-error 'E9' aún no está en el tipo CodigoEmail (RED).
     const render = catalogo.seleccionar('E9', 'ca')?.render({
       nombre: NOMBRE,
       codigoReserva: CODIGO_RESERVA,
@@ -136,7 +130,6 @@ describe('CatalogoPlantillasEnCodigo — E9 fallback de idioma (3.5)', () => {
   it('debe_devolver_null_para_un_idioma_no_soportado_de_E9', () => {
     const catalogo = new CatalogoPlantillasEnCodigo();
 
-    // @ts-expect-error 'E9' aún no está en el tipo CodigoEmail (RED).
     const plantilla = catalogo.seleccionar('E9', 'fr');
 
     // null → el motor de US-045 aplica el fallback a `es` + AUDIT_LOG.
@@ -147,7 +140,6 @@ describe('CatalogoPlantillasEnCodigo — E9 fallback de idioma (3.5)', () => {
     const catalogo = new CatalogoPlantillasEnCodigo();
 
     // La variante `es` es el destino del fallback: debe existir y estar activa.
-    // @ts-expect-error 'E9' aún no está en el tipo CodigoEmail (RED).
     const fallback = catalogo.seleccionar('E9', 'es');
 
     expect(fallback).not.toBeNull();

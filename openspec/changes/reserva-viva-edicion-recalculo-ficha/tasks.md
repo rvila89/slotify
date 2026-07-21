@@ -64,14 +64,14 @@
       "Subagentes sin Docker/Postgres"). Lo escribe/ejecuta la SESIÓN PRINCIPAL con Postgres real.
 
 ## 4. Backend: implementación (backend-developer — tras TDD-RED)
-- [ ] 4.1 Guarda `esEditableEnVentanaViva` + error de dominio `FueraDeVentanaVivaError` (422).
-- [ ] 4.2 Lectura de ficha con pre-relleno derivado (JOIN CLIENTE en el adaptador de carga; read
+- [x] 4.1 Guarda `esEditableEnVentanaViva` + error de dominio `FueraDeVentanaVivaError` (422).
+- [x] 4.2 Lectura de ficha con pre-relleno derivado (JOIN CLIENTE en el adaptador de carga; read
       path completo: projection → DTO → contrato).
-- [ ] 4.3 Guardado de ficha: enrutar aforo/duración a la RESERVA; disparar recálculo si cambia y
+- [x] 4.3 Guardado de ficha: enrutar aforo/duración a la RESERVA; disparar recálculo si cambia y
       la guarda pasa.
-- [ ] 4.4 `RecalcularReservaVivaUseCase` (orquestación transaccional D-4) + adaptadores tx-bound
+- [x] 4.4 `RecalcularReservaVivaUseCase` (orquestación transaccional D-4) + adaptadores tx-bound
       (presupuesto versión, factura liquidación, reserva importes, auditoría, UoW).
-- [ ] 4.5 Plantilla de email de modificación (`CodigoEmail` nuevo es/ca) + disparo post-commit.
+- [x] 4.5 Plantilla de email de modificación (`CodigoEmail` nuevo es/ca) + disparo post-commit.
 
 ## 5. Frontend: implementación (frontend-developer — tras contrato/SDK)
 - [x] 5.1 `features/ficha-operativa/`: inputs de invitados desglosados + duración enum `{4,8,12}`;

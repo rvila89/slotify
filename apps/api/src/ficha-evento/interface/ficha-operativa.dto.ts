@@ -6,13 +6,24 @@
  * las guardas de negocio viven en el use-case → 409/404).
  */
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, ValidateIf } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsNumberString,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 
 /** Salta la validación de tipo cuando el valor es `null` (borrado explícito). */
 const salvoNull = (_: object, valor: unknown): boolean => valor !== null;
 
 /** Valores del enum `PreEventoStatus` del contrato OpenAPI congelado. */
 export const PRE_EVENTO_STATUS = ['pendiente', 'en_curso', 'cerrado'] as const;
+
+/** Valores del enum `DuracionHoras {4,8,12}` del contrato (aforo/duración estructural). */
+export const DURACION_HORAS = ['4', '8', '12'] as const;
 
 /** Respuesta 200 de `GET`/`PATCH` (`FichaOperativa` del contrato). */
 export class FichaOperativaResponseDto {
@@ -39,6 +50,28 @@ export class FichaOperativaResponseDto {
 
   @ApiPropertyOptional({ type: String, nullable: true })
   duracion!: string | null;
+
+  @ApiPropertyOptional({
+    enum: DURACION_HORAS,
+    nullable: true,
+    description:
+      'Duración estructurada de la RESERVA (enum 4/8/12). Editable en la ventana viva.',
+  })
+  duracionHoras!: (typeof DURACION_HORAS)[number] | null;
+
+  @ApiPropertyOptional({
+    type: Number,
+    nullable: true,
+    description: 'Desglose de aforo: adultos + niños > 4 años (fiel al motor de tarifa).',
+  })
+  numAdultosNinosMayores4!: number | null;
+
+  @ApiPropertyOptional({
+    type: Number,
+    nullable: true,
+    description: 'Desglose de aforo: niños < 4 años.',
+  })
+  numNinosMenores4!: number | null;
 
   @ApiPropertyOptional({ type: String, nullable: true })
   notasOperativas!: string | null;
@@ -73,11 +106,50 @@ export class CerrarFichaOperativaResponseDto extends FichaOperativaResponseDto {
  * el subconjunto presente. `numInvitadosConfirmado` admite `null` (borrar el valor).
  */
 export class GuardarFichaOperativaRequestDto {
-  @ApiPropertyOptional({ type: Number, nullable: true })
+  /**
+   * SOFT-DEPRECATED (change `reserva-viva-edicion-recalculo-ficha` §D-1): el nº de invitados
+   * confirmado pasa a ser DERIVADO del desglose de la RESERVA (`numAdultosNinosMayores4` +
+   * `numNinosMenores4`). Se mantiene por compatibilidad, pero YA NO edita el aforo estructural.
+   */
+  @ApiPropertyOptional({
+    type: Number,
+    nullable: true,
+    deprecated: true,
+    description: 'SOFT-DEPRECATED: usa numAdultosNinosMayores4 + numNinosMenores4.',
+  })
   @IsOptional()
   @ValidateIf(salvoNull)
   @IsInt()
   numInvitadosConfirmado?: number | null;
+
+  /** Duración estructurada de la RESERVA (enum 4/8/12). Dispara recálculo en la ventana viva. */
+  @ApiPropertyOptional({ enum: DURACION_HORAS })
+  @IsOptional()
+  @IsIn(DURACION_HORAS)
+  duracionHoras?: (typeof DURACION_HORAS)[number];
+
+  /** Desglose de aforo: adultos + niños > 4 años. Dispara recálculo en la ventana viva. */
+  @ApiPropertyOptional({ type: Number })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  numAdultosNinosMayores4?: number;
+
+  /** Desglose de aforo: niños < 4 años. Dispara recálculo en la ventana viva. */
+  @ApiPropertyOptional({ type: Number })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  numNinosMenores4?: number;
+
+  /**
+   * Precio total manual (IVA incluido) para el caso `tarifaAConsultar` (>50 invitados o sin
+   * tarifa configurada). Decimal string.
+   */
+  @ApiPropertyOptional({ type: String })
+  @IsOptional()
+  @IsNumberString()
+  precioManualEur?: string;
 
   @ApiPropertyOptional({ type: String, nullable: true })
   @IsOptional()
@@ -103,7 +175,11 @@ export class GuardarFichaOperativaRequestDto {
   @IsString()
   horaLlegada?: string | null;
 
-  @ApiPropertyOptional({ type: String, nullable: true })
+  /**
+   * SOFT-DEPRECATED (§D-1): la duración pasa a `duracionHoras` (enum estructural). Se mantiene
+   * el texto libre por compatibilidad, pero YA NO edita la duración estructural de la RESERVA.
+   */
+  @ApiPropertyOptional({ type: String, nullable: true, deprecated: true })
   @IsOptional()
   @ValidateIf(salvoNull)
   @IsString()

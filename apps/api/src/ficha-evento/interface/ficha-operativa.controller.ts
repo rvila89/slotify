@@ -21,6 +21,7 @@ import {
   Patch,
   Post,
   Body,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
@@ -30,11 +31,19 @@ import {
   ReservaNoEncontradaError,
   LeerFichaOperativaUseCase,
 } from '../application/leer-ficha-operativa.use-case';
-import { GuardarFichaOperativaUseCase } from '../application/guardar-ficha-operativa.use-case';
+import {
+  GuardarFichaOperativaUseCase,
+  type CamposEstructuralesFicha,
+} from '../application/guardar-ficha-operativa.use-case';
 import {
   CerrarFichaOperativaUseCase,
   type CerrarFichaOperativaResultado,
 } from '../application/cerrar-ficha-operativa.use-case';
+import {
+  FueraDeVentanaVivaError,
+  PrecioManualRequeridoError,
+  ImporteSenalInvalidoError,
+} from '../application/recalcular-reserva-viva.use-case';
 import type { FichaOperativa } from '../domain/ficha-operativa.ports';
 import {
   CerrarFichaOperativaResponseDto,
@@ -46,6 +55,16 @@ import {
 const aFechaHora = (fecha: Date | null): string | null =>
   fecha === null ? null : fecha.toISOString();
 
+/** Presenta la duración estructurada numérica (`8`) como enum del contrato (`'8'`), o null. */
+const aDuracionHorasEnum = (
+  horas: number | null | undefined,
+): '4' | '8' | '12' | null => {
+  if (horas === 4 || horas === 8 || horas === 12) {
+    return String(horas) as '4' | '8' | '12';
+  }
+  return null;
+};
+
 /** Proyecta la ficha de dominio al DTO HTTP de respuesta. */
 const aFichaResponse = (ficha: FichaOperativa): FichaOperativaResponseDto => ({
   idFicha: ficha.idFicha,
@@ -56,12 +75,52 @@ const aFichaResponse = (ficha: FichaOperativa): FichaOperativaResponseDto => ({
   contactoEventoCorreo: ficha.contactoEventoCorreo,
   horaLlegada: ficha.horaLlegada,
   duracion: ficha.duracion,
+  duracionHoras: aDuracionHorasEnum(ficha.duracionHoras),
+  numAdultosNinosMayores4: ficha.numAdultosNinosMayores4 ?? null,
+  numNinosMenores4: ficha.numNinosMenores4 ?? null,
   notasOperativas: ficha.notasOperativas,
   briefingEquipo: ficha.briefingEquipo,
   fichaCerrada: ficha.fichaCerrada,
   fechaCierre: aFechaHora(ficha.fechaCierre),
   preEventoStatus: ficha.preEventoStatus,
 });
+
+/** Extrae el subconjunto ESTRUCTURADO (aforo/duración) del body de guardado (§D-1). */
+const extraerEstructurales = (
+  cuerpo: GuardarFichaOperativaRequestDto,
+): CamposEstructuralesFicha | undefined => {
+  const estructurales: CamposEstructuralesFicha = {};
+  if (cuerpo.duracionHoras !== undefined) {
+    estructurales.duracionHoras = Number(cuerpo.duracionHoras);
+  }
+  if (cuerpo.numAdultosNinosMayores4 !== undefined) {
+    estructurales.numAdultosNinosMayores4 = cuerpo.numAdultosNinosMayores4;
+  }
+  if (cuerpo.numNinosMenores4 !== undefined) {
+    estructurales.numNinosMenores4 = cuerpo.numNinosMenores4;
+  }
+  if (cuerpo.precioManualEur !== undefined) {
+    estructurales.precioManualEur = cuerpo.precioManualEur;
+  }
+  return Object.keys(estructurales).length > 0 ? estructurales : undefined;
+};
+
+/**
+ * Extrae SOLO los campos OPERATIVOS (no estructurales) para el guardado de la ficha: los
+ * estructurados (`duracionHoras`/desglose/`precioManualEur`) se enrutan a la RESERVA aparte.
+ */
+const extraerCamposOperativos = (
+  cuerpo: GuardarFichaOperativaRequestDto,
+): Record<string, unknown> => {
+  const {
+    duracionHoras: _d,
+    numAdultosNinosMayores4: _a,
+    numNinosMenores4: _n,
+    precioManualEur: _p,
+    ...operativos
+  } = cuerpo;
+  return operativos;
+};
 
 @ApiTags('FichaOperativa')
 @ApiBearerAuth()
@@ -105,7 +164,8 @@ export class FichaOperativaController {
         tenantId: usuario.tenantId,
         usuarioId: usuario.sub,
         reservaId: id,
-        campos: cuerpo,
+        campos: extraerCamposOperativos(cuerpo),
+        estructurales: extraerEstructurales(cuerpo),
       });
       return aFichaResponse(ficha);
     } catch (error) {
@@ -156,6 +216,19 @@ export class FichaOperativaController {
         statusCode: HttpStatus.NOT_FOUND,
         error: 'Not Found',
         message: error.message,
+      });
+    }
+    // change `reserva-viva-edicion-recalculo-ficha`: errores del recálculo → 422 (con `code`).
+    if (
+      error instanceof FueraDeVentanaVivaError ||
+      error instanceof PrecioManualRequeridoError ||
+      error instanceof ImporteSenalInvalidoError
+    ) {
+      return new UnprocessableEntityException({
+        statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+        error: 'Unprocessable Entity',
+        message: error.message,
+        code: error.codigo,
       });
     }
     return error;
