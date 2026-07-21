@@ -5023,10 +5023,14 @@ export interface components {
             /** Format: uuid */
             reservaId: string;
             numInvitadosConfirmado?: number | null;
-            menuSeleccionado?: string | null;
-            timingDetallado?: string | null;
             contactoEventoNombre?: string | null;
             contactoEventoTelefono?: string | null;
+            /** @description Correo del contacto del evento. Pre-rellenado desde la reserva al crear la ficha. */
+            contactoEventoCorreo?: string | null;
+            /** @description Hora de llegada al evento (formato HH:MM). */
+            horaLlegada?: string | null;
+            /** @description Duración del evento, texto libre (ej: "3h", "2h 30min"). */
+            duracion?: string | null;
             notasOperativas?: string | null;
             briefingEquipo?: string | null;
             /** @description `true` una vez cerrada la ficha (POST .../cerrar). */
@@ -5041,18 +5045,19 @@ export interface components {
         };
         GuardarFichaOperativaRequest: {
             numInvitadosConfirmado?: number | null;
-            menuSeleccionado?: string | null;
-            timingDetallado?: string | null;
             contactoEventoNombre?: string | null;
             contactoEventoTelefono?: string | null;
+            contactoEventoCorreo?: string | null;
+            horaLlegada?: string | null;
+            duracion?: string | null;
             notasOperativas?: string | null;
             briefingEquipo?: string | null;
         };
         CerrarFichaOperativaResponse: components["schemas"]["FichaOperativa"] & {
             /**
-             * @description Nombres (camelCase) de los campos de contenido que quedaron vacíos al cerrar (p. ej. `["menuSeleccionado","briefingEquipo"]`). Vacío si estaban todos rellenos.
+             * @description Nombres (camelCase) de los campos de contenido que quedaron vacíos al cerrar (p. ej. `["horaLlegada","briefingEquipo"]`). Vacío si estaban todos rellenos.
              * @example [
-             *       "menuSeleccionado",
+             *       "horaLlegada",
              *       "briefingEquipo"
              *     ]
              */
