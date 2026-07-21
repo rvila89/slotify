@@ -3121,6 +3121,16 @@ paths:
         post-cierre (D-4): si la ficha ya está cerrada, el backend reescribe `fechaCierre = now()`
         y mantiene `pre_evento_status = cerrado` (la edición no reabre el estado). Guardas de acceso
         y errores idénticos al GET.
+        [reserva-viva] Ahora el PATCH acepta los campos ESTRUCTURADOS de la RESERVA
+        (`duracionHoras`, `numAdultosNinosMayores4`, `numNinosMenores4`) y, si cambian respecto al
+        vigente y la RESERVA está dentro de la **ventana viva** (`estado='reserva_confirmada'` AND
+        `pre_evento_status != 'cerrado'` AND `liquidacion_status != 'cobrada'`), dispara el
+        RECÁLCULO en cascada: re-congela `importe_total`/`importe_liquidacion` (NO `importe_senal`),
+        genera una nueva versión de PRESUPUESTO de modificación y regenera el borrador de FACTURA de
+        liquidación. El resultado viaja en `recalculo` (o `null` si no hubo cambio estructural).
+        Un cambio estructural FUERA de la ventana viva se rechaza con `422`
+        (`code=fuera_de_ventana_viva`) sin mutar la RESERVA. El caso `numAdultosNinosMayores4 > 50`
+        (o sin TARIFA) resuelve a `tarifaAConsultar=true` y exige `precioManualEur` (ausente → 422).
       requestBody:
         required: true
         content:
@@ -3129,10 +3139,10 @@ paths:
               $ref: '#/components/schemas/GuardarFichaOperativaRequest'
       responses:
         '200':
-          description: Ficha guardada
+          description: Ficha guardada (con el resultado del recálculo si cambió aforo/duración)
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/FichaOperativa' }
+              schema: { $ref: '#/components/schemas/GuardarFichaOperativaResponse' }
         '401':
           $ref: '#/components/responses/Unauthorized'
         '409':
@@ -3142,6 +3152,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/FichaOperativaNoDisponibleError' }
+        '422':
+          description: >-
+            [reserva-viva] Cambio de aforo/duración RECHAZADO: la RESERVA está fuera de la ventana
+            viva (`code=fuera_de_ventana_viva`) o falta `precioManualEur` con `tarifaAConsultar`, o
+            `duracionHoras` fuera de `{4,8,12}` / desglose negativo. No muta la RESERVA.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -6866,21 +6884,73 @@ components:
       properties:
         idFicha: { type: string, format: uuid }
         reservaId: { type: string, format: uuid }
-        numInvitadosConfirmado: { type: integer, nullable: true }
-        contactoEventoNombre: { type: string, nullable: true }
-        contactoEventoTelefono: { type: string, nullable: true }
+        # [reserva-viva] Campos ESTRUCTURADOS de la RESERVA que determinan el precio, expuestos
+        # ahora en la ficha (igual que el editor de consulta). Editarlos por PATCH dispara el
+        # recálculo en cascada dentro de la ventana viva. Nullable porque una RESERVA exploratoria
+        # puede no tenerlos aún; el GET pre-rellena `duracionHoras` desde la RESERVA.
+        duracionHoras:
+          allOf: [{ $ref: '#/components/schemas/DuracionHoras' }]
+          nullable: true
+          description: >-
+            [reserva-viva] Duración ESTRUCTURADA del evento (enum `{4,8,12}`) tomada de
+            `RESERVA.duracionHoras`. Sustituye al campo legacy `duracion` (texto libre) para
+            aforo/duración estructural. `null` si la RESERVA aún no la tiene.
+        numAdultosNinosMayores4:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: >-
+            [reserva-viva] Adultos y niños > 4 años (`RESERVA.numAdultosNinosMayores4`). Determina
+            el tramo del tarifario. `null` si la RESERVA aún no lo tiene.
+        numNinosMenores4:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: >-
+            [reserva-viva] Niños ≤ 4 años (`RESERVA.numNinosMenores4`). No cuenta para el tramo del
+            tarifario. `null` si la RESERVA aún no lo tiene.
+        numInvitadosConfirmado:
+          type: integer
+          nullable: true
+          readOnly: true
+          description: >-
+            [reserva-viva] Nº de invitados confirmado, valor DERIVADO de solo lectura:
+            `RESERVA.numInvitadosFinal ?? (numAdultosNinosMayores4 + numNinosMenores4)` (nulls como
+            0), regla `derivarNumPersonas`. NO se escribe por PATCH (cambia vía el desglose de
+            invitados). La columna legacy `FICHA_OPERATIVA.numInvitadosConfirmado` no se escribe por
+            esta vía.
+        contactoEventoNombre:
+          type: string
+          nullable: true
+          description: >-
+            [reserva-viva] Contacto del evento. Al LEER se pre-rellena desde `CLIENTE.nombre`
+            (+ `apellidos`) si la ficha no tiene valor propio; un valor propio guardado prevalece.
+        contactoEventoTelefono:
+          type: string
+          nullable: true
+          description: >-
+            [reserva-viva] Teléfono del contacto del evento. Al LEER se pre-rellena desde
+            `CLIENTE.telefono` si la ficha no tiene valor propio; un valor propio prevalece.
         contactoEventoCorreo:
           type: string
           nullable: true
-          description: 'Correo del contacto del evento. Pre-rellenado desde la reserva al crear la ficha.'
+          description: >-
+            Correo del contacto del evento. Al LEER se pre-rellena desde `CLIENTE.email` si la ficha
+            no tiene valor propio (pre-relleno completo al leer, no solo al crear).
         horaLlegada:
           type: string
           nullable: true
-          description: 'Hora de llegada al evento (formato HH:MM).'
+          description: >-
+            Hora de llegada al evento (formato HH:MM). Al LEER se pre-rellena desde
+            `RESERVA.horario` si la ficha no tiene valor propio.
         duracion:
           type: string
           nullable: true
-          description: 'Duración del evento, texto libre (ej: "3h", "2h 30min").'
+          deprecated: true
+          description: >-
+            DEPRECATED [reserva-viva]: duración como texto libre (ej: "3h", "2h 30min"). La
+            duración ESTRUCTURAL vive ahora en `duracionHoras` (enum `{4,8,12}`). Columna legacy;
+            no se escribe por PATCH como duración estructural. Se conserva por backward-compat.
         notasOperativas: { type: string, nullable: true }
         briefingEquipo: { type: string, nullable: true }
         fichaCerrada:
@@ -6898,21 +6968,138 @@ components:
           description: 'Sub-proceso pre-evento de la RESERVA (pendiente|en_curso|cerrado).'
 
     # [US-025] Cuerpo de PATCH /reservas/{id}/ficha-operativa: guardado PARCIAL (D-5). Todos los
-    # campos son OPCIONALES; solo se persiste el subconjunto presente. `numInvitadosConfirmado` es
-    # nullable para permitir borrar el valor. No incluye `fichaCerrada`/`fechaCierre`: el cierre es
-    # una acción dedicada (POST .../cerrar) y `fechaCierre` la gestiona el backend (D-4).
+    # campos son OPCIONALES; solo se persiste el subconjunto presente. No incluye
+    # `fichaCerrada`/`fechaCierre`: el cierre es una acción dedicada (POST .../cerrar) y
+    # `fechaCierre` la gestiona el backend (D-4).
+    # [reserva-viva] Ahora acepta los campos ESTRUCTURADOS de la RESERVA (`duracionHoras`,
+    # `numAdultosNinosMayores4`, `numNinosMenores4`) + `precioManualEur` para el caso
+    # `tarifaAConsultar`. Enviar cualquiera de los tres estructurales con un valor distinto al
+    # vigente dispara el RECÁLCULO en cascada (ver `recalculo` en GuardarFichaOperativaResponse),
+    # sujeto a la guarda de ventana viva (422 fuera de ella). Los campos legacy
+    # `numInvitadosConfirmado`/`duracion` quedan soft-deprecated: ya no escriben aforo/duración
+    # estructural.
     GuardarFichaOperativaRequest:
       type: object
       additionalProperties: false
       properties:
-        numInvitadosConfirmado: { type: integer, nullable: true }
+        duracionHoras:
+          allOf: [{ $ref: '#/components/schemas/DuracionHoras' }]
+          nullable: true
+          description: >-
+            [reserva-viva] Duración ESTRUCTURADA (enum `{4,8,12}`). Se persiste sobre
+            `RESERVA.duracionHoras`; si cambia dispara el recálculo (ventana viva). Fuera de
+            `{4,8,12}` → 400/422 sin mutar nada.
+        numAdultosNinosMayores4:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: >-
+            [reserva-viva] Adultos y niños > 4 (determina el tramo del tarifario). Se persiste sobre
+            `RESERVA.numAdultosNinosMayores4`; si cambia dispara el recálculo. Negativo → 400/422.
+            `> 50` resuelve a `tarifaAConsultar` (exige `precioManualEur`).
+        numNinosMenores4:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: >-
+            [reserva-viva] Niños ≤ 4 (no cuenta para el tramo). Se persiste sobre
+            `RESERVA.numNinosMenores4`; si cambia dispara el recálculo. Negativo → 400/422.
+        precioManualEur:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          nullable: true
+          description: >-
+            [reserva-viva] Precio total manual (IVA incluido) para el caso `tarifaAConsultar=true`
+            (`numAdultosNinosMayores4 > 50` o sin TARIFA configurada). Obligatorio cuando el motor
+            devuelve `tarifaAConsultar=true`; su ausencia en ese caso → 422. Ignorado si el motor
+            resuelve una tarifa.
+        numInvitadosConfirmado:
+          type: integer
+          nullable: true
+          deprecated: true
+          description: >-
+            DEPRECATED [reserva-viva]: ya no escribe el aforo estructural (es un valor DERIVADO del
+            desglose de invitados, ver `numAdultosNinosMayores4`/`numNinosMenores4`). Se conserva
+            por backward-compat; el backend lo ignora como fuente de aforo estructural.
         contactoEventoNombre: { type: string, nullable: true }
         contactoEventoTelefono: { type: string, nullable: true }
         contactoEventoCorreo: { type: string, nullable: true }
         horaLlegada: { type: string, nullable: true }
-        duracion: { type: string, nullable: true }
+        duracion:
+          type: string
+          nullable: true
+          deprecated: true
+          description: >-
+            DEPRECATED [reserva-viva]: duración como texto libre; ya no escribe la duración
+            estructural (usar `duracionHoras`, enum `{4,8,12}`). Se conserva por backward-compat.
         notasOperativas: { type: string, nullable: true }
         briefingEquipo: { type: string, nullable: true }
+
+    # [reserva-viva] Resultado del RECÁLCULO en cascada disparado por un PATCH que cambia un campo
+    # estructural (aforo/duración) dentro de la ventana viva. Va dentro de
+    # GuardarFichaOperativaResponse. Importes como Decimal(10,2) string. Las versiones son las
+    # filas REGENERADAS (PRESUPUESTO de modificación + FACTURA de liquidación). Cuando el guardado
+    # no toca campos estructurales (no-op de recálculo), `recalculo` es `null` en la respuesta.
+    RecalculoResultado:
+      type: object
+      required: [tarifaAConsultar]
+      description: >-
+        Snapshot del recálculo en cascada: nuevo total re-congelado, pago inicial (señal FIJA, no
+        recalculada) y liquidación restante, más las versiones regeneradas de presupuesto y
+        liquidación. En el caso `tarifaAConsultar=true` sin `precioManualEur` los importes son
+        `null` (el Gestor debe introducir el precio).
+      properties:
+        tarifaAConsultar:
+          type: boolean
+          description: >-
+            `true` cuando `numAdultosNinosMayores4 > 50` o no hay TARIFA configurada: el motor no
+            resuelve precio y se exige `precioManualEur`. Si se envió `precioManualEur`, los
+            importes de abajo se derivan de él.
+        nuevoTotal:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          nullable: true
+          description: >-
+            Nuevo `RESERVA.importe_total` re-congelado por el recálculo. `null` si
+            `tarifaAConsultar=true` sin `precioManualEur`.
+        pagoInicial:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          nullable: true
+          description: >-
+            "Pago inicial ya realizado" = `RESERVA.importe_senal` congelado (importe FIJO, NO
+            recalculado sobre el nuevo total). `null` si no aplica.
+        liquidacionRestante:
+          allOf: [{ $ref: '#/components/schemas/Importe' }]
+          nullable: true
+          description: >-
+            "Liquidación restante" = `nuevoTotal − pagoInicial` (= `RESERVA.importe_liquidacion`
+            re-congelado). `null` si `tarifaAConsultar=true` sin `precioManualEur`.
+        versionPresupuesto:
+          type: integer
+          nullable: true
+          description: >-
+            `version` de la nueva fila de PRESUPUESTO de modificación generada (`MAX(version)+1`).
+            `null` si no se regeneró presupuesto.
+        versionLiquidacion:
+          type: integer
+          nullable: true
+          description: >-
+            Versión/identificador de la FACTURA de liquidación regenerada. `null` si no se regeneró
+            liquidación.
+
+    # [reserva-viva] Respuesta 200 del PATCH /reservas/{id}/ficha-operativa: la FichaOperativa
+    # (con pre-relleno y campos estructurados) MÁS el resultado del recálculo. `recalculo` es
+    # `null` cuando el guardado no tocó aforo/duración estructural (no hubo recálculo). Patrón
+    # allOf(FichaOperativa) + campo de resultado, como CerrarFichaOperativaResponse.
+    GuardarFichaOperativaResponse:
+      allOf:
+        - $ref: '#/components/schemas/FichaOperativa'
+        - type: object
+          properties:
+            recalculo:
+              allOf: [{ $ref: '#/components/schemas/RecalculoResultado' }]
+              nullable: true
+              description: >-
+                Resultado del recálculo en cascada, o `null` si el guardado no cambió ningún campo
+                estructural (aforo/duración) y por tanto no disparó recálculo.
 
     # [US-025] Respuesta 200 de POST /reservas/{id}/ficha-operativa/cerrar (D-6): la ficha cerrada
     # más `avisosCamposVacios`, la lista (posiblemente vacía) de nombres de campos de contenido que
