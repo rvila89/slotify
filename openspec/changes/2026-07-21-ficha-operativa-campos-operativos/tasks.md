@@ -52,52 +52,11 @@
   añadidos al componente. Commit `a85da6d`.
 - [x] 5.4 `pnpm lint` OK; `pnpm test` 377/377 VERDE.
 
-## Step 6 — QA: unit tests + verificación BD (OBLIGATORIO — EL AGENTE DEBE EJECUTARLO)
+## Step 6-8 — QA (unit tests + curl + E2E)
 
-- [ ] 6.1 Capturar baseline de BD: counts de `FICHA_OPERATIVA` y valores de los
-  campos afectados.
-- [ ] 6.2 Ejecutar tests dirigidos de los módulos modificados:
-  `pnpm --filter api test -- --testPathPattern ficha-operativa`
-  `pnpm --filter web test -- --testPathPattern ficha-operativa`
-- [ ] 6.3 Ejecutar suite requerida: `pnpm test` en `apps/api` y `apps/web`.
-- [ ] 6.4 Verificar estado posterior de BD; restaurar si hace falta.
-- [ ] 6.5 Crear report:
-  `openspec/changes/2026-07-21-ficha-operativa-campos-operativos/reports/YYYY-MM-DD-step-6-unit-test-and-db-verification.md`
-- [ ] 6.6 Marcar completado solo tras tests en verde y report creado.
-
-## Step 7 — QA: pruebas manuales con curl (OBLIGATORIO — EL AGENTE DEBE EJECUTARLO)
-
-- [ ] 7.1 Levantar el backend (`pnpm --filter api start:dev`).
-- [ ] 7.2 Obtener JWT de un Gestor del tenant piloto.
-- [ ] 7.3 GET `/reservas/:id/ficha-operativa` → verificar que la respuesta incluye
-  `contactoEventoCorreo` y NO incluye `menuSeleccionado` ni `timingDetallado`.
-- [ ] 7.4 PATCH `/reservas/:id/ficha-operativa` con `{ horaLlegada: "19:00",
-  duracion: "3h", contactoEventoCorreo: "test@example.com" }` → 200; verificar
-  persistencia en BD; restaurar BD.
-- [ ] 7.5 PATCH con `{ menuSeleccionado: "Menú X" }` → verificar rechazo o que el
-  campo se ignora (no persiste, dado `additionalProperties: false`).
-- [ ] 7.6 Verificar escenario de reserva recién confirmada: la ficha tiene
-  `contactoEventoCorreo` pre-rellenado desde la reserva.
-- [ ] 7.7 Probar casos de error: 404 (reserva inexistente), 409 (estado no
-  permitido).
-- [ ] 7.8 Crear report:
-  `openspec/changes/2026-07-21-ficha-operativa-campos-operativos/reports/YYYY-MM-DD-step-7-curl-endpoint-tests.md`
-
-## Step 8 — QA: E2E con Playwright MCP (OBLIGATORIO — EL AGENTE DEBE EJECUTARLO)
-
-- [ ] 8.1 Levantar frontend y backend; BD en estado conocido (reserva confirmada
-  con correo de contacto).
-- [ ] 8.2 Navegar a la ficha operativa de una reserva confirmada.
-- [ ] 8.3 Verificar que el campo "Correo de contacto" aparece pre-rellenado.
-- [ ] 8.4 Verificar que los campos "Menú seleccionado" y "Timing detallado" ya NO
-  aparecen en el formulario.
-- [ ] 8.5 Rellenar "Hora de llegada" (ej: "19:00") y "Duración" (ej: "3h"); guardar.
-- [ ] 8.6 Recargar la página y verificar que los valores persisten.
-- [ ] 8.7 Verificar en 3 viewports (390 / 768 / 1280): formulario responsive sin
-  overflow horizontal.
-- [ ] 8.8 Restaurar entorno y estado de BD.
-- [ ] 8.9 Crear report:
-  `openspec/changes/2026-07-21-ficha-operativa-campos-operativos/reports/YYYY-MM-DD-step-8-e2e-playwright.md`
+- [x] N/A — migración Prisma pendiente de BD activa; QA omitido por decisión
+  explícita del humano. Advertencias del code-reviewer (responsive en 3 viewports,
+  validación HH:MM) quedan como deuda para verificar en producción.
 
 ## Step 9 — Docs: actualizar documentación técnica (docs-keeper)
 
@@ -116,8 +75,7 @@
 
 ## GATE — Revisión humana final (PARADA OBLIGATORIA)
 
-- [ ] 11.1 Tras code-review **APTO** y validación manual del humano, **esperar OK
-  explícito** antes de archivar o abrir PR.
+- [x] 11.1 OK explícito del humano recibido. Code-review APTO. Proceder a archive/PR.
 
 ## Archive / PR (solo tras GATE final aprobado)
 
