@@ -10,6 +10,7 @@
  */
 import { Injectable } from '@nestjs/common';
 import type { AdjuntoRef, EnviarEmailPort } from '../../comunicaciones/domain/enviar-email.port';
+import type { CatalogoPlantillasPort } from '../../comunicaciones/domain/catalogo-plantillas.port';
 import type {
   EnviarE4EmisionParams,
   EnviarE4EmisionPort,
@@ -63,14 +64,26 @@ export class EnviarE4EmisionAdapter {
  */
 @Injectable()
 export class EnviarE3EmisionAdapter {
-  constructor(private readonly enviarEmail: EnviarEmailPort) {}
+  constructor(
+    private readonly enviarEmail: EnviarEmailPort,
+    private readonly catalogo: CatalogoPlantillasPort,
+  ) {}
 
   readonly enviar: EnviarE3EmisionPort = async (params: EnviarE3EmisionParams) => {
+    const plantilla =
+      this.catalogo.seleccionar('E3', params.idioma ?? 'es') ??
+      this.catalogo.seleccionar('E3', 'es')!;
+    const rendered = plantilla.render({
+      nombre: params.nombre ?? '',
+      codigoReserva: params.codigoReserva,
+    });
     await this.enviarEmail.enviar({
       destinatario: params.destinatario,
-      asunto: `Confirmación de tu reserva y factura de señal — reserva ${params.codigoReserva}`,
-      cuerpo: 'Adjuntamos la factura de la señal y las condicions particulars de tu evento.',
+      asunto: rendered.asunto,
+      cuerpo: rendered.cuerpoHtml,
+      cuerpoEsHtml: true,
       codigoEmail: 'E3',
+      idioma: params.idioma,
       tenantId: params.tenantId,
       adjuntos: aAdjuntosRef(params.adjuntos),
     });
@@ -122,14 +135,26 @@ export class ReenviarE4Adapter {
  */
 @Injectable()
 export class ReenviarE3Adapter {
-  constructor(private readonly enviarEmail: EnviarEmailPort) {}
+  constructor(
+    private readonly enviarEmail: EnviarEmailPort,
+    private readonly catalogo: CatalogoPlantillasPort,
+  ) {}
 
   readonly reenviar: ReenviarE3Port = async (params: ReenviarE3Params) => {
+    const plantilla =
+      this.catalogo.seleccionar('E3', params.idioma ?? 'es') ??
+      this.catalogo.seleccionar('E3', 'es')!;
+    const rendered = plantilla.render({
+      nombre: params.nombre ?? '',
+      codigoReserva: params.codigoReserva,
+    });
     await this.enviarEmail.enviar({
       destinatario: params.destinatario,
-      asunto: `Reenvío de tu reserva y factura de señal — reserva ${params.codigoReserva}`,
-      cuerpo: 'Reenviamos la factura de la señal y las condicions particulars de tu evento.',
+      asunto: rendered.asunto,
+      cuerpo: rendered.cuerpoHtml,
+      cuerpoEsHtml: true,
       codigoEmail: 'E3',
+      idioma: params.idioma,
       tenantId: params.tenantId,
       adjuntos: aAdjuntosRef(params.adjuntos),
     });

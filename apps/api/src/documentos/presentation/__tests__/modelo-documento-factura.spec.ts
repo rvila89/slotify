@@ -253,3 +253,115 @@ describe('construirModeloDocumentoFactura — fianza usa concepto sin referencia
     expect(modelo.concepto).not.toContain('pressupost');
   });
 });
+
+// ===========================================================================
+// IDIOMA — factura-senal-pdf-idioma-email-ux (TDD RED).
+//
+// `DatosDocumentoFactura` debe incluir `idioma: string`. El builder
+// `construirModeloDocumentoFactura` debe:
+//   - derivar el `concepto` en el idioma indicado (CA o ES).
+//   - seleccionar `pieLegal` del bundle `config.textos.pieLegal[idioma]`.
+//
+// RED: el campo `idioma` NO existe todavía en `DatosDocumentoFactura` ni en los
+// params del builder → los asserts FALLAN. GREEN es de `backend-developer`.
+// ===========================================================================
+
+describe('construirModeloDocumentoFactura — IDIOMA ES (factura-senal-pdf-idioma-email-ux)', () => {
+  it('debe_generar_el_concepto_de_senal_en_espanol_cuando_idioma_es_es', () => {
+    const modelo = construirModeloDocumentoFactura({
+      config: configPiloto(),
+      datos: datosSenal({ idioma: 'es', numeroPresupuesto: '2026001' } as Partial<DatosDocumentoFactura>),
+    });
+
+    expect(modelo.concepto).toBe(
+      '40% del importe total anticipado del presupuesto núm. 2026001',
+    );
+  });
+
+  it('debe_generar_el_concepto_de_liquidacion_en_espanol_cuando_idioma_es_es', () => {
+    const modelo = construirModeloDocumentoFactura({
+      config: configPiloto(),
+      datos: datosLiquidacion({ idioma: 'es', numeroPresupuesto: '2026001' } as Partial<DatosDocumentoFactura>),
+    });
+
+    expect(modelo.concepto).toBe(
+      'Saldo del 60% del importe del presupuesto núm. 2026001',
+    );
+  });
+
+  it('debe_generar_el_concepto_de_fianza_en_espanol_cuando_idioma_es_es', () => {
+    const modelo = construirModeloDocumentoFactura({
+      config: configPiloto(),
+      datos: datosFianza({ idioma: 'es' } as Partial<DatosDocumentoFactura>),
+    });
+
+    expect(modelo.concepto).toBe("Fianza de garantía — Masia l'Encís");
+  });
+
+  it('debe_usar_pieLegal_es_cuando_idioma_es_es', () => {
+    const modelo = construirModeloDocumentoFactura({
+      config: configPiloto(),
+      datos: datosSenal({ idioma: 'es' } as Partial<DatosDocumentoFactura>),
+    });
+
+    expect(modelo.pieLegal).toBe(
+      'Este documento tiene una validez de 10 días desde su emisión.',
+    );
+  });
+});
+
+describe('construirModeloDocumentoFactura — IDIOMA CA (factura-senal-pdf-idioma-email-ux)', () => {
+  it('debe_generar_el_concepto_de_senal_en_catalan_cuando_idioma_es_ca', () => {
+    const modelo = construirModeloDocumentoFactura({
+      config: configPiloto(),
+      datos: datosSenal({ idioma: 'ca', numeroPresupuesto: '2026001' } as Partial<DatosDocumentoFactura>),
+    });
+
+    expect(modelo.concepto).toBe(
+      "40% de l'import total anticipat del pressupost núm. 2026001",
+    );
+  });
+
+  it('debe_generar_el_concepto_de_liquidacion_en_catalan_cuando_idioma_es_ca', () => {
+    const modelo = construirModeloDocumentoFactura({
+      config: configPiloto(),
+      datos: datosLiquidacion({ idioma: 'ca', numeroPresupuesto: '2026001' } as Partial<DatosDocumentoFactura>),
+    });
+
+    expect(modelo.concepto).toBe(
+      "Saldo del 60% de l'import del pressupost núm. 2026001",
+    );
+  });
+
+  it('debe_generar_el_concepto_de_fianza_en_catalan_cuando_idioma_es_ca', () => {
+    const modelo = construirModeloDocumentoFactura({
+      config: configPiloto(),
+      datos: datosFianza({ idioma: 'ca' } as Partial<DatosDocumentoFactura>),
+    });
+
+    expect(modelo.concepto).toBe("Fiança de garantia — Masia l'Encís");
+  });
+
+  it('debe_usar_pieLegal_ca_cuando_idioma_es_ca', () => {
+    const modelo = construirModeloDocumentoFactura({
+      config: configPiloto(),
+      datos: datosSenal({ idioma: 'ca' } as Partial<DatosDocumentoFactura>),
+    });
+
+    expect(modelo.pieLegal).toBe(
+      'Aquest document té una validesa de 10 dies des de la seva emissió.',
+    );
+  });
+});
+
+describe('construirModeloDocumentoFactura — IDIOMA propagado al modelo (factura-senal-pdf-idioma-email-ux)', () => {
+  it('debe_exponer_idioma_en_el_modelo_de_vista', () => {
+    const modelo = construirModeloDocumentoFactura({
+      config: configPiloto(),
+      datos: datosSenal({ idioma: 'es' } as Partial<DatosDocumentoFactura>),
+    });
+
+    // El modelo expone `idioma` para que DocumentoFacturaLayout seleccione etiquetas.
+    expect((modelo as unknown as Record<string, unknown>).idioma).toBe('es');
+  });
+});

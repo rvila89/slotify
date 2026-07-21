@@ -245,7 +245,9 @@ export const FacturaSenalCard = ({ reservaId }: Props) => {
       )}
 
       {/* Enviada (emitida): factura lista para remitir al cliente por email E3 (6.4b). */}
-      {estadoVisual === 'enviada' && <EnvioFacturaSenal reservaId={reservaId} />}
+      {estadoVisual === 'enviada' && (
+        <EnvioFacturaSenal reservaId={reservaId} e3Enviado={factura.e3Enviado} />
+      )}
 
       {regenerar.error && <AvisoErrorFactura error={regenerar.error} />}
 

@@ -52,6 +52,12 @@ export interface ReservaReenvioE3 {
   clienteId: string;
   codigo: string;
   clienteEmail: string;
+  /** Idioma de la reserva (`'ca'`/`'es'`); elige la plantilla E3 del catálogo. */
+  idioma?: string;
+  /** Nombre de pila del cliente (nombre del adjunto + saludo del email). */
+  clienteNombre?: string;
+  /** Apellidos del cliente (nombre del adjunto de la señal). */
+  clienteApellidos?: string;
   condPartEnviadasFecha: Date | null;
 }
 
@@ -95,6 +101,10 @@ export interface ReenviarE3Params {
   destinatario: string;
   codigoReserva: string;
   numeroFactura: string | null;
+  /** Idioma de la reserva (`'ca'`/`'es'`); el adapter selecciona la plantilla E3. */
+  idioma?: string;
+  /** Nombre de pila del cliente para el saludo de la plantilla. */
+  nombre?: string;
   adjuntos: AdjuntoReenvioE3[];
   /** Índice laxo: permite que el doble de test tipe los params como `Record`. */
   [extra: string]: unknown;
@@ -286,7 +296,11 @@ export class ReenviarE3UseCase {
       reservaId: comando.reservaId,
     });
     const adjuntos: AdjuntoReenvioE3[] = [
-      { clave: 'senal', nombre: 'factura-senal.pdf', pdfUrl: senal.pdfUrl ?? '' },
+      {
+        clave: 'senal',
+        nombre: `${senal.numeroFactura ?? 'Factura'} ${reserva.clienteNombre ?? ''} ${reserva.clienteApellidos ?? ''}.pdf`,
+        pdfUrl: senal.pdfUrl ?? '',
+      },
     ];
     if (documento !== null && documento !== undefined) {
       adjuntos.push({
@@ -306,6 +320,8 @@ export class ReenviarE3UseCase {
         destinatario: reserva.clienteEmail,
         codigoReserva: reserva.codigo,
         numeroFactura: senal.numeroFactura,
+        idioma: reserva.idioma,
+        nombre: reserva.clienteNombre,
         adjuntos,
       });
     } catch (error) {

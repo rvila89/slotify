@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 import { estadoVisualFactura, type EstadoVisualFactura } from '../lib/estado';
-import type { FacturaSenal } from '../model/types';
+import type { Factura } from '../model/types';
 
 /**
  * Insignia tonal del estado visual de la factura de señal (US-022). Combina el
@@ -30,7 +30,7 @@ const CONFIG: Record<EstadoVisualFactura, { label: string; tono: string }> = {
   },
 };
 
-export const EstadoFacturaBadge = ({ factura }: { factura: FacturaSenal }) => {
+export const EstadoFacturaBadge = ({ factura }: { factura: Factura }) => {
   const estado = estadoVisualFactura(factura);
   const { label, tono } = CONFIG[estado];
   return (

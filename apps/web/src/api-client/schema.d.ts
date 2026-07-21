@@ -4303,7 +4303,10 @@ export interface components {
          * @description Factura de señal (`tipo='senal'`) de una reserva. Misma forma que `FacturaDto`; se conserva
          *     como nombre estable de los endpoints de US-022 (obtener/aprobar/rechazar/regenerar-pdf).
          */
-        FacturaSenalDto: components["schemas"]["FacturaDto"];
+        FacturaSenalDto: components["schemas"]["FacturaDto"] & {
+            /** @description Flag DERIVADO. `true` cuando existe una COMUNICACION E3 con `estado='enviado'` y `es_reenvio=false` para la reserva. La UI usa este flag para mostrar sólo "Reenviar" tras el primer envío (no permite re-disparar el envío inicial). */
+            e3Enviado: boolean;
+        };
         /** @description Cuerpo vacío. La aprobación no toma parámetros (importes/datos fiscales inmutables). */
         AprobarFacturaRequest: Record<string, never>;
         RechazarFacturaRequest: {

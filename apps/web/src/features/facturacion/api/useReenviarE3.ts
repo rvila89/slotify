@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api-client';
+import { comunicacionesReservaQueryKey } from '@/features/comunicaciones';
 import { normalizarErrorReenvioE3 } from './normalizarErrorReenvioE3';
 import { facturaSenalQueryKey } from './useFacturaSenal';
 import { facturasReservaQueryKey } from './useFacturasReserva';
@@ -45,6 +46,7 @@ export const useReenviarE3 = () => {
     onSuccess: (_data, { reservaId }) => {
       void queryClient.invalidateQueries({ queryKey: facturaSenalQueryKey(reservaId) });
       void queryClient.invalidateQueries({ queryKey: facturasReservaQueryKey(reservaId) });
+      void queryClient.invalidateQueries({ queryKey: comunicacionesReservaQueryKey(reservaId) });
     },
   });
 };

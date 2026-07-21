@@ -52,6 +52,8 @@ export interface DatosDocumentoFactura {
   numeroPresupuesto: string | null;
   /** Régimen fiscal del presupuesto aceptado; CON IVA por defecto. */
   regimenIva: RegimenIvaFactura;
+  /** Idioma de la reserva (`'ca'`/`'es'`); dirige conceptos y pie legal del PDF. */
+  idioma: string;
   cliente: ClienteDocumentoFactura;
   extras: ReadonlyArray<ExtraDocumentoFactura>;
   desglose: DesgloseDocumentoFactura;

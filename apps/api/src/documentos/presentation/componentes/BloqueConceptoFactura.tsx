@@ -13,6 +13,10 @@ export interface BloqueConceptoFacturaProps {
   kit: KitReactPdf;
   estilos: EstilosReactPdf;
   colorPrimario: string;
+  /** Cabecera de la columna de concepto ("CONCEPTE"/"CONCEPTO"). */
+  etiquetaConcepto: string;
+  /** Cabecera de la columna de precio ("PREU"/"PRECIO"). */
+  etiquetaPrecio: string;
   concepto: string;
   /** PREU del concepto principal (total del documento) en formato "0.00". */
   precioTotal: string;
@@ -23,6 +27,8 @@ export const BloqueConceptoFactura = ({
   kit,
   estilos,
   colorPrimario,
+  etiquetaConcepto,
+  etiquetaPrecio,
   concepto,
   precioTotal,
   extras = [],
@@ -31,8 +37,8 @@ export const BloqueConceptoFactura = ({
   return (
     <View>
       <View style={[estilos.conceptoCabeceraBarra, { backgroundColor: colorPrimario }]}>
-        <Text style={estilos.conceptoCabeceraConcepto}>CONCEPTE</Text>
-        <Text style={estilos.conceptoCabeceraPreu}>PREU</Text>
+        <Text style={estilos.conceptoCabeceraConcepto}>{etiquetaConcepto}</Text>
+        <Text style={estilos.conceptoCabeceraPreu}>{etiquetaPrecio}</Text>
       </View>
       <View style={estilos.conceptoCuerpo}>
         <View style={estilos.conceptoFilaPrincipal}>

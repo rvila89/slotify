@@ -23,18 +23,26 @@ export interface DocumentoFacturaLayoutProps {
   modelo: ModeloDocumentoFactura;
 }
 
-/** Título grande de la factura según el tipo (§D-2). */
-const TITULO_POR_TIPO: Record<ModeloDocumentoFactura['tipo'], string> = {
-  senal: 'FACTURA',
-  liquidacion: 'FACTURA',
-  fianza: 'REBUT',
+/** Título grande de la factura según el tipo (§D-2), sensible al idioma. */
+const tituloPorTipo = (
+  tipo: ModeloDocumentoFactura['tipo'],
+  idioma: string,
+): string => {
+  if (tipo === 'fianza') {
+    return idioma === 'es' ? 'RECIBO' : 'REBUT';
+  }
+  return 'FACTURA';
 };
 
-/** Rótulo de la primera columna de la mini-tabla meta según el tipo. */
-const ETIQUETA_META_POR_TIPO: Record<ModeloDocumentoFactura['tipo'], string> = {
-  senal: 'Factura',
-  liquidacion: 'Factura',
-  fianza: 'Rebut',
+/** Rótulo de la primera columna de la mini-tabla meta según el tipo e idioma. */
+const etiquetaMetaPorTipo = (
+  tipo: ModeloDocumentoFactura['tipo'],
+  idioma: string,
+): string => {
+  if (tipo === 'fianza') {
+    return idioma === 'es' ? 'Recibo' : 'Rebut';
+  }
+  return 'Factura';
 };
 
 /** Formatea una fecha a `dd/mm/aaaa` en UTC (determinista para el documento). */
@@ -48,8 +56,8 @@ export const DocumentoFacturaLayout = ({ kit, modelo }: DocumentoFacturaLayoutPr
   const { Document, Page, View, Text } = kit;
   const estilos = construirEstilos(kit.StyleSheet);
   const colorPrimario = modelo.cabecera.colorPrimario;
-  // La factura NO cambia de idioma en este change (design.md D6): idioma fijo catalán.
-  const etiquetas = etiquetasDocumento('ca');
+  const idioma = modelo.idioma ?? 'ca';
+  const etiquetas = etiquetasDocumento(idioma === 'es' ? 'es' : 'ca');
   return (
     <Document>
       <Page size="A4" style={[estilos.pagina, { color: modelo.cabecera.colorTexto }]}>
@@ -63,8 +71,8 @@ export const DocumentoFacturaLayout = ({ kit, modelo }: DocumentoFacturaLayoutPr
             kit={kit}
             estilos={estilos}
             colorPrimario={colorPrimario}
-            titulo={TITULO_POR_TIPO[modelo.tipo]}
-            etiquetaNumero={ETIQUETA_META_POR_TIPO[modelo.tipo]}
+            titulo={tituloPorTipo(modelo.tipo, idioma)}
+            etiquetaNumero={etiquetaMetaPorTipo(modelo.tipo, idioma)}
             etiquetaFecha={etiquetas.fecha}
             numero={modelo.numeroFactura ?? ''}
             fecha={modelo.fechaEmision === null ? '' : formatearFecha(modelo.fechaEmision)}
@@ -75,6 +83,8 @@ export const DocumentoFacturaLayout = ({ kit, modelo }: DocumentoFacturaLayoutPr
           kit={kit}
           estilos={estilos}
           colorPrimario={colorPrimario}
+          etiquetaConcepto={etiquetas.concepto}
+          etiquetaPrecio={etiquetas.precio}
           concepto={modelo.concepto}
           precioTotal={modelo.totales.total}
           extras={modelo.extras}

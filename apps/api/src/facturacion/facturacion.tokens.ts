@@ -79,6 +79,8 @@ export const UNIDAD_DE_TRABAJO_SENAL_EMISION_PORT = Symbol('UnidadDeTrabajoSenal
 export const CARGAR_RESERVA_SENAL_EMISION_PORT = Symbol('CargarReservaSenalEmisionPort');
 /** Envío SÍNCRONO/CONFIRMADO de E3 (factura de señal + condicions particulars, puerto directo). */
 export const ENVIAR_E3_EMISION_PORT = Symbol('EnviarE3EmisionPort');
+/** Verificación de si ya se envió E3 (COMUNICACION E3 `enviado`, no reenvío) para la reserva. */
+export const VERIFICAR_E3_ENVIADO_PORT = Symbol('VerificarE3EnviadoPort');
 
 // --- US-023 (GAP 3): reenvío manual de E3 (factura de señal + condiciones) ---
 /** Lectura de la RESERVA para el reenvío de E3 (email cliente + cond_part_enviadas_fecha). */

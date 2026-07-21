@@ -11,8 +11,12 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../shared/prisma/prisma.module';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { ComunicacionesModule } from '../comunicaciones/comunicaciones.module';
-import { ENVIAR_EMAIL_PORT } from '../comunicaciones/comunicaciones.tokens';
+import {
+  CATALOGO_PLANTILLAS_PORT,
+  ENVIAR_EMAIL_PORT,
+} from '../comunicaciones/comunicaciones.tokens';
 import type { EnviarEmailPort } from '../comunicaciones/domain/enviar-email.port';
+import type { CatalogoPlantillasPort } from '../comunicaciones/domain/catalogo-plantillas.port';
 import { DocumentosModule } from '../documentos/documentos.module';
 import { ALMACEN_DOCUMENTOS_PORT } from '../documentos/documentos.tokens';
 import type { AlmacenDocumentosPort } from '../documentos/domain/almacen-documentos.port';
@@ -28,6 +32,7 @@ import {
 } from './application/generar-factura-senal.use-case';
 import {
   ObtenerFacturaSenalUseCase,
+  type VerificarE3EnviadoPort,
 } from './application/obtener-factura-senal.use-case';
 import {
   AprobarFacturaUseCase,
@@ -123,6 +128,7 @@ import {
   CargarReservaReenvioPrismaAdapter,
   CargarReservaReenvioE3PrismaAdapter,
   CargarReservaSenalEmisionPrismaAdapter,
+  VerificarE3EnviadoPrismaAdapter,
 } from './infrastructure/lecturas-emision.prisma.adapter';
 import {
   EnviarE3EmisionAdapter,
@@ -198,6 +204,7 @@ import {
   UNIDAD_DE_TRABAJO_SENAL_EMISION_PORT,
   CARGAR_RESERVA_SENAL_EMISION_PORT,
   ENVIAR_E3_EMISION_PORT,
+  VERIFICAR_E3_ENVIADO_PORT,
   CARGAR_RESERVA_REENVIO_E3_PORT,
   CARGAR_FACTURA_SENAL_REENVIO_PORT,
   BUSCAR_E3_PREVIA_PORT,
@@ -418,9 +425,18 @@ type CargarFacturaFn = (params: {
     },
     {
       provide: ENVIAR_E3_EMISION_PORT,
-      inject: [ENVIAR_EMAIL_PORT],
-      useFactory: (enviarEmail: EnviarEmailPort): EnviarE3EmisionPort =>
-        new EnviarE3EmisionAdapter(enviarEmail).enviar,
+      inject: [ENVIAR_EMAIL_PORT, CATALOGO_PLANTILLAS_PORT],
+      useFactory: (
+        enviarEmail: EnviarEmailPort,
+        catalogo: CatalogoPlantillasPort,
+      ): EnviarE3EmisionPort =>
+        new EnviarE3EmisionAdapter(enviarEmail, catalogo).enviar,
+    },
+    {
+      provide: VERIFICAR_E3_ENVIADO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): VerificarE3EnviadoPort =>
+        new VerificarE3EnviadoPrismaAdapter(prisma).verificar,
     },
 
     // --- US-023 (GAP 3): adaptadores del reenvío de E3 (señal + condiciones) ---
@@ -450,9 +466,12 @@ type CargarFacturaFn = (params: {
     },
     {
       provide: REENVIAR_E3_PORT,
-      inject: [ENVIAR_EMAIL_PORT],
-      useFactory: (enviarEmail: EnviarEmailPort): ReenviarE3Port =>
-        new ReenviarE3Adapter(enviarEmail).reenviar,
+      inject: [ENVIAR_EMAIL_PORT, CATALOGO_PLANTILLAS_PORT],
+      useFactory: (
+        enviarEmail: EnviarEmailPort,
+        catalogo: CatalogoPlantillasPort,
+      ): ReenviarE3Port =>
+        new ReenviarE3Adapter(enviarEmail, catalogo).reenviar,
     },
     {
       provide: REGISTRAR_COMUNICACION_REENVIO_E3_PORT,
@@ -529,18 +548,21 @@ type CargarFacturaFn = (params: {
         CARGAR_RESERVA_FACTURABLE_PORT,
         CARGAR_CLIENTE_FISCAL_PORT,
         CARGAR_FACTURA_PARA_PDF_PORT,
+        VERIFICAR_E3_ENVIADO_PORT,
       ],
       useFactory: (
         unidadDeTrabajo: UnidadDeTrabajoFacturacionPort,
         cargarReserva: CargarReservaFacturablePort,
         cargarCliente: CargarClienteFiscalPort,
         cargarFacturaParaPdf: CargarFacturaParaPdfPort,
+        verificarE3Enviado: VerificarE3EnviadoPort,
       ) =>
         new ObtenerFacturaSenalUseCase({
           unidadDeTrabajo,
           cargarReserva,
           cargarCliente,
           cargarFacturaParaPdf,
+          verificarE3Enviado,
         }),
     },
     {

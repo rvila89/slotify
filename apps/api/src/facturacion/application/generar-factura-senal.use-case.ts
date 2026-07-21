@@ -108,6 +108,11 @@ export interface FacturaSenalResultado extends FacturaSenal {
   esBorradorInvalido: boolean;
   pdfPendiente: boolean;
   camposFiscalesFaltantes: ReadonlyArray<string>;
+  /**
+   * `true` si ya se envió la factura de señal por E3 (COMUNICACION E3 `enviado`, no reenvío).
+   * Ausente cuando la lectura no lo resuelve (p. ej. respuesta tras generar el borrador).
+   */
+  e3Enviado?: boolean;
 }
 
 /** Parámetros de creación de la FACTURA en borrador (tx-bound). */
