@@ -1288,9 +1288,9 @@ flowchart TD
 1. El gestor abre la ficha operativa de una reserva confirmada (`GET /reservas/{id}/ficha-operativa`)
 2. El gestor cumplimenta campos progresivamente (`PATCH /reservas/{id}/ficha-operativa`), enviando solo el subconjunto de campos a actualizar:
    - Nº invitados confirmado
-   - Menú seleccionado
-   - Timing detallado
-   - Contacto del evento (nombre y teléfono)
+   - Contacto del evento (nombre, teléfono y correo electrónico — `contacto_evento_correo` pre-relleno desde el email del cliente al confirmar la reserva)
+   - Hora de llegada (`hora_llegada`, formato HH:MM)
+   - Duración del evento (`duracion`, texto libre)
    - Notas operativas
    - Briefing del equipo
 3. En el **primer guardado con al menos un campo con dato**, el sistema transiciona `pre_evento_status: pendiente → en_curso` en la misma transacción. Guardados totalmente vacíos no modifican el estado.

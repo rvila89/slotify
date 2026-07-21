@@ -29,10 +29,11 @@ export interface FichaOperativa {
   idFicha: string;
   reservaId: string;
   numInvitadosConfirmado: number | null;
-  menuSeleccionado: string | null;
-  timingDetallado: string | null;
   contactoEventoNombre: string | null;
   contactoEventoTelefono: string | null;
+  contactoEventoCorreo: string | null;
+  horaLlegada: string | null;
+  duracion: string | null;
   notasOperativas: string | null;
   briefingEquipo: string | null;
   fichaCerrada: boolean;
@@ -53,10 +54,11 @@ export type CamposFichaOperativa = Partial<
   Pick<
     FichaOperativa,
     | 'numInvitadosConfirmado'
-    | 'menuSeleccionado'
-    | 'timingDetallado'
     | 'contactoEventoNombre'
     | 'contactoEventoTelefono'
+    | 'contactoEventoCorreo'
+    | 'horaLlegada'
+    | 'duracion'
     | 'notasOperativas'
     | 'briefingEquipo'
   >

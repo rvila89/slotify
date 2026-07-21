@@ -343,10 +343,13 @@ erDiagram
         uuid id_ficha PK
         uuid reserva_id FK "UK - relacion 1:1"
         int num_invitados_confirmado
-        text menu_seleccionado
-        text timing_detallado
+        text menu_seleccionado "// legacy — retirada del contrato, permanece en BD como nullable"
+        text timing_detallado "// legacy — retirada del contrato, permanece en BD como nullable"
         string contacto_evento_nombre
         string contacto_evento_telefono
+        string contacto_evento_correo "nullable; pre-relleno desde reserva.cliente.email al confirmar"
+        string hora_llegada "nullable; formato HH:MM"
+        text duracion "nullable; texto libre (p. ej. '6 horas')"
         text notas_operativas
         text briefing_equipo
         boolean ficha_cerrada

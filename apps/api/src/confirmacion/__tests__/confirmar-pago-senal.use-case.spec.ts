@@ -90,6 +90,9 @@ const reservaEnPreReserva = (
   fechaEvento: FECHA_EVENTO,
   presupuestoVigente: presupuestoVigente('3000.00'),
   comentarios: null,
+  // Correo de contacto del lead/cliente de la reserva: fuente del pre-relleno de
+  // `contactoEventoCorreo` al crear la FICHA_OPERATIVA (change ficha-operativa-campos-operativos).
+  contactoEmail: 'maria@example.com',
   ...over,
 });
 
@@ -612,6 +615,54 @@ describe('ConfirmarPagoSenalUseCase — idempotencia de FICHA_OPERATIVA (3.6)', 
     expect(repos.fichaOperativa.crearVacia).not.toHaveBeenCalled();
     // El resto de la transición SÍ se aplicó (no aborta).
     expect(repos.reservas.confirmarSenal).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ===========================================================================
+// Pre-relleno de `contactoEventoCorreo` al CREAR la FICHA_OPERATIVA
+// (change ficha-operativa-campos-operativos): al confirmar la reserva, el
+// correo de contacto del lead/cliente (`reserva.contactoEmail`) se siembra en
+// la ficha. Si la reserva no tiene correo, el campo queda `null`. Idempotente:
+// si la ficha ya existe, no se re-siembra.
+// ===========================================================================
+
+describe('ConfirmarPagoSenalUseCase — pre-relleno de contactoEventoCorreo al crear la ficha', () => {
+  it('debe_sembrar_contactoEventoCorreo_desde_el_correo_de_contacto_de_la_reserva', async () => {
+    const { useCase, repos } = montar({
+      reserva: reservaEnPreReserva({ contactoEmail: 'maria@example.com' }),
+      fichaExistente: false,
+    });
+
+    await useCase.ejecutar(comando());
+
+    expect(repos.fichaOperativa.crearVacia).toHaveBeenCalledTimes(1);
+    const args = repos.fichaOperativa.crearVacia.mock.calls[0][0];
+    expect(args.contactoEventoCorreo).toBe('maria@example.com');
+  });
+
+  it('debe_dejar_contactoEventoCorreo_null_cuando_la_reserva_no_tiene_correo', async () => {
+    const { useCase, repos } = montar({
+      reserva: reservaEnPreReserva({ contactoEmail: null }),
+      fichaExistente: false,
+    });
+
+    await useCase.ejecutar(comando());
+
+    expect(repos.fichaOperativa.crearVacia).toHaveBeenCalledTimes(1);
+    const args = repos.fichaOperativa.crearVacia.mock.calls[0][0];
+    expect(args.contactoEventoCorreo).toBeNull();
+  });
+
+  it('no_debe_re_sembrar_contactoEventoCorreo_si_la_ficha_ya_existe_idempotencia', async () => {
+    const { useCase, repos } = montar({
+      reserva: reservaEnPreReserva({ contactoEmail: 'maria@example.com' }),
+      fichaExistente: true,
+    });
+
+    await useCase.ejecutar(comando());
+
+    // La ficha ya existía: no se crea ni se re-siembra el correo.
+    expect(repos.fichaOperativa.crearVacia).not.toHaveBeenCalled();
   });
 });
 

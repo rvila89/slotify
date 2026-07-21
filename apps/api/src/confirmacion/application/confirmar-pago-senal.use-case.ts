@@ -84,6 +84,13 @@ export interface ReservaConfirmacion {
    * vacía se usan para SEMBRAR `notasOperativas` (si existen y no están en blanco).
    */
   comentarios: string | null;
+  /**
+   * Correo de contacto del lead/cliente de la RESERVA (change ficha-operativa-campos-
+   * operativos). Al crear la FICHA_OPERATIVA vacía se SIEMBRA en `contactoEventoCorreo`;
+   * `null` si la reserva no tiene correo de contacto. Solo se aplica al CREAR la ficha
+   * (idempotente: si ya existe, no se re-siembra).
+   */
+  contactoEmail: string | null;
 }
 
 /** Reloj inyectable para determinismo. */
@@ -188,6 +195,12 @@ export interface FichaOperativaConfirmacionRepositoryPort {
      * al crear la ficha (idempotente: si ya existe, `crearVacia` no se invoca).
      */
     notasOperativas: string | null;
+    /**
+     * Siembra inicial de `contactoEventoCorreo` (change ficha-operativa-campos-
+     * operativos): el correo de contacto de la RESERVA, o `null` si no había. Solo se
+     * aplica al crear la ficha (idempotente).
+     */
+    contactoEventoCorreo: string | null;
   }): Promise<{ idFicha: string }>;
 }
 
@@ -526,6 +539,8 @@ export class ConfirmarPagoSenalUseCase {
             reservaId: comando.reservaId,
             fichaCerrada: false,
             notasOperativas,
+            // Siembra del correo de contacto de la reserva (ficha-operativa-campos-operativos).
+            contactoEventoCorreo: reserva.contactoEmail,
           });
         }
 

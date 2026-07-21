@@ -22,9 +22,12 @@
  * cuando el guardado no aporta datos, la edición post-cierre (persiste + reescribe
  * `fecha_cierre`, mantiene `cerrado`) y el AUDIT_LOG de cada guardado/transición.
  *
- * RED: aún NO existe `ficha-evento/application/guardar-ficha-operativa.use-case.ts`.
- * La batería está en ROJO por AUSENCIA DE IMPLEMENTACIÓN. GREEN es de
- * `backend-developer`.
+ * RED (change 2026-07-21-ficha-operativa-campos-operativos): el modelo/DTO de la ficha
+ * cambia — se ELIMINAN `menuSeleccionado` y `timingDetallado` del contrato (columnas
+ * quedan en BD como nullable) y se AÑADEN `contactoEventoCorreo`, `horaLlegada` (HH:MM)
+ * y `duracion` (texto libre). Estos tests fijan que `guardarCampos` persiste los tres
+ * nuevos campos y que los eliminados ya NO forman parte del tipo `CamposFichaOperativa`.
+ * En ROJO hasta que `backend-developer` actualice la entidad de dominio y los puertos.
  */
 import {
   GuardarFichaOperativaUseCase,
@@ -57,10 +60,11 @@ const fichaVacia = (over: Partial<FichaOperativa> = {}): FichaOperativa => ({
   idFicha: 'ficha-1',
   reservaId: RESERVA_ID,
   numInvitadosConfirmado: null,
-  menuSeleccionado: null,
-  timingDetallado: null,
   contactoEventoNombre: null,
   contactoEventoTelefono: null,
+  contactoEventoCorreo: null,
+  horaLlegada: null,
+  duracion: null,
   notasOperativas: null,
   briefingEquipo: null,
   fichaCerrada: false,
@@ -150,15 +154,17 @@ const comando = (
 // ===========================================================================
 
 describe('GuardarFichaOperativaUseCase — guardado parcial persiste solo el subconjunto (3.4)', () => {
-  it('debe_persistir_solo_los_campos_enviados', async () => {
+  it('debe_persistir_solo_los_campos_enviados_incluidos_los_nuevos_operativos', async () => {
     const { useCase, repos } = montar();
 
     await useCase.ejecutar(
       comando({
         campos: {
           numInvitadosConfirmado: 85,
-          timingDetallado: '18h llegada, 19h cena, 00h fin',
+          horaLlegada: '18:00',
+          duracion: '4h',
           contactoEventoNombre: 'María López',
+          contactoEventoCorreo: 'maria@example.com',
           notasOperativas: 'Alergia a los frutos secos',
         },
       }),
@@ -169,12 +175,13 @@ describe('GuardarFichaOperativaUseCase — guardado parcial persiste solo el sub
     expect(reservaId).toBe(RESERVA_ID);
     expect(campos).toEqual({
       numInvitadosConfirmado: 85,
-      timingDetallado: '18h llegada, 19h cena, 00h fin',
+      horaLlegada: '18:00',
+      duracion: '4h',
       contactoEventoNombre: 'María López',
+      contactoEventoCorreo: 'maria@example.com',
       notasOperativas: 'Alergia a los frutos secos',
     });
     // No se envían campos no incluidos en el payload.
-    expect(campos).not.toHaveProperty('menuSeleccionado');
     expect(campos).not.toHaveProperty('briefingEquipo');
   });
 
@@ -184,6 +191,29 @@ describe('GuardarFichaOperativaUseCase — guardado parcial persiste solo el sub
     await useCase.ejecutar(comando());
 
     expect(uow.ejecutar).toHaveBeenCalledTimes(1);
+  });
+
+  it('debe_persistir_hora_llegada_y_duracion_como_campos_propios', async () => {
+    const { useCase, repos } = montar();
+
+    await useCase.ejecutar(
+      comando({ campos: { horaLlegada: '19:30', duracion: '2h 30min' } }),
+    );
+
+    const [, campos] = repos.ficha.guardarCampos.mock.calls[0];
+    expect(campos.horaLlegada).toBe('19:30');
+    expect(campos.duracion).toBe('2h 30min');
+  });
+
+  it('debe_persistir_contacto_evento_correo_como_campo_editable', async () => {
+    const { useCase, repos } = montar();
+
+    await useCase.ejecutar(
+      comando({ campos: { contactoEventoCorreo: 'nuevo@example.com' } }),
+    );
+
+    const [, campos] = repos.ficha.guardarCampos.mock.calls[0];
+    expect(campos.contactoEventoCorreo).toBe('nuevo@example.com');
   });
 });
 
@@ -242,7 +272,7 @@ describe('GuardarFichaOperativaUseCase — primer guardado con datos dispara en_
       reserva: reservaConFicha({ ficha: fichaVacia({ preEventoStatus: 'pendiente' }) }),
     });
 
-    await useCase.ejecutar(comando({ campos: { menuSeleccionado: '   ', notasOperativas: '' } }));
+    await useCase.ejecutar(comando({ campos: { duracion: '   ', notasOperativas: '' } }));
 
     expect(repos.ficha.transicionarPreEvento).not.toHaveBeenCalled();
   });
@@ -253,7 +283,7 @@ describe('GuardarFichaOperativaUseCase — primer guardado con datos dispara en_
       reserva: reservaConFicha({ ficha: fichaVacia({ preEventoStatus: 'en_curso' }) }),
     });
 
-    await useCase.ejecutar(comando({ campos: { menuSeleccionado: 'Menú degustación' } }));
+    await useCase.ejecutar(comando({ campos: { duracion: '3h 30min' } }));
 
     expect(repos.ficha.transicionarPreEvento).not.toHaveBeenCalled();
     expect(repos.ficha.guardarCampos).toHaveBeenCalledTimes(1);

@@ -6844,7 +6844,8 @@ components:
 
     # -------- Ficha operativa [US-025 / UC-20] --------
     # [US-025] Representación de la FICHA_OPERATIVA (1:1 con RESERVA, `reserva_id @unique`) devuelta
-    # por GET y PATCH. Los 7 campos de contenido son nullable (la ficha se crea vacía en US-021).
+    # por GET y PATCH. Los 5 campos de contacto/logística son nullable (la ficha se crea vacía en US-021,
+    # excepto `contactoEventoCorreo` que se pre-rellena desde la reserva).
     # `fichaCerrada`/`fechaCierre` reflejan el cierre (D-6/D-4) y `preEventoStatus` el sub-proceso
     # vigente de la RESERVA (pendiente|en_curso|cerrado). `fechaActualizacion` (@updatedAt) es
     # independiente de `fechaCierre` (D-4).
@@ -6855,10 +6856,20 @@ components:
         idFicha: { type: string, format: uuid }
         reservaId: { type: string, format: uuid }
         numInvitadosConfirmado: { type: integer, nullable: true }
-        menuSeleccionado: { type: string, nullable: true }
-        timingDetallado: { type: string, nullable: true }
         contactoEventoNombre: { type: string, nullable: true }
         contactoEventoTelefono: { type: string, nullable: true }
+        contactoEventoCorreo:
+          type: string
+          nullable: true
+          description: 'Correo del contacto del evento. Pre-rellenado desde la reserva al crear la ficha.'
+        horaLlegada:
+          type: string
+          nullable: true
+          description: 'Hora de llegada al evento (formato HH:MM).'
+        duracion:
+          type: string
+          nullable: true
+          description: 'Duración del evento, texto libre (ej: "3h", "2h 30min").'
         notasOperativas: { type: string, nullable: true }
         briefingEquipo: { type: string, nullable: true }
         fichaCerrada:
@@ -6884,10 +6895,11 @@ components:
       additionalProperties: false
       properties:
         numInvitadosConfirmado: { type: integer, nullable: true }
-        menuSeleccionado: { type: string, nullable: true }
-        timingDetallado: { type: string, nullable: true }
         contactoEventoNombre: { type: string, nullable: true }
         contactoEventoTelefono: { type: string, nullable: true }
+        contactoEventoCorreo: { type: string, nullable: true }
+        horaLlegada: { type: string, nullable: true }
+        duracion: { type: string, nullable: true }
         notasOperativas: { type: string, nullable: true }
         briefingEquipo: { type: string, nullable: true }
 
@@ -6906,8 +6918,8 @@ components:
               items: { type: string }
               description: >-
                 Nombres (camelCase) de los campos de contenido que quedaron vacíos al cerrar
-                (p. ej. `["menuSeleccionado","briefingEquipo"]`). Vacío si estaban todos rellenos.
-              example: [menuSeleccionado, briefingEquipo]
+                (p. ej. `["horaLlegada","briefingEquipo"]`). Vacío si estaban todos rellenos.
+              example: [horaLlegada, briefingEquipo]
 
     # [US-025] Error 409 de la ficha operativa cuando la RESERVA no está confirmada (D-3). Sigue el
     # patrón allOf ErrorResponse + campo semántico del resto del contrato, con el `code` fijado por

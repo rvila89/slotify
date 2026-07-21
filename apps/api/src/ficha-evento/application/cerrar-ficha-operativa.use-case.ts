@@ -61,10 +61,11 @@ export interface CerrarFichaOperativaResultado extends FichaOperativa {
 /** Campos de contenido, en orden de presentación, para el aviso de vacíos. */
 const CAMPOS_CONTENIDO: ReadonlyArray<keyof ContenidoFicha> = [
   'numInvitadosConfirmado',
-  'menuSeleccionado',
-  'timingDetallado',
   'contactoEventoNombre',
   'contactoEventoTelefono',
+  'contactoEventoCorreo',
+  'horaLlegada',
+  'duracion',
   'notasOperativas',
   'briefingEquipo',
 ];

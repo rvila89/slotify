@@ -52,10 +52,11 @@ const fichaVacia = (over: Partial<FichaOperativa> = {}): FichaOperativa => ({
   idFicha: 'ficha-1',
   reservaId: RESERVA_ID,
   numInvitadosConfirmado: null,
-  menuSeleccionado: null,
-  timingDetallado: null,
   contactoEventoNombre: null,
   contactoEventoTelefono: null,
+  contactoEventoCorreo: null,
+  horaLlegada: null,
+  duracion: null,
   notasOperativas: null,
   briefingEquipo: null,
   fichaCerrada: false,
@@ -78,10 +79,11 @@ const reservaConFicha = (
 const fichaCompleta = (): FichaOperativa =>
   fichaVacia({
     numInvitadosConfirmado: 85,
-    menuSeleccionado: 'Menú degustación',
-    timingDetallado: '18h llegada, 19h cena',
     contactoEventoNombre: 'María López',
     contactoEventoTelefono: '600123123',
+    contactoEventoCorreo: 'maria@example.com',
+    horaLlegada: '18:00',
+    duracion: '4h',
     notasOperativas: 'Alergia a los frutos secos',
     briefingEquipo: 'Turno de 8 camareros',
     preEventoStatus: 'en_curso',
@@ -222,14 +224,18 @@ describe('CerrarFichaOperativaUseCase — cierre no bloqueante con avisosCamposV
     // Todos menos numInvitadosConfirmado están vacíos.
     expect(resultado.avisosCamposVacios).toEqual(
       expect.arrayContaining([
-        'menuSeleccionado',
-        'timingDetallado',
         'contactoEventoNombre',
         'contactoEventoTelefono',
+        'contactoEventoCorreo',
+        'horaLlegada',
+        'duracion',
         'notasOperativas',
         'briefingEquipo',
       ]),
     );
+    // Los campos eliminados del contrato ya no aparecen en los avisos.
+    expect(resultado.avisosCamposVacios).not.toContain('menuSeleccionado');
+    expect(resultado.avisosCamposVacios).not.toContain('timingDetallado');
     // numInvitadosConfirmado está relleno → NO aparece.
     expect(resultado.avisosCamposVacios).not.toContain('numInvitadosConfirmado');
   });
@@ -239,7 +245,7 @@ describe('CerrarFichaOperativaUseCase — cierre no bloqueante con avisosCamposV
       reserva: reservaConFicha({
         ficha: fichaVacia({
           numInvitadosConfirmado: 85,
-          menuSeleccionado: '   ', // solo espacios → vacío
+          duracion: '   ', // solo espacios → vacío
           preEventoStatus: 'en_curso',
         }),
       }),
@@ -247,7 +253,7 @@ describe('CerrarFichaOperativaUseCase — cierre no bloqueante con avisosCamposV
 
     const resultado = await useCase.ejecutar(comando());
 
-    expect(resultado.avisosCamposVacios).toContain('menuSeleccionado');
+    expect(resultado.avisosCamposVacios).toContain('duracion');
   });
 
   it('no_debe_lanzar_ningun_error_por_campos_vacios_al_cerrar', async () => {

@@ -6,15 +6,18 @@ export type CampoFicha = keyof GuardarFichaOperativaRequest;
 type DefinicionCampo = {
   campo: CampoFicha;
   etiqueta: string;
-  /** `numero` → input numérico entero; `texto` → input; `area` → textarea. */
-  tipo: 'numero' | 'texto' | 'area';
+  /**
+   * `numero` → input numérico entero; `texto` → input; `area` → textarea;
+   * `email` → input de correo; `hora` → input de hora (HH:MM).
+   */
+  tipo: 'numero' | 'texto' | 'area' | 'email' | 'hora';
   placeholder?: string;
   /** Colocar el campo a ancho completo (2 columnas) en el grid del formulario. */
   anchoCompleto?: boolean;
 };
 
 /**
- * Definición declarativa de los 7 campos de la ficha operativa (US-025 · UC-20),
+ * Definición declarativa de los campos de la ficha operativa (US-025 · UC-20),
  * en el orden de presentación. Tabla de datos (no JSX disperso) que alimenta tanto
  * el formulario como la traducción de `avisosCamposVacios` a etiquetas en español.
  */
@@ -22,8 +25,9 @@ export const CAMPOS_FICHA: readonly DefinicionCampo[] = [
   { campo: 'numInvitadosConfirmado', etiqueta: 'Nº de invitados confirmado', tipo: 'numero', placeholder: 'Ej. 85' },
   { campo: 'contactoEventoNombre', etiqueta: 'Contacto del evento', tipo: 'texto', placeholder: 'Ej. María López' },
   { campo: 'contactoEventoTelefono', etiqueta: 'Teléfono de contacto', tipo: 'texto', placeholder: 'Ej. 600 123 456' },
-  { campo: 'menuSeleccionado', etiqueta: 'Menú seleccionado', tipo: 'texto', placeholder: 'Ej. Menú degustación · sin frutos secos' },
-  { campo: 'timingDetallado', etiqueta: 'Timing detallado', tipo: 'area', placeholder: 'Ej. 18h llegada, 19h cena, 00h fin', anchoCompleto: true },
+  { campo: 'contactoEventoCorreo', etiqueta: 'Correo de contacto', tipo: 'email', placeholder: 'correo@ejemplo.com' },
+  { campo: 'horaLlegada', etiqueta: 'Hora de llegada', tipo: 'hora', placeholder: 'HH:MM' },
+  { campo: 'duracion', etiqueta: 'Duración', tipo: 'texto', placeholder: 'ej: 3h, 2h 30min' },
   { campo: 'notasOperativas', etiqueta: 'Notas operativas', tipo: 'area', placeholder: 'Ej. Alergia a los frutos secos', anchoCompleto: true },
   { campo: 'briefingEquipo', etiqueta: 'Briefing para el equipo', tipo: 'area', placeholder: 'Instrucciones para el equipo del evento', anchoCompleto: true },
 ] as const;

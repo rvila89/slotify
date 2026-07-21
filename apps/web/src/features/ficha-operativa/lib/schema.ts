@@ -18,10 +18,11 @@ export const esquemaFicha = z.object({
       (v) => v.trim() === '' || (/^\d+$/.test(v.trim()) && Number.isInteger(Number(v.trim()))),
       MENSAJE_INVITADOS,
     ),
-  menuSeleccionado: z.string(),
-  timingDetallado: z.string(),
   contactoEventoNombre: z.string(),
   contactoEventoTelefono: z.string(),
+  contactoEventoCorreo: z.string(),
+  horaLlegada: z.string(),
+  duracion: z.string(),
   notasOperativas: z.string(),
   briefingEquipo: z.string(),
 });
@@ -32,10 +33,11 @@ export type FormularioFicha = z.infer<typeof esquemaFicha>;
 export const valoresDesdeFicha = (ficha?: FichaOperativa | null): FormularioFicha => ({
   numInvitadosConfirmado:
     ficha?.numInvitadosConfirmado != null ? String(ficha.numInvitadosConfirmado) : '',
-  menuSeleccionado: ficha?.menuSeleccionado ?? '',
-  timingDetallado: ficha?.timingDetallado ?? '',
   contactoEventoNombre: ficha?.contactoEventoNombre ?? '',
   contactoEventoTelefono: ficha?.contactoEventoTelefono ?? '',
+  contactoEventoCorreo: ficha?.contactoEventoCorreo ?? '',
+  horaLlegada: ficha?.horaLlegada ?? '',
+  duracion: ficha?.duracion ?? '',
   notasOperativas: ficha?.notasOperativas ?? '',
   briefingEquipo: ficha?.briefingEquipo ?? '',
 });
@@ -56,10 +58,11 @@ export const construirRequest = (
   const invitados = valores.numInvitadosConfirmado.trim();
   return {
     numInvitadosConfirmado: invitados === '' ? null : Number(invitados),
-    menuSeleccionado: textoONull(valores.menuSeleccionado),
-    timingDetallado: textoONull(valores.timingDetallado),
     contactoEventoNombre: textoONull(valores.contactoEventoNombre),
     contactoEventoTelefono: textoONull(valores.contactoEventoTelefono),
+    contactoEventoCorreo: textoONull(valores.contactoEventoCorreo),
+    horaLlegada: textoONull(valores.horaLlegada),
+    duracion: textoONull(valores.duracion),
     notasOperativas: textoONull(valores.notasOperativas),
     briefingEquipo: textoONull(valores.briefingEquipo),
   };

@@ -52,6 +52,7 @@ const reservaEnPreReserva = (
   fechaEvento: FECHA_EVENTO,
   presupuestoVigente: { idPresupuesto: 'presu-vigente-1', total: '3000.00' },
   comentarios: null,
+  contactoEmail: null,
   ...over,
 });
 
