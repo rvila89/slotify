@@ -9,74 +9,48 @@
 
 - [x] 0.1 Worktree `worktree-ficha-operativa-campos-operativos` creado desde
   `master` vía `EnterWorktree`. El worktree materializa la rama aislada.
-- [ ] 0.2 Verificar que `git branch --show-current` muestra la rama correcta en
-  el worktree.
+- [x] 0.2 Rama verificada: `worktree-ficha-operativa-campos-operativos`.
 
 ## GATE — Revisión humana de artefactos SDD (PARADA OBLIGATORIA)
 
-- [ ] 1.1 Presentar al humano `proposal.md` + spec-delta (`specs/ficha-operativa/spec.md`)
-  y **esperar OK explícito** antes de avanzar a contrato/TDD/implementación.
+- [x] 1.1 `proposal.md` + spec-delta aprobados por el humano (OK recibido).
 
 ---
 
 ## Step 2 — Contrato OpenAPI (contract-engineer)
 
-- [ ] 2.1 Actualizar `docs/api-spec.yml`:
-  - Schema `FichaOperativa`: eliminar `menuSeleccionado`, `timingDetallado`;
-    añadir `contactoEventoCorreo` (string, nullable), `horaLlegada` (string,
-    nullable, description "HH:MM"), `duracion` (string, nullable).
-  - Schema `GuardarFichaOperativaRequest`: mismos cambios.
-- [ ] 2.2 Ejecutar `openspec validate --strict` y confirmar sin errores.
-- [ ] 2.3 Regenerar el SDK del frontend (`pnpm --filter api-client generate` o el
-  comando configurado en el proyecto) vía `contract-engineer`.
+- [x] 2.1 `docs/api-spec.yml` actualizado: `menuSeleccionado`/`timingDetallado`
+  eliminados; `contactoEventoCorreo`, `horaLlegada`, `duracion` añadidos en
+  `FichaOperativa` y `GuardarFichaOperativaRequest`. Commit `4c48286`.
+- [x] 2.2 `openspec validate --changes`: 3/3 passed.
+- [x] 2.3 SDK regenerado (`pnpm run generate-client` → `schema.d.ts`).
 
 ## Step 3 — TDD RED (tdd-engineer — tests ANTES de implementación)
 
-- [ ] 3.1 Escribir test de integración backend que verifique:
-  - Al crear la ficha (al confirmar reserva), `contacto_evento_correo` se siembra
-    desde `reserva.contacto_email`.
-  - El guardado parcial persiste `hora_llegada` y `duracion`.
-  - El guardado parcial ignora `menu_seleccionado` y `timing_detallado` (ya no en
-    el DTO).
-- [ ] 3.2 Confirmar que los tests están en RED antes de implementar.
+- [x] 3.1 Tests escritos en rojo (6 suites, errores de compilación TS por campos
+  inexistentes en dominio). Commit `e498830`.
+- [x] 3.2 RED confirmado antes de implementar.
 
 ## Step 4 — Backend: implementación (backend-developer)
 
-- [ ] 4.1 Prisma schema (`apps/api/prisma/schema.prisma`): añadir campos
-  `contactoEventoCorreo String?`, `horaLlegada String?`, `duracion String?` a la
-  tabla `FichaOperativa`. Los campos `menuSeleccionado` y `timingDetallado` se
-  mantienen en el schema como nullable (no DROP) pero se retiran de los DTOs.
-- [ ] 4.2 Generar y ejecutar migración Prisma (`prisma migrate dev --name
-  ficha-operativa-campos-operativos`).
-- [ ] 4.3 Actualizar la entidad de dominio `FichaOperativa` (añadir campos nuevos,
-  quitar campos del contrato).
-- [ ] 4.4 Actualizar el repositorio/adaptador Prisma: incluir campos nuevos en
-  proyección de lectura y en la mutación de escritura; excluir `menuSeleccionado`
-  y `timingDetallado` del DTO de respuesta.
-- [ ] 4.5 Actualizar `crearFicha` (caso de uso de creación al confirmar reserva):
-  sembrar `contactoEventoCorreo` desde `reserva.contacto_email` (verificar nombre
-  exacto del campo en el modelo `Reserva` antes de implementar).
-- [ ] 4.6 Actualizar `guardarFicha` (caso de uso de guardado parcial): aceptar
-  `horaLlegada`, `duracion`, `contactoEventoCorreo`; rechazar `menuSeleccionado` y
-  `timingDetallado` (no en el DTO, `additionalProperties: false` ya en el contrato).
+- [x] 4.1 `schema.prisma`: `contactoEventoCorreo`, `horaLlegada`, `duracion`
+  añadidos. `menuSeleccionado`/`timingDetallado` permanecen como legacy nullable.
+- [x] 4.2 Migración SQL generada: `20260721120000_ficha_operativa_campos_operativos/migration.sql`.
+  **PENDIENTE**: ejecutar `prisma migrate deploy` desde sesión principal con BD activa.
+- [x] 4.3 Dominio actualizado: `ficha-operativa.ports.ts`, `maquina-estados-pre-evento.ts`.
+- [x] 4.4 Mapper, DTO y controller actualizados.
+- [x] 4.5 Pre-relleno `contactoEventoCorreo` desde `reserva.cliente.email` implementado
+  en `confirmar-pago-senal.use-case.ts` y adaptadores. Commit `01d1c83`.
+- [x] 4.6 Guardado parcial acepta los tres campos nuevos. Tests: 124/124 VERDE.
 
 ## Step 5 — Frontend: implementación (frontend-developer)
 
-- [ ] 5.1 `apps/web/src/features/ficha-operativa/lib/campos.ts`: quitar
-  `menuSeleccionado` y `timingDetallado`; añadir `contactoEventoCorreo` (tipo
-  email, label "Correo de contacto"), `horaLlegada` (tipo time, label "Hora de
-  llegada"), `duracion` (tipo text, label "Duración", placeholder "ej: 3h,
-  2h 30min").
-- [ ] 5.2 `apps/web/src/features/ficha-operativa/lib/schema.ts`:
-  - Zod schema: añadir/quitar campos.
-  - `valoresDesdeFicha()`: añadir `contactoEventoCorreo`, `horaLlegada`, `duracion`;
-    quitar `menuSeleccionado`, `timingDetallado`.
-  - `construirRequest()`: mismo ajuste.
-- [ ] 5.3 `apps/web/src/features/ficha-operativa/components/CamposFicha.tsx`:
-  - Quitar campos `menuSeleccionado` y `timingDetallado` del render.
-  - Añadir `contactoEventoCorreo` junto al bloque de contacto (después de teléfono).
-  - Añadir bloque "Logística" con `horaLlegada` y `duracion`.
-- [ ] 5.4 Verificar que `pnpm lint` pasa en `apps/web` (sin errores de ESLint).
+- [x] 5.1 `campos.ts`: eliminados `menuSeleccionado`/`timingDetallado`; añadidos
+  `contactoEventoCorreo` (tipo email), `horaLlegada` (tipo hora), `duracion` (tipo texto).
+- [x] 5.2 `schema.ts`: Zod + `valoresDesdeFicha()` + `construirRequest()` actualizados.
+- [x] 5.3 `CamposFicha.tsx`: render data-driven actualizado; tipos `email`/`hora`
+  añadidos al componente. Commit `a85da6d`.
+- [x] 5.4 `pnpm lint` OK; `pnpm test` 377/377 VERDE.
 
 ## Step 6 — QA: unit tests + verificación BD (OBLIGATORIO — EL AGENTE DEBE EJECUTARLO)
 
@@ -127,18 +101,18 @@
 
 ## Step 9 — Docs: actualizar documentación técnica (docs-keeper)
 
-- [ ] 9.1 Actualizar `docs/er-diagram.md §3.14 FICHA_OPERATIVA`: reflejar columnas
-  añadidas y las retiradas del contrato (con nota de que siguen en BD como legacy).
-- [ ] 9.2 Revisar `docs/use-cases.md` (UC-20, UC-20-FA-01): actualizar si hace
-  referencia a `menu_seleccionado` o `timing_detallado`.
+- [x] 9.1 `docs/er-diagram.md §3.14 FICHA_OPERATIVA`: nuevos campos añadidos;
+  `menu_seleccionado`/`timing_detallado` marcados como legacy.
+- [x] 9.2 `docs/use-cases.md` UC-20: lista de campos editables actualizada.
+- [x] 9.3 `openspec/specs/ficha-operativa/spec.md`: spec viva actualizada al estado
+  POST-change (lectura, guardado, pre-relleno, cierre).
 
 ## Code review (OBLIGATORIO — EL AGENTE DEBE EJECUTARLO)
 
-- [ ] 10.1 Ejecutar `code-reviewer` sobre el diff completo del worktree.
-- [ ] 10.2 Dejar informe en:
-  `openspec/changes/2026-07-21-ficha-operativa-campos-operativos/reports/YYYY-MM-DD-step-review-code-review.md`
-  con línea `Veredicto: APTO` o `Veredicto: NO APTO`.
-- [ ] 10.3 Si NO APTO: volver a implementación, corregir y repetir code-review.
+- [x] 10.1 `code-reviewer` ejecutado sobre el diff completo.
+- [x] 10.2 Informe en `reports/2026-07-21-step-review-code-review.md`.
+  **Veredicto: APTO** — sin bloqueantes. Advertencias menores (validación HH:MM
+  solo documental, responsive pendiente de confirmar en QA).
 
 ## GATE — Revisión humana final (PARADA OBLIGATORIA)
 
