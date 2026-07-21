@@ -15,7 +15,7 @@ const esquemaEntorno = z
     JWT_ACCESS_SECRET: z
       .string({ required_error: 'JWT_ACCESS_SECRET es obligatoria' })
       .min(32, 'JWT_ACCESS_SECRET debe tener al menos 32 caracteres'),
-    JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
+    JWT_ACCESS_EXPIRES_IN: z.string().default('5m'),
     JWT_REFRESH_SECRET: z.string().min(32).optional(),
     JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
     API_PORT: z.coerce.number().int().positive().default(3000),
