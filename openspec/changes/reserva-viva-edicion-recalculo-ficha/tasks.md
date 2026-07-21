@@ -32,20 +32,33 @@
       `protect-generated-client`).
 
 ## 3. Tests primero — TDD RED (OBLIGATORIO — tdd-first)
-- [ ] 3.1 Guarda de ventana viva `esEditableEnVentanaViva` (máquina de estados declarativa):
+- [x] 3.1 Guarda de ventana viva `esEditableEnVentanaViva` (máquina de estados declarativa):
       casos dentro/fuera de ventana (ficha cerrada, liquidación cobrada, estado anterior). RED.
-- [ ] 3.2 Nº de invitados derivado (`derivarNumPersonas`) y pre-relleno al leer (valor propio
+      `apps/api/src/reservas/__tests__/maquina-estados-ventana-viva.spec.ts` (RED: TS2305 —
+      `esEditableEnVentanaViva` no exportado en `maquina-estados.ts`).
+- [x] 3.2 Nº de invitados derivado (`derivarNumPersonas`) y pre-relleno al leer (valor propio
       prevalece; leer no muta). RED.
-- [ ] 3.3 `RecalcularReservaVivaUseCase`: nuevo total con motor de tarifa; re-congelado
+      - `apps/api/src/presupuestos/domain/derivar-num-personas.spec.ts` (VERDE: `derivarNumPersonas`
+        YA existe; consolida cobertura de pre-relleno — sin implementación pendiente).
+      - `apps/api/src/ficha-evento/__tests__/leer-ficha-operativa-prerelleno.use-case.spec.ts`
+        (RED: 7 tests de pre-relleno fallan por falta de implementación; el use-case aún devuelve
+        la ficha sin JOIN CLIENTE ni derivación).
+- [x] 3.3 `RecalcularReservaVivaUseCase`: nuevo total con motor de tarifa; re-congelado
       `importe_total`/`importe_liquidacion` SIN tocar `importe_senal`; nueva versión de
       presupuesto de modificación (pago inicial fijo + restante); regeneración de liquidación
       (incluida ya `enviada`, nunca `cobrada`); fianza intacta. RED.
-- [ ] 3.4 Casos: `tarifaAConsultar` (>50 / sin tarifa) exige precio manual; idempotencia;
+      `apps/api/src/ficha-evento/__tests__/recalcular-reserva-viva.use-case.spec.ts` (RED: TS2307 —
+      módulo `recalcular-reserva-viva.use-case.ts` inexistente).
+- [x] 3.4 Casos: `tarifaAConsultar` (>50 / sin tarifa) exige precio manual; idempotencia;
       concurrencia con cierre de ficha / cobro (guarda re-evaluada en tx); sin cambio real =
-      no-op. RED.
-- [ ] 3.5 Email de modificación i18n (es/ca + fallback) — plantilla nueva. RED.
+      no-op. RED. (Mismo spec que 3.3: `recalcular-reserva-viva.use-case.spec.ts`.)
+- [x] 3.5 Email de modificación i18n (es/ca + fallback) — plantilla nueva. RED.
+      `apps/api/src/comunicaciones/infrastructure/plantillas/catalogo-plantillas-e9.spec.ts`
+      (RED: E9 no está en `CodigoEmail` ni registrado en el catálogo → `seleccionar('E9',…)` null).
 - [ ] 3.6 Test de INTEGRACIÓN por SQL real del recálculo (importes escritos por el use-case, NO
       sembrados a mano) — se ejecuta desde la sesión principal (subagentes sin Postgres). RED.
+      PENDIENTE: el `tdd-engineer` NO lo escribe aquí (subagentes sin Docker/Postgres; ver memoria
+      "Subagentes sin Docker/Postgres"). Lo escribe/ejecuta la SESIÓN PRINCIPAL con Postgres real.
 
 ## 4. Backend: implementación (backend-developer — tras TDD-RED)
 - [ ] 4.1 Guarda `esEditableEnVentanaViva` + error de dominio `FueraDeVentanaVivaError` (422).
