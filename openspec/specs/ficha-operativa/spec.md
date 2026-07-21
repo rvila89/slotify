@@ -40,10 +40,12 @@ visible ni editable. (Fuente: `US-025 §Acceso a la ficha operativa antes de res
 
 El sistema SHALL (DEBE) devolver la FICHA_OPERATIVA asociada a una RESERVA accesible (ver
 guarda de acceso), incluyendo los campos de contenido (`num_invitados_confirmado`,
-`menu_seleccionado`, `timing_detallado`, `contacto_evento_nombre`, `contacto_evento_telefono`,
-`notas_operativas`, `briefing_equipo`), el flag `ficha_cerrada`, la `fecha_cierre` (nullable
-mientras no se haya cerrado) y el `RESERVA.pre_evento_status` vigente, sin mutar ningún estado.
-La relación es **1:1** (`FICHA_OPERATIVA.reserva_id @unique`). (Fuente: `US-025 §Historia`,
+`contacto_evento_nombre`, `contacto_evento_telefono`, `contacto_evento_correo`,
+`hora_llegada`, `duracion`, `notas_operativas`, `briefing_equipo`), el flag `ficha_cerrada`,
+la `fecha_cierre` (nullable mientras no se haya cerrado) y el `RESERVA.pre_evento_status`
+vigente, sin mutar ningún estado. La relación es **1:1** (`FICHA_OPERATIVA.reserva_id
+@unique`). Los campos `menu_seleccionado` y `timing_detallado` permanecen en BD como nullable
+legacy pero no forman parte de la respuesta del contrato. (Fuente: `US-025 §Historia`,
 `§Reglas de Validación`; `er-diagram.md §3.14 FICHA_OPERATIVA`.)
 
 #### Scenario: Leer la ficha no muta ningún estado
@@ -55,21 +57,45 @@ La relación es **1:1** (`FICHA_OPERATIVA.reserva_id @unique`). (Fuente: `US-025
   `fecha_cierre = NULL` y `pre_evento_status = pendiente`
 - **AND** `pre_evento_status` permanece `pendiente` (leer no dispara la transición)
 
+### Requirement: Pre-relleno de contacto_evento_correo desde el email del cliente
+
+El sistema SHALL (DEBE), en el momento de crear la FICHA_OPERATIVA (INSERT idempotente al
+confirmar señal — US-021), poblar el campo `contacto_evento_correo` con el valor de
+`CLIENTE.email` asociado a la RESERVA. Este pre-relleno es una conveniencia operativa: el
+Gestor puede sobreescribirlo posteriormente vía `PATCH /reservas/{id}/ficha-operativa` sin
+restricciones. Si por algún motivo el cliente no tuviese email, el campo queda `NULL`. (Fuente:
+change `ficha-operativa-campos-operativos`; `er-diagram.md §3.14 FICHA_OPERATIVA`.)
+
+#### Scenario: Al confirmar señal, contacto_evento_correo se rellena con el email del cliente
+
+- **GIVEN** una RESERVA en `pre_reserva` cuyo CLIENTE tiene `email = "ana@example.com"`
+- **WHEN** el Gestor confirma el pago de señal (US-021)
+- **THEN** el sistema crea la FICHA_OPERATIVA con `contacto_evento_correo = "ana@example.com"`
+
+#### Scenario: El Gestor puede sobreescribir el correo pre-relleno
+
+- **GIVEN** una FICHA_OPERATIVA con `contacto_evento_correo = "ana@example.com"`
+- **WHEN** el Gestor actualiza `contacto_evento_correo = "coordinador@example.com"` vía PATCH
+- **THEN** el sistema persiste el nuevo valor sin error
+
 ### Requirement: Guardado parcial de campos de la ficha operativa
 
 El sistema SHALL (DEBE) permitir al Gestor persistir en la FICHA_OPERATIVA cualquier
-subconjunto de los campos `num_invitados_confirmado`, `menu_seleccionado`, `timing_detallado`,
-`contacto_evento_nombre`, `contacto_evento_telefono`, `notas_operativas`, `briefing_equipo`.
-Todos los campos son **opcionales**: el guardado es **parcial/progresivo** (varias pasadas),
-ningún campo es bloqueante para guardar. El sistema registra el guardado en `AUDIT_LOG`.
-(Fuente: `US-025 §Happy Path`, `§Reglas de Validación`; `er-diagram.md §3.14 FICHA_OPERATIVA`.)
+subconjunto de los campos editables: `num_invitados_confirmado`, `contacto_evento_nombre`,
+`contacto_evento_telefono`, `contacto_evento_correo`, `hora_llegada`, `duracion`,
+`notas_operativas`, `briefing_equipo`. Todos los campos son **opcionales**: el guardado es
+**parcial/progresivo** (varias pasadas), ningún campo es bloqueante para guardar. El sistema
+registra el guardado en `AUDIT_LOG`. Los campos `menu_seleccionado` y `timing_detallado` no
+son enviables en el `PATCH` del contrato actual (retirados en el change
+`ficha-operativa-campos-operativos`). (Fuente: `US-025 §Happy Path`, `§Reglas de
+Validación`; `er-diagram.md §3.14 FICHA_OPERATIVA`.)
 
 #### Scenario: Guardar un subconjunto de campos persiste solo esos campos
 
 - **GIVEN** una RESERVA confirmada con su FICHA_OPERATIVA vacía
-- **WHEN** el Gestor guarda `num_invitados_confirmado = 85`, `timing_detallado = "18h llegada,
-  19h cena, 00h fin"`, `contacto_evento_nombre = "María López"` y `notas_operativas = "Alergia
-  a los frutos secos"`
+- **WHEN** el Gestor guarda `num_invitados_confirmado = 85`, `hora_llegada = "18:00"`,
+  `duracion = "6 horas"`, `contacto_evento_nombre = "María López"` y `notas_operativas =
+  "Alergia a los frutos secos"`
 - **THEN** el sistema persiste esos campos en la FICHA_OPERATIVA
 - **AND** registra el cambio en `AUDIT_LOG`
 
@@ -119,8 +145,8 @@ cierre ni devuelve un 4xx por ese motivo). Ningún campo de la ficha es obligato
 
 #### Scenario: Cerrar con campos opcionales vacíos se permite con aviso informativo
 
-- **GIVEN** una FICHA_OPERATIVA con `num_invitados_confirmado` relleno pero `menu_seleccionado`
-  y `briefing_equipo` vacíos, y `pre_evento_status = en_curso`
+- **GIVEN** una FICHA_OPERATIVA con `num_invitados_confirmado` relleno pero `hora_llegada`,
+  `duracion` y `briefing_equipo` vacíos, y `pre_evento_status = en_curso`
 - **WHEN** el Gestor hace clic en "Cerrar ficha"
 - **THEN** el sistema permite el cierre sin bloqueo, `pre_evento_status` pasa a `cerrado` y
   muestra un aviso informativo sobre los campos vacíos (no es error)
