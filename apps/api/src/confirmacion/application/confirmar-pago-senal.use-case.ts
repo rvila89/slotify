@@ -72,8 +72,13 @@ export interface ReservaConfirmacion {
   estado: EstadoReserva;
   subEstado: SubEstadoConsulta | null;
   fechaEvento: Date | null;
-  /** Importe total (IVA incluido) fijado en la pre-reserva (US-014); Decimal string. */
-  importeTotal: string | null;
+  /**
+   * Presupuesto VIGENTE de la reserva (MAX(version) en estado `enviado`): fuente del
+   * importe a congelar. `total` es un string decimal con 2 decimales. `null` si no hay
+   * presupuesto en `enviado` (→ IMPORTE_TOTAL_INVALIDO). Sustituye a `RESERVA.importe_total`
+   * como fuente de la guarda (que ninguna operación de producción poblaba).
+   */
+  presupuestoVigente: { idPresupuesto: string; total: string } | null;
   /**
    * Comentarios libres del alta (mejoras-detalle-consulta). Al crear la FICHA_OPERATIVA
    * vacía se usan para SEMBRAR `notasOperativas` (si existen y no están en blanco).
@@ -124,6 +129,8 @@ export interface ConfirmarSenalReservaParams {
   idReserva: string;
   estado: 'reserva_confirmada';
   ttlExpiracion: null;
+  /** Total congelado en `RESERVA.importe_total` desde el presupuesto vigente. */
+  importeTotal: string;
   importeSenal: string;
   importeLiquidacion: string;
   preEventoStatus: 'pendiente';
@@ -134,6 +141,14 @@ export interface ConfirmarSenalReservaParams {
 /** Repositorio tx-bound de la RESERVA: aplica la transición + congelado de importes. */
 export interface ReservaConfirmacionRepositoryPort {
   confirmarSenal(params: ConfirmarSenalReservaParams): Promise<void>;
+}
+
+/**
+ * Repositorio tx-bound de PRESUPUESTO: marca el presupuesto vigente como `aceptado`
+ * dentro de la misma transacción de confirmación (congela la decisión comercial).
+ */
+export interface PresupuestoConfirmacionRepositoryPort {
+  aceptar(params: { idPresupuesto: string }): Promise<void>;
 }
 
 /**
@@ -196,6 +211,7 @@ export interface AuditoriaConfirmacionPort {
 export interface RepositoriosConfirmacion {
   documentos: DocumentoConfirmacionRepositoryPort;
   reservas: ReservaConfirmacionRepositoryPort;
+  presupuestos: PresupuestoConfirmacionRepositoryPort;
   fechaBloqueada: FechaBloqueadaConfirmacionRepositoryPort;
   fichaOperativa: FichaOperativaConfirmacionRepositoryPort;
   auditoria: AuditoriaConfirmacionPort;
@@ -429,7 +445,9 @@ export class ConfirmarPagoSenalUseCase {
     if (!esOrigenValidoParaConfirmarSenal(reserva.estado, reserva.subEstado)) {
       throw new OrigenInvalidoError();
     }
-    const importeTotal = this.validarImporteTotal(reserva.importeTotal);
+    const importeTotal = this.validarImporteTotal(
+      reserva.presupuestoVigente?.total ?? null,
+    );
     this.validarFormatoYTamano(justificante);
 
     const settings = await this.obtenerSettings(comando.tenantId);
@@ -472,16 +490,25 @@ export class ConfirmarPagoSenalUseCase {
           });
         }
 
-        // (c) Transición RESERVA → reserva_confirmada (ttl NULL, importes, sub-procesos).
+        // (c) Transición RESERVA → reserva_confirmada (ttl NULL, importe_total congelado
+        //     desde el presupuesto vigente, importes derivados, sub-procesos).
         await repos.reservas.confirmarSenal({
           idReserva: comando.reservaId,
           estado: 'reserva_confirmada',
           ttlExpiracion: null,
+          importeTotal,
           importeSenal,
           importeLiquidacion,
           preEventoStatus: 'pendiente',
           liquidacionStatus: 'pendiente',
           fianzaStatus: 'pendiente',
+        });
+
+        // (c') Marca el presupuesto vigente como aceptado DENTRO de la misma tx (el
+        //     total ya quedó congelado en RESERVA.importe_total). `presupuestoVigente`
+        //     es no-nulo aquí: la guarda `validarImporteTotal` habría rechazado en (0).
+        await repos.presupuestos.aceptar({
+          idPresupuesto: reserva.presupuestoVigente!.idPresupuesto,
         });
 
         // (d) FICHA_OPERATIVA vacía IDEMPOTENTE (si existe, no duplica).

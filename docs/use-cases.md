@@ -1071,8 +1071,8 @@ flowchart TD
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
 | **Descripción** | El Gestor sube el justificante del pago de la señal (imagen/PDF) y confirma la reserva. El sistema transiciona la RESERVA de `pre_reserva` a `reserva_confirmada`, promueve el bloqueo blando de la fecha a firme sin TTL (upgrade), congela los importes de señal y liquidación, inicializa los tres sub-procesos paralelos e crea la FICHA_OPERATIVA vacía, todo en una única transacción all-or-nothing. Implementado en **US-021** (change `us-021-confirmar-pago-senal-activar-reserva`). |
-| **Precondiciones** | - RESERVA en `estado = 'pre_reserva'` (guarda de origen; cualquier otro estado se rechaza sin efectos)<br>- `RESERVA.importe_total > 0` (presupuesto aceptado previo de US-014)<br>- Gestor autenticado con rol gestor sobre el tenant<br>- Fichero justificante adjunto con `mime_type ∈ {image/jpeg, image/png, application/pdf}` y tamaño ≤ 10 MB |
-| **Postcondiciones** | - `RESERVA.estado = 'reserva_confirmada'` y `RESERVA.ttl_expiracion = NULL` (la reserva confirmada no expira por TTL)<br>- Fila de `FECHA_BLOQUEADA` promovida a `tipo_bloqueo = 'firme'`, `ttl_expiracion = NULL` por UPDATE de la fila existente (nunca DELETE + INSERT), conservando `reserva_id`<br>- `RESERVA.importe_senal = round(importe_total × pct_senal / 100, 2)` e `importe_liquidacion = importe_total − importe_senal` (40%/60% en MVP, derivados de `TENANT_SETTINGS.pct_senal`, nunca hardcodeados)<br>- `pre_evento_status = 'pendiente'`, `liquidacion_status = 'pendiente'`, `fianza_status = 'pendiente'`<br>- DOCUMENTO creado con `tipo = 'justificante_pago'`, `reserva_id`, `tenant_id`, `url` y `mime_type`<br>- FICHA_OPERATIVA creada idempotentemente con todos los campos de contenido a NULL y `ficha_cerrada = false` (relación 1:1 con la RESERVA)<br>- `AUDIT_LOG accion='transicion'`, `entidad='RESERVA'`, `datos_anteriores.estado='pre_reserva'`, `datos_nuevos.estado='reserva_confirmada'`, con el usuario del Gestor<br>- Post-commit: se presenta la factura de señal en borrador al Gestor para revisión (disparo de UC-18 / US-022); no se genera condiciones particulares ni se envía E3 en este change (E3 se dispara solo tras aprobación de la factura en US-022 y generación de condiciones en US-023) |
+| **Precondiciones** | - RESERVA en `estado = 'pre_reserva'` (guarda de origen; cualquier otro estado se rechaza sin efectos)<br>- Existe un `PRESUPUESTO` con `estado = 'enviado'` para la reserva y su `total > 0` (validado dentro de la transacción; si no existe o el total es 0/NULL → 422 `IMPORTE_TOTAL_INVALIDO`)<br>- Gestor autenticado con rol gestor sobre el tenant<br>- Fichero justificante adjunto con `mime_type ∈ {image/jpeg, image/png, application/pdf}` y tamaño ≤ 10 MB |
+| **Postcondiciones** | - `RESERVA.estado = 'reserva_confirmada'` y `RESERVA.ttl_expiracion = NULL` (la reserva confirmada no expira por TTL)<br>- `RESERVA.importe_total` congelado con el `total` del PRESUPUESTO vigente leído en la transacción<br>- `RESERVA.importe_senal = round(importe_total × pct_senal / 100, 2)` e `importe_liquidacion = importe_total − importe_senal` (40%/60% en MVP, derivados de `TENANT_SETTINGS.pct_senal`, nunca hardcodeados)<br>- `PRESUPUESTO.estado = 'aceptado'` para el presupuesto vigente (`MAX(version)` con `estado='enviado'`) — UC-17/US-021 es el único productor del estado `aceptado`<br>- Fila de `FECHA_BLOQUEADA` promovida a `tipo_bloqueo = 'firme'`, `ttl_expiracion = NULL` por UPDATE de la fila existente (nunca DELETE + INSERT), conservando `reserva_id`<br>- `pre_evento_status = 'pendiente'`, `liquidacion_status = 'pendiente'`, `fianza_status = 'pendiente'`<br>- DOCUMENTO creado con `tipo = 'justificante_pago'`, `reserva_id`, `tenant_id`, `url` y `mime_type`<br>- FICHA_OPERATIVA creada idempotentemente con todos los campos de contenido a NULL y `ficha_cerrada = false` (relación 1:1 con la RESERVA)<br>- `AUDIT_LOG accion='transicion'`, `entidad='RESERVA'`, `datos_anteriores.estado='pre_reserva'`, `datos_nuevos.estado='reserva_confirmada'`, con el usuario del Gestor<br>- Post-commit: se presenta la factura de señal en borrador al Gestor para revisión (disparo de UC-18 / US-022); no se genera condiciones particulares ni se envía E3 en este change (E3 se dispara solo tras aprobación de la factura en US-022 y generación de condiciones en US-023) |
 | **Prioridad** | Crítica |
 | **Frecuencia** | Alta |
 | **US** | US-021 |
@@ -1084,10 +1084,12 @@ flowchart TD
 2. El gestor selecciona "Confirmar pago de señal" y abre el diálogo `ConfirmarSenalDialog`
 3. El gestor adjunta el fichero justificante (imagen JPEG/PNG o PDF, ≤ 10 MB); el frontend valida formato y tamaño en cliente (UX preventiva)
 4. El gestor hace clic en "Confirmar"; el frontend envía `POST /reservas/{id}/confirmar-senal` como `multipart/form-data`
-5. El sistema valida en servidor (autoritativo): RESERVA en `pre_reserva`, `importe_total > 0`, fichero presente y con formato/tamaño válidos
+5. El sistema valida en servidor (autoritativo): RESERVA en `pre_reserva`, fichero presente y con formato/tamaño válidos
 6. En una **única transacción all-or-nothing** (reutiliza `bloquearFecha(fase='reserva_confirmada')` de US-040 con `SELECT … FOR UPDATE` + `UNIQUE(tenant_id, fecha)`):
+   - Lee el presupuesto vigente (`SELECT … WHERE reserva_id = X AND estado = 'enviado' ORDER BY version DESC LIMIT 1`); si no existe o `total <= 0`, aborta con **422 `IMPORTE_TOTAL_INVALIDO`** sin ningún efecto
    - Crea DOCUMENTO `tipo = 'justificante_pago'` en la misma transacción (si la transición falla, no queda DOCUMENTO huérfano)
-   - UPDATE de RESERVA: `estado = 'reserva_confirmada'`, `ttl_expiracion = NULL`, `importe_senal`, `importe_liquidacion`, `pre_evento_status = 'pendiente'`, `liquidacion_status = 'pendiente'`, `fianza_status = 'pendiente'`
+   - UPDATE de RESERVA: `estado = 'reserva_confirmada'`, `ttl_expiracion = NULL`, `importe_total = presupuesto.total`, `importe_senal = round(importe_total × pct_senal / 100, 2)`, `importe_liquidacion = importe_total − importe_senal`, `pre_evento_status = 'pendiente'`, `liquidacion_status = 'pendiente'`, `fianza_status = 'pendiente'`
+   - UPDATE del PRESUPUESTO vigente: `estado = 'aceptado'`
    - UPDATE de `FECHA_BLOQUEADA`: `tipo_bloqueo = 'firme'`, `ttl_expiracion = NULL` (upgrade de la fila existente, sin alterar `reserva_id`; la restricción `chk_firme_sin_ttl` la valida en BD)
    - INSERT idempotente de FICHA_OPERATIVA (si ya existe con ese `reserva_id`, no se duplica y la transición continúa sin error)
    - INSERT en AUDIT_LOG con `accion = 'transicion'`
@@ -1098,7 +1100,7 @@ flowchart TD
 - **FA-01** (guarda de origen — RESERVA no en `pre_reserva`): la RESERVA está en `reserva_confirmada` o posterior, en cualquier sub-estado de `consulta` o en `reserva_cancelada` → el sistema rechaza con **"La reserva no está en estado pre_reserva"** (422) sin crear DOCUMENTO, sin mutar RESERVA ni `FECHA_BLOQUEADA` y sin registrar transición en AUDIT_LOG
 - **FA-02** (justificante no adjuntado): el sistema devuelve **"Es obligatorio adjuntar el justificante de pago"** (422); sin efectos
 - **FA-03** (formato no permitido o tamaño > 10 MB): el sistema rechaza con mensaje específico (formato no permitido / tamaño excedido) (422); sin efectos
-- **FA-04** (`importe_total` = 0 o NULL): el sistema rechaza con "Importe total inválido" (422); sin efectos (no hay presupuesto aceptado válido)
+- **FA-04** (sin presupuesto vigente o `total` ≤ 0): el sistema lee el presupuesto con `estado='enviado'` de mayor versión; si no existe ninguno o su `total <= 0`, rechaza con "Importe total inválido" (`422 IMPORTE_TOTAL_INVALIDO`); sin efectos sobre la RESERVA, el PRESUPUESTO, el DOCUMENTO ni la FECHA_BLOQUEADA
 - **FA-05** (doble clic / dos sesiones sobre la MISMA RESERVA — concurrencia): la serialización por `SELECT … FOR UPDATE` sobre `FECHA_BLOQUEADA` garantiza que exactamente una transacción completa el upgrade a firme; la segunda, al obtener el lock, observa la RESERVA ya en `reserva_confirmada` → devuelve **"La reserva ya ha sido confirmada"** (409) sin crear un segundo DOCUMENTO ni una segunda FICHA_OPERATIVA
 - **FA-06** (fecha ya en bloqueo firme de OTRA RESERVA — `P2002`): la transacción falla por `UNIQUE(tenant_id, fecha)` antes de mutar la segunda RESERVA → devuelve **"Fecha no disponible"** (409); nunca doble reserva confirmada
 - **FA-07** (rollback parcial): cualquier fallo dentro de la transacción la revierte completa: la RESERVA permanece en `pre_reserva`, el bloqueo sigue blando con su TTL, no se crea DOCUMENTO ni FICHA_OPERATIVA
@@ -1107,19 +1109,20 @@ flowchart TD
 flowchart TD
     A[Gestor: Confirmar pago de señal con justificante] --> B{RESERVA en pre_reserva?}
     B -->|No — otro estado o terminal| C[422 — La reserva no está en estado pre_reserva]
-    B -->|Sí| D{importe_total > 0?}
-    D -->|No| E[422 — Importe total inválido]
-    D -->|Sí| F{Fichero adjunto y válido?}
+    B -->|Sí| F{Fichero adjunto y válido?}
     F -->|No fichero| G[422 — Es obligatorio adjuntar el justificante]
     F -->|Formato/tamaño inválido| H[422 — Formato o tamaño no permitido]
     F -->|Válido| I[Tx SELECT…FOR UPDATE sobre FECHA_BLOQUEADA]
-    I --> J{¿RESERVA ya confirmada — doble clic?}
+    I --> D{¿Presupuesto vigente con estado=enviado y total > 0?}
+    D -->|No presupuesto o total<=0| E[422 — IMPORTE_TOTAL_INVALIDO]
+    D -->|Sí| J{¿RESERVA ya confirmada — doble clic?}
     J -->|Sí| K[409 — La reserva ya ha sido confirmada]
     J -->|No| L{¿UNIQUE(tenant_id,fecha) viola P2002?}
     L -->|Sí — otra reserva firme| M[409 — Fecha no disponible]
     L -->|No| N[INSERT DOCUMENTO tipo=justificante_pago]
-    N --> O[UPDATE RESERVA: reserva_confirmada + ttl=NULL + importes + sub-procesos]
-    O --> P[UPDATE FECHA_BLOQUEADA: firme + ttl=NULL — conserva reserva_id]
+    N --> O[UPDATE RESERVA: reserva_confirmada + ttl=NULL + importe_total + importes + sub-procesos]
+    O --> O2[UPDATE PRESUPUESTO vigente: estado=aceptado]
+    O2 --> P[UPDATE FECHA_BLOQUEADA: firme + ttl=NULL — conserva reserva_id]
     P --> Q[INSERT idempotente FICHA_OPERATIVA vacía]
     Q --> R[INSERT AUDIT_LOG: transicion pre_reserva→reserva_confirmada]
     R --> S[200 — RESERVA reserva_confirmada + importes + sub-procesos]
@@ -2500,6 +2503,8 @@ Este análisis ha identificado **38 casos de uso** que cubren completamente la f
 6. **Trazabilidad completa**: Cada caso de uso traza a requisitos específicos de la especificación funcional y a dolores operativos identificados.
 
 ---
+
+*Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 2.2 (20/07/2026): refleja change `fix-importe-total-confirmar-senal` — corrige UC-17 (Confirmar Pago de Señal): las precondiciones ya no mencionan `RESERVA.importe_total > 0` como precondición aislada preexistente; en su lugar documenta que el presupuesto vigente (`estado='enviado'`, `MAX(version)`) se lee y valida dentro de la transacción; actualiza postcondiciones (añade congelación de `RESERVA.importe_total = presupuesto.total` y marcado de `PRESUPUESTO.estado = 'aceptado'` — UC-17/US-021 es el único productor del estado `aceptado`); actualiza flujo básico paso 5 (elimina validación previa de `importe_total`) y paso 6 (desglosa los nuevos pasos de lectura del presupuesto vigente, congelación de `importe_total` y UPDATE del presupuesto a `aceptado`); corrige FA-04 (antes "importe_total = 0 o NULL", ahora "sin presupuesto vigente o total ≤ 0"); actualiza el diagrama Mermaid con el nuevo nodo de validación del presupuesto y el UPDATE a `aceptado`. Sin migración de BD ni cambio de contrato OpenAPI.*
 
 *Documento generado el 22/05/2026 como parte del análisis de requisitos del TFM de Slotify. Versión 2.1 (20/07/2026): refleja change `cambiar-fecha-consulta-en-cola` — actualiza la nota de trazabilidad de UC-04 (§3 Gestión de Leads y Consultas): la operación `POST /reservas/{id}/cambiar-fecha` ya no se limita a `sub_estado ∈ {2b, 2c, 2v}` (RESERVA con bloqueo propio); desde este change también acepta `sub_estado = 2d` (RESERVA en cola, sin bloqueo propio) como origen válido mediante guarda declarativa separada, con semántica propia: fecha libre → `2d → 2b` + bloqueo nuevo + salida de cola con reordenación + borrador E1 "disponible"; fecha ocupada → 409 terminal sin re-encolar. Sin migración de BD. Sin cambio de esquema de contrato OpenAPI (solo documental).*
 
