@@ -90,8 +90,8 @@
 - [ ] 9.1 `docs-keeper` sincroniza docs afectados
 
 ## 10. Code review (OBLIGATORIO — code-review — EL AGENTE DEBE EJECUTARLO)
-- [ ] 10.1 `code-reviewer` sobre el diff completo
-- [ ] 10.2 Report `reports/2026-07-21-step-10-code-review.md` con línea `Veredicto: APTO`
+- [x] 10.1 `code-reviewer` sobre el diff completo (35 ficheros, 85/85 tests passing)
+- [x] 10.2 Report `reports/2026-07-21-step-10-code-review.md` con línea `Veredicto: APTO`
 
 ## 11. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final)
 - [ ] 11.1 Presentar al humano: code-review APTO + validación manual aprobados
