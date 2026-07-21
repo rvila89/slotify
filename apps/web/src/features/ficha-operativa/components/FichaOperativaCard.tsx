@@ -2,21 +2,26 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CheckCircle2, ClipboardList, Loader2, Lock, Save } from 'lucide-react';
+import { notify } from '@/lib/notify';
 import { useFichaOperativa } from '../api/useFichaOperativa';
 import { useGuardarFicha } from '../api/useGuardarFicha';
 import {
   construirRequest,
   esquemaFicha,
+  numPersonasDerivado,
   valoresDesdeFicha,
   type FormularioFicha,
 } from '../lib/schema';
+import { mensajeRecalculo, requierePrecioManual } from '../lib/recalculo';
 import { formatearFechaHoraCierre } from '../lib/fecha';
 import { EstadoFichaBadge } from './EstadoFichaBadge';
 import { FichaNoDisponible } from './FichaNoDisponible';
 import { CamposFicha } from './CamposFicha';
+import { BloquePrecioManual } from './BloquePrecioManual';
+import { AvisoRecalculo } from './AvisoRecalculo';
 import { CerrarFichaDialog } from './CerrarFichaDialog';
 import { AvisoCamposVacios } from './AvisoCamposVacios';
-import type { FichaOperativa } from '../model/types';
+import type { FichaOperativa, RecalculoResultado } from '../model/types';
 
 /**
  * Tarjeta "Ficha operativa del evento" (US-025 · UC-20) para la ficha de una RESERVA
@@ -69,22 +74,41 @@ export const FichaOperativaCard = ({ reservaId }: Props) => {
   const [dialogoCerrar, setDialogoCerrar] = useState(false);
   const [camposVacios, setCamposVacios] = useState<string[] | null>(null);
   const [guardadoOk, setGuardadoOk] = useState(false);
+  const [recalculo, setRecalculo] = useState<RecalculoResultado | null>(null);
+  const [pidePrecioManual, setPidePrecioManual] = useState(false);
 
   const ficha = estado?.tipo === 'disponible' ? estado.ficha : undefined;
 
-  const { register, handleSubmit, reset, formState } = useForm<FormularioFicha>({
+  const { register, handleSubmit, reset, watch, formState } = useForm<FormularioFicha>({
     resolver: zodResolver(esquemaFicha),
     values: valoresDesdeFicha(ficha),
   });
+
+  const numPersonas = numPersonasDerivado(watch());
 
   const onSubmit = handleSubmit((valores) => {
     setGuardadoOk(false);
     guardar.mutate(
       { reservaId, body: construirRequest(valores) },
       {
-        onSuccess: (fichaGuardada) => {
+        onSuccess: ({ recalculo: resultado, ...fichaGuardada }) => {
           reset(valoresDesdeFicha(fichaGuardada));
           setGuardadoOk(true);
+
+          if (resultado && requierePrecioManual(resultado)) {
+            // Tramo +51 o sin TARIFA: el gestor debe introducir el precio manual y
+            // reenviar. No mostramos precio recalculado (el motor no lo resolvió).
+            setRecalculo(null);
+            setPidePrecioManual(true);
+            notify.warning(
+              'Este aforo no tiene tarifa automática. Introduce el precio manual y guarda de nuevo.',
+            );
+            return;
+          }
+
+          setPidePrecioManual(false);
+          setRecalculo(resultado ?? null);
+          if (resultado) notify.success(mensajeRecalculo(resultado));
         },
       },
     );
@@ -157,8 +181,20 @@ export const FichaOperativaCard = ({ reservaId }: Props) => {
         <AvisoCamposVacios campos={camposVacios} onCerrar={() => setCamposVacios(null)} />
       )}
 
+      {recalculo && !recalculo.tarifaAConsultar && (
+        <AvisoRecalculo recalculo={recalculo} onCerrar={() => setRecalculo(null)} />
+      )}
+
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-6">
-        <CamposFicha register={register} errors={formState.errors} />
+        <CamposFicha
+          register={register}
+          errors={formState.errors}
+          numPersonas={numPersonas}
+        />
+
+        {pidePrecioManual && (
+          <BloquePrecioManual register={register} errors={formState.errors} />
+        )}
 
         {guardar.isError && (
           <p

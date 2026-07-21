@@ -12,6 +12,9 @@ export { useCerrarFicha } from './api/useCerrarFicha';
 export type { CerrarFichaVars } from './api/useCerrarFicha';
 export type {
   FichaOperativa,
+  GuardarFichaOperativaRequest,
+  GuardarFichaOperativaResponse,
+  RecalculoResultado,
   CerrarFichaOperativaResponse,
   PreEventoStatus,
   EstadoFicha,

@@ -1,11 +1,13 @@
 import type { UseFormRegister, FieldErrors } from 'react-hook-form';
 import { cn } from '@/lib/utils';
-import { CAMPOS_FICHA } from '../lib/campos';
+import { CAMPOS_TEXTO_FICHA, DURACIONES_HORAS, etiquetaDuracion } from '../lib/campos';
 import type { FormularioFicha } from '../lib/schema';
 
 type Props = {
   register: UseFormRegister<FormularioFicha>;
   errors: FieldErrors<FormularioFicha>;
+  /** Nº de personas DERIVADO (adultos ≥4 + niños <4), read-only. */
+  numPersonas: number;
 };
 
 const claseInput =
@@ -16,72 +18,161 @@ const claseArea =
 
 const claseLabel = 'px-1 font-body text-xs font-medium tracking-[0.48px] text-text-secondary';
 
-const tipoInput = (tipo: 'numero' | 'texto' | 'area' | 'email' | 'hora'): string => {
-  if (tipo === 'numero') return 'number';
+const tipoInput = (tipo: 'texto' | 'area' | 'email' | 'hora'): string => {
   if (tipo === 'email') return 'email';
   if (tipo === 'hora') return 'time';
   return 'text';
 };
 
-const modoEntrada = (
-  tipo: 'numero' | 'texto' | 'area' | 'email' | 'hora',
-): 'numeric' | 'email' | undefined => {
-  if (tipo === 'numero') return 'numeric';
-  if (tipo === 'email') return 'email';
-  return undefined;
-};
+const modoEntrada = (tipo: 'texto' | 'area' | 'email' | 'hora'): 'email' | undefined =>
+  tipo === 'email' ? 'email' : undefined;
+
+const MensajeError = ({ id, mensaje }: { id: string; mensaje?: string }) =>
+  mensaje ? (
+    <p id={id} role="alert" className="px-1 font-body text-[13px] text-red-600">
+      {mensaje}
+    </p>
+  ) : null;
 
 /**
- * Rejilla de los campos de la ficha operativa (US-025). Mobile-first: una columna
- * en móvil, dos columnas en `sm:`; los campos de texto largo ocupan ancho completo.
- * Los inputs se registran contra el RHF del formulario padre (fuente de verdad del
- * estado). Sin overflow horizontal; objetivos táctiles ≥ 48px (`h-12`).
+ * Rejilla de los campos de la ficha operativa (US-025 · [reserva-viva]). Mobile-first:
+ * una columna en móvil, dos columnas en `md:`; sin overflow horizontal; objetivos
+ * táctiles ≥ 48px (`h-12`).
+ *
+ * Bloque de AFORO ESTRUCTURAL: desglose de invitados (adultos y niños ≥4 / niños <4,
+ * apilados en `<md` y en fila en `md:`), nº de personas total DERIVADO (read-only) y
+ * duración enum `{4,8,12}`. El resto son campos de texto libre declarados en
+ * `CAMPOS_TEXTO_FICHA` (contacto, hora, notas, briefing).
  */
-export const CamposFicha = ({ register, errors }: Props) => (
-  <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-    {CAMPOS_FICHA.map(({ campo, etiqueta, tipo, placeholder, anchoCompleto }) => {
-      const idCampo = `ficha-${campo}`;
-      const error = errors[campo];
-      return (
-        <div
-          key={campo}
-          className={cn('flex flex-col gap-2', anchoCompleto && 'sm:col-span-2')}
-        >
-          <label htmlFor={idCampo} className={claseLabel}>
-            {etiqueta}
+export const CamposFicha = ({ register, errors, numPersonas }: Props) => (
+  <div className="flex flex-col gap-6">
+    <fieldset className="flex flex-col gap-4 rounded-[16px] border border-border-default/20 bg-canvas/40 p-4">
+      <legend className="px-1 font-body text-xs font-bold uppercase tracking-[1px] text-text-secondary">
+        Aforo y duración
+      </legend>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <label htmlFor="ficha-numAdultosNinosMayores4" className={claseLabel}>
+            Adultos y niños ≥ 4 años
           </label>
-          {tipo === 'area' ? (
-            <textarea
-              id={idCampo}
-              placeholder={placeholder}
-              {...register(campo)}
-              className={claseArea}
-            />
-          ) : (
-            <input
-              id={idCampo}
-              type={tipoInput(tipo)}
-              inputMode={modoEntrada(tipo)}
-              min={tipo === 'numero' ? 0 : undefined}
-              step={tipo === 'numero' ? 1 : undefined}
-              placeholder={placeholder}
-              aria-invalid={error ? 'true' : undefined}
-              aria-describedby={error ? `${idCampo}-error` : undefined}
-              {...register(campo)}
-              className={claseInput}
-            />
-          )}
-          {error && (
-            <p
-              id={`${idCampo}-error`}
-              role="alert"
-              className="px-1 font-body text-[13px] text-red-600"
-            >
-              {error.message}
-            </p>
-          )}
+          <input
+            id="ficha-numAdultosNinosMayores4"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={1}
+            placeholder="Ej. 85"
+            aria-invalid={errors.numAdultosNinosMayores4 ? 'true' : undefined}
+            aria-describedby={
+              errors.numAdultosNinosMayores4 ? 'ficha-numAdultosNinosMayores4-error' : undefined
+            }
+            data-testid="input-adultos-ninos-mayores4"
+            {...register('numAdultosNinosMayores4')}
+            className={claseInput}
+          />
+          <MensajeError
+            id="ficha-numAdultosNinosMayores4-error"
+            mensaje={errors.numAdultosNinosMayores4?.message}
+          />
         </div>
-      );
-    })}
+
+        <div className="flex flex-col gap-2">
+          <label htmlFor="ficha-numNinosMenores4" className={claseLabel}>
+            Niños &lt; 4 años
+          </label>
+          <input
+            id="ficha-numNinosMenores4"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={1}
+            placeholder="Ej. 5"
+            aria-invalid={errors.numNinosMenores4 ? 'true' : undefined}
+            aria-describedby={errors.numNinosMenores4 ? 'ficha-numNinosMenores4-error' : undefined}
+            data-testid="input-ninos-menores4"
+            {...register('numNinosMenores4')}
+            className={claseInput}
+          />
+          <MensajeError
+            id="ficha-numNinosMenores4-error"
+            mensaje={errors.numNinosMenores4?.message}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label htmlFor="ficha-numPersonas" className={claseLabel}>
+            Nº de personas (total)
+          </label>
+          <output
+            id="ficha-numPersonas"
+            htmlFor="ficha-numAdultosNinosMayores4 ficha-numNinosMenores4"
+            data-testid="num-personas-derivado"
+            className={cn(
+              claseInput,
+              'flex items-center bg-surface-muted/50 font-medium text-text-secondary',
+            )}
+          >
+            {numPersonas}
+          </output>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label htmlFor="ficha-duracionHoras" className={claseLabel}>
+            Duración del evento
+          </label>
+          <select
+            id="ficha-duracionHoras"
+            data-testid="select-duracion-horas"
+            {...register('duracionHoras')}
+            className={cn(claseInput, 'appearance-none')}
+          >
+            <option value="">Sin especificar</option>
+            {DURACIONES_HORAS.map((horas) => (
+              <option key={horas} value={String(horas)}>
+                {etiquetaDuracion(horas)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </fieldset>
+
+    <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+      {CAMPOS_TEXTO_FICHA.map(({ campo, etiqueta, tipo, placeholder, anchoCompleto }) => {
+        const idCampo = `ficha-${campo}`;
+        const error = errors[campo];
+        return (
+          <div
+            key={campo}
+            className={cn('flex flex-col gap-2', anchoCompleto && 'md:col-span-2')}
+          >
+            <label htmlFor={idCampo} className={claseLabel}>
+              {etiqueta}
+            </label>
+            {tipo === 'area' ? (
+              <textarea
+                id={idCampo}
+                placeholder={placeholder}
+                {...register(campo)}
+                className={claseArea}
+              />
+            ) : (
+              <input
+                id={idCampo}
+                type={tipoInput(tipo)}
+                inputMode={modoEntrada(tipo)}
+                placeholder={placeholder}
+                aria-invalid={error ? 'true' : undefined}
+                aria-describedby={error ? `${idCampo}-error` : undefined}
+                {...register(campo)}
+                className={claseInput}
+              />
+            )}
+            <MensajeError id={`${idCampo}-error`} mensaje={error?.message} />
+          </div>
+        );
+      })}
+    </div>
   </div>
 );

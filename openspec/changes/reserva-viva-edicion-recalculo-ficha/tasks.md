@@ -74,10 +74,10 @@
 - [ ] 4.5 Plantilla de email de modificación (`CodigoEmail` nuevo es/ca) + disparo post-commit.
 
 ## 5. Frontend: implementación (frontend-developer — tras contrato/SDK)
-- [ ] 5.1 `features/ficha-operativa/`: inputs de invitados desglosados + duración enum `{4,8,12}`;
+- [x] 5.1 `features/ficha-operativa/`: inputs de invitados desglosados + duración enum `{4,8,12}`;
       nº personas derivado read-only; pre-relleno desde el SDK regenerado.
-- [ ] 5.2 Avisos de recálculo (nuevo total / restante) y de `tarifaAConsultar` (precio manual).
-- [ ] 5.3 Responsive mobile-first (390 / 768 / 1280), sin overflow, barrel `@/features/...`.
+- [x] 5.2 Avisos de recálculo (nuevo total / restante) y de `tarifaAConsultar` (precio manual).
+- [x] 5.3 Responsive mobile-first (390 / 768 / 1280), sin overflow, barrel `@/features/...`.
 
 ## 6. Backend: revisar/actualizar tests unitarios existentes (OBLIGATORIO — step-N)
 - [ ] 6.1 Actualizar los tests de `ficha-evento` (guardado/lectura) y `confirmacion` (siembra)
