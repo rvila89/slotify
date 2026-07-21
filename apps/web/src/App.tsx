@@ -8,7 +8,7 @@ import { HistoricoPage, DetalleHistoricoPage } from './features/historico';
 import { CalendarioPage } from './features/calendario';
 import { ColaEsperaPage } from './features/cola-espera';
 import { DashboardPage } from './features/dashboard';
-import { InterceptorRegistrar, RequireAuth } from './features/auth';
+import { AuthBootstrap, InterceptorRegistrar, RequireAuth } from './features/auth';
 
 // QueryClient para estado de servidor (TanStack Query) sobre el cliente API
 // generado. Vive aquí (no en main.tsx) para que toda renderización de <App/>
@@ -31,6 +31,9 @@ const queryClient = new QueryClient({
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <InterceptorRegistrar />
+    {/* Recuperación de sesión en recarga (F5): intenta rehidratar desde la cookie
+        de refresh al arrancar. Resuelve el estado `recovering` del provider. */}
+    <AuthBootstrap />
     {/* Host global de notificaciones (Sonner). Se monta una única vez aquí para
         que cualquier `toast.*()` del árbol (login incluido) se renderice. */}
     <Toaster />

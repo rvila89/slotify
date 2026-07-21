@@ -8,11 +8,14 @@ export {
   useSessionActions,
   obtenerAccessTokenEnMemoria,
   establecerAccessTokenEnMemoria,
+  EVENTO_TOKEN_REFRESCADO,
 } from './model/session';
 export type { Session, SessionUser } from './model/session';
 
 export { RequireAuth } from './components/RequireAuth';
 export { InterceptorRegistrar } from './components/InterceptorRegistrar';
+export { AuthBootstrap } from './components/AuthBootstrap';
+export { SessionExpiryWatcher } from './components/SessionExpiryWatcher';
 
 export { useLogout, AVISO_DEGRADADO } from './api/useLogout';
 export type { UseLogout } from './api/useLogout';

@@ -2,7 +2,7 @@
  * Adaptador del `TokenEmitterPort` con `@nestjs/jwt` (US-001).
  *
  * - Access token: firmado con `JWT_ACCESS_SECRET` y expiración corta
- *   (`JWT_ACCESS_EXPIRES_IN`, ~15 min); su payload firmado transporta
+ *   (`JWT_ACCESS_EXPIRES_IN`, ~5 min); su payload firmado transporta
  *   `{sub, tenantId, rol, email}` (aislamiento multi-tenant desde el token).
  * - Refresh token: firmado con `JWT_REFRESH_SECRET` (secreto distinto) y expiración
  *   larga (`JWT_REFRESH_EXPIRES_IN`, ~7 días); viaja en cookie httpOnly.

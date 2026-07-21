@@ -81,9 +81,13 @@ beforeEach(() => {
 });
 
 describe('SessionProvider — sesión en memoria (REQ 10)', () => {
-  it('debe_arrancar_como_no_autenticado', () => {
+  it('debe_arrancar_en_recovering', () => {
+    // Cambio de conducta sancionado por el spec-delta del change
+    // gestion-sesion-ux-modal-f5-error-banner: sin `value` inyectado el provider
+    // arranca en `recovering` (estado transitorio del arranque F5), no en
+    // `unauthenticated`. `AuthBootstrap` resuelve el estado tras intentar el refresh.
     renderHarness();
-    expect(screen.getByTestId('estado')).toHaveTextContent('unauthenticated');
+    expect(screen.getByTestId('estado')).toHaveTextContent('recovering');
   });
 
   it('debe_poblar_la_sesion_en_memoria_al_iniciar_sesion', async () => {
