@@ -104,10 +104,11 @@ describe('esTransicionPreEventoValida — determinismo (lookup en tabla de datos
 
 const fichaVacia = (over: Partial<ContenidoFicha> = {}): ContenidoFicha => ({
   numInvitadosConfirmado: null,
-  menuSeleccionado: null,
-  timingDetallado: null,
   contactoEventoNombre: null,
   contactoEventoTelefono: null,
+  contactoEventoCorreo: null,
+  horaLlegada: null,
+  duracion: null,
   notasOperativas: null,
   briefingEquipo: null,
   ...over,
@@ -128,9 +129,9 @@ describe('tieneAlgunDatoDeContenido — strings en blanco cuentan como vacío', 
   const soloBlancos: ReadonlyArray<string> = ['', '   ', '\t', '\n', '  \t \n '];
 
   it.each(soloBlancos)(
-    'no_debe_considerar_dato_menuSeleccionado_en_blanco_%j',
+    'no_debe_considerar_dato_duracion_en_blanco_%j',
     (blanco) => {
-      expect(tieneAlgunDatoDeContenido(fichaVacia({ menuSeleccionado: blanco }))).toBe(false);
+      expect(tieneAlgunDatoDeContenido(fichaVacia({ duracion: blanco }))).toBe(false);
     },
   );
 
@@ -138,8 +139,8 @@ describe('tieneAlgunDatoDeContenido — strings en blanco cuentan como vacío', 
     expect(
       tieneAlgunDatoDeContenido(
         fichaVacia({
-          menuSeleccionado: '   ',
-          timingDetallado: '\t',
+          horaLlegada: '   ',
+          duracion: '\t',
           notasOperativas: '',
           briefingEquipo: '  ',
         }),
@@ -154,10 +155,11 @@ describe('tieneAlgunDatoDeContenido — strings en blanco cuentan como vacío', 
 
 describe('tieneAlgunDatoDeContenido — un campo de texto con contenido es dato', () => {
   const conTexto: ReadonlyArray<Partial<ContenidoFicha>> = [
-    { menuSeleccionado: 'Menú degustación' },
-    { timingDetallado: '18h llegada, 19h cena' },
+    { horaLlegada: '18:00' },
+    { duracion: '4h' },
     { contactoEventoNombre: 'María López' },
     { contactoEventoTelefono: '600123123' },
+    { contactoEventoCorreo: 'maria@example.com' },
     { notasOperativas: 'Alergia a los frutos secos' },
     { briefingEquipo: 'Turno de 8 camareros' },
     // Con espacios circundantes pero contenido real → sigue siendo dato.

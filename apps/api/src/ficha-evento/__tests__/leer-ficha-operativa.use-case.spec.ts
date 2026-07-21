@@ -45,10 +45,11 @@ const fichaVacia = (over: Partial<FichaOperativa> = {}): FichaOperativa => ({
   idFicha: 'ficha-1',
   reservaId: RESERVA_ID,
   numInvitadosConfirmado: null,
-  menuSeleccionado: null,
-  timingDetallado: null,
   contactoEventoNombre: null,
   contactoEventoTelefono: null,
+  contactoEventoCorreo: null,
+  horaLlegada: null,
+  duracion: null,
   notasOperativas: null,
   briefingEquipo: null,
   fichaCerrada: false,
@@ -125,6 +126,28 @@ describe('LeerFichaOperativaUseCase — estados accesibles exponen la ficha (3.3
     expect(ficha.numInvitadosConfirmado).toBe(85);
     expect(ficha.notasOperativas).toBe('Alergia a los frutos secos');
     expect(ficha.preEventoStatus).toBe('en_curso');
+  });
+
+  it('debe_exponer_los_nuevos_campos_operativos_y_no_los_eliminados', async () => {
+    const { useCase } = montar({
+      reserva: reservaConFicha({
+        ficha: fichaVacia({
+          contactoEventoCorreo: 'maria@example.com',
+          horaLlegada: '18:00',
+          duracion: '4h',
+        }),
+      }),
+    });
+
+    const ficha = await useCase.ejecutar(comando());
+
+    // Nuevos campos del contrato.
+    expect(ficha.contactoEventoCorreo).toBe('maria@example.com');
+    expect(ficha.horaLlegada).toBe('18:00');
+    expect(ficha.duracion).toBe('4h');
+    // Campos eliminados del contrato: ya no forman parte de la respuesta.
+    expect(ficha).not.toHaveProperty('menuSeleccionado');
+    expect(ficha).not.toHaveProperty('timingDetallado');
   });
 });
 
