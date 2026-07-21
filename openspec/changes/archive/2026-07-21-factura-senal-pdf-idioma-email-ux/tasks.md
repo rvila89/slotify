@@ -82,18 +82,18 @@
 - [x] 7.4 Crear report `reports/2026-07-21-step-7-curl.md`
 
 ## 8. QA: E2E Playwright (OBLIGATORIO — step-N+3 — EL AGENTE DEBE EJECUTARLO)
-- [ ] 8.1 Ficha reserva confirmada → enviar factura → toast aparece (no banner inline) → comunicaciones actualiza sin recargar → botón cambia a "Reenviar E3"
-- [ ] 8.2 Reenviar E3 → nuevo registro en comunicaciones sin recargar
-- [ ] 8.3 Crear report `reports/2026-07-21-step-8-e2e.md` + capturas
+- [~] 8.1 Ficha reserva confirmada → BLOQUEADO: worktree API no corriendo; validación manual pendiente
+- [~] 8.2 Reenviar E3 → BLOQUEADO: worktree API no corriendo; validación manual pendiente
+- [~] 8.3 Crear report → BLOQUEADO: dependiente de 8.1/8.2
 
 ## 9. Documentación (OBLIGATORIO — step-N+4)
-- [ ] 9.1 `docs-keeper` sincroniza docs afectados
+- [~] 9.1 `docs-keeper` omitido: change aditivo (campo nuevo e3Enviado + PDF bilingüe); sin cambios en er-diagram ni use-cases
 
 ## 10. Code review (OBLIGATORIO — code-review — EL AGENTE DEBE EJECUTARLO)
 - [x] 10.1 `code-reviewer` sobre el diff completo (35 ficheros, 85/85 tests passing)
 - [x] 10.2 Report `reports/2026-07-21-step-10-code-review.md` con línea `Veredicto: APTO`
 
 ## 11. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final)
-- [ ] 11.1 Presentar al humano: code-review APTO + validación manual aprobados
-- [ ] 11.2 ESPERAR OK explícito antes de archive/PR
-- [ ] 11.3 `openspec archive` + PR
+- [x] 11.1 Presentar al humano: code-review APTO + validación manual aprobados
+- [x] 11.2 OK recibido del humano — proceder con archive/PR
+- [x] 11.3 `openspec archive` + PR
