@@ -34,6 +34,7 @@ import {
   TipoEvento,
 } from '@prisma/client';
 import { PresupuestosModule } from '../presupuestos.module';
+import { GENERAR_PDF_CONDICIONES_PORT } from '../../documentos/documentos.tokens';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import {
   GenerarPresupuestoUseCase,
@@ -146,7 +147,10 @@ const limpiar = async (): Promise<void> => {
 beforeAll(async () => {
   moduleRef = await Test.createTestingModule({
     imports: [ConfigModule.forRoot({ isGlobal: true }), PresupuestosModule],
-  }).compile();
+  })
+    .overrideProvider(GENERAR_PDF_CONDICIONES_PORT)
+    .useValue({ generar: async () => 'https://test.example.com/condiciones-test.pdf' })
+    .compile();
   await moduleRef.init();
   prisma = moduleRef.get(PrismaService);
   useCase = moduleRef.get(GenerarPresupuestoUseCase);

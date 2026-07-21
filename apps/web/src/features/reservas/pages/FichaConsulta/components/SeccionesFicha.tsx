@@ -22,9 +22,17 @@ type Props = {
   reserva: ReservaDetalle;
   /** Éxito de envío manual del borrador E1: la página muestra el aviso arriba + scroll. */
   onEmailEnviado?: () => void;
+  /** Éxito de registro de la firma de condicions particulars (Mejora C): la página
+      muestra el banner inline arriba + scroll, en lugar del toast de Sonner. */
+  onFirmaRegistrada?: (tipo: 'registrada' | 'reregistrada') => void;
 };
 
-export const SeccionesFicha = ({ reservaId, reserva, onEmailEnviado }: Props) => (
+export const SeccionesFicha = ({
+  reservaId,
+  reserva,
+  onEmailEnviado,
+  onFirmaRegistrada,
+}: Props) => (
   <>
     {/* US-046 · UC-36: sección "Comunicaciones" de la ficha. Lista las COMUNICACION de
         la reserva y permite revisar/editar/enviar o descartar un borrador y crear un
@@ -63,6 +71,7 @@ export const SeccionesFicha = ({ reservaId, reserva, onEmailEnviado }: Props) =>
         condPartFechaEnvio={reserva.condPartFechaEnvio}
         condPartFirmadas={reserva.condPartFirmadas}
         condPartFechaFirma={reserva.condPartFechaFirma}
+        onRegistrado={onFirmaRegistrada}
       />
     )}
 

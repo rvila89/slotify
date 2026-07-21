@@ -48,6 +48,7 @@ export class CargarReservaPrismaAdapter {
       numNinosMenores4: fila.numNinosMenores4,
       tipoEvento: fila.tipoEvento,
       ttlExpiracion: fila.ttlExpiracion,
+      idioma: fila.idioma,
     };
     return reserva;
   };

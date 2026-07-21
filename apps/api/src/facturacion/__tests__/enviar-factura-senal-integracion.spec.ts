@@ -9,16 +9,15 @@
  * `test` (`FakeEmailAdapter`, cero red); la generación de condiciones puede
  * generar el PDF de condiciones on-demand.
  *
- * US-023 (GAP 2, D-condiciones-bloqueante — DECISIÓN CERRADA/aprobada, ENDURECER): las condiciones
- * son requisito DURO del envío E3. Para que el camino feliz sea reproducible sin depender del
- * `plantilla_documento_tenant` sembrado, este spec SOBREESCRIBE `GENERAR_PDF_CONDICIONES_PORT` con
- * un stub que devuelve una URL fija (evita la flakiness ESM de react-pdf); así `condPartAdjuntada`
- * es SIEMPRE `true` en un 200 y el primer envío PERSISTE el DOCUMENTO de condiciones (GAP 1).
+ * Mejora B (change `condiciones-idioma-e2-firma-banner`): las condicions particulars ya NO se
+ * envían ni se persisten en E3, sino en E2 (confirmar presupuesto). E3 solo emite la señal
+ * (`borrador → enviada`), envía el email con el adjunto de la señal, registra la COMUNICACION E3
+ * y el AUDIT_LOG. El campo `cond_part_enviadas_fecha` de la respuesta refleja el timestamp que ya
+ * fijó E2 (aquí se siembra en la reserva para simularlo).
  *
  * Cubre los casos ALCANZABLES contra BD real:
  *   - Happy path: `borrador → enviada`, conserva `numero_factura`, fija
- *     `fecha_emision`, `RESERVA.cond_part_enviadas_fecha` + `cond_part_firmadas=false`,
- *     COMUNICACION E3 `enviado`, AUDIT_LOG.
+ *     `fecha_emision`, COMUNICACION E3 `enviado`, AUDIT_LOG.
  *   - PDF de señal ausente (`pdf_url=null`) → `EmisionEnvioFallidoError` (502) y NADA
  *     se consolida (rollback).
  *   - Idempotencia: con una COMUNICACION E3 `enviado` previa → `E3YaEnviadoError` (409).
@@ -44,8 +43,6 @@ import {
 } from '@prisma/client';
 import { FacturacionModule } from '../facturacion.module';
 import { PrismaService } from '../../shared/prisma/prisma.service';
-import { GENERAR_PDF_CONDICIONES_PORT } from '../../documentos/documentos.tokens';
-import type { GenerarPdfCondicionesPort } from '../../documentos/domain/generar-pdf-condiciones.port';
 import {
   EnviarFacturaSenalUseCase,
   E3YaEnviadoError,
@@ -57,16 +54,8 @@ const TENANT = '00000000-0000-0000-0000-000000000001';
 const OTRO_TENANT = '00000000-0000-0000-0000-0000000000ff';
 const GESTOR = '00000000-0000-0000-0000-000000000002';
 const EMAIL_PATTERN = '@us023-int.test';
-const URL_PDF_CONDICIONES = 'http://localhost:3000/api/documentos/condiciones/tenant.pdf';
-
-/**
- * Stub del puerto de generación del PDF de condiciones (GAP 2): devuelve una URL fija, de modo que
- * las condiciones existen SIEMPRE en el camino feliz (requisito duro) sin depender de sembrar el
- * `plantilla_documento_tenant` ni del render react-pdf (flakiness ESM).
- */
-const condicionesStub: GenerarPdfCondicionesPort = {
-  generar: async () => URL_PDF_CONDICIONES,
-};
+/** Timestamp de condiciones ya fijado por E2 (se siembra en la reserva). */
+const COND_PART_ENVIADAS = new Date('2028-04-01T09:00:00.000Z');
 
 let moduleRef: TestingModule;
 let prisma: PrismaService;
@@ -111,6 +100,8 @@ const sembrarSenal = async (params: {
       numAdultosNinosMayores4: 40,
       numNinosMenores4: 5,
       importeTotal: '3000.00',
+      // Mejora B: E2 ya envió las condiciones y fijó este timestamp antes de E3.
+      condPartEnviadasFecha: COND_PART_ENVIADAS,
     },
   });
   const factura = await prisma.factura.create({
@@ -164,11 +155,7 @@ const limpiar = async (): Promise<void> => {
 beforeAll(async () => {
   moduleRef = await Test.createTestingModule({
     imports: [ConfigModule.forRoot({ isGlobal: true }), FacturacionModule],
-  })
-    // GAP 2: stub del PDF de condiciones (URL fija) para el camino feliz endurecido.
-    .overrideProvider(GENERAR_PDF_CONDICIONES_PORT)
-    .useValue(condicionesStub)
-    .compile();
+  }).compile();
   await moduleRef.init();
   prisma = moduleRef.get(PrismaService);
   useCase = moduleRef.get(EnviarFacturaSenalUseCase);
@@ -188,7 +175,7 @@ beforeEach(async () => {
 // ===========================================================================
 
 describe('EnviarFacturaSenal — happy path (integración real)', () => {
-  it('emite la señal a enviada, fija fecha_emision, conserva numero_factura y consolida cond_part + COMUNICACION E3 + AUDIT_LOG', async () => {
+  it('emite la señal a enviada, fija fecha_emision, conserva numero_factura y consolida COMUNICACION E3 + AUDIT_LOG (Mejora B: sin condiciones en E3)', async () => {
     const { reservaId, facturaId } = await sembrarSenal({ numeroFactura: 'F-2028-0007' });
 
     const res = await useCase.ejecutar(comando(reservaId));
@@ -196,17 +183,14 @@ describe('EnviarFacturaSenal — happy path (integración real)', () => {
     // Resultado
     expect(res.senal.estado).toBe('enviada');
     expect(res.senal.numeroFactura).toBe('F-2028-0007');
-    expect(res.condPartEnviadasFecha).toBeInstanceOf(Date);
-    // GAP 2 (endurecido): en un 200 las condiciones SIEMPRE van adjuntas.
-    expect(res.condPartAdjuntada).toBe(true);
+    // Mejora B: el timestamp refleja el que ya fijó E2 (sembrado en la reserva).
+    expect(res.condPartEnviadasFecha).toEqual(COND_PART_ENVIADAS);
 
-    // GAP 1: el primer envío PERSISTE el DOCUMENTO de condiciones (url + mime application/pdf).
+    // Mejora B: E3 NO persiste el DOCUMENTO de condiciones (eso es de E2).
     const documento = await prisma.documento.findFirst({
       where: { reservaId, tipo: 'condiciones_particulares' },
     });
-    expect(documento).not.toBeNull();
-    expect(documento?.url).toBe(URL_PDF_CONDICIONES);
-    expect(documento?.mimeType).toBe('application/pdf');
+    expect(documento).toBeNull();
 
     // FACTURA en BD
     const factura = await prisma.factura.findUnique({ where: { idFactura: facturaId } });
@@ -214,10 +198,9 @@ describe('EnviarFacturaSenal — happy path (integración real)', () => {
     expect(factura?.fechaEmision).not.toBeNull();
     expect(factura?.numeroFactura).toBe('F-2028-0007');
 
-    // RESERVA en BD
+    // RESERVA en BD: E3 NO toca cond_part (lo dejó E2); el timestamp sembrado permanece.
     const reserva = await prisma.reserva.findUnique({ where: { idReserva: reservaId } });
-    expect(reserva?.condPartEnviadasFecha).not.toBeNull();
-    expect(reserva?.condPartFirmadas).toBe(false);
+    expect(reserva?.condPartEnviadasFecha).toEqual(COND_PART_ENVIADAS);
 
     // COMUNICACION E3 enviado
     const com = await prisma.comunicacion.findFirst({
@@ -248,8 +231,6 @@ describe('EnviarFacturaSenal — PDF de señal ausente (integración real)', () 
 
     const factura = await prisma.factura.findUnique({ where: { idFactura: facturaId } });
     expect(factura?.estado).toBe(EstadoFactura.borrador);
-    const reserva = await prisma.reserva.findUnique({ where: { idReserva: reservaId } });
-    expect(reserva?.condPartEnviadasFecha).toBeNull();
     const com = await prisma.comunicacion.findFirst({
       where: { reservaId, codigoEmail: CodigoEmail.E3, estado: EstadoComunicacion.enviado },
     });

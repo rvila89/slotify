@@ -89,7 +89,8 @@ const crearAlmacenDocumentos = (config: ConfigService): AlmacenDocumentosPort =>
           configService,
           almacen,
           // 6.5: el render resuelve el logo por bytes/data-URI desde el mismo almacén.
-          (config) => renderizarDocumentoCondicionesABytes(config, almacen),
+          // Mejora A: el idioma se propaga al render para elegir el texto bilingüe.
+          (config, idioma) => renderizarDocumentoCondicionesABytes(config, almacen, idioma),
         ),
     },
   ],

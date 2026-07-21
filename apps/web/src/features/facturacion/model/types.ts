@@ -50,11 +50,12 @@ export type AprobarEnviarLiquidacionRequest =
   components['schemas']['AprobarEnviarLiquidacionRequest'];
 
 /**
- * Tipos del **envío de la factura de señal 40% + condicions particulars por email E3**
- * (rebanada 6.4b), sobre el SDK generado:
- *  - `EnviarFacturaSenalResponse`: `{ factura, condPartEnviadasFecha, condPartAdjuntada }`;
- *    la factura de señal emitida, el timestamp de envío de E3 fijado en la RESERVA y si
- *    las condicions particulars se adjuntaron (`false` → E3 se envió solo con la señal).
+ * Tipos del **envío de la factura de señal 40% por email** (rebanada 6.4b), sobre el SDK
+ * generado:
+ *  - `EnviarFacturaSenalResponse`: `{ factura, condPartEnviadasFecha }`; la factura de señal
+ *    emitida y el timestamp de envío de las condicions particulars ya fijado en la RESERVA.
+ *    Desde el change `condiciones-idioma-e2-firma-banner` las condiciones se adjuntan en E2
+ *    (confirmar presupuesto), no en este envío.
  */
 export type EnviarFacturaSenalResponse =
   components['schemas']['EnviarFacturaSenalResponse'];

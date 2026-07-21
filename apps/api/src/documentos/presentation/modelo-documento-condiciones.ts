@@ -47,16 +47,18 @@ const ETIQUETAS_FIRMA: ReadonlyArray<string> = [
 ];
 
 /**
- * Construye el modelo de vista del documento a partir de la config del tenant. PURA y
- * determinista: todas las aserciones de CONTENIDO recaen aquí. El bloque de firma va en
- * blanco (solo etiquetas). Con 0 secciones el modelo sigue teniendo título + firma (D3).
+ * Construye el modelo de vista del documento a partir de la config del tenant y el
+ * IDIOMA de la reserva (Mejora A). PURA y determinista: todas las aserciones de CONTENIDO
+ * recaen aquí. El `idioma` selecciona el texto del JSON bilingüe (título y secciones); por
+ * defecto `ca` para preservar el comportamiento previo. El bloque de firma va en blanco
+ * (solo etiquetas). Con 0 secciones el modelo sigue teniendo título + firma (D3).
  */
 export const construirModeloDocumentoCondiciones = (
   config: ConfiguracionDocumentoTenant,
+  idioma: 'es' | 'ca' = 'ca',
 ): ModeloDocumentoCondiciones => ({
-  // El documento de condicions particulares conserva el catalán en este change (design.md
-  // D6/§"Fuera de alcance"): su render bilingüe autónomo es trabajo futuro.
-  titulo: config.condiciones.titulo.ca,
+  // Mejora A: el idioma de la reserva elige el texto del JSON bilingüe (título/secciones).
+  titulo: config.condiciones.titulo[idioma],
   cabecera: {
     // Las condicions no muestran el desglose fiscal ni dependen del régimen: cabecera con
     // nombre comercial + identidad fiscal + branding del tenant (mismo componente que 6.1b).
@@ -73,8 +75,8 @@ export const construirModeloDocumentoCondiciones = (
     email: config.identidadFiscal.email,
   },
   secciones: config.condiciones.secciones.map((seccion) => ({
-    titulo: seccion.titulo.ca,
-    cuerpo: seccion.cuerpo.ca,
+    titulo: seccion.titulo[idioma],
+    cuerpo: seccion.cuerpo[idioma],
   })),
   firma: { etiquetas: ETIQUETAS_FIRMA },
 });

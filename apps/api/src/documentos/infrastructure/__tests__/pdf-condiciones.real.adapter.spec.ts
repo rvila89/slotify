@@ -114,7 +114,7 @@ describe('PdfCondicionesRealAdapter — degradado sin config (2.5a)', () => {
     );
 
     // Act
-    const url = await adaptador.generar({ tenantId: TENANT });
+    const url = await adaptador.generar({ tenantId: TENANT, idioma: 'ca' });
 
     // Assert — degrada: null y sin efectos de render/subida.
     expect(url).toBeNull();
@@ -139,7 +139,7 @@ describe('PdfCondicionesRealAdapter — degradado con secciones vacías (2.5b, D
     );
 
     // Act
-    const url = await adaptador.generar({ tenantId: TENANT });
+    const url = await adaptador.generar({ tenantId: TENANT, idioma: 'ca' });
 
     // Assert — D3: sin secciones no se genera documento (no se adjunta).
     expect(url).toBeNull();
@@ -165,15 +165,15 @@ describe('PdfCondicionesRealAdapter — camino feliz (2.5c)', () => {
     );
 
     // Act
-    const url = await adaptador.generar({ tenantId: TENANT });
+    const url = await adaptador.generar({ tenantId: TENANT, idioma: 'ca' });
 
-    // Assert — render con la config del tenant; subida con la clave del tenant.
+    // Assert — render con la config del tenant + idioma; subida con la clave por idioma.
     expect(render).toHaveBeenCalledTimes(1);
-    expect(render).toHaveBeenCalledWith(cfg);
+    expect(render).toHaveBeenCalledWith(cfg, 'ca');
     expect(almacen.subir).toHaveBeenCalledTimes(1);
     const [, clave] = almacen.subir.mock.calls[0];
-    expect(clave).toBe(`condiciones/${TENANT}.pdf`);
-    expect(url).toBe(`https://storage.local/condiciones/${TENANT}.pdf`);
+    expect(clave).toBe(`condiciones/${TENANT}-ca.pdf`);
+    expect(url).toBe(`https://storage.local/condiciones/${TENANT}-ca.pdf`);
   });
 });
 
@@ -198,14 +198,14 @@ describe('PdfCondicionesRealAdapter — la clave aísla por tenant (2.5d)', () =
     );
 
     // Act
-    await adaptadorA.generar({ tenantId: TENANT });
-    await adaptadorB.generar({ tenantId: OTRO_TENANT });
+    await adaptadorA.generar({ tenantId: TENANT, idioma: 'ca' });
+    await adaptadorB.generar({ tenantId: OTRO_TENANT, idioma: 'ca' });
 
-    // Assert — cada tenant escribe en su propia clave.
+    // Assert — cada tenant escribe en su propia clave (diferenciada por idioma).
     const claveA = almacenA.subir.mock.calls[0][1];
     const claveB = almacenB.subir.mock.calls[0][1];
-    expect(claveA).toBe(`condiciones/${TENANT}.pdf`);
-    expect(claveB).toBe(`condiciones/${OTRO_TENANT}.pdf`);
+    expect(claveA).toBe(`condiciones/${TENANT}-ca.pdf`);
+    expect(claveB).toBe(`condiciones/${OTRO_TENANT}-ca.pdf`);
     expect(claveA).not.toBe(claveB);
   });
 });

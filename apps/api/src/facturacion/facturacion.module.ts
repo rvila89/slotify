@@ -14,12 +14,8 @@ import { ComunicacionesModule } from '../comunicaciones/comunicaciones.module';
 import { ENVIAR_EMAIL_PORT } from '../comunicaciones/comunicaciones.tokens';
 import type { EnviarEmailPort } from '../comunicaciones/domain/enviar-email.port';
 import { DocumentosModule } from '../documentos/documentos.module';
-import {
-  ALMACEN_DOCUMENTOS_PORT,
-  GENERAR_PDF_CONDICIONES_PORT,
-} from '../documentos/documentos.tokens';
+import { ALMACEN_DOCUMENTOS_PORT } from '../documentos/documentos.tokens';
 import type { AlmacenDocumentosPort } from '../documentos/domain/almacen-documentos.port';
-import type { GenerarPdfCondicionesPort } from '../documentos/domain/generar-pdf-condiciones.port';
 import { renderizarDocumentoFacturaABytes } from '../documentos/presentation/documento-factura.render';
 import {
   GenerarFacturaSenalUseCase,
@@ -74,7 +70,6 @@ import {
   type CargarReservaSenalEmisionPort,
   type ClockPort as ClockSenalPort,
   type EnviarE3EmisionPort,
-  type GenerarCondicionesPort,
   type UnidadDeTrabajoSenalEmisionPort,
 } from './application/enviar-factura-senal.use-case';
 import {
@@ -712,26 +707,22 @@ type CargarFacturaFn = (params: {
         UNIDAD_DE_TRABAJO_SENAL_EMISION_PORT,
         CARGAR_RESERVA_SENAL_EMISION_PORT,
         ENVIAR_E3_EMISION_PORT,
-        GENERAR_PDF_CONDICIONES_PORT,
         FACTURACION_CLOCK_PORT,
       ],
+      // Mejora B: E3 ya no envía condiciones (van en E2); el use-case no inyecta el PDF
+      // de condiciones ni toca la RESERVA.
       useFactory: (
         unidadDeTrabajo: UnidadDeTrabajoSenalEmisionPort,
         cargarReserva: CargarReservaSenalEmisionPort,
         enviarE3: EnviarE3EmisionPort,
-        generarPdfCondiciones: GenerarPdfCondicionesPort,
         clock: ClockSenalPort,
-      ) => {
-        const generarCondiciones: GenerarCondicionesPort = (params) =>
-          generarPdfCondiciones.generar(params);
-        return new EnviarFacturaSenalUseCase({
+      ) =>
+        new EnviarFacturaSenalUseCase({
           unidadDeTrabajo,
           cargarReserva,
           enviarE3,
-          generarCondiciones,
           clock,
-        });
-      },
+        }),
     },
     {
       provide: ReenviarE3UseCase,
