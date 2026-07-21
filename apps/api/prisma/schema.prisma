@@ -600,10 +600,16 @@ model FichaOperativa {
   idFicha                String    @id @default(uuid()) @map("id_ficha")
   reservaId              String    @unique @map("reserva_id")
   numInvitadosConfirmado Int?      @map("num_invitados_confirmado")
+  // Campos legacy (soft-remove del contrato ficha-operativa-campos-operativos): las
+  // columnas PERMANECEN en BD como nullable, pero ya NO se proyectan al dominio ni al
+  // contrato. No borrar sin una migración de datos posterior.
   menuSeleccionado       String?   @map("menu_seleccionado") @db.Text
   timingDetallado        String?   @map("timing_detallado") @db.Text
   contactoEventoNombre   String?   @map("contacto_evento_nombre")
   contactoEventoTelefono String?   @map("contacto_evento_telefono")
+  contactoEventoCorreo   String?   @map("contacto_evento_correo")
+  horaLlegada            String?   @map("hora_llegada")
+  duracion               String?   @map("duracion")
   notasOperativas        String?   @map("notas_operativas") @db.Text
   briefingEquipo         String?   @map("briefing_equipo") @db.Text
   fichaCerrada           Boolean   @default(false) @map("ficha_cerrada")

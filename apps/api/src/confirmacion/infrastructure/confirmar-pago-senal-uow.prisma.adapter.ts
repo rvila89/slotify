@@ -219,12 +219,14 @@ class FichaOperativaConfirmacionPrismaRepository
     reservaId: string;
     fichaCerrada: false;
     notasOperativas: string | null;
+    contactoEventoCorreo: string | null;
   }): Promise<{ idFicha: string }> {
     const fila = await this.tx.fichaOperativa.create({
       data: {
         reservaId: params.reservaId,
         fichaCerrada: params.fichaCerrada,
         notasOperativas: params.notasOperativas,
+        contactoEventoCorreo: params.contactoEventoCorreo,
       },
     });
     return { idFicha: fila.idFicha };

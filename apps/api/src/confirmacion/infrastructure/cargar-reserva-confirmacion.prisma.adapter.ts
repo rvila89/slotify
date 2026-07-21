@@ -29,6 +29,7 @@ export class CargarReservaConfirmacionPrismaAdapter {
       await this.prisma.fijarTenant(tx, params.tenantId);
       const fila = await tx.reserva.findFirst({
         where: { idReserva: params.reservaId, tenantId: params.tenantId },
+        include: { cliente: { select: { email: true } } },
       });
       if (fila === null) {
         return null;
@@ -67,6 +68,9 @@ export class CargarReservaConfirmacionPrismaAdapter {
               total: presupuesto.total.toFixed(2),
             },
       comentarios: fila.comentarios,
+      // Correo de contacto del cliente de la reserva: fuente del pre-relleno de
+      // `contactoEventoCorreo` al crear la FICHA_OPERATIVA (ficha-operativa-campos-operativos).
+      contactoEmail: fila.cliente?.email ?? null,
     };
     return reserva;
   };

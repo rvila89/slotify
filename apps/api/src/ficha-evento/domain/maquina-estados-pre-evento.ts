@@ -19,15 +19,16 @@ export type PreEventoStatus = 'pendiente' | 'en_curso' | 'cerrado';
 
 /**
  * Contenido de la ficha operativa relevante para la guarda «primer guardado con
- * datos» (§D-2). Son los 7 campos de contenido; el resto (fichaCerrada, fechaCierre,
+ * datos» (§D-2). Son los campos de contenido; el resto (fichaCerrada, fechaCierre,
  * ids) no cuenta como "dato".
  */
 export interface ContenidoFicha {
   numInvitadosConfirmado: number | null;
-  menuSeleccionado: string | null;
-  timingDetallado: string | null;
   contactoEventoNombre: string | null;
   contactoEventoTelefono: string | null;
+  contactoEventoCorreo: string | null;
+  horaLlegada: string | null;
+  duracion: string | null;
   notasOperativas: string | null;
   briefingEquipo: string | null;
 }
@@ -75,10 +76,11 @@ export const resolverCierreAutomatico = (
 
 /** Nombres de los campos de texto de contenido (para la guarda de "dato de texto"). */
 const CAMPOS_TEXTO: ReadonlyArray<keyof ContenidoFicha> = [
-  'menuSeleccionado',
-  'timingDetallado',
   'contactoEventoNombre',
   'contactoEventoTelefono',
+  'contactoEventoCorreo',
+  'horaLlegada',
+  'duracion',
   'notasOperativas',
   'briefingEquipo',
 ];

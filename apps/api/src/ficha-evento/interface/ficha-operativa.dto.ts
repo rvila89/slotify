@@ -26,16 +26,19 @@ export class FichaOperativaResponseDto {
   numInvitadosConfirmado!: number | null;
 
   @ApiPropertyOptional({ type: String, nullable: true })
-  menuSeleccionado!: string | null;
-
-  @ApiPropertyOptional({ type: String, nullable: true })
-  timingDetallado!: string | null;
-
-  @ApiPropertyOptional({ type: String, nullable: true })
   contactoEventoNombre!: string | null;
 
   @ApiPropertyOptional({ type: String, nullable: true })
   contactoEventoTelefono!: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  contactoEventoCorreo!: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  horaLlegada!: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  duracion!: string | null;
 
   @ApiPropertyOptional({ type: String, nullable: true })
   notasOperativas!: string | null;
@@ -59,7 +62,7 @@ export class CerrarFichaOperativaResponseDto extends FichaOperativaResponseDto {
     type: [String],
     description:
       'Nombres (camelCase) de los campos de contenido vacíos al cerrar (aviso informativo, no error). Vacío si estaban todos rellenos.',
-    example: ['menuSeleccionado', 'briefingEquipo'],
+    example: ['duracion', 'briefingEquipo'],
   })
   avisosCamposVacios!: string[];
 }
@@ -80,18 +83,6 @@ export class GuardarFichaOperativaRequestDto {
   @IsOptional()
   @ValidateIf(salvoNull)
   @IsString()
-  menuSeleccionado?: string | null;
-
-  @ApiPropertyOptional({ type: String, nullable: true })
-  @IsOptional()
-  @ValidateIf(salvoNull)
-  @IsString()
-  timingDetallado?: string | null;
-
-  @ApiPropertyOptional({ type: String, nullable: true })
-  @IsOptional()
-  @ValidateIf(salvoNull)
-  @IsString()
   contactoEventoNombre?: string | null;
 
   @ApiPropertyOptional({ type: String, nullable: true })
@@ -99,6 +90,24 @@ export class GuardarFichaOperativaRequestDto {
   @ValidateIf(salvoNull)
   @IsString()
   contactoEventoTelefono?: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  @IsOptional()
+  @ValidateIf(salvoNull)
+  @IsString()
+  contactoEventoCorreo?: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  @IsOptional()
+  @ValidateIf(salvoNull)
+  @IsString()
+  horaLlegada?: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  @IsOptional()
+  @ValidateIf(salvoNull)
+  @IsString()
+  duracion?: string | null;
 
   @ApiPropertyOptional({ type: String, nullable: true })
   @IsOptional()
