@@ -103,7 +103,12 @@ describe('RequireAuth (guard) + sesión real US-001', () => {
   it('debe_conceder_acceso_tras_poblar_la_sesion_en_memoria_con_iniciarSesion', async () => {
     const user = userEvent.setup();
     render(
-      <SessionProvider>
+      // Se inyecta `unauthenticated` como estado inicial: sin `value`, el change
+      // gestion-sesion-ux-modal-f5-error-banner hace que el provider arranque en
+      // `recovering` (spinner) a la espera de `AuthBootstrap`, que no se monta en
+      // este test unitario del guard. La intención del caso —el guard concede
+      // acceso tras `iniciarSesion`— se preserva partiendo de anónimo.
+      <SessionProvider value={{ status: 'unauthenticated' }}>
         <MemoryRouter initialEntries={['/calendario']}>
           <Routes>
             <Route element={<RequireAuth />}>

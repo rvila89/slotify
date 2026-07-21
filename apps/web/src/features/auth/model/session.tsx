@@ -34,10 +34,21 @@ export type SessionUser = {
 
 export type Session =
   | { status: 'authenticated'; user: SessionUser }
-  | { status: 'unauthenticated'; user?: undefined };
+  | { status: 'unauthenticated'; user?: undefined }
+  // Estado transitorio del arranque (F5 recovery): el provider intenta
+  // rehidratar la sesión desde la cookie de refresh antes de decidir si el
+  // usuario está autenticado o no. `RequireAuth` muestra un spinner mientras dura.
+  | { status: 'recovering'; user?: undefined };
 
 type SessionActions = {
   iniciarSesion: (accessToken: string, usuario: SessionUser) => void;
+  /**
+   * Rehidrata la sesión como `authenticated` SIN navegar (a diferencia de
+   * `iniciarSesion`, que devuelve al usuario a `from ?? /dashboard`). La usa
+   * `AuthBootstrap` en la recuperación silenciosa tras recargar (F5): el usuario
+   * permanece en la ruta que estaba visitando.
+   */
+  rehidratarSesion: (accessToken: string, usuario: SessionUser) => void;
   cerrarSesion: () => void;
 };
 
@@ -55,12 +66,25 @@ let accessTokenEnMemoria: string | null = null;
 export const obtenerAccessTokenEnMemoria = (): string | null => accessTokenEnMemoria;
 
 /**
+ * Evento interno de la feature `auth`. Se despacha en `window` cada vez que el
+ * access token en memoria se renueva (login, retry del interceptor, keepSession).
+ * `useSessionExpiry` lo escucha para reprogramar sus temporizadores con el nuevo
+ * `exp` sin acoplarse a quién renovó el token.
+ */
+export const EVENTO_TOKEN_REFRESCADO = 'slotify:token-refreshed';
+
+/**
  * Actualiza SOLO el access token en memoria (sin tocar el estado de React ni
  * navegar). Lo usa el interceptor de refresh: ante un access expirado se renueva
- * el token silenciosamente y la sesión del usuario se mantiene intacta.
+ * el token silenciosamente y la sesión del usuario se mantiene intacta. Despacha
+ * `slotify:token-refreshed` para que los consumidores (p. ej. el aviso de
+ * expiración) reprogramen sus temporizadores con el nuevo `exp`.
  */
 export const establecerAccessTokenEnMemoria = (token: string): void => {
   accessTokenEnMemoria = token;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(EVENTO_TOKEN_REFRESCADO));
+  }
 };
 
 /**
@@ -118,9 +142,13 @@ export const SessionProvider = ({
   value?: unknown;
   children: ReactNode;
 }) => {
-  // El `value` inyectado (US-000A / tests) actúa como estado INICIAL. Sin `value`
-  // (US-001) el provider arranca anónimo y se autogestiona con las acciones.
-  const [session, setSession] = useState<Session>(() => normalizarSesion(value));
+  // El `value` inyectado (US-000A / tests) actúa como estado INICIAL y se
+  // normaliza (`authenticated`/`unauthenticated`). Sin `value` (US-001) el
+  // provider arranca en `recovering`: `AuthBootstrap` intentará rehidratar la
+  // sesión desde la cookie de refresh en el arranque y resolverá el estado.
+  const [session, setSession] = useState<Session>(() =>
+    value === undefined ? { status: 'recovering' } : normalizarSesion(value),
+  );
 
   return (
     <SessionContext.Provider value={session}>
@@ -142,11 +170,21 @@ export const useSessionActions = (): SessionActions => {
 
   const iniciarSesion = useCallback(
     (accessToken: string, usuario: SessionUser) => {
-      accessTokenEnMemoria = accessToken;
+      establecerAccessTokenEnMemoria(accessToken);
       setSession({ status: 'authenticated', user: usuario });
       volverTrasLogin();
     },
     [setSession, volverTrasLogin],
+  );
+
+  const rehidratarSesion = useCallback(
+    (accessToken: string, usuario: SessionUser) => {
+      // Igual que `iniciarSesion` pero SIN navegar: el recovery (F5) es silencioso
+      // y el usuario debe permanecer en la ruta que estaba visitando.
+      establecerAccessTokenEnMemoria(accessToken);
+      setSession({ status: 'authenticated', user: usuario });
+    },
+    [setSession],
   );
 
   const cerrarSesion = useCallback(() => {
@@ -155,7 +193,7 @@ export const useSessionActions = (): SessionActions => {
   }, [setSession]);
 
   return useMemo<SessionActions>(
-    () => ({ iniciarSesion, cerrarSesion }),
-    [iniciarSesion, cerrarSesion],
+    () => ({ iniciarSesion, rehidratarSesion, cerrarSesion }),
+    [iniciarSesion, rehidratarSesion, cerrarSesion],
   );
 };

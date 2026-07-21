@@ -35,7 +35,8 @@ describe('crearMiddlewareRefresh — no recursión en /auth/refresh (REQ 5/10)',
   it('no_debe_reintentar_refresh_cuando_el_401_proviene_del_propio_endpoint_de_refresh', async () => {
     const refrescar = vi.fn(async () => false);
     const onSesionExpirada = vi.fn();
-    const mw = crearMiddlewareRefresh({ refrescar, onSesionExpirada });
+    const obtenerToken = vi.fn(() => null);
+    const mw = crearMiddlewareRefresh({ refrescar, onSesionExpirada, obtenerToken });
 
     // 401 cuya petición ES el refresh: NO debe volver a llamar a refrescar().
     await mw.onResponse?.(contexto('https://api.slotify.test/auth/refresh', 401));
@@ -46,7 +47,8 @@ describe('crearMiddlewareRefresh — no recursión en /auth/refresh (REQ 5/10)',
   it('debe_propagar_el_fallo_de_sesion_sin_reentrar_en_el_refresh', async () => {
     const refrescar = vi.fn(async () => false);
     const onSesionExpirada = vi.fn();
-    const mw = crearMiddlewareRefresh({ refrescar, onSesionExpirada });
+    const obtenerToken = vi.fn(() => null);
+    const mw = crearMiddlewareRefresh({ refrescar, onSesionExpirada, obtenerToken });
 
     // Endpoint protegido devuelve 401 → se intenta UN refresh, que falla (401).
     await mw.onResponse?.(contexto('https://api.slotify.test/reservas', 401));

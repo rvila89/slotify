@@ -1,7 +1,11 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/api-client';
-import { establecerAccessTokenEnMemoria, useSessionActions } from '../model/session';
+import {
+  establecerAccessTokenEnMemoria,
+  obtenerAccessTokenEnMemoria,
+  useSessionActions,
+} from '../model/session';
 import { middlewareAuthHeader } from '../api/api-middleware';
 import { crearMiddlewareRefresh } from '../api/refresh-interceptor';
 
@@ -35,7 +39,11 @@ export const InterceptorRegistrar = () => {
       navigate('/login', { replace: true });
     };
 
-    const middlewareRefresh = crearMiddlewareRefresh({ refrescar, onSesionExpirada });
+    const middlewareRefresh = crearMiddlewareRefresh({
+      refrescar,
+      onSesionExpirada,
+      obtenerToken: obtenerAccessTokenEnMemoria,
+    });
     apiClient.use(middlewareAuthHeader, middlewareRefresh);
 
     return () => {

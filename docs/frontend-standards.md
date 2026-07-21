@@ -152,12 +152,69 @@ export const useTransicionarReserva = () => {
 
 (Ver [architecture.md §2.8](./architecture.md) y [architecture.md §2.9](./architecture.md) para la deuda técnica registrada.)
 
+### Almacenamiento del token (REQ 10 — regla dura)
+
 - El **access token vive en memoria** (`accessTokenEnMemoria` a nivel de módulo en `session.tsx`), **nunca** en `localStorage` ni `sessionStorage`. Las funciones `iniciarSesion`/`cerrarSesion` solo mutan memoria.
 - El **refresh token** está en una cookie `httpOnly + Secure + SameSite` que el JS no puede leer. El cliente HTTP usa `credentials: 'include'` para que el navegador envíe la cookie en las peticiones a `/auth/refresh`.
-- **Interceptor de refresh:** ante un 401 en cualquier petición, el interceptor intenta `POST /auth/refresh` una vez y reintenta la petición original. Si el refresh también devuelve 401, el interceptor limpia la sesión en memoria y redirige a `/login`. **Guarda anti-recursión:** si el 401 proviene de la propia llamada a `/auth/refresh`, el interceptor retorna sin reintentar para evitar bucles infinitos.
-- **Login:** `LoginPage.tsx` ejecuta una **mutación TanStack Query** contra el SDK generado. El cliente HTTP generado **nunca se edita a mano**; si el contrato cambia, se regenera con `pnpm generate-client`. Tras login exitoso la sesión se puebla en memoria y la app redirige al calendario (respetando el `state.from` preservado por `RequireAuth`).
-- **Validación en el frontend:** el formulario de login bloquea el envío y muestra mensajes por campo si el email o la contraseña están vacíos, o si el email tiene formato inválido — antes de hacer ninguna llamada a la API.
 - **Prohibido** guardar cualquier token en `localStorage`. Ver DT-AUTH-04 en [architecture.md §2.9](./architecture.md) para la deuda del codegen.
+
+### Ciclo de sesión completo
+
+El ciclo de vida de la sesión tiene tres mecanismos que cooperan de forma automática:
+
+#### 1. Interceptor de refresh con retry transparente
+
+`crearMiddlewareRefresh` (en `features/auth/api/refresh-interceptor.ts`) se monta como middleware de `openapi-fetch`. Ante un 401 en cualquier petición:
+
+1. Si el 401 viene de la propia llamada a `/auth/refresh` — **guarda anti-recursión** — devuelve `undefined` sin reintentar y sin bucle.
+2. Llama a `refrescar()` (`POST /auth/refresh`). Si falla, invoca `onSesionExpirada()` (limpia sesión y redirige a `/login`).
+3. Si el refresh es satisfactorio: clona la request original, sobreescribe solo el header `Authorization` con el nuevo token en memoria y **devuelve la Response del reintento** (`fetch(reintento)`). TanStack Query y el resto de la app ven un 2xx; el usuario nunca percibe el 401.
+
+#### 2. F5 recovery — rehidratación silenciosa al recargar
+
+`SessionProvider` arranca siempre en `{ status: 'recovering' }` (estado transitorio). `AuthBootstrap` (componente sin UI, montado en `App.tsx`) ejecuta `POST /auth/refresh` al montarse:
+
+- **Exito:** decodifica el JWT con `decodificarPayloadJwt` (lectura del payload sin verificar firma), mapea a `SessionUser` y llama a `rehidratarSesion(token, user)`. El usuario **permanece en la ruta que estaba visitando** (sin redirección al dashboard).
+- **Fallo:** llama a `cerrarSesion()` → estado `unauthenticated`.
+
+`RequireAuth` muestra un **spinner** mientras el estado sea `recovering` y protege la ruta cuando sea `unauthenticated`. El guard solo actúa después de que `AuthBootstrap` haya resuelto el estado.
+
+#### 3. Aviso de expiración con countdown (`useSessionExpiry`)
+
+`useSessionExpiry` (en `features/auth/lib/useSessionExpiry.ts`) decodifica el campo `exp` (segundos epoch) del access token en memoria y programa dos temporizadores:
+
+- **`exp − 60 s`:** pone `showWarning = true` y arranca un countdown de 60 a 0. `SessionExpiryWarningModal` aparece con los botones "Mantener sesión" y "Cerrar sesión".
+  - "Mantener sesión" (`keepSession`): llama a `POST /auth/refresh`, establece el nuevo token en memoria y cierra el modal.
+  - "Cerrar sesión": cierra la sesión inmediatamente.
+- **`exp`:** pone `showExpired = true`. `SessionExpiredModal` aparece con el mensaje "Tu sesión se ha cerrado" y el botón "Iniciar sesión" (navega a `/login`).
+
+Los temporizadores se limpian y reprograman automáticamente ante cualquier renovación del token (ver evento `slotify:token-refreshed` más abajo).
+
+### Evento interno: `slotify:token-refreshed`
+
+`establecerAccessTokenEnMemoria` (en `features/auth/model/session.tsx`) despacha el evento DOM `slotify:token-refreshed` en `window` **cada vez que el access token en memoria se renueva**: login inicial, retry del interceptor o `keepSession` del modal de aviso.
+
+Este evento es el **contrato interno de la feature `auth`** para propagar renovaciones de token sin acoplamientos directos entre piezas:
+
+- `useSessionExpiry` lo escucha para reprogramar sus temporizadores con el nuevo `exp` y cerrar el modal de aviso automáticamente.
+- Cualquier otro consumidor que necesite reaccionar a renovaciones del token (p. ej. un futuro hook de auditoría o de sincronización de estado) debe escuchar `slotify:token-refreshed` en `window`, no acceder directamente a la variable del módulo.
+
+```ts
+// Publicar (solo desde establecerAccessTokenEnMemoria — no llamar directamente)
+window.dispatchEvent(new Event('slotify:token-refreshed'));
+
+// Suscribirse en un hook / efecto
+window.addEventListener('slotify:token-refreshed', handler);
+// Limpiar siempre en el desmontaje para evitar memory leaks
+window.removeEventListener('slotify:token-refreshed', handler);
+```
+
+La constante exportada `EVENTO_TOKEN_REFRESCADO = 'slotify:token-refreshed'` (en `features/auth/model/session.tsx`) es la referencia canónica; usar siempre la constante, no el literal de cadena.
+
+### Login y validación
+
+- `LoginPage.tsx` ejecuta una **mutación TanStack Query** contra el SDK generado. El cliente HTTP generado **nunca se edita a mano**; si el contrato cambia, se regenera con `pnpm generate-client`. Tras login exitoso la sesión se puebla en memoria y la app redirige al calendario (respetando el `state.from` preservado por `RequireAuth`).
+- **Validación en el frontend:** el formulario de login bloquea el envío y muestra mensajes por campo si el email o la contraseña están vacíos, o si el email tiene formato inválido — antes de hacer ninguna llamada a la API.
 
 ## Convenciones de código
 
