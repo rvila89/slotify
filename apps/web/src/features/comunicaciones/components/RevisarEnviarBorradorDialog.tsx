@@ -19,6 +19,28 @@ import { AvisoErrorComunicacion } from './AvisoErrorComunicacion';
 import type { ComunicacionListItem } from '../model/types';
 
 /**
+ * Convierte HTML del catálogo de plantillas a texto plano editable.
+ * Invierte `textoPlanoAHtml` + `htmlEscape` del backend para que el gestor vea y edite
+ * contenido legible en el textarea. Al enviar, el backend detecta texto plano
+ * (heurística `contieneMarcadoHtml`) y lo re-convierte a HTML para el cliente de correo.
+ *
+ * Equivalencia: `<p>pár1<br>línea2</p><p>pár2</p>` → `"pár1\nlínea2\n\npár2"`
+ */
+const htmlATextoPlano = (html: string): string => {
+  if (!html.trimStart().startsWith('<')) return html; // ya es texto plano
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+};
+
+/**
  * Diálogo "Revisar y enviar borrador" (US-046 · UC-36). Muestra el borrador
  * (`codigoEmail` y `destinatarioEmail` en SOLO LECTURA) y permite EDITAR opcionalmente
  * `asunto` y `cuerpo` (React Hook Form + Zod, regla dura). Al confirmar envía por el
@@ -75,9 +97,12 @@ export const RevisarEnviarBorradorDialog = ({
   const { reset: resetEnviar } = enviar;
 
   // Al abrir con un borrador, precarga sus valores actuales para revisar/editar.
+  // Si el cuerpo almacenado es HTML del catálogo, se convierte a texto plano para
+  // que el gestor vea y edite contenido legible sin etiquetas. Al enviar, el backend
+  // detecta texto plano (heurística `contieneMarcadoHtml`) y lo re-convierte a HTML.
   useEffect(() => {
     if (abierto && borrador) {
-      reset({ asunto: borrador.asunto ?? '', cuerpo: borrador.cuerpo ?? '' });
+      reset({ asunto: borrador.asunto ?? '', cuerpo: htmlATextoPlano(borrador.cuerpo ?? '') });
     }
     if (!abierto) {
       resetEnviar();
