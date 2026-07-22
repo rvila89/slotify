@@ -162,7 +162,7 @@ const comandoConFecha = (
 ): AltaConsultaComando => ({
   tenantId: TENANT,
   usuarioId: GESTOR,
-  canalEntrada: 'web',
+  canalEntrada: 'email',
   fechaEvento: FECHA,
   cliente: { nombre: 'Marta', apellidos: 'Soler', email: EMAIL, telefono: '600111222' },
   ...over,

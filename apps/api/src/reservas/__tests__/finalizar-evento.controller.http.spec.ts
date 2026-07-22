@@ -67,7 +67,7 @@ const resultadoConE5 = (
     clienteId: '00000000-0000-0000-0000-0000000000c1',
     estado: 'post_evento',
     subEstado: null,
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     fechaEvento: new Date('2026-06-20T00:00:00.000Z'),
     duracionHoras: 8,
     tipoEvento: 'boda',

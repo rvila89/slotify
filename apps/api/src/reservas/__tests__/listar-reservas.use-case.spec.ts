@@ -38,7 +38,7 @@ const filaActiva = (
   clienteId: 'cli-1',
   estado: 'pre_reserva',
   subEstado: null,
-  canalEntrada: 'web',
+  canalEntrada: 'email',
   fechaEvento: new Date('2027-10-20T00:00:00.000Z'),
   duracionHoras: null,
   tipoEvento: null,

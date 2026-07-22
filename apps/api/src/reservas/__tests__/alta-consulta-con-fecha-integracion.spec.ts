@@ -55,7 +55,7 @@ const comando = (email: string, over: Partial<ComandoConFecha> = {}): AltaConsul
   ({
     tenantId: TENANT,
     usuarioId: GESTOR,
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     cliente: { nombre: 'Int', apellidos: 'Test', email, telefono: '600000000' },
     ...over,
   } as ComandoConFecha);

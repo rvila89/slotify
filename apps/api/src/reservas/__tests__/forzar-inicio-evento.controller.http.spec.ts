@@ -73,7 +73,7 @@ const resultadoForzado = (
     clienteId: '00000000-0000-0000-0000-0000000000c1',
     estado: 'evento_en_curso',
     subEstado: null,
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     fechaEvento: new Date('2026-09-12T00:00:00.000Z'),
     duracionHoras: 8,
     tipoEvento: 'boda',

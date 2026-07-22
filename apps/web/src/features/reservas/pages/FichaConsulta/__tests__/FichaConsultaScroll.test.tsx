@@ -34,7 +34,7 @@ vi.mock('../../../api/useReserva', () => ({
       codigo: 'R-0001',
       estado: 'consulta',
       subEstado: '2b',
-      canalEntrada: 'web',
+      canalEntrada: 'email',
       cliente: { nombre: 'Flori', apellidos: 'Bosch', email: 'flori@example.com' },
     },
     isLoading: false,

@@ -69,7 +69,7 @@ const filaReserva = (over: { comunicaciones?: ComunicacionFila[] } = {}) => ({
   clienteId: 'cli-1',
   estado: 'consulta',
   subEstado: null,
-  canalEntrada: 'web',
+  canalEntrada: 'email',
   fechaEvento: null,
   duracionHoras: null,
   tipoEvento: null,

@@ -23,7 +23,7 @@ const reserva = (estado: EstadoReserva, over: Partial<Reserva> = {}): Reserva =>
     codigo: 'SLO-2026-0032',
     clienteId: crypto.randomUUID(),
     estado,
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     fechaEvento: HOY_ISO,
     preEventoStatus: 'pendiente',
     liquidacionStatus: 'pendiente',
@@ -95,7 +95,7 @@ const respuesta = (
     codigo: 'SLO-2026-0032',
     clienteId: crypto.randomUUID(),
     estado: 'evento_en_curso',
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     forzadoPorGestor: true,
     precondicionesIncumplidas,
   }) as ForzarInicioEventoResponse;

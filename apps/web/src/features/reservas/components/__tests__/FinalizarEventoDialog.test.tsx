@@ -26,7 +26,7 @@ const ok = (resultado: 'enviado' | 'fallido' | 'no_aplica', documentacionPendien
     codigo: 'SLO-2026-0034',
     clienteId: '22222222-2222-2222-2222-222222222222',
     estado: 'post_evento',
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     e5: { resultado, comunicacionId: resultado === 'no_aplica' ? null : 'c1' },
     documentacionPendiente,
   },

@@ -21,7 +21,7 @@ const reserva = (estado: EstadoReserva, over: Partial<Reserva> = {}): Reserva =>
     codigo: 'SLO-2026-0034',
     clienteId: crypto.randomUUID(),
     estado,
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     ...over,
   }) as Reserva;
 
@@ -84,7 +84,7 @@ const respuesta = (
     codigo: 'SLO-2026-0034',
     clienteId: crypto.randomUUID(),
     estado: 'post_evento',
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     e5: { resultado, comunicacionId: resultado === 'no_aplica' ? null : crypto.randomUUID() },
     documentacionPendiente,
   }) as FinalizarEventoResponse;
