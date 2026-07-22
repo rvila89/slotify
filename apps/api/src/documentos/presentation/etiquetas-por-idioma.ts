@@ -27,7 +27,7 @@ export interface EtiquetasDocumento {
   personas: string;
   /** Rótulo "Validesa"/"Validez". */
   validesa: string;
-  /** Rótulo "Base imposable"/"Base imponible". */
+  /** Rótulo abreviado de base imponible "Base imp." (ca y es, fiel a las referencias). */
   baseImponible: string;
   /** Rótulo "% Iva"/"% Iva". */
   ivaPct: string;
@@ -66,7 +66,7 @@ const ETIQUETAS_CA: EtiquetasDocumento = {
   precio: 'PREU',
   personas: 'persones',
   validesa: 'Validesa',
-  baseImponible: 'Base imposable',
+  baseImponible: 'Base imp.',
   ivaPct: '% Iva',
   total: 'Total',
   condiciones: 'Condicions',
@@ -90,7 +90,7 @@ const ETIQUETAS_ES: EtiquetasDocumento = {
   precio: 'PRECIO',
   personas: 'personas',
   validesa: 'Validez',
-  baseImponible: 'Base imponible',
+  baseImponible: 'Base imp.',
   ivaPct: '% Iva',
   total: 'Total',
   condiciones: 'Condiciones',

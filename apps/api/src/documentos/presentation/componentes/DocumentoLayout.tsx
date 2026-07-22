@@ -81,7 +81,8 @@ export const DocumentoLayout = ({ kit, modelo }: DocumentoLayoutProps) => {
           estilos={estilos}
           totales={modelo.totales}
           etiquetas={etiquetas}
-          validesaTexto={modelo.validesaTexto}
+          etiquetaIzquierda={etiquetas.validesa}
+          valorIzquierda={modelo.validesaTexto}
         />
 
         <BloqueCondicions

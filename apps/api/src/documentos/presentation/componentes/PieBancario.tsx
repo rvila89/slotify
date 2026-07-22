@@ -21,6 +21,12 @@ export interface PieBancarioProps {
   etiquetas: EtiquetasDocumento;
   /** Email de contacto del emisor (de la cabecera) al que enviar el comprovant. */
   email: string;
+  /**
+   * Si se muestra la línea "Dades bancàries: {beneficiario}" (change
+   * `factura-pdf-fiel-referencia`, §D5). Default `true` (presupuesto la conserva); la factura
+   * lo pasa `false` (fiel a la referencia: se omite el beneficiario).
+   */
+  mostrarBeneficiario?: boolean;
 }
 
 export const PieBancario = ({
@@ -29,6 +35,7 @@ export const PieBancario = ({
   pieBancario,
   etiquetas,
   email,
+  mostrarBeneficiario = true,
 }: PieBancarioProps) => {
   const { View, Text } = kit;
   return (
@@ -38,9 +45,11 @@ export const PieBancario = ({
       </Text>
       <Text style={estilos.pieLinea}>{etiquetas.transferenciaCompte}</Text>
       <Text style={estilos.pieIban}>{pieBancario.iban}</Text>
-      <Text style={[estilos.pieLinea, estilos.negrita, { marginTop: 6 }]}>
-        {`${etiquetas.dadesBancaries} ${pieBancario.beneficiario}`}
-      </Text>
+      {mostrarBeneficiario ? (
+        <Text style={[estilos.pieLinea, estilos.negrita, { marginTop: 6 }]}>
+          {`${etiquetas.dadesBancaries} ${pieBancario.beneficiario}`}
+        </Text>
+      ) : null}
     </View>
   );
 };

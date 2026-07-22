@@ -1028,6 +1028,15 @@ Las rebanadas del épico #6 construyen los cimientos y los PDFs reales de Slotif
 
 **Rebanada 6.5 (`documentos-rediseno-pdf-logo-storage`):** cierra el épico con tres mejoras integradas: (1) **storage durable en disco** — el adaptador `local` persiste los bytes en el sistema de ficheros (`ALMACEN_LOCAL_DIR`); (2) **ruta estática `GET /almacen/*`** servida por `@nestjs/serve-static` (`ServeStaticModule`, fuera del prefijo `/api`) para que `logoUrl`/`pdf_url` resuelvan desde el navegador; (3) **rediseño de la plantilla** fiel al documento real de Masia l'Encís (turquesa `#5edada`, acento amarillo `#ffd978` como constante de presentación, cabecera con logo, barra de concepto, franja de totales, mini-tabla de condicions, pie centrado), aplicado a todas las variantes; (4) **logo del tenant** subido por el puerto en el seed e insertado en el PDF por data-URI/bytes (no por HTTP) vía `presentation/resolver-logo-data-uri.ts`. Sin frontend, sin endpoints de negocio nuevos, sin cambio de contrato OpenAPI.
 
+**Change `factura-pdf-fiel-referencia` (refinamiento de la plantilla de factura):** ajusta la capa `presentation/` para que el PDF de factura sea fiel a la referencia real. Decisiones de implementación:
+
+- **`ModeloDocumentoFactura`** incorpora dos campos nuevos: `concepto` (resuelto desde `config.textos.plantillaConceptoFiscal.{idioma}` interpolando `{nombreComercial}`, ya no es texto hardcoded) y `conceptoSubtitulo: string | null` (señal → texto del 40% anticipado; liquidación → texto del saldo del 60%; fianza → `null`). El campo `pieLegal` se elimina del modelo de factura; el layout de factura no lo renderiza.
+- **`BloqueConceptoFactura`** (nuevo componente) renderiza el concepto principal y, si `conceptoSubtitulo` no es `null`, lo muestra como línea indentada no negrita a continuación.
+- **`BloqueTotales`** pasa de tener `validesaTexto` fijo a aceptar props `etiquetaIzquierda: string` y `valorIzquierda: string`, permitiendo que presupuesto y factura alimenten etiquetas distintas sin duplicar el componente.
+- **`PieBancario`** acepta prop `mostrarBeneficiario?: boolean` (default `true`; las facturas lo pasan `false`) y, en facturas, renderiza una línea oro (`COLOR_ACENTO = #ffd978`) sobre el bloque del pie.
+- **`formatearImporteDocumento`** (`presentation/formato-importe.ts`) es un helper puro que convierte el string decimal de BD (`"1200.00"`) a formato de presentación europeo (`"1.200,00"`). Se aplica en todos los componentes que renderizan importes.
+- La etiqueta `baseImponible` es ahora `"Base imp."` (ca y es) en `etiquetas-por-idioma.ts`.
+
 #### Puerto de dominio `AlmacenDocumentosPort`
 
 Define la abstracción de almacenamiento de objetos binarios (bytes → URL) que usarán las rebanadas 6.1b y siguientes para persistir logos y PDFs generados. Vive en `documentos/domain/` sin importar framework ni SDK cloud (hook `no-infra-in-domain`):
@@ -1079,20 +1088,23 @@ apps/api/src/documentos/
       almacen-documentos-local.adapter.spec.ts
       configuracion-documento-piloto.spec.ts     Verifica "espai nunca lloguer"
       configuracion-documento-integracion.spec.ts  Integración SQL real (tabla+UNIQUE+RLS+seed)
-  presentation/                                  Capa de plantilla react-pdf (añadida en 6.1b; rediseñada en 6.5 fiel a referencia real de Masia)
-    construir-modelo-documento-presupuesto.ts    Función pura: datos → modelo de vista (sin layout)
+  presentation/                                  Capa de plantilla react-pdf (añadida en 6.1b; rediseñada en 6.5 fiel a referencia real de Masia; refinada en factura-pdf-fiel-referencia)
+    construir-modelo-documento-presupuesto.ts    Función pura: datos → modelo de vista del presupuesto (sin layout)
     renderizar-documento-presupuesto.ts          Función que invoca @react-pdf/renderer → bytes PDF
     resolver-logo-data-uri.ts                    Resuelve bytes del logo desde AlmacenDocumentosPort → data-URI (añadido en 6.5)
-    estilos.ts                                   Paleta y layout compartidos (turquesa #5edada, acento #ffd978 como constante; actualizado en 6.5)
+    formato-importe.ts                           Helper puro formatearImporteDocumento: "1200.00" → "1.200,00" (coma decimal, punto millares; añadido en factura-pdf-fiel-referencia)
+    estilos.ts                                   Paleta y layout compartidos (turquesa #5edada, COLOR_ACENTO #ffd978; actualizado en 6.5; línea oro sobre pie en facturas desde factura-pdf-fiel-referencia)
+    etiquetas-por-idioma.ts                      Mapa de etiquetas por idioma (es/ca); baseImponible = "Base imp." desde factura-pdf-fiel-referencia
     components/
       DocumentoLayout.tsx                        Wrapper de página (márgenes, fuentes, título grande turquesa)
-      DocumentoFacturaLayout.tsx                 Layout variante factura 40/60
+      DocumentoFacturaLayout.tsx                 Layout variante factura 40/60 (sin pie legal de validez)
       DocumentoCondicionesLayout.tsx             Layout variante condicions particulars
       Cabecera.tsx                               Logo arriba-izquierda + identidad fiscal arriba-derecha
       BloqueCliente.tsx                          Dades client + mini-tabla Pressupost/Data
       TablaConcepto.tsx                          Barra turquesa cabecera blanca + concepto en negrita + líneas indentadas
-      BloqueTotales.tsx                          Franja Validesa / Base imp. / % Iva / Total
-      PieBancario.tsx                            Pie centrado con IBAN
+      BloqueConceptoFactura.tsx                  Variante para facturas: concepto principal + conceptoSubtitulo como línea indentada no negrita (añadido en factura-pdf-fiel-referencia)
+      BloqueTotales.tsx                          Franja parametrizada: props etiquetaIzquierda + valorIzquierda (presupuesto pasa "Validesa"/texto; factura pasa "Import factura"/""; desde factura-pdf-fiel-referencia)
+      PieBancario.tsx                            Pie centrado con IBAN; parametrizado con mostrarBeneficiario?: boolean (default true; factura lo pasa false); línea oro COLOR_ACENTO sobre el pie en facturas (desde factura-pdf-fiel-referencia)
     __tests__/
       render-plantilla.spec.ts                   Unit: produce bytes no vacíos; contiene textos clave
   documentos.module.ts                           Wiring de puertos + factory ALMACEN_PROVIDER; exporta DocumentosModule

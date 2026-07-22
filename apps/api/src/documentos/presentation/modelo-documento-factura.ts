@@ -9,12 +9,18 @@
  * `construirModeloDocumentoPresupuesto` de 6.2, pero derivada del `ivaPorcentaje` del
  * desglose (0 → SIN IVA): otro builder de "datos del documento" alimentando el mismo layout.
  *
- * §D-2 (conceptos por tipo):
- *   señal      → "40% de l'import total anticipat del pressupost núm. {n}"
- *   liquidación→ "Saldo del 60% de l'import del pressupost núm. {n}"
- *   fianza     → "Fiança de garantia — {nombreComercial}" (SIN nº de presupuesto: la fianza
- *                es del espacio, no del presupuesto)
- * Cuando `numeroPresupuesto` es null en señal/liquidación, el concepto omite " núm. {n}".
+ * §D1 (change `factura-pdf-fiel-referencia`): la señal/liquidación resuelven DOS campos de
+ * concepto:
+ *   - `concepto` (principal, negrita): desde `config.textos.plantillaConceptoFiscal.{idioma}`
+ *     interpolando `{nombreComercial}` (mismo helper que el presupuesto; NUNCA "lloguer").
+ *   - `conceptoSubtitulo` (indentado, no negrita): el 40/60 con prefijo asterisco:
+ *       señal      → "*40% de l'import total anticipat del pressupost núm. {n}"
+ *       liquidación→ "*Saldo del 60% de l'import del pressupost núm. {n}"
+ * La FIANZA no cambia: su `concepto` sigue siendo "Fiança de garantia — {nombreComercial}"
+ * (SIN nº de presupuesto: la fianza es del espacio) y su `conceptoSubtitulo` es `null`.
+ * Cuando `numeroPresupuesto` es null en señal/liquidación, el subtítulo omite " núm. {n}".
+ *
+ * §D4: la factura NO expone `pieLegal` (la validez es del presupuesto, no de la factura).
  *
  * Hexagonal: `documentos` NO importa de `facturacion`; el desglose y el régimen llegan como
  * datos del documento. Solo importa su propio VO de dominio `ConfiguracionDocumentoTenant`.
@@ -27,6 +33,7 @@ import type {
   PieBancarioModelo,
   TotalesModelo,
 } from './modelo-documento-presupuesto';
+import { interpolarNombreComercial } from './modelo-documento-presupuesto';
 
 /** Tipo de documento de cobro (§D-2). */
 export type TipoDocumentoFactura = 'senal' | 'liquidacion' | 'fianza';
@@ -69,44 +76,71 @@ export interface ModeloDocumentoFactura {
   numeroPresupuesto: string | null;
   cabecera: CabeceraModelo;
   cliente: ClienteDocumento;
-  /** Concepto fiscal resuelto según el tipo (§D-2). */
+  /**
+   * Concepto PRINCIPAL (negrita). Señal/liquidación: desde `plantillaConceptoFiscal`
+   * interpolada. Fianza: "Fiança de garantia — {nombreComercial}" (§D1).
+   */
   concepto: string;
+  /**
+   * Línea de referencia indentada (no negrita) bajo el concepto principal (§D1): el 40/60
+   * con prefijo asterisco. `null` en fianza (la fianza no lleva subtítulo).
+   */
+  conceptoSubtitulo: string | null;
   extras: ReadonlyArray<ExtraFactura>;
   totales: TotalesModelo;
-  pieLegal: string;
   pieBancario: PieBancarioModelo;
   /** Idioma del documento (`'ca'`/`'es'`); el layout elige las etiquetas fijas. */
   idioma?: string;
 }
 
 /**
- * Resuelve el concepto fiscal según el tipo de factura (§D-2). Señal y liquidación referencian
- * el número de presupuesto (omitido si es null); la fianza es del espacio y NUNCA lo referencia.
+ * Concepto PRINCIPAL de la factura (§D1). Señal/liquidación: desde `plantillaConceptoFiscal`
+ * interpolada con el nombre comercial (mismo helper que el presupuesto). Fianza: su concepto
+ * propio "Fiança de garantia — {nombreComercial}" (SIN nº de presupuesto: la fianza es del
+ * espacio, no del presupuesto), que NO cambia con este change.
  */
-const resolverConcepto = (
+const resolverConceptoPrincipal = (
   tipo: TipoDocumentoFactura,
-  numeroPresupuesto: string | null,
-  nombreComercial: string,
+  config: ConfiguracionDocumentoTenant,
   idioma: string,
 ): string => {
-  if (idioma === 'es') {
-    if (tipo === 'fianza') {
-      return `Fianza de garantía — ${nombreComercial}`;
-    }
-    const referencia = numeroPresupuesto === null ? '' : ` núm. ${numeroPresupuesto}`;
-    if (tipo === 'senal') {
-      return `40% del importe total anticipado del presupuesto${referencia}`;
-    }
-    return `Saldo del 60% del importe del presupuesto${referencia}`;
-  }
+  const nombreComercial = config.identidadFiscal.nombreComercial;
   if (tipo === 'fianza') {
-    return `Fiança de garantia — ${nombreComercial}`;
+    return idioma === 'es'
+      ? `Fianza de garantía — ${nombreComercial}`
+      : `Fiança de garantia — ${nombreComercial}`;
+  }
+  const plantilla =
+    idioma === 'es'
+      ? config.textos.plantillaConceptoFiscal.es
+      : config.textos.plantillaConceptoFiscal.ca;
+  return interpolarNombreComercial(plantilla, nombreComercial);
+};
+
+/**
+ * Subtítulo de referencia (§D1): el 40/60 con prefijo asterisco, indentado y no negrita.
+ * Señal y liquidación referencian el número de presupuesto (omitido si es null); la fianza
+ * NO lleva subtítulo (`null`).
+ */
+const resolverConceptoSubtitulo = (
+  tipo: TipoDocumentoFactura,
+  numeroPresupuesto: string | null,
+  idioma: string,
+): string | null => {
+  if (tipo === 'fianza') {
+    return null;
   }
   const referencia = numeroPresupuesto === null ? '' : ` núm. ${numeroPresupuesto}`;
-  if (tipo === 'senal') {
-    return `40% de l'import total anticipat del pressupost${referencia}`;
+  if (idioma === 'es') {
+    if (tipo === 'senal') {
+      return `*40% del importe total anticipado del presupuesto${referencia}`;
+    }
+    return `*Saldo del 60% del importe del presupuesto${referencia}`;
   }
-  return `Saldo del 60% de l'import del pressupost${referencia}`;
+  if (tipo === 'senal') {
+    return `*40% de l'import total anticipat del pressupost${referencia}`;
+  }
+  return `*Saldo del 60% de l'import del pressupost${referencia}`;
 };
 
 /**
@@ -139,10 +173,10 @@ export const construirModeloDocumentoFactura = ({
       email: config.identidadFiscal.email,
     },
     cliente: datos.cliente,
-    concepto: resolverConcepto(
+    concepto: resolverConceptoPrincipal(datos.tipo, config, datos.idioma ?? 'ca'),
+    conceptoSubtitulo: resolverConceptoSubtitulo(
       datos.tipo,
       datos.numeroPresupuesto,
-      config.identidadFiscal.nombreComercial,
       datos.idioma ?? 'ca',
     ),
     extras: datos.extras.map((extra) => ({
@@ -156,8 +190,6 @@ export const construirModeloDocumentoFactura = ({
       ivaImporte: datos.desglose.ivaImporte,
       total: datos.desglose.total,
     },
-    pieLegal:
-      datos.idioma === 'es' ? config.textos.pieLegal.es : config.textos.pieLegal.ca,
     pieBancario: {
       mostrar: conIva,
       iban: config.banca.iban,

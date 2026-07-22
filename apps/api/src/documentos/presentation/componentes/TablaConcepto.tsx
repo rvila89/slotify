@@ -9,6 +9,7 @@
  * concepto con `{nombreComercial}` sustituido, NUNCA "lloguer"). Primitivas react-pdf
  * inyectadas en `kit`.
  */
+import { formatearImporteDocumento } from '../formato-importe';
 import type { EtiquetasDocumento } from '../etiquetas-por-idioma';
 import type { ExtraDocumento } from '../modelo-documento-presupuesto';
 import type { EstilosReactPdf, KitReactPdf } from '../kit-react-pdf';
@@ -52,7 +53,7 @@ export const TablaConcepto = ({
       <View style={estilos.conceptoCuerpo}>
         <View style={estilos.conceptoFilaPrincipal}>
           <Text style={estilos.conceptoPrincipalTexto}>{conceptoPrincipal}</Text>
-          <Text style={estilos.conceptoPrecio}>{precioTotal} €</Text>
+          <Text style={estilos.conceptoPrecio}>{formatearImporteDocumento(precioTotal)} €</Text>
         </View>
         <Text style={estilos.conceptoDetalleLinea}>{fechaEventoTexto}</Text>
         <Text style={estilos.conceptoDetalleLinea}>{horarioTexto}</Text>
@@ -62,7 +63,7 @@ export const TablaConcepto = ({
         {extras.map((extra, indice) => (
           <View style={estilos.conceptoExtraFila} key={`${extra.descripcion}-${indice}`}>
             <Text style={estilos.conceptoExtraTexto}>{extra.descripcion}</Text>
-            <Text style={estilos.conceptoPrecio}>{extra.importeEur} €</Text>
+            <Text style={estilos.conceptoPrecio}>{formatearImporteDocumento(extra.importeEur)} €</Text>
           </View>
         ))}
       </View>

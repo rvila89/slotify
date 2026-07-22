@@ -1,11 +1,13 @@
 /**
  * Layout FIJO del documento de FACTURA (épico #6, 6.3; REDISEÑADO en 6.5 fiel al
  * lenguaje visual de `P2026023`): cabecera (logo + identidad fiscal), franja de título
- * ("FACTURA" + "Dades client" + mini-tabla `Factura | Data`), tabla de concepto (barra
- * turquesa `CONCEPTE | PREU`), franja de totales (`Validesa | Base imp. | % Iva |
- * Total`), pie bancario centrado (solo CON IVA) y pie legal (SIEMPRE). Reutiliza los
- * componentes y estilos compartidos del presupuesto; NO pinta el bloque "Condicions"
- * 40/60/fiança (no aplica a la factura).
+ * ("FACTURA" + "Dades client" + mini-tabla `Factura | Data`), tabla de concepto (concepto
+ * principal desde plantilla + subtítulo 40/60 indentado), franja de totales
+ * (`Import factura` sin validez) y pie bancario centrado (solo CON IVA), precedido por una
+ * línea oro divisoria (`COLOR_ACENTO`) y SIN la línea de beneficiario (change
+ * `factura-pdf-fiel-referencia`, §D2–§D5). La factura NO renderiza pie legal de validez
+ * (§D4: la validez es del presupuesto). Reutiliza los componentes y estilos compartidos del
+ * presupuesto; NO pinta el bloque "Condicions" 40/60/fiança (no aplica a la factura).
  */
 import type { ModeloDocumentoFactura } from '../modelo-documento-factura';
 import type { KitReactPdf } from '../kit-react-pdf';
@@ -53,7 +55,7 @@ const formatearFecha = (fecha: Date): string => {
 };
 
 export const DocumentoFacturaLayout = ({ kit, modelo }: DocumentoFacturaLayoutProps) => {
-  const { Document, Page, View, Text } = kit;
+  const { Document, Page, View } = kit;
   const estilos = construirEstilos(kit.StyleSheet);
   const colorPrimario = modelo.cabecera.colorPrimario;
   const idioma = modelo.idioma ?? 'ca';
@@ -86,6 +88,7 @@ export const DocumentoFacturaLayout = ({ kit, modelo }: DocumentoFacturaLayoutPr
           etiquetaConcepto={etiquetas.concepto}
           etiquetaPrecio={etiquetas.precio}
           concepto={modelo.concepto}
+          conceptoSubtitulo={modelo.conceptoSubtitulo}
           precioTotal={modelo.totales.total}
           extras={modelo.extras}
         />
@@ -95,22 +98,23 @@ export const DocumentoFacturaLayout = ({ kit, modelo }: DocumentoFacturaLayoutPr
           estilos={estilos}
           totales={modelo.totales}
           etiquetas={etiquetas}
-          validesaTexto=""
+          etiquetaIzquierda={etiquetas.importFactura}
+          valorIzquierda=""
         />
 
         {modelo.pieBancario.mostrar && (
-          <PieBancario
-            kit={kit}
-            estilos={estilos}
-            pieBancario={modelo.pieBancario}
-            etiquetas={etiquetas}
-            email={modelo.cabecera.email}
-          />
+          <View>
+            <View style={[estilos.condicionsAcento, { marginTop: 12, marginBottom: 4 }]} />
+            <PieBancario
+              kit={kit}
+              estilos={estilos}
+              pieBancario={modelo.pieBancario}
+              etiquetas={etiquetas}
+              email={modelo.cabecera.email}
+              mostrarBeneficiario={false}
+            />
+          </View>
         )}
-
-        <View style={{ marginTop: 12 }}>
-          <Text style={estilos.pieLinea}>{modelo.pieLegal}</Text>
-        </View>
       </Page>
     </Document>
   );
