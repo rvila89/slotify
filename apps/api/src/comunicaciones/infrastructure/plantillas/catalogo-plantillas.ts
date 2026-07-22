@@ -402,14 +402,17 @@ const PLANTILLA_E3_CA: Plantilla = {
 
 /**
  * Plantilla E9 ACTIVA en `es` (modificación de reserva, change `reserva-viva-edicion-recalculo-
- * ficha` §D-6). El PDF del presupuesto de modificación es el adjunto REQUERIDO (patrón E2).
+ * ficha` §D-6). MVP: se envía SIN adjunto (`adjuntosRequeridos: []`). El PDF del presupuesto de
+ * modificación (patrón E2) es deuda técnica del épico #6 (react-pdf): declarar `['presupuesto']`
+ * aquí bloquearía el envío (`adjunto_no_disponible`) hasta que exista el generador de PDF de
+ * modificación. El cliente recibe igualmente la notificación del cambio de precio (valor principal).
  */
 const PLANTILLA_E9_ES: Plantilla = {
   codigoEmail: 'E9',
   idioma: 'es',
   activa: true,
   variablesRequeridas: ['nombre', 'codigoReserva'],
-  adjuntosRequeridos: ['presupuesto'],
+  adjuntosRequeridos: [],
   render: renderE9,
 };
 
@@ -419,7 +422,7 @@ const PLANTILLA_E9_CA: Plantilla = {
   idioma: 'ca',
   activa: true,
   variablesRequeridas: ['nombre', 'codigoReserva'],
-  adjuntosRequeridos: ['presupuesto'],
+  adjuntosRequeridos: [],
   render: renderE9Ca,
 };
 
