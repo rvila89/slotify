@@ -50,7 +50,7 @@ const claseInput =
 const claseLabel = 'px-1 font-body text-xs font-medium tracking-[0.48px] text-text-secondary';
 
 const claseBotonPrimario =
-  'inline-flex h-12 items-center justify-center gap-2 rounded-full bg-brand-primary px-8 font-display text-base text-brand-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex h-12 items-center justify-center gap-2 rounded-full bg-accent-success px-8 font-display text-base text-accent-success-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60';
 
 const claseBotonSecundario =
   'inline-flex h-12 items-center justify-center gap-2 rounded-full border border-border-default bg-canvas px-8 font-body text-base font-medium text-text-secondary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60';

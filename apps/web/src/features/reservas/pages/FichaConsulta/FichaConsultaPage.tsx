@@ -132,6 +132,8 @@ export const FichaConsultaPage = () => {
         onCerrarDescarte={avisos.cerrar}
         firma={avisos.firma}
         onCerrarFirma={avisos.cerrar}
+        edicionConsulta={avisos.edicionConsulta}
+        onCerrarEdicionConsulta={avisos.cerrar}
       />
 
       <section className={claseSeccion} aria-labelledby="ficha-cliente">
@@ -283,7 +285,10 @@ export const FichaConsultaPage = () => {
           }}
           onResuelto={mostrarResultadoFecha}
           onCambiadaFecha={mostrarResultadoFecha}
-          onEditado={() => {}}
+          onEditado={() => {
+            avisos.mostrarEdicionConsulta(reserva.codigo);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
           onResueltoInvitados={avisos.mostrarInvitados}
           onResueltoVisita={avisos.mostrarVisita}
           onResueltoInteresado={avisos.mostrarInteresado}
@@ -291,25 +296,15 @@ export const FichaConsultaPage = () => {
           onResueltoExtension={avisos.mostrarExtension}
           onConfirmadoPresupuesto={(resultado) => {
             avisos.mostrarPresupuesto(resultado);
-            // Sube al top para que el banner "Presupuesto generado…" quede visible
-            // (precedente vivo: NuevaConsultaPage).
-            if (typeof window !== 'undefined') {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
           onEditadoPresupuesto={(datos) => {
             avisos.mostrarEdicion({ clase: 'edicion', datos });
-            // Sube al top para que el banner de éxito quede visible (mismo patrón
-            // que onConfirmadoPresupuesto).
-            if (typeof window !== 'undefined') {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
           onReenviadoPresupuesto={(datos) => {
             avisos.mostrarEdicion({ clase: 'reenvio', datos });
-            if (typeof window !== 'undefined') {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
           onConfirmadoSenal={avisos.mostrarSenal}
           onForzado={avisos.mostrarForzar}

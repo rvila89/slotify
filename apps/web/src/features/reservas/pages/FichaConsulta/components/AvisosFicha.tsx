@@ -9,6 +9,7 @@ import { AvisoBloqueoExtendido } from './AvisoBloqueoExtendido';
 import { AvisosEdicionPresupuesto, type ResultadoEdicion } from './AvisosEdicionPresupuesto';
 import { AvisoEmailEnviado } from './AvisoEmailEnviado';
 import { AvisoDescarte } from './AvisoDescarte';
+import { AvisoEdicionConsulta } from './AvisoEdicionConsulta';
 import { AvisoCondicionesFirmadas } from '@/features/condiciones-firmadas';
 import type { PendienteInvitadosResultado, Reserva } from '../../../model/types';
 import type { components } from '@/api-client';
@@ -57,6 +58,10 @@ type Props = {
       cabecera, en sustitución del toast de Sonner. */
   firma: 'registrada' | 'reregistrada' | null;
   onCerrarFirma: () => void;
+  /** Edición exitosa de campos simples de la consulta (US-051 §Punto 2): banner
+      inline verde con el código de la consulta. */
+  edicionConsulta: string | null;
+  onCerrarEdicionConsulta: () => void;
 };
 
 export const AvisosFicha = ({
@@ -88,10 +93,15 @@ export const AvisosFicha = ({
   onCerrarDescarte,
   firma,
   onCerrarFirma,
+  edicionConsulta,
+  onCerrarEdicionConsulta,
 }: Props) => (
   <>
     {emailEnviado && <AvisoEmailEnviado onCerrar={onCerrarEmailEnviado} />}
     {firma && <AvisoCondicionesFirmadas tipo={firma} onCerrar={onCerrarFirma} />}
+    {edicionConsulta && (
+      <AvisoEdicionConsulta codigo={edicionConsulta} onCerrar={onCerrarEdicionConsulta} />
+    )}
     {descarte && (
       <AvisoDescarte
         tipo={descarte.tipo}
