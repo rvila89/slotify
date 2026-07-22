@@ -147,7 +147,7 @@
 - [x] 12.1 Tras code-review APTO + validación manual, ESPERAR el OK humano antes de archive/PR.
 
 ## 13. Archivar change + abrir PR (OBLIGATORIO — archive)
-- [ ] 13.1 `openspec archive reserva-viva-edicion-recalculo-ficha` (solo tras gate final y APTO;
+- [x] 13.1 `openspec archive reserva-viva-edicion-recalculo-ficha` (solo tras gate final y APTO;
       hook `require-code-review` bloquea sin informe APTO). Verificar una sola sección ADDED por
       requirement y que la carpeta de archive no duplica el prefijo de fecha.
 - [ ] 13.2 Actualizar `openspec/specs/` y abrir PR (gh / GitHub MCP).
