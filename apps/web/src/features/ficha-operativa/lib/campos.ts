@@ -1,42 +1,56 @@
-import type { GuardarFichaOperativaRequest, PreEventoStatus } from '../model/types';
+import type { PreEventoStatus } from '../model/types';
 
-/** Nombre (camelCase) de cada campo de contenido de la ficha operativa (US-025). */
-export type CampoFicha = keyof GuardarFichaOperativaRequest;
+/** Campos de texto libre de la ficha (contacto, hora, notas, briefing). */
+export type CampoTextoFicha =
+  | 'contactoEventoNombre'
+  | 'contactoEventoTelefono'
+  | 'contactoEventoCorreo'
+  | 'horaLlegada'
+  | 'notasOperativas'
+  | 'briefingEquipo';
 
 type DefinicionCampo = {
-  campo: CampoFicha;
+  campo: CampoTextoFicha;
   etiqueta: string;
-  /**
-   * `numero` → input numérico entero; `texto` → input; `area` → textarea;
-   * `email` → input de correo; `hora` → input de hora (HH:MM).
-   */
-  tipo: 'numero' | 'texto' | 'area' | 'email' | 'hora';
+  /** `texto` → input; `area` → textarea; `email` → input de correo; `hora` → HH:MM. */
+  tipo: 'texto' | 'area' | 'email' | 'hora';
   placeholder?: string;
   /** Colocar el campo a ancho completo (2 columnas) en el grid del formulario. */
   anchoCompleto?: boolean;
 };
 
 /**
- * Definición declarativa de los campos de la ficha operativa (US-025 · UC-20),
- * en el orden de presentación. Tabla de datos (no JSX disperso) que alimenta tanto
- * el formulario como la traducción de `avisosCamposVacios` a etiquetas en español.
+ * Definición declarativa de los campos de TEXTO LIBRE de la ficha operativa (US-025 ·
+ * UC-20), en el orden de presentación. El aforo ESTRUCTURAL (desglose de invitados),
+ * el nº de personas derivado y la duración enum se renderizan aparte en `CamposFicha`
+ * (no son inputs de texto libre). Tabla de datos (no JSX disperso) que alimenta el
+ * formulario y la traducción de `avisosCamposVacios` a etiquetas en español.
  */
-export const CAMPOS_FICHA: readonly DefinicionCampo[] = [
-  { campo: 'numInvitadosConfirmado', etiqueta: 'Nº de invitados confirmado', tipo: 'numero', placeholder: 'Ej. 85' },
+export const CAMPOS_TEXTO_FICHA: readonly DefinicionCampo[] = [
   { campo: 'contactoEventoNombre', etiqueta: 'Contacto del evento', tipo: 'texto', placeholder: 'Ej. María López' },
   { campo: 'contactoEventoTelefono', etiqueta: 'Teléfono de contacto', tipo: 'texto', placeholder: 'Ej. 600 123 456' },
   { campo: 'contactoEventoCorreo', etiqueta: 'Correo de contacto', tipo: 'email', placeholder: 'correo@ejemplo.com' },
   { campo: 'horaLlegada', etiqueta: 'Hora de llegada', tipo: 'hora', placeholder: 'HH:MM' },
-  { campo: 'duracion', etiqueta: 'Duración', tipo: 'texto', placeholder: 'ej: 3h, 2h 30min' },
   { campo: 'notasOperativas', etiqueta: 'Notas operativas', tipo: 'area', placeholder: 'Ej. Alergia a los frutos secos', anchoCompleto: true },
   { campo: 'briefingEquipo', etiqueta: 'Briefing para el equipo', tipo: 'area', placeholder: 'Instrucciones para el equipo del evento', anchoCompleto: true },
 ] as const;
 
-/** Mapa campo → etiqueta, para traducir `avisosCamposVacios` (camelCase) a español. */
-export const ETIQUETA_CAMPO: Record<CampoFicha, string> = CAMPOS_FICHA.reduce(
-  (acc, { campo, etiqueta }) => ({ ...acc, [campo]: etiqueta }),
-  {} as Record<CampoFicha, string>,
-);
+/**
+ * Mapa campo → etiqueta para traducir `avisosCamposVacios` (camelCase) a español.
+ * Incluye los campos estructurales/derivado (aunque se renderizan aparte) por si el
+ * backend los reportara como vacíos al cerrar.
+ */
+export const ETIQUETA_CAMPO: Record<string, string> = {
+  ...CAMPOS_TEXTO_FICHA.reduce(
+    (acc, { campo, etiqueta }) => ({ ...acc, [campo]: etiqueta }),
+    {} as Record<string, string>,
+  ),
+  numInvitadosConfirmado: 'Nº de invitados confirmado',
+  numAdultosNinosMayores4: 'Adultos y niños ≥ 4 años',
+  numNinosMenores4: 'Niños < 4 años',
+  duracionHoras: 'Duración del evento',
+  duracion: 'Duración',
+};
 
 /**
  * Traduce los nombres camelCase devueltos en `avisosCamposVacios` a las etiquetas en
@@ -44,7 +58,13 @@ export const ETIQUETA_CAMPO: Record<CampoFicha, string> = CAMPOS_FICHA.reduce(
  * aviso informativo.
  */
 export const etiquetasCamposVacios = (avisos: readonly string[]): string[] =>
-  avisos.map((campo) => ETIQUETA_CAMPO[campo as CampoFicha] ?? campo);
+  avisos.map((campo) => ETIQUETA_CAMPO[campo] ?? campo);
+
+/** Duraciones estructurales admitidas (enum del contrato `DuracionHoras`). */
+export const DURACIONES_HORAS = [4, 8, 12] as const;
+
+/** Etiqueta legible de una duración de evento. */
+export const etiquetaDuracion = (horas: number): string => `${horas} horas`;
 
 /** Metadatos visuales del indicador de estado del sub-proceso pre-evento (US-025). */
 export const ESTADO_PRE_EVENTO: Record<

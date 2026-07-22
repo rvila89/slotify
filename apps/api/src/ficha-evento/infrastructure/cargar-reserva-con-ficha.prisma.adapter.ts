@@ -8,6 +8,7 @@
  * controlador.
  */
 import { Injectable } from '@nestjs/common';
+import { DuracionHoras } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type {
   CargarReservaConFichaPort,
@@ -15,6 +16,22 @@ import type {
   ReservaFichaOperativa,
 } from '../domain/ficha-operativa.ports';
 import { proyectarFicha } from './ficha-operativa.mapper';
+
+/** Convierte el enum `DuracionHoras {h4,h8,h12}` a su valor numérico `{4,8,12}` o null. */
+const duracionHorasANumero = (
+  duracion: DuracionHoras | null,
+): number | null => {
+  switch (duracion) {
+    case DuracionHoras.h4:
+      return 4;
+    case DuracionHoras.h8:
+      return 8;
+    case DuracionHoras.h12:
+      return 12;
+    default:
+      return null;
+  }
+};
 
 @Injectable()
 export class CargarReservaConFichaPrismaAdapter {
@@ -24,9 +41,15 @@ export class CargarReservaConFichaPrismaAdapter {
   readonly cargar: CargarReservaConFichaPort = async ({ tenantId, reservaId }) => {
     const fila = await this.prisma.$transaction(async (tx) => {
       await this.prisma.fijarTenant(tx, tenantId);
+      // JOIN a CLIENTE (§D-2): pre-relleno de contacto/teléfono/correo al leer.
       return tx.reserva.findFirst({
         where: { idReserva: reservaId, tenantId },
-        include: { fichaOperativa: true },
+        include: {
+          fichaOperativa: true,
+          cliente: {
+            select: { nombre: true, apellidos: true, email: true, telefono: true },
+          },
+        },
       });
     });
 
@@ -42,6 +65,22 @@ export class CargarReservaConFichaPrismaAdapter {
         fila.fichaOperativa === null
           ? null
           : proyectarFicha(fila.fichaOperativa, fila.preEventoStatus),
+      // Datos estructurados de la RESERVA para el pre-relleno al leer (§D-2).
+      reserva: {
+        duracionHoras: duracionHorasANumero(fila.duracionHoras),
+        horario: fila.horario,
+        comentarios: fila.comentarios,
+        numInvitadosFinal: fila.numInvitadosFinal,
+        numAdultosNinosMayores4: fila.numAdultosNinosMayores4,
+        numNinosMenores4: fila.numNinosMenores4,
+      },
+      // Datos del CLIENTE (JOIN) para el pre-relleno al leer (§D-2).
+      cliente: {
+        nombre: fila.cliente.nombre,
+        apellidos: fila.cliente.apellidos,
+        telefono: fila.cliente.telefono,
+        email: fila.cliente.email,
+      },
     };
     return reserva;
   };

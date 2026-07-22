@@ -2626,7 +2626,7 @@ export interface paths {
         head?: never;
         /**
          * Guardar parcialmente la ficha operativa (UC-20)
-         * @description [US-025] Guardado **parcial/progresivo** de la ficha: todos los campos son opcionales y solo se persiste el subconjunto enviado. Efecto colateral en el backend (no es campo del contrato, D-2): el primer guardado que deje al menos un campo con dato transiciona `RESERVA.pre_evento_status` de `pendiente` a `en_curso`. Sirve también para la edición post-cierre (D-4): si la ficha ya está cerrada, el backend reescribe `fechaCierre = now()` y mantiene `pre_evento_status = cerrado` (la edición no reabre el estado). Guardas de acceso y errores idénticos al GET.
+         * @description [US-025] Guardado **parcial/progresivo** de la ficha: todos los campos son opcionales y solo se persiste el subconjunto enviado. Efecto colateral en el backend (no es campo del contrato, D-2): el primer guardado que deje al menos un campo con dato transiciona `RESERVA.pre_evento_status` de `pendiente` a `en_curso`. Sirve también para la edición post-cierre (D-4): si la ficha ya está cerrada, el backend reescribe `fechaCierre = now()` y mantiene `pre_evento_status = cerrado` (la edición no reabre el estado). Guardas de acceso y errores idénticos al GET. [reserva-viva] Ahora el PATCH acepta los campos ESTRUCTURADOS de la RESERVA (`duracionHoras`, `numAdultosNinosMayores4`, `numNinosMenores4`) y, si cambian respecto al vigente y la RESERVA está dentro de la **ventana viva** (`estado='reserva_confirmada'` AND `pre_evento_status != 'cerrado'` AND `liquidacion_status != 'cobrada'`), dispara el RECÁLCULO en cascada: re-congela `importe_total`/`importe_liquidacion` (NO `importe_senal`), genera una nueva versión de PRESUPUESTO de modificación y regenera el borrador de FACTURA de liquidación. El resultado viaja en `recalculo` (o `null` si no hubo cambio estructural). Un cambio estructural FUERA de la ventana viva se rechaza con `422` (`code=fuera_de_ventana_viva`) sin mutar la RESERVA. El caso `numAdultosNinosMayores4 > 50` (o sin TARIFA) resuelve a `tarifaAConsultar=true` y exige `precioManualEur` (ausente → 422).
          */
         patch: operations["guardarFichaOperativa"];
         trace?: never;
@@ -5023,14 +5023,26 @@ export interface components {
             idFicha: string;
             /** Format: uuid */
             reservaId: string;
-            numInvitadosConfirmado?: number | null;
+            /** @description [reserva-viva] Duración ESTRUCTURADA del evento (enum `{4,8,12}`) tomada de `RESERVA.duracionHoras`. Sustituye al campo legacy `duracion` (texto libre) para aforo/duración estructural. `null` si la RESERVA aún no la tiene. */
+            duracionHoras?: components["schemas"]["DuracionHoras"] | null;
+            /** @description [reserva-viva] Adultos y niños > 4 años (`RESERVA.numAdultosNinosMayores4`). Determina el tramo del tarifario. `null` si la RESERVA aún no lo tiene. */
+            numAdultosNinosMayores4?: number | null;
+            /** @description [reserva-viva] Niños ≤ 4 años (`RESERVA.numNinosMenores4`). No cuenta para el tramo del tarifario. `null` si la RESERVA aún no lo tiene. */
+            numNinosMenores4?: number | null;
+            /** @description [reserva-viva] Nº de invitados confirmado, valor DERIVADO de solo lectura: `RESERVA.numInvitadosFinal ?? (numAdultosNinosMayores4 + numNinosMenores4)` (nulls como 0), regla `derivarNumPersonas`. NO se escribe por PATCH (cambia vía el desglose de invitados). La columna legacy `FICHA_OPERATIVA.numInvitadosConfirmado` no se escribe por esta vía. */
+            readonly numInvitadosConfirmado?: number | null;
+            /** @description [reserva-viva] Contacto del evento. Al LEER se pre-rellena desde `CLIENTE.nombre` (+ `apellidos`) si la ficha no tiene valor propio; un valor propio guardado prevalece. */
             contactoEventoNombre?: string | null;
+            /** @description [reserva-viva] Teléfono del contacto del evento. Al LEER se pre-rellena desde `CLIENTE.telefono` si la ficha no tiene valor propio; un valor propio prevalece. */
             contactoEventoTelefono?: string | null;
-            /** @description Correo del contacto del evento. Pre-rellenado desde la reserva al crear la ficha. */
+            /** @description Correo del contacto del evento. Al LEER se pre-rellena desde `CLIENTE.email` si la ficha no tiene valor propio (pre-relleno completo al leer, no solo al crear). */
             contactoEventoCorreo?: string | null;
-            /** @description Hora de llegada al evento (formato HH:MM). */
+            /** @description Hora de llegada al evento (formato HH:MM). Al LEER se pre-rellena desde `RESERVA.horario` si la ficha no tiene valor propio. */
             horaLlegada?: string | null;
-            /** @description Duración del evento, texto libre (ej: "3h", "2h 30min"). */
+            /**
+             * @deprecated
+             * @description DEPRECATED [reserva-viva]: duración como texto libre (ej: "3h", "2h 30min"). La duración ESTRUCTURAL vive ahora en `duracionHoras` (enum `{4,8,12}`). Columna legacy; no se escribe por PATCH como duración estructural. Se conserva por backward-compat.
+             */
             duracion?: string | null;
             notasOperativas?: string | null;
             briefingEquipo?: string | null;
@@ -5045,14 +5057,49 @@ export interface components {
             preEventoStatus: components["schemas"]["PreEventoStatus"];
         };
         GuardarFichaOperativaRequest: {
+            /** @description [reserva-viva] Duración ESTRUCTURADA (enum `{4,8,12}`). Se persiste sobre `RESERVA.duracionHoras`; si cambia dispara el recálculo (ventana viva). Fuera de `{4,8,12}` → 400/422 sin mutar nada. */
+            duracionHoras?: components["schemas"]["DuracionHoras"] | null;
+            /** @description [reserva-viva] Adultos y niños > 4 (determina el tramo del tarifario). Se persiste sobre `RESERVA.numAdultosNinosMayores4`; si cambia dispara el recálculo. Negativo → 400/422. `> 50` resuelve a `tarifaAConsultar` (exige `precioManualEur`). */
+            numAdultosNinosMayores4?: number | null;
+            /** @description [reserva-viva] Niños ≤ 4 (no cuenta para el tramo). Se persiste sobre `RESERVA.numNinosMenores4`; si cambia dispara el recálculo. Negativo → 400/422. */
+            numNinosMenores4?: number | null;
+            /** @description [reserva-viva] Precio total manual (IVA incluido) para el caso `tarifaAConsultar=true` (`numAdultosNinosMayores4 > 50` o sin TARIFA configurada). Obligatorio cuando el motor devuelve `tarifaAConsultar=true`; su ausencia en ese caso → 422. Ignorado si el motor resuelve una tarifa. */
+            precioManualEur?: components["schemas"]["Importe"] | null;
+            /**
+             * @deprecated
+             * @description DEPRECATED [reserva-viva]: ya no escribe el aforo estructural (es un valor DERIVADO del desglose de invitados, ver `numAdultosNinosMayores4`/`numNinosMenores4`). Se conserva por backward-compat; el backend lo ignora como fuente de aforo estructural.
+             */
             numInvitadosConfirmado?: number | null;
             contactoEventoNombre?: string | null;
             contactoEventoTelefono?: string | null;
             contactoEventoCorreo?: string | null;
             horaLlegada?: string | null;
+            /**
+             * @deprecated
+             * @description DEPRECATED [reserva-viva]: duración como texto libre; ya no escribe la duración estructural (usar `duracionHoras`, enum `{4,8,12}`). Se conserva por backward-compat.
+             */
             duracion?: string | null;
             notasOperativas?: string | null;
             briefingEquipo?: string | null;
+        };
+        /** @description Snapshot del recálculo en cascada: nuevo total re-congelado, pago inicial (señal FIJA, no recalculada) y liquidación restante, más las versiones regeneradas de presupuesto y liquidación. En el caso `tarifaAConsultar=true` sin `precioManualEur` los importes son `null` (el Gestor debe introducir el precio). */
+        RecalculoResultado: {
+            /** @description `true` cuando `numAdultosNinosMayores4 > 50` o no hay TARIFA configurada: el motor no resuelve precio y se exige `precioManualEur`. Si se envió `precioManualEur`, los importes de abajo se derivan de él. */
+            tarifaAConsultar: boolean;
+            /** @description Nuevo `RESERVA.importe_total` re-congelado por el recálculo. `null` si `tarifaAConsultar=true` sin `precioManualEur`. */
+            nuevoTotal?: components["schemas"]["Importe"] | null;
+            /** @description "Pago inicial ya realizado" = `RESERVA.importe_senal` congelado (importe FIJO, NO recalculado sobre el nuevo total). `null` si no aplica. */
+            pagoInicial?: components["schemas"]["Importe"] | null;
+            /** @description "Liquidación restante" = `nuevoTotal − pagoInicial` (= `RESERVA.importe_liquidacion` re-congelado). `null` si `tarifaAConsultar=true` sin `precioManualEur`. */
+            liquidacionRestante?: components["schemas"]["Importe"] | null;
+            /** @description `version` de la nueva fila de PRESUPUESTO de modificación generada (`MAX(version)+1`). `null` si no se regeneró presupuesto. */
+            versionPresupuesto?: number | null;
+            /** @description Versión/identificador de la FACTURA de liquidación regenerada. `null` si no se regeneró liquidación. */
+            versionLiquidacion?: number | null;
+        };
+        GuardarFichaOperativaResponse: components["schemas"]["FichaOperativa"] & {
+            /** @description Resultado del recálculo en cascada, o `null` si el guardado no cambió ningún campo estructural (aforo/duración) y por tanto no disparó recálculo. */
+            recalculo?: components["schemas"]["RecalculoResultado"] | null;
         };
         CerrarFichaOperativaResponse: components["schemas"]["FichaOperativa"] & {
             /**
@@ -7501,13 +7548,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Ficha guardada */
+            /** @description Ficha guardada (con el resultado del recálculo si cambió aforo/duración) */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FichaOperativa"];
+                    "application/json": components["schemas"]["GuardarFichaOperativaResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -7519,6 +7566,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FichaOperativaNoDisponibleError"];
+                };
+            };
+            /** @description [reserva-viva] Cambio de aforo/duración RECHAZADO: la RESERVA está fuera de la ventana viva (`code=fuera_de_ventana_viva`) o falta `precioManualEur` con `tarifaAConsultar`, o `duracionHoras` fuera de `{4,8,12}` / desglose negativo. No muta la RESERVA. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

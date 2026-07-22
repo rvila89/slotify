@@ -10,6 +10,9 @@ import type { components } from '@/api-client';
 export type FichaOperativa = components['schemas']['FichaOperativa'];
 export type GuardarFichaOperativaRequest =
   components['schemas']['GuardarFichaOperativaRequest'];
+export type GuardarFichaOperativaResponse =
+  components['schemas']['GuardarFichaOperativaResponse'];
+export type RecalculoResultado = components['schemas']['RecalculoResultado'];
 export type CerrarFichaOperativaResponse =
   components['schemas']['CerrarFichaOperativaResponse'];
 export type PreEventoStatus = components['schemas']['PreEventoStatus'];

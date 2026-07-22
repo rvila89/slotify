@@ -1389,6 +1389,40 @@ export interface ResultadoFianzaResuelta {
   pendiente: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Guarda de EDITABILIDAD «ventana de edición viva» de la RESERVA
+// (change `reserva-viva-edicion-recalculo-ficha` / §D-3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guarda declarativa de EDITABILIDAD de la VENTANA VIVA (change `reserva-viva-edicion-
+ * recalculo-ficha`, §D-3, skill `state-machine`, NO condicionales dispersos). NO es una
+ * arista de la máquina (no cambia `estado`), sino una PRECONDICIÓN de conjunción sobre el
+ * estado + los sub-procesos, análoga a `esEstadoValidoParaEditarPresupuesto` o
+ * `esDiaDelEvento`: define si el aforo/duración de la RESERVA puede editarse con recálculo
+ * en cascada tras confirmar la señal.
+ *
+ * La ventana viva está ABIERTA ⇔ conjunción estricta:
+ *   `estado === 'reserva_confirmada'`
+ *   AND `preEventoStatus !== 'cerrado'` (la ficha del evento aún no se cerró, US-025/026)
+ *   AND `liquidacionStatus !== 'cobrada'` (la liquidación aún no se cobró, US-029)
+ *
+ * Cualquier estado anterior o posterior a `reserva_confirmada` (consulta/pre_reserva editan
+ * el aforo por su propio editor; evento_en_curso+ ya no admiten recálculo), la ficha cerrada
+ * o la liquidación cobrada CIERRAN la ventana → el recálculo se rechaza sin efectos con
+ * `FueraDeVentanaVivaError` (422). Función determinista y sin efectos (dominio puro); se
+ * re-evalúa DENTRO de la tx bajo `SELECT … FOR UPDATE` para rechazar el recálculo si la ficha
+ * se cierra o la liquidación se cobra entre la guarda previa y el commit (concurrencia §D-7).
+ */
+export const esEditableEnVentanaViva = (
+  estado: EstadoReserva,
+  preEventoStatus: PreEventoStatusDominio,
+  liquidacionStatus: LiquidacionStatusDominio,
+): boolean =>
+  estado === 'reserva_confirmada' &&
+  preEventoStatus !== 'cerrado' &&
+  liquidacionStatus !== 'cobrada';
+
 /**
  * Guarda PURA de la fianza resuelta (US-037, §D-6): la fianza está RESUELTA si
  * `fianzaStatus ∈ {devuelta, retenida_parcial}` O `fianzaEur <= 0` O `fianzaEur == null`.

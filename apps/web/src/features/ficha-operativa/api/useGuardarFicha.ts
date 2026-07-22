@@ -1,7 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api-client';
 import { fichaOperativaQueryKey } from './useFichaOperativa';
-import type { FichaOperativa, GuardarFichaOperativaRequest } from '../model/types';
+import type {
+  GuardarFichaOperativaRequest,
+  GuardarFichaOperativaResponse,
+} from '../model/types';
 
 /** Variables del guardado parcial de la ficha operativa (US-025). */
 export type GuardarFichaVars = {
@@ -21,13 +24,15 @@ export type GuardarFichaVars = {
  *  - la edición post-cierre reescribe `fechaCierre = now()` sin reabrir el estado
  *    (`cerrado` permanece).
  *
- * Tras éxito escribe la `FichaOperativa` devuelta en la caché de la query de la
- * ficha (reflejando el `preEventoStatus` y `fechaCierre` reales) y la invalida.
+ * Tras éxito escribe la ficha devuelta en la caché de la query de la ficha
+ * (reflejando el `preEventoStatus`/`fechaCierre` reales y el aforo/duración
+ * recalculados) y la invalida. La respuesta incluye además `recalculo` (o `null`):
+ * el orquestador lo usa para el aviso de precio actualizado / `tarifaAConsultar`.
  */
 export const useGuardarFicha = () => {
   const queryClient = useQueryClient();
 
-  return useMutation<FichaOperativa, Error, GuardarFichaVars>({
+  return useMutation<GuardarFichaOperativaResponse, Error, GuardarFichaVars>({
     mutationFn: async ({ reservaId, body }) => {
       const { data, response } = await apiClient.PATCH(
         '/reservas/{id}/ficha-operativa',
@@ -38,7 +43,11 @@ export const useGuardarFicha = () => {
         `No se ha podido guardar la ficha operativa (${response?.status ?? 'red'})`,
       );
     },
-    onSuccess: (ficha, { reservaId }) => {
+    onSuccess: (respuesta, { reservaId }) => {
+      // La respuesta es `FichaOperativa & { recalculo }`; para la caché de la query nos
+      // basta la parte de ficha (el `recalculo` lo consume el componente, no la caché).
+      const { recalculo, ...ficha } = respuesta;
+      void recalculo;
       queryClient.setQueryData(fichaOperativaQueryKey(reservaId), {
         tipo: 'disponible',
         ficha,

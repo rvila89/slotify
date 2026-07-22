@@ -39,14 +39,53 @@ export interface FichaOperativa {
   fichaCerrada: boolean;
   fechaCierre: Date | null;
   preEventoStatus: PreEventoStatus;
+  /**
+   * Campos ESTRUCTURADOS editables de aforo/duración de la RESERVA (change `reserva-viva-
+   * edicion-recalculo-ficha` §D-1), expuestos en la vista de lectura. Opcionales (compat):
+   * el pre-relleno del use-case los rellena desde `RESERVA` al leer.
+   */
+  duracionHoras?: number | null;
+  numAdultosNinosMayores4?: number | null;
+  numNinosMenores4?: number | null;
 }
 
-/** RESERVA cargada con su ficha (o `null` si aún no existe, estado anterior). */
+/**
+ * Datos ESTRUCTURADOS de la RESERVA para el pre-relleno al leer la ficha (§D-2). El
+ * adaptador de carga los proyecta desde la fila RESERVA; el use-case los usa como
+ * fallback (`valorFicha ?? valorDerivado`).
+ */
+export interface DatosReservaPrerelleno {
+  /** Duración estructurada de la RESERVA (`{4,8,12}` en horas); `null` si no informada. */
+  duracionHoras: number | null;
+  horario: string | null;
+  comentarios: string | null;
+  numInvitadosFinal: number | null;
+  numAdultosNinosMayores4: number | null;
+  numNinosMenores4: number | null;
+}
+
+/** Datos del CLIENTE para el pre-relleno (JOIN del adaptador de carga, §D-2). */
+export interface DatosClientePrerelleno {
+  nombre: string | null;
+  apellidos: string | null;
+  telefono: string | null;
+  email: string | null;
+}
+
+/**
+ * RESERVA cargada con su ficha (o `null` si aún no existe, estado anterior). Incluye los
+ * datos estructurados de RESERVA y del CLIENTE para el pre-relleno al leer (§D-2): el
+ * adaptador de carga hace el JOIN a CLIENTE.
+ */
 export interface ReservaFichaOperativa {
   idReserva: string;
   tenantId: string;
   estado: EstadoReservaFicha;
   ficha: FichaOperativa | null;
+  /** Datos estructurados de la RESERVA (pre-relleno). Opcional (compat lectura legada). */
+  reserva?: DatosReservaPrerelleno;
+  /** Datos del CLIENTE (JOIN del adaptador de carga; pre-relleno). Opcional. */
+  cliente?: DatosClientePrerelleno;
 }
 
 /** Subconjunto de campos de contenido a persistir en un guardado parcial (§D-5). */

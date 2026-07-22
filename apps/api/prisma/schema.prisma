@@ -156,6 +156,7 @@ enum CodigoEmail {
   E6
   E7
   E8
+  E9
   manual
 }
 
@@ -513,6 +514,11 @@ model Presupuesto {
   tarifaCongelada    Boolean           @default(true) @map("tarifa_congelada")
   pdfUrl             String?           @map("pdf_url")
   estado             EstadoPresupuesto
+  // change `reserva-viva-edicion-recalculo-ficha` (§D-5): ORIGEN de la versión. NULL para
+  // las versiones normales (presupuesto inicial/edición en pre_reserva); `modificacion` para
+  // la versión creada por el recálculo en la ventana viva tras confirmar la señal (pago
+  // inicial fijo + liquidación restante, sin reparto 40/60). Migración aditiva/nullable.
+  origen             String?           @map("origen")
   // Épico #6, 6.2 (D1): método de pago elegido + régimen fiscal derivado. Nullable
   // (migración aditiva); backfill `transferencia`/`con_iva` para las filas de 6.1b. La app
   // siempre escribe ambos al crear.

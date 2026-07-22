@@ -245,6 +245,87 @@ const renderE3Ca = (variables: Record<string, unknown>): RenderPlantilla => {
   return { asunto, cuerpoHtml, cuerpoTexto };
 };
 
+/** Formatea un importe (Decimal string/número) como euros con 2 decimales: `500` → `500,00 €`. */
+const formatarImporteEs = (valor: unknown): string => {
+  const numero = Number(valor);
+  if (Number.isNaN(numero)) {
+    return texto(valor);
+  }
+  return `${numero.toFixed(2).replace('.', ',')} €`;
+};
+
+/** Descripción del cambio (es) para el cuerpo del E9. */
+const describirCambioEs = (cambio: string): string => {
+  switch (cambio) {
+    case 'duracion':
+      return 'la duración del evento';
+    case 'personas_y_duracion':
+      return 'el número de personas y la duración del evento';
+    default:
+      return 'el número de personas';
+  }
+};
+
+/** Descripción del cambio (ca) para el cuerpo del E9. */
+const describirCambioCa = (cambio: string): string => {
+  switch (cambio) {
+    case 'duracion':
+      return 'la durada de l\'esdeveniment';
+    case 'personas_y_duracion':
+      return 'el nombre de persones i la durada de l\'esdeveniment';
+    default:
+      return 'el nombre de persones';
+  }
+};
+
+/**
+ * Render real de la plantilla E9 en castellano (modificación de reserva en la ventana viva,
+ * change `reserva-viva-edicion-recalculo-ficha` §D-6). Notifica el cambio de personas/duración
+ * y el nuevo restante a liquidar (pago inicial ya realizado + liquidación restante, sin reparto
+ * 40/60). Adjunto: PDF del presupuesto de modificación (patrón E2). `{nombre}`, `{codigoReserva}`,
+ * `{cambio}`, `{liquidacionRestante}`.
+ */
+const renderE9 = (variables: Record<string, unknown>): RenderPlantilla => {
+  const nombre = texto(variables.nombre);
+  const codigoReserva = texto(variables.codigoReserva);
+  const cambio = describirCambioEs(texto(variables.cambio));
+  const restante = formatarImporteEs(variables.liquidacionRestante);
+  const referencia = codigoReserva === '' ? '' : ` (reserva ${codigoReserva})`;
+  const asunto = `Hemos actualizado tu reserva${referencia}`;
+  const parrafos = [
+    `Hola ${nombre},`,
+    `Hemos actualizado ${cambio} de tu reserva ${codigoReserva}. Te adjuntamos el presupuesto de modificación con el nuevo detalle.`,
+    `El pago inicial que ya realizaste se mantiene sin cambios. Liquidación restante: ${restante}, que deberás abonar antes de la fecha del evento.`,
+    "Si tienes cualquier duda, estaremos encantados de ayudarte.\nUn abrazo,\nAri\nMasia l'Encís",
+  ];
+  const cuerpoTexto = parrafos.join('\n\n');
+  const cuerpoHtml = parrafos
+    .map((p) => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  return { asunto, cuerpoHtml, cuerpoTexto };
+};
+
+/** Render real de la plantilla E9 en catalán (modificación de reserva). Variante catalana. */
+const renderE9Ca = (variables: Record<string, unknown>): RenderPlantilla => {
+  const nombre = texto(variables.nombre);
+  const codigoReserva = texto(variables.codigoReserva);
+  const cambio = describirCambioCa(texto(variables.cambio));
+  const restante = formatarImporteEs(variables.liquidacionRestante);
+  const referencia = codigoReserva === '' ? '' : ` (reserva ${codigoReserva})`;
+  const asunto = `Hem actualitzat la teva reserva${referencia}`;
+  const parrafos = [
+    `Hola ${nombre},`,
+    `Hem actualitzat ${cambio} de la teva reserva ${codigoReserva}. T'adjuntem el pressupost de modificació amb el nou detall.`,
+    `El pagament inicial que ja vas fer es manté sense canvis. Liquidació restant: ${restante}, que hauràs d'abonar abans de la data de l'esdeveniment.`,
+    "Si tens qualsevol dubte, estarem encantats d'ajudar-te.\nUna abraçada,\nAri\nMasia l'Encís",
+  ];
+  const cuerpoTexto = parrafos.join('\n\n');
+  const cuerpoHtml = parrafos
+    .map((p) => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  return { asunto, cuerpoHtml, cuerpoTexto };
+};
+
 /** Plantilla E1 ACTIVA en `es` con su contrato de variables requeridas. */
 const PLANTILLA_E1_ES: Plantilla = {
   codigoEmail: 'E1',
@@ -320,8 +401,34 @@ const PLANTILLA_E3_CA: Plantilla = {
 };
 
 /**
+ * Plantilla E9 ACTIVA en `es` (modificación de reserva, change `reserva-viva-edicion-recalculo-
+ * ficha` §D-6). MVP: se envía SIN adjunto (`adjuntosRequeridos: []`). El PDF del presupuesto de
+ * modificación (patrón E2) es deuda técnica del épico #6 (react-pdf): declarar `['presupuesto']`
+ * aquí bloquearía el envío (`adjunto_no_disponible`) hasta que exista el generador de PDF de
+ * modificación. El cliente recibe igualmente la notificación del cambio de precio (valor principal).
+ */
+const PLANTILLA_E9_ES: Plantilla = {
+  codigoEmail: 'E9',
+  idioma: 'es',
+  activa: true,
+  variablesRequeridas: ['nombre', 'codigoReserva'],
+  adjuntosRequeridos: [],
+  render: renderE9,
+};
+
+/** Plantilla E9 ACTIVA en `ca` (modificación de reserva). Mismo contrato que la variante `es`. */
+const PLANTILLA_E9_CA: Plantilla = {
+  codigoEmail: 'E9',
+  idioma: 'ca',
+  activa: true,
+  variablesRequeridas: ['nombre', 'codigoReserva'],
+  adjuntosRequeridos: [],
+  render: renderE9Ca,
+};
+
+/**
  * Códigos diferidos: declarados como diseñados/inactivos (sin trigger). E2 SALE de la lista al
- * activarse en el workstream C (queda E4–E8).
+ * activarse en el workstream C (queda E4–E8). E9 está ACTIVA (no diferida).
  */
 const CODIGOS_DIFERIDOS: ReadonlyArray<CodigoEmail> = [
   'E4',
@@ -361,6 +468,7 @@ export class CatalogoPlantillasEnCodigo implements CatalogoPlantillasPort {
     ['E1', PLANTILLA_E1_ES],
     ['E2', PLANTILLA_E2_ES],
     ['E3', PLANTILLA_E3_ES],
+    ['E9', PLANTILLA_E9_ES],
     ...CODIGOS_DIFERIDOS.map(
       (codigo): [CodigoEmail, Plantilla] => [codigo, plantillaInactivaEs(codigo)],
     ),
@@ -374,6 +482,7 @@ export class CatalogoPlantillasEnCodigo implements CatalogoPlantillasPort {
     ['E1', PLANTILLA_E1_CA],
     ['E2', PLANTILLA_E2_CA],
     ['E3', PLANTILLA_E3_CA],
+    ['E9', PLANTILLA_E9_CA],
     ...CODIGOS_DIFERIDOS.map(
       (codigo): [CodigoEmail, Plantilla] => [codigo, plantillaInactivaCa(codigo)],
     ),

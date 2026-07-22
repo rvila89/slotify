@@ -1457,3 +1457,50 @@ el alta, US-045); el modal no re-renderiza la plantilla. (Fuente: `US-047` modal
 - **THEN** el diálogo se presenta con ancho `max-w-2xl`
 - **AND** no produce overflow horizontal en los viewports 390 / 768 / 1280
 
+### Requirement: Email de modificación de reserva en el idioma de la reserva
+
+El sistema SHALL (DEBE), tras un recálculo del precio en la ventana viva que produce un nuevo
+presupuesto de modificación, **enviar al cliente** una COMUNICACION que le notifique la
+modificación solicitada (indicando si cambió el **nº de personas**, la **duración** o ambos) y
+que se le envía un nuevo presupuesto con el **restante a liquidar** actualizado. El email SHALL
+(DEBE) redactarse en el **idioma de la reserva** (`RESERVA.idioma`), reutilizando el motor de
+email de US-045 y el patrón i18n del catálogo de plantillas (render indexado por `codigoEmail` +
+idioma con **fallback a `es`** y registro en `AUDIT_LOG` cuando no exista variante para el
+idioma), como ya hacen E2/E3. Se añade una **plantilla nueva** (código de email dedicado, con
+variantes `es` y `ca`) coherente en tono y formato con las plantillas existentes; el adjunto es
+el PDF del presupuesto de modificación (patrón E2). El envío es un efecto **post-commit**: su
+fallo NO revierte el recálculo ya comprometido y queda trazado como COMUNICACION `fallido`
+reintentable. Toda operación filtra por el `tenant_id` del JWT (RLS). (Fuente: petición de
+usuario; `US-045` motor + i18n + fallback; `US-015` reenvío post-commit; `catalogo-plantillas.
+ts`; `codigo-email.ts`.)
+
+#### Scenario: Modificación con la reserva en catalán envía el email en catalán
+
+- **GIVEN** una RESERVA con `idioma = 'ca'` recalculada por un aumento de invitados
+- **WHEN** el sistema notifica la modificación al cliente
+- **THEN** envía la COMUNICACION con la plantilla nueva en variante `ca`, indicando el cambio de
+  nº de personas y el nuevo restante a liquidar, con el PDF del presupuesto de modificación
+  adjunto
+
+#### Scenario: Modificación con la reserva en español envía el email en español
+
+- **GIVEN** una RESERVA con `idioma = 'es'` recalculada por un cambio de duración
+- **WHEN** el sistema notifica la modificación al cliente
+- **THEN** envía la COMUNICACION con la plantilla nueva en variante `es`, indicando el cambio de
+  duración y el nuevo restante a liquidar
+
+#### Scenario: Idioma sin variante cae a español con traza
+
+- **GIVEN** una RESERVA con un `idioma` sin variante de plantilla disponible
+- **WHEN** el sistema resuelve la plantilla del email de modificación
+- **THEN** aplica el fallback a la variante `es` y registra la incidencia en `AUDIT_LOG` (mismo
+  comportamiento que E1/E2/E3)
+
+#### Scenario: Un fallo del proveedor no revierte el recálculo
+
+- **GIVEN** un recálculo ya comprometido (importes re-congelados, presupuesto de modificación y
+  liquidación regenerados)
+- **WHEN** el envío del email de modificación falla en el proveedor
+- **THEN** el recálculo NO se revierte y la COMUNICACION queda registrada como `fallido`
+  (reintentable), sin afectar a la consistencia de la RESERVA
+

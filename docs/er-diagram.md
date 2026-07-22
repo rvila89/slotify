@@ -297,6 +297,7 @@ erDiagram
         boolean tarifa_congelada "DEFAULT true"
         string pdf_url "nullable, URL del PDF generado post-commit por react-pdf (6.1b) o pendiente"
         enum estado "borrador | enviado | aceptado | rechazado"
+        string origen "nullable — NULL para versiones normales; 'modificacion' para versiones generadas por recálculo en ventana viva (reserva-viva-edicion-recalculo-ficha)"
         timestamp fecha_envio "nullable, solo cuando estado=enviado"
         timestamp fecha_creacion
         timestamp fecha_actualizacion
@@ -342,14 +343,14 @@ erDiagram
     FICHA_OPERATIVA {
         uuid id_ficha PK
         uuid reserva_id FK "UK - relacion 1:1"
-        int num_invitados_confirmado
+        int num_invitados_confirmado "legacy — no escrito desde reserva-viva-edicion-recalculo-ficha; aforo edita RESERVA directamente"
         text menu_seleccionado "// legacy — retirada del contrato, permanece en BD como nullable"
         text timing_detallado "// legacy — retirada del contrato, permanece en BD como nullable"
         string contacto_evento_nombre
         string contacto_evento_telefono
         string contacto_evento_correo "nullable; pre-relleno desde reserva.cliente.email al confirmar"
         string hora_llegada "nullable; formato HH:MM"
-        text duracion "nullable; texto libre (p. ej. '6 horas')"
+        text duracion "legacy — no escrito desde reserva-viva-edicion-recalculo-ficha; duración edita RESERVA directamente"
         text notas_operativas
         text briefing_equipo
         boolean ficha_cerrada
@@ -383,7 +384,7 @@ erDiagram
         uuid tenant_id FK
         uuid reserva_id FK "nullable — solo NULL en emails manual creados fuera del contexto de una RESERVA; en US-046 los manual desde la ficha llevan reserva_id NOT NULL"
         uuid cliente_id FK
-        enum codigo_email "E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | manual"
+        enum codigo_email "E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | E9 | manual"
         enum subtipo "consulta_exploratoria | fecha_disponible | fecha_confirmada | cola_espera | cambio_fecha | NULL — nullable; NULL para E2-E8, manual y filas legadas"
         string asunto
         text cuerpo
@@ -823,6 +824,7 @@ El **reparto 40/60** se calcula sobre el `total` del régimen. La **fiança** (`
 | tarifa_congelada | BOOLEAN | `DEFAULT true`. Una vez confirmado, un cambio del tarifario no recalcula este presupuesto |
 | pdf_url | VARCHAR(500) | URL del PDF generado con `@react-pdf/renderer` (6.1b). Nullable hasta que el PDF se genera post-commit. El adaptador `local` construye la URL de forma determinista (`baseUrl/presupuestos/{tenantId}/{id}.pdf`) |
 | estado | ENUM | `borrador` \| `enviado` \| `aceptado` \| `rechazado`. Al confirmar en UC-14 se crea directamente con `estado = 'enviado'` |
+| origen | TEXT nullable | `NULL` para versiones generadas en el flujo normal (pre-reserva). `'modificacion'` para versiones creadas por el `RecalcularReservaVivaUseCase` durante la ventana viva (ya con señal confirmada). Migración aditiva/nullable; change `reserva-viva-edicion-recalculo-ficha`. |
 | fecha_envio | TIMESTAMP | No nulo solo cuando `estado = 'enviado'`. Nulo en `borrador`, `aceptado` y `rechazado` |
 | fecha_creacion | TIMESTAMP | `DEFAULT now()` |
 | fecha_actualizacion | TIMESTAMP | Actualizada automáticamente en cada mutación (`@updatedAt`) |
@@ -928,15 +930,20 @@ Cobro conciliado contra una factura. El justificante es un `DOCUMENTO(tipo=justi
 ### 3.15 FICHA_OPERATIVA
 Datos operativos del evento, cumplimentados progresivamente. Relación 1:1 con la reserva. La entidad se crea vacía (todos los campos de contenido a `NULL`, `ficha_cerrada = false`) en la misma transacción de confirmación de señal (US-021). US-025 añade la lectura, el guardado parcial y el cierre.
 
+**Campos soft-deprecados (change `reserva-viva-edicion-recalculo-ficha`):** `numInvitadosConfirmado` y `duracion` ya no se escriben desde el change `reserva-viva-edicion-recalculo-ficha`. El aforo y la duración del evento se editan ahora directamente en RESERVA (`numAdultosNinosMayores4`, `numNinosMenores4`, `duracionHoras`) desde la ficha operativa. Las columnas **permanecen en BD** como nullable para compatibilidad con datos históricos; no deben usarse para escritura en nuevas implementaciones.
+
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
 | id_ficha | UUID PK | Identificador único |
 | reserva_id | UUID FK UK | Reserva asociada (1:1) |
-| num_invitados_confirmado | INT | Nº final de invitados (nullable) |
+| num_invitados_confirmado | INT | **SOFT-DEPRECATED** — legacy; no escrito desde el change `reserva-viva-edicion-recalculo-ficha`. El aforo real se lee de `RESERVA.num_adultos_ninos_mayores4` y `RESERVA.num_ninos_menores4`. Permanece en BD como nullable. |
 | menu_seleccionado | TEXT | Detalles del menú (nullable) |
 | timing_detallado | TEXT | Horarios y secuencia (nullable) |
 | contacto_evento_nombre | VARCHAR(100) | Contacto del día (nullable) |
 | contacto_evento_telefono | VARCHAR(20) | Teléfono del contacto (nullable) |
+| contacto_evento_correo | VARCHAR(255) | Email del contacto del día (nullable; pre-relleno desde `RESERVA.cliente.email` al confirmar señal) |
+| hora_llegada | VARCHAR | Hora de llegada en formato HH:MM (nullable) |
+| duracion | TEXT | **SOFT-DEPRECATED** — legacy; no escrito desde el change `reserva-viva-edicion-recalculo-ficha`. La duración real del evento se lee de `RESERVA.duracion_horas`. Permanece en BD como nullable. |
 | notas_operativas | TEXT | Notas para el equipo (nullable). Si `RESERVA.comentarios` tiene contenido al crear la ficha (US-021), se inicializa con ese valor dentro de la misma transacción de confirmación de señal, de forma idempotente. El gestor puede editarlo libremente a través de US-025. |
 | briefing_equipo | TEXT | Briefing operativo (nullable) |
 | ficha_cerrada | BOOLEAN | `false` hasta el cierre manual; `true` al cerrar (US-025) |
@@ -968,7 +975,7 @@ Archivos adjuntos polimórficos. Discriminador `tipo`. Referenciable desde reser
 **Uso para documentación del evento (UC-24 — US-033):** los tipos `dni_anverso`, `dni_reverso` y `clausula_responsabilidad` se usan exclusivamente en el flujo de captura de documentación obligatoria del evento (`POST /reservas/{id}/documentos-evento`). La subida es **no idempotente por diseño**: cada llamada crea una fila `DOCUMENTO` nueva sin buscar-antes-de-crear (contraste con US-023). Múltiples filas del mismo tipo para la misma reserva conviven sin conflicto; el documento de referencia del checklist es el **más reciente** por `fechaCreacion`. Guarda de escritura: solo `RESERVA.estado = evento_en_curso`. El checklist (`GET /reservas/{id}/documentos-evento/checklist`) es consultable también en `post_evento` (lectura, no escritura). `AUDIT_LOG accion='crear'`, `entidad='DOCUMENTO'`. Sin migración de esquema (enum `TipoDocumento` y tabla `DOCUMENTO` ya existían). Ver §5.11.
 
 ### 3.17 COMUNICACION
-Log de emails del ciclo de vida de la reserva (E1–E8) y emails manuales. El motor hexagonal `DespacharEmailService` (US-045) es el único responsable de registrar y actualizar estas entradas para los emails automáticos. La primera superficie HTTP del módulo (US-046) expone las acciones manuales del Gestor (listar, enviar borrador, descartar, email manual) como sub-recurso de la RESERVA.
+Log de emails del ciclo de vida de la reserva (E1–E9) y emails manuales. El motor hexagonal `DespacharEmailService` (US-045) es el único responsable de registrar y actualizar estas entradas para los emails automáticos. La primera superficie HTTP del módulo (US-046) expone las acciones manuales del Gestor (listar, enviar borrador, descartar, email manual) como sub-recurso de la RESERVA.
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
@@ -976,7 +983,7 @@ Log de emails del ciclo de vida de la reserva (E1–E8) y emails manuales. El mo
 | tenant_id | UUID FK | Tenant propietario |
 | cliente_id | UUID FK | Destinatario |
 | reserva_id | UUID FK | Reserva relacionada (nullable — solo NULL cuando el email `manual` se crea fuera del contexto de una RESERVA; los emails `manual` creados desde la ficha de la reserva en US-046 llevan `reserva_id` NOT NULL) |
-| codigo_email | ENUM | E1–E8, manual |
+| codigo_email | ENUM | E1–E9, manual |
 | subtipo | ENUM nullable | Enum `SubtipoEmail`. Distingue el evento del ciclo de vida que generó el email. Valores: `consulta_exploratoria`, `fecha_disponible`, `fecha_confirmada`, `cola_espera`, `cambio_fecha`. `NULL` para E2–E8, emails `manual` y filas legadas. Solo aplica a E1. Añadido en el change `historial-completo-comunicaciones`. |
 | asunto | VARCHAR(255) | Asunto del email |
 | cuerpo | TEXT | Cuerpo HTML del email (nullable) |
@@ -1011,7 +1018,7 @@ Log de emails del ciclo de vida de la reserva (E1–E8) y emails manuales. El mo
 - Cambio de fecha de `2b` (rama no-cola, change `historial-completo-comunicaciones`): `subtipo = 'cambio_fecha'` — nueva conducta; antes esta rama no producía ningún E1.
 - Salida de cola `2d → 2b` (`cambiarDesdeCola`, change `historial-completo-comunicaciones`): `subtipo = 'fecha_disponible'`.
 
-E2 activa con **dos triggers**: (1) US-014 — post-commit de la confirmación `{2a|2b|2c|2v} → pre_reserva`, motor invocado via `despachar` (camino idempotente, `es_reenvio=false`), `COMUNICACION` con `codigo_email='E2'`, `subtipo=NULL`, PDF adjunto por referencia a `PRESUPUESTO.pdf_url` (persistido post-commit); (2) US-015 (change `presupuesto-edicion-reenvio-email-real`) — post-commit de la **edición con envío** y del **reenvío sin cambios**, motor invocado via `DespacharEmailService.despacharReenvio` (salta la idempotencia; en la edición `esEdicion=true` modifica asunto y párrafo inicial de E2/E2-CA; en el reenvío `esEdicion=false`), `COMUNICACION` con `codigo_email='E2'`, `es_reenvio=true`, `subtipo=NULL`, fuente única post-commit (no hay fila contable en la transacción); el reenvío sin cambios usa `PRESUPUESTO.pdf_url` de la versión vigente (ahora siempre persistido en UC-14 y UC-15); el índice UNIQUE parcial sobre la terna `(reserva_id, codigo_email, subtipo)` con `NULLS NOT DISTINCT` y predicado `estado='enviado'` mantiene la idempotencia de los envíos consumados (los reenvíos `es_reenvio=true` quedan fuera del constraint y no colisionan con el E2 original ni entre sí). **Gap E2 resuelto (US-015 D1, decisión PO/humano 2026-07-15):** se reutiliza el template E2 para UC-15 con `es_reenvio=true`, sin crear código `E` nuevo ni migrar el enum `CodigoEmail`. **Bug de envío real corregido (change `presupuesto-edicion-reenvio-email-real`, 2026-07-20):** antes de este change, la edición usaba el camino idempotente (proveedor nunca invocado) y el reenvío sin cambios era un stub no-op; ambos ahora envían realmente via `despacharReenvio`. E6 activa (trigger cableado en US-008 — post-commit de la transición `{2a|2b|2c}→2v`; registro en `COMUNICACION` con `codigo_email='E6'`, `estado='enviado'`, `subtipo=NULL`, `reserva_id`, `cliente_id`). E7 activa (trigger cableado en US-009 — post-commit de la transición `2v→2b` "cliente interesado"; registro en `COMUNICACION` con `codigo_email='E7'`, `estado='enviado'`, `subtipo=NULL`, `reserva_id`, `cliente_id`). E3 avanza en US-022 (la factura de señal, prerequisito de E3, está implementada) pero su trigger se cablea en US-023 (condiciones particulares, trigger natural de E3). **E4 activa — trigger cableado en US-028** (aprobación/emisión de la factura de liquidación y del recibo de fianza): la acción `aprobar-enviar` emite ambas facturas, registra `COMUNICACION E4` con `estado='enviado'`, `subtipo=NULL` y actualiza `liquidacion_status = 'facturada'` y `fianza_status = 'recibo_enviado'` de forma **atómica** (D-1: excepción síncrona al patrón post-commit); si E4 falla, se hace rollback completo de estados y numeración. El reenvío de la factura ya emitida (`POST /reservas/{id}/facturas/liquidacion/reenviar`) crea un nuevo registro `COMUNICACION E4` con `es_reenvio = true`, sin mutar el contenido fiscal. El envío separado del recibo de fianza (`POST /reservas/{id}/facturas/fianza/enviar`) registra `COMUNICACION` con `codigo_email = 'manual'` (D-3). US-027 generó los borradores con `numero_factura = NULL`; US-028 asignó `numero_factura = F-YYYY-NNNN` al emitir. E5, E8 diseñadas/inactivas; su trigger: E5→US-034, E8→US-035. Ver [architecture.md §2.9 DT-EMAIL-02 y §2.15](./architecture.md).
+E2 activa con **dos triggers**: (1) US-014 — post-commit de la confirmación `{2a|2b|2c|2v} → pre_reserva`, motor invocado via `despachar` (camino idempotente, `es_reenvio=false`), `COMUNICACION` con `codigo_email='E2'`, `subtipo=NULL`, PDF adjunto por referencia a `PRESUPUESTO.pdf_url` (persistido post-commit); (2) US-015 (change `presupuesto-edicion-reenvio-email-real`) — post-commit de la **edición con envío** y del **reenvío sin cambios**, motor invocado via `DespacharEmailService.despacharReenvio` (salta la idempotencia; en la edición `esEdicion=true` modifica asunto y párrafo inicial de E2/E2-CA; en el reenvío `esEdicion=false`), `COMUNICACION` con `codigo_email='E2'`, `es_reenvio=true`, `subtipo=NULL`, fuente única post-commit (no hay fila contable en la transacción); el reenvío sin cambios usa `PRESUPUESTO.pdf_url` de la versión vigente (ahora siempre persistido en UC-14 y UC-15); el índice UNIQUE parcial sobre la terna `(reserva_id, codigo_email, subtipo)` con `NULLS NOT DISTINCT` y predicado `estado='enviado'` mantiene la idempotencia de los envíos consumados (los reenvíos `es_reenvio=true` quedan fuera del constraint y no colisionan con el E2 original ni entre sí). **Gap E2 resuelto (US-015 D1, decisión PO/humano 2026-07-15):** se reutiliza el template E2 para UC-15 con `es_reenvio=true`, sin crear código `E` nuevo ni migrar el enum `CodigoEmail`. **Bug de envío real corregido (change `presupuesto-edicion-reenvio-email-real`, 2026-07-20):** antes de este change, la edición usaba el camino idempotente (proveedor nunca invocado) y el reenvío sin cambios era un stub no-op; ambos ahora envían realmente via `despacharReenvio`. E6 activa (trigger cableado en US-008 — post-commit de la transición `{2a|2b|2c}→2v`; registro en `COMUNICACION` con `codigo_email='E6'`, `estado='enviado'`, `subtipo=NULL`, `reserva_id`, `cliente_id`). E7 activa (trigger cableado en US-009 — post-commit de la transición `2v→2b` "cliente interesado"; registro en `COMUNICACION` con `codigo_email='E7'`, `estado='enviado'`, `subtipo=NULL`, `reserva_id`, `cliente_id`). E3 avanza en US-022 (la factura de señal, prerequisito de E3, está implementada) pero su trigger se cablea en US-023 (condiciones particulares, trigger natural de E3). **E4 activa — trigger cableado en US-028** (aprobación/emisión de la factura de liquidación y del recibo de fianza): la acción `aprobar-enviar` emite ambas facturas, registra `COMUNICACION E4` con `estado='enviado'`, `subtipo=NULL` y actualiza `liquidacion_status = 'facturada'` y `fianza_status = 'recibo_enviado'` de forma **atómica** (D-1: excepción síncrona al patrón post-commit); si E4 falla, se hace rollback completo de estados y numeración. El reenvío de la factura ya emitida (`POST /reservas/{id}/facturas/liquidacion/reenviar`) crea un nuevo registro `COMUNICACION E4` con `es_reenvio = true`, sin mutar el contenido fiscal. El envío separado del recibo de fianza (`POST /reservas/{id}/facturas/fianza/enviar`) registra `COMUNICACION` con `codigo_email = 'manual'` (D-3). US-027 generó los borradores con `numero_factura = NULL`; US-028 asignó `numero_factura = F-YYYY-NNNN` al emitir. E5, E8 diseñadas/inactivas; su trigger: E5→US-034, E8→US-035. **E9 activa — trigger cableado en el change `reserva-viva-edicion-recalculo-ficha`:** se dispara post-commit del `RecalcularReservaVivaUseCase` cuando el gestor edita aforo o duración desde la ficha operativa dentro de la ventana viva; notifica al cliente de la modificación con el nuevo importe total y el restante de liquidación; plantilla bilingüe es/ca; registro en `COMUNICACION` con `codigo_email='E9'`, `estado='enviado'`, `subtipo=NULL`, `reserva_id`, `cliente_id`. Fallo del proveedor no revierte el recálculo (queda con `estado='fallido'` en `COMUNICACION`). Ver [architecture.md §2.9 DT-EMAIL-02 y §2.15](./architecture.md).
 
 ### 3.18 AUDIT_LOG
 Registro de auditoría de todas las acciones sobre reservas, facturas y autenticación.
