@@ -7,6 +7,7 @@
  */
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsIn,
   IsInt,
   IsNumberString,
@@ -22,8 +23,11 @@ const salvoNull = (_: object, valor: unknown): boolean => valor !== null;
 /** Valores del enum `PreEventoStatus` del contrato OpenAPI congelado. */
 export const PRE_EVENTO_STATUS = ['pendiente', 'en_curso', 'cerrado'] as const;
 
-/** Valores del enum `DuracionHoras {4,8,12}` del contrato (aforo/duración estructural). */
-export const DURACION_HORAS = ['4', '8', '12'] as const;
+/**
+ * Valores del enum `DuracionHoras {4,8,12}` del contrato: INTEGER (no string). El SDK y el
+ * contrato OpenAPI tipan `duracionHoras` como `integer enum [4,8,12]`.
+ */
+export const DURACION_HORAS = [4, 8, 12] as const;
 
 /** Respuesta 200 de `GET`/`PATCH` (`FichaOperativa` del contrato). */
 export class FichaOperativaResponseDto {
@@ -53,9 +57,10 @@ export class FichaOperativaResponseDto {
 
   @ApiPropertyOptional({
     enum: DURACION_HORAS,
+    type: Number,
     nullable: true,
     description:
-      'Duración estructurada de la RESERVA (enum 4/8/12). Editable en la ventana viva.',
+      'Duración estructurada de la RESERVA (enum integer 4/8/12). Editable en la ventana viva.',
   })
   duracionHoras!: (typeof DURACION_HORAS)[number] | null;
 
@@ -101,6 +106,50 @@ export class CerrarFichaOperativaResponseDto extends FichaOperativaResponseDto {
 }
 
 /**
+ * Snapshot del RECÁLCULO en cascada (`RecalculoResultado` del contrato). Importes como
+ * Decimal(10,2) string; `null` en el caso `tarifaAConsultar=true` sin `precioManualEur`.
+ */
+export class RecalculoResultadoDto {
+  @ApiProperty({
+    type: Boolean,
+    description:
+      '`true` cuando >50 invitados o sin TARIFA configurada: exige precioManualEur.',
+  })
+  @IsBoolean()
+  tarifaAConsultar!: boolean;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  nuevoTotal!: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pagoInicial!: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  liquidacionRestante!: string | null;
+
+  @ApiPropertyOptional({ type: Number, nullable: true })
+  versionPresupuesto!: number | null;
+
+  @ApiPropertyOptional({ type: Number, nullable: true })
+  versionLiquidacion!: number | null;
+}
+
+/**
+ * Respuesta 200 del PATCH (`GuardarFichaOperativaResponse`): la ficha (con pre-relleno y
+ * campos estructurados) MÁS el resultado del recálculo. `recalculo` es `null` cuando el
+ * guardado no tocó aforo/duración estructural (no hubo recálculo).
+ */
+export class GuardarFichaOperativaResponseDto extends FichaOperativaResponseDto {
+  @ApiPropertyOptional({
+    type: RecalculoResultadoDto,
+    nullable: true,
+    description:
+      'Resultado del recálculo en cascada, o null si el guardado no cambió aforo/duración.',
+  })
+  recalculo!: RecalculoResultadoDto | null;
+}
+
+/**
  * Cuerpo de `PATCH /reservas/{id}/ficha-operativa`: guardado PARCIAL
  * (`GuardarFichaOperativaRequest`). Todos los campos son opcionales; solo se persiste
  * el subconjunto presente. `numInvitadosConfirmado` admite `null` (borrar el valor).
@@ -122,9 +171,13 @@ export class GuardarFichaOperativaRequestDto {
   @IsInt()
   numInvitadosConfirmado?: number | null;
 
-  /** Duración estructurada de la RESERVA (enum 4/8/12). Dispara recálculo en la ventana viva. */
-  @ApiPropertyOptional({ enum: DURACION_HORAS })
+  /**
+   * Duración estructurada de la RESERVA (enum INTEGER 4/8/12, alineado con el contrato/SDK).
+   * Dispara recálculo en la ventana viva. Un valor fuera de `{4,8,12}` → 400.
+   */
+  @ApiPropertyOptional({ enum: DURACION_HORAS, type: Number })
   @IsOptional()
+  @IsInt()
   @IsIn(DURACION_HORAS)
   duracionHoras?: (typeof DURACION_HORAS)[number];
 

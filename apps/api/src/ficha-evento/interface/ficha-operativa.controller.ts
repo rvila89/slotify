@@ -34,6 +34,7 @@ import {
 import {
   GuardarFichaOperativaUseCase,
   type CamposEstructuralesFicha,
+  type GuardarFichaOperativaResultado,
 } from '../application/guardar-ficha-operativa.use-case';
 import {
   CerrarFichaOperativaUseCase,
@@ -43,26 +44,54 @@ import {
   FueraDeVentanaVivaError,
   PrecioManualRequeridoError,
   ImporteSenalInvalidoError,
+  type RecalcularReservaVivaResultado,
 } from '../application/recalcular-reserva-viva.use-case';
-import type { FichaOperativa } from '../domain/ficha-operativa.ports';
+import type {
+  CamposFichaOperativa,
+  FichaOperativa,
+} from '../domain/ficha-operativa.ports';
 import {
   CerrarFichaOperativaResponseDto,
   FichaOperativaResponseDto,
   GuardarFichaOperativaRequestDto,
+  GuardarFichaOperativaResponseDto,
+  RecalculoResultadoDto,
 } from './ficha-operativa.dto';
 
 /** Formatea un `Date` a ISO completo (contrato `date-time`); null si ausente. */
 const aFechaHora = (fecha: Date | null): string | null =>
   fecha === null ? null : fecha.toISOString();
 
-/** Presenta la duración estructurada numérica (`8`) como enum del contrato (`'8'`), o null. */
+/** Duración estructurada como enum INTEGER del contrato (`{4,8,12}`), o null. */
 const aDuracionHorasEnum = (
   horas: number | null | undefined,
-): '4' | '8' | '12' | null => {
+): 4 | 8 | 12 | null => {
   if (horas === 4 || horas === 8 || horas === 12) {
-    return String(horas) as '4' | '8' | '12';
+    return horas;
   }
   return null;
+};
+
+/**
+ * Proyecta el resultado del recálculo del dominio al `RecalculoResultado` del contrato, o
+ * `null` cuando el guardado no disparó recálculo (no-op de aforo/duración). `versionLiquidacion`
+ * se mapea a la versión de la modificación (presupuesto y liquidación se regeneran en lockstep).
+ */
+const aRecalculoResponse = (
+  recalculo: RecalcularReservaVivaResultado | undefined,
+): RecalculoResultadoDto | null => {
+  if (recalculo === undefined || !recalculo.recalculado) {
+    return null;
+  }
+  const versionModificacion = recalculo.presupuesto?.version ?? null;
+  return {
+    tarifaAConsultar: recalculo.tarifaAConsultar,
+    nuevoTotal: recalculo.nuevoTotal,
+    pagoInicial: recalculo.pagoInicial,
+    liquidacionRestante: recalculo.liquidacionRestante,
+    versionPresupuesto: versionModificacion,
+    versionLiquidacion: versionModificacion,
+  };
 };
 
 /** Proyecta la ficha de dominio al DTO HTTP de respuesta. */
@@ -83,6 +112,14 @@ const aFichaResponse = (ficha: FichaOperativa): FichaOperativaResponseDto => ({
   fichaCerrada: ficha.fichaCerrada,
   fechaCierre: aFechaHora(ficha.fechaCierre),
   preEventoStatus: ficha.preEventoStatus,
+});
+
+/** Proyecta el resultado del guardado (ficha + recálculo) al `GuardarFichaOperativaResponse`. */
+const aGuardadoResponse = (
+  resultado: GuardarFichaOperativaResultado,
+): GuardarFichaOperativaResponseDto => ({
+  ...aFichaResponse(resultado.ficha),
+  recalculo: aRecalculoResponse(resultado.recalculo),
 });
 
 /** Extrae el subconjunto ESTRUCTURADO (aforo/duración) del body de guardado (§D-1). */
@@ -111,7 +148,7 @@ const extraerEstructurales = (
  */
 const extraerCamposOperativos = (
   cuerpo: GuardarFichaOperativaRequestDto,
-): Record<string, unknown> => {
+): CamposFichaOperativa => {
   const {
     duracionHoras: _d,
     numAdultosNinosMayores4: _a,
@@ -158,16 +195,16 @@ export class FichaOperativaController {
     @Param('id') id: string,
     @Body() cuerpo: GuardarFichaOperativaRequestDto,
     @CurrentUser() usuario: UsuarioAutenticado,
-  ): Promise<FichaOperativaResponseDto> {
+  ): Promise<GuardarFichaOperativaResponseDto> {
     try {
-      const ficha = await this.guardar.ejecutar({
+      const resultado = await this.guardar.ejecutar({
         tenantId: usuario.tenantId,
         usuarioId: usuario.sub,
         reservaId: id,
         campos: extraerCamposOperativos(cuerpo),
         estructurales: extraerEstructurales(cuerpo),
       });
-      return aFichaResponse(ficha);
+      return aGuardadoResponse(resultado);
     } catch (error) {
       throw this.traducirError(error);
     }

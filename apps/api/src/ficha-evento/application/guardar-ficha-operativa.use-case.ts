@@ -24,7 +24,10 @@ import {
   type UnidadDeTrabajoFichaPort as UnidadDeTrabajoGenericaPort,
 } from '../domain/ficha-operativa.ports';
 import { tieneAlgunDatoDeContenido } from '../domain/maquina-estados-pre-evento';
-import type { RecalcularReservaVivaUseCase } from './recalcular-reserva-viva.use-case';
+import type {
+  RecalcularReservaVivaResultado,
+  RecalcularReservaVivaUseCase,
+} from './recalcular-reserva-viva.use-case';
 
 export {
   FichaNoDisponibleError,
@@ -36,6 +39,7 @@ export type {
   FichaOperativa,
   ReservaFichaOperativa,
 } from '../domain/ficha-operativa.ports';
+export type { RecalcularReservaVivaResultado } from './recalcular-reserva-viva.use-case';
 
 /** Repositorios ligados a la unidad de trabajo del guardado parcial. */
 export type RepositoriosFicha = RepositoriosGuardadoFicha;
@@ -79,10 +83,22 @@ export interface GuardarFichaOperativaDeps {
   recalcularReservaViva?: RecalcularReservaVivaUseCase;
 }
 
+/**
+ * Resultado del guardado: la ficha resultante MÁS el resultado del recálculo en cascada
+ * (`undefined` cuando el guardado no tocó aforo/duración estructural). El controlador
+ * proyecta `recalculo` a `RecalculoResultado | null` del contrato `GuardarFichaOperativaResponse`.
+ */
+export interface GuardarFichaOperativaResultado {
+  ficha: FichaOperativa;
+  recalculo?: RecalcularReservaVivaResultado;
+}
+
 export class GuardarFichaOperativaUseCase {
   constructor(private readonly deps: GuardarFichaOperativaDeps) {}
 
-  async ejecutar(comando: GuardarFichaOperativaComando): Promise<FichaOperativa> {
+  async ejecutar(
+    comando: GuardarFichaOperativaComando,
+  ): Promise<GuardarFichaOperativaResultado> {
     const { tenantId, usuarioId, reservaId, campos } = comando;
 
     // Guarda de acceso + tenant ANTES de abrir la transacción (sin efectos si falla).
@@ -98,11 +114,11 @@ export class GuardarFichaOperativaUseCase {
     // se enrutan a la RESERVA vía `RecalcularReservaVivaUseCase` (guarda de ventana viva,
     // no-op si no cambia, recálculo transaccional + E9). Los campos operativos NO
     // estructurales (contacto, hora, notas, briefing) siguen guardándose sin restricción.
-    await this.recalcularSiProcede(comando);
+    const recalculo = await this.recalcularSiProcede(comando);
 
     const estadoPrevio = reserva.ficha.preEventoStatus;
 
-    return (await this.deps.unidadDeTrabajo.ejecutar(tenantId, async (repos) => {
+    const ficha = (await this.deps.unidadDeTrabajo.ejecutar(tenantId, async (repos) => {
       const fichaGuardada = await repos.ficha.guardarCampos(reservaId, campos);
 
       await repos.auditoria.registrar({
@@ -133,20 +149,23 @@ export class GuardarFichaOperativaUseCase {
 
       return fichaGuardada;
     })) as FichaOperativa;
+
+    return recalculo === undefined ? { ficha } : { ficha, recalculo };
   }
 
   /**
    * Invoca el recálculo en cascada si el guardado incluye aforo/duración estructurados o un
-   * precio manual (§D-1). El `RecalcularReservaVivaUseCase` resuelve el desglose EFECTIVO
-   * (comando ?? vigente), la guarda de ventana viva y el no-op. Sin `recalcularReservaViva`
-   * cableado o sin campos estructurados → no-op aquí.
+   * precio manual (§D-1) y DEVUELVE su resultado (para la respuesta del PATCH). El
+   * `RecalcularReservaVivaUseCase` resuelve el desglose EFECTIVO (comando ?? vigente), la
+   * guarda de ventana viva y el no-op. Sin `recalcularReservaViva` cableado o sin campos
+   * estructurales → `undefined` (la respuesta lleva `recalculo: null`).
    */
   private async recalcularSiProcede(
     comando: GuardarFichaOperativaComando,
-  ): Promise<void> {
+  ): Promise<RecalcularReservaVivaResultado | undefined> {
     const estructurales = comando.estructurales;
     if (this.deps.recalcularReservaViva === undefined || estructurales === undefined) {
-      return;
+      return undefined;
     }
     const traeAlgo =
       estructurales.duracionHoras !== undefined ||
@@ -154,10 +173,10 @@ export class GuardarFichaOperativaUseCase {
       estructurales.numNinosMenores4 !== undefined ||
       estructurales.precioManualEur !== undefined;
     if (!traeAlgo) {
-      return;
+      return undefined;
     }
 
-    await this.deps.recalcularReservaViva.ejecutar({
+    return this.deps.recalcularReservaViva.ejecutar({
       tenantId: comando.tenantId,
       usuarioId: comando.usuarioId,
       reservaId: comando.reservaId,
