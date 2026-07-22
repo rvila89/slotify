@@ -1290,10 +1290,10 @@ flowchart TD
 **Flujo Básico (US-025):**
 1. El gestor abre la ficha operativa de una reserva confirmada (`GET /reservas/{id}/ficha-operativa`)
 2. El gestor cumplimenta campos progresivamente (`PATCH /reservas/{id}/ficha-operativa`), enviando solo el subconjunto de campos a actualizar:
-   - Nº invitados confirmado
+   - **Aforo estructural** (`numAdultosNinosMayores4`, `numNinosMenores4`) — escribe directamente en RESERVA; activa el recálculo si la guarda de ventana viva se cumple
+   - **Duración estructural** (`duracionHoras ∈ {4,8,12}`) — escribe directamente en RESERVA; activa el recálculo si la guarda de ventana viva se cumple
    - Contacto del evento (nombre, teléfono y correo electrónico — `contacto_evento_correo` pre-relleno desde el email del cliente al confirmar la reserva)
    - Hora de llegada (`hora_llegada`, formato HH:MM)
-   - Duración del evento (`duracion`, texto libre)
    - Notas operativas
    - Briefing del equipo
 3. En el **primer guardado con al menos un campo con dato**, el sistema transiciona `pre_evento_status: pendiente → en_curso` en la misma transacción. Guardados totalmente vacíos no modifican el estado.
@@ -1329,6 +1329,63 @@ flowchart TD
     N --> O[PATCH actualiza campo + fecha_cierre, estado sigue cerrado]
     J --> P{T-1d sin cerrar}
     P -->|Sí| Q[US-026: cierre automático Sistema]
+```
+
+**Extensión UC-20 — Reserva viva: edición de aforo/duración con recálculo en cascada (change `reserva-viva-edicion-recalculo-ficha`):**
+
+Tras confirmar la señal, la reserva entra en la **ventana viva**: el aforo y la duración del evento aún pueden modificarse desde la ficha operativa mientras la ficha no esté cerrada Y la liquidación no esté cobrada. Esta ventana es la única oportunidad para ajustar los parámetros estructurales sin necesidad de cancelar la reserva.
+
+**Guarda de ventana viva (`esEditableEnVentanaViva`):** la edición estructural es posible únicamente cuando:
+- `RESERVA.estado = 'reserva_confirmada'`
+- `FICHA_OPERATIVA.ficha_cerrada = false`
+- `RESERVA.liquidacion_status ≠ 'cobrada'`
+
+Si la guarda no se cumple (ficha cerrada o liquidación cobrada), el sistema rechaza la edición con **422** `FUERA_DE_VENTANA_VIVA`.
+
+**Campos estructurales vs. campos operativos:**
+- **Estructurales** (`duracionHoras`, `numAdultosNinosMayores4`, `numNinosMenores4`): se escriben en RESERVA directamente y activan el recálculo en cascada si la guarda pasa.
+- **Operativos** (contacto, hora de llegada, notas, briefing): se escriben en FICHA_OPERATIVA y no activan recálculo.
+
+**Recálculo en cascada (`RecalcularReservaVivaUseCase`):**
+
+Cuando el Gestor modifica un campo estructural dentro de la ventana viva, el sistema ejecuta en **una única transacción**:
+1. Calcula el nuevo precio vía motor de tarifa (UC-16) con los nuevos parámetros. Si `numAdultosNinosMayores4 > 50` y no se proporciona `precioManualEur` → **422** `TARIFA_A_CONSULTAR`.
+2. Re-congela `RESERVA.importe_total` con el nuevo total. **`importe_senal` permanece invariante** (el pago inicial ya se realizó). Recalcula `importe_liquidacion = nuevoTotal − importe_senal`.
+3. Crea una nueva versión de PRESUPUESTO (`version = MAX+1`, `origen = 'modificacion'`, `estado = 'borrador'`) con el nuevo desglose.
+4. Regenera la FACTURA de liquidación en borrador (si estaba en `estado = 'enviada'`, la regenera; si ya estaba `cobrada`, la guarda rechaza con error — la guarda de ventana viva ya lo impide).
+5. Registra `AUDIT_LOG accion='actualizar'`.
+
+Post-commit: dispara email **E9** "modificación de reserva" al cliente (bilingüe es/ca) informando del nuevo total y del restante de liquidación.
+
+**Respuesta del `PATCH` cuando hay recálculo:**
+```
+{
+  recalculo: {
+    nuevoTotal: Decimal,
+    pagoInicial: Decimal,       // importe_senal, invariante
+    liquidacionRestante: Decimal,
+    versionPresupuesto: int,
+    tarifaAConsultar: boolean
+  }
+}
+```
+
+**Pre-relleno al leer la ficha (`GET /reservas/{id}/ficha-operativa`):**
+El endpoint devuelve los valores actuales de RESERVA como referencia cuando la ficha no tiene valor propio: `duracionHoras` y el desglose de invitados se leen de RESERVA. Esta operación **no muta** ninguna fila.
+
+```mermaid
+flowchart TD
+    A[Gestor edita aforo/duración en ficha — PATCH] --> B{esEditableEnVentanaViva?}
+    B -->|No — ficha cerrada o liquidación cobrada| C[422 FUERA_DE_VENTANA_VIVA]
+    B -->|Sí| D{numAdultosNinosMayores4 > 50 sin precioManualEur?}
+    D -->|Sí| E[422 TARIFA_A_CONSULTAR — el gestor introduce precioManualEur]
+    D -->|No / precioManualEur ok| F[Tx: motor tarifa → nuevo importe_total]
+    F --> G[importe_senal invariante — recalcula importe_liquidacion]
+    G --> H[INSERT PRESUPUESTO version=MAX+1 origen=modificacion]
+    H --> I[REGENERAR FACTURA liquidacion en borrador]
+    I --> J[UPDATE RESERVA importes + AUDIT_LOG]
+    J --> K[200 — respuesta con recalculo]
+    K --> L[Post-commit: E9 al cliente es/ca]
 ```
 
 ---

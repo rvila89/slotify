@@ -135,7 +135,7 @@
 - [x] 9.6 Report `openspec/changes/reserva-viva-edicion-recalculo-ficha/reports/2026-07-22-step-9-e2e-playwright.md`.
 
 ## 10. Docs: actualizar documentación técnica (OBLIGATORIO — step-N+4)
-- [ ] 10.1 `docs/` afectada (er-diagram si aplica al soft-deprecate, use-cases/flujo de reserva
+- [x] 10.1 `docs/` afectada (er-diagram si aplica al soft-deprecate, use-cases/flujo de reserva
       viva, catálogo de emails E9). docs-keeper.
 
 ## 11. Code review (OBLIGATORIO — code-review — EL AGENTE DEBE EJECUTARLO)
