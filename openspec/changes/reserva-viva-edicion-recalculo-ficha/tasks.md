@@ -107,26 +107,28 @@
 - [x] 7.6 Marcar completado solo tras verde + report.
 
 ## 8. QA: pruebas manuales con curl (OBLIGATORIO — step-N+2 — EL AGENTE DEBE EJECUTARLO)
-  > QA ejecutado. Reporta 2 BUGS que impiden marcar [x]. Ver report step-8.
+  > QA completado. Bugs #1 y #2 encontrados, corregidos en commit 520de7a, re-verificados PASS.
 - [x] 8.1 Levantar el backend (worktree: puertos alternos, EMAIL_SANDBOX, prisma generate).
 - [x] 8.2 `GET /reservas/{id}/ficha-operativa`: verificar pre-relleno y campos estructurados.
-- [ ] 8.3 `PATCH` cambiando `duracionHoras`/desglose dentro de la ventana viva: verificar nuevo
+- [x] 8.3 `PATCH` cambiando `duracionHoras`/desglose dentro de la ventana viva: verificar nuevo
       total, restante, nueva versión de presupuesto y liquidación regenerada; `importe_senal`
       intacto. Restaurar BD.
-      FALLO: campo `recalculo` ausente en la respuesta HTTP (HALLAZGO #1 — BUG).
-      BD recalculada correctamente; `importe_senal` intacto (INVARIANTE PASS).
+      RE-VERIFICADO 2026-07-22: `{"duracionHoras":8,"numAdultosNinosMayores4":35,"numNinosMenores4":5}`
+      → 200 con `recalculo.nuevoTotal=1076.00`, `pagoInicial=360.80`, `liquidacionRestante=715.20`,
+      `versionPresupuesto=2`. `importe_senal` invariante (360.80). BD restaurada. PASS.
 - [x] 8.4 `PATCH` fuera de la ventana viva (ficha cerrada / liquidación cobrada): verificar 422.
 - [x] 8.5 Caso `>50` invitados: verificar `tarifaAConsultar` y precio manual.
-      FALLO: campo `recalculo` ausente (HALLAZGO #1). BD correcta.
 - [x] 8.6 Report `openspec/changes/reserva-viva-edicion-recalculo-ficha/reports/2026-07-22-step-8-curl-endpoint-tests.md`.
 
 ## 9. QA: E2E con Playwright MCP (OBLIGATORIO — hay frontend — step-N+3 — EL AGENTE DEBE EJECUTARLO)
-  > QA ejecutado. Confirma los 2 BUGS de step-8 + detecta HALLAZGO #2. Ver report step-9.
+  > QA completado. Bugs #1 y #2 corregidos en commit 520de7a. Aviso recálculo visible en UI. PASS.
 - [x] 9.1 Levantar frontend + backend; BD en estado conocido.
-- [ ] 9.2 Flujo: abrir ficha de una reserva confirmada → cambiar invitados/duración → verificar
+- [x] 9.2 Flujo: abrir ficha de una reserva confirmada → cambiar invitados/duración → verificar
       aviso de recálculo y nuevo restante en UI y persistencia en BD.
-      FALLO: `duracionHoras` enviado como número (HALLAZGO #2 — 400 Bad Request) +
-      `recalculo` ausente en respuesta HTTP (HALLAZGO #1). UI no muestra aviso de recálculo.
+      RE-VERIFICADO 2026-07-22: cambiar duración 8h→4h → 200 OK (no 400) → UI muestra
+      "Precio actualizado a 465,00 €. Pendiente de pago: 104,20 €. Pago inicial ya realizado: 360,80 €.
+      Se ha regenerado el presupuesto y el borrador de factura de liquidación."
+      Captura: e2e-screenshots/e2e-9-2-recalculo-aviso-1280.png. BD restaurada. PASS.
 - [x] 9.3 Casos de error/validación (fuera de ventana, duración inválida, >50 precio manual).
 - [x] 9.4 3 viewports (390 / 768 / 1280) sin overflow.
 - [x] 9.5 Restaurar entorno/BD; mover capturas a `.../reports/e2e-screenshots/`.
