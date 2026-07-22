@@ -96,34 +96,41 @@
       afectado → sin cambios. Suites verdes: ficha-evento guardado/lectura + confirmar-señal = 93/93.
 
 ## 7. QA: unit tests + verificación de BD (OBLIGATORIO — step-N+1 — EL AGENTE DEBE EJECUTARLO)
-- [ ] 7.1 Capturar baseline de BD (RESERVA importes, PRESUPUESTO versiones, FACTURA liquidación).
-- [ ] 7.2 Ejecutar tests dirigidos de los módulos cambiados.
-- [ ] 7.3 Ejecutar la suite requerida (`pnpm test`); registrar totales/flaky (ver deuda conocida:
+- [x] 7.1 Capturar baseline de BD (RESERVA importes, PRESUPUESTO versiones, FACTURA liquidación).
+- [x] 7.2 Ejecutar tests dirigidos de los módulos cambiados.
+- [x] 7.3 Ejecutar la suite requerida (`pnpm test`); registrar totales/flaky (ver deuda conocida:
       us004-concurrency, finalizar-evento-integracion, react-pdf ESM).
-- [ ] 7.4 Ejecutar el test de INTEGRACIÓN por SQL real (sesión principal con Postgres); verificar
+- [x] 7.4 Ejecutar el test de INTEGRACIÓN por SQL real (sesión principal con Postgres); verificar
       que `importe_total`/`importe_liquidacion` los escribe el recálculo y `importe_senal` no
       cambia; restaurar BD.
-- [ ] 7.5 Report `openspec/changes/reserva-viva-edicion-recalculo-ficha/reports/YYYY-MM-DD-step-N+1-unit-test-and-db-verification.md`.
-- [ ] 7.6 Marcar completado solo tras verde + report.
+- [x] 7.5 Report `openspec/changes/reserva-viva-edicion-recalculo-ficha/reports/2026-07-22-step-7-unit-test-and-db-verification.md`.
+- [x] 7.6 Marcar completado solo tras verde + report.
 
 ## 8. QA: pruebas manuales con curl (OBLIGATORIO — step-N+2 — EL AGENTE DEBE EJECUTARLO)
-- [ ] 8.1 Levantar el backend (worktree: puertos alternos, EMAIL_SANDBOX, prisma generate).
-- [ ] 8.2 `GET /reservas/{id}/ficha-operativa`: verificar pre-relleno y campos estructurados.
+  > QA ejecutado. Reporta 2 BUGS que impiden marcar [x]. Ver report step-8.
+- [x] 8.1 Levantar el backend (worktree: puertos alternos, EMAIL_SANDBOX, prisma generate).
+- [x] 8.2 `GET /reservas/{id}/ficha-operativa`: verificar pre-relleno y campos estructurados.
 - [ ] 8.3 `PATCH` cambiando `duracionHoras`/desglose dentro de la ventana viva: verificar nuevo
       total, restante, nueva versión de presupuesto y liquidación regenerada; `importe_senal`
       intacto. Restaurar BD.
-- [ ] 8.4 `PATCH` fuera de la ventana viva (ficha cerrada / liquidación cobrada): verificar 422.
-- [ ] 8.5 Caso `>50` invitados: verificar `tarifaAConsultar` y precio manual.
-- [ ] 8.6 Report `.../reports/YYYY-MM-DD-step-N+2-curl-endpoint-tests.md`.
+      FALLO: campo `recalculo` ausente en la respuesta HTTP (HALLAZGO #1 — BUG).
+      BD recalculada correctamente; `importe_senal` intacto (INVARIANTE PASS).
+- [x] 8.4 `PATCH` fuera de la ventana viva (ficha cerrada / liquidación cobrada): verificar 422.
+- [x] 8.5 Caso `>50` invitados: verificar `tarifaAConsultar` y precio manual.
+      FALLO: campo `recalculo` ausente (HALLAZGO #1). BD correcta.
+- [x] 8.6 Report `openspec/changes/reserva-viva-edicion-recalculo-ficha/reports/2026-07-22-step-8-curl-endpoint-tests.md`.
 
 ## 9. QA: E2E con Playwright MCP (OBLIGATORIO — hay frontend — step-N+3 — EL AGENTE DEBE EJECUTARLO)
-- [ ] 9.1 Levantar frontend + backend; BD en estado conocido.
+  > QA ejecutado. Confirma los 2 BUGS de step-8 + detecta HALLAZGO #2. Ver report step-9.
+- [x] 9.1 Levantar frontend + backend; BD en estado conocido.
 - [ ] 9.2 Flujo: abrir ficha de una reserva confirmada → cambiar invitados/duración → verificar
       aviso de recálculo y nuevo restante en UI y persistencia en BD.
-- [ ] 9.3 Casos de error/validación (fuera de ventana, duración inválida, >50 precio manual).
-- [ ] 9.4 3 viewports (390 / 768 / 1280) sin overflow.
-- [ ] 9.5 Restaurar entorno/BD; mover capturas a `.../reports/e2e-screenshots/`.
-- [ ] 9.6 Report `.../reports/YYYY-MM-DD-step-N+3-e2e-playwright.md`.
+      FALLO: `duracionHoras` enviado como número (HALLAZGO #2 — 400 Bad Request) +
+      `recalculo` ausente en respuesta HTTP (HALLAZGO #1). UI no muestra aviso de recálculo.
+- [x] 9.3 Casos de error/validación (fuera de ventana, duración inválida, >50 precio manual).
+- [x] 9.4 3 viewports (390 / 768 / 1280) sin overflow.
+- [x] 9.5 Restaurar entorno/BD; mover capturas a `.../reports/e2e-screenshots/`.
+- [x] 9.6 Report `openspec/changes/reserva-viva-edicion-recalculo-ficha/reports/2026-07-22-step-9-e2e-playwright.md`.
 
 ## 10. Docs: actualizar documentación técnica (OBLIGATORIO — step-N+4)
 - [ ] 10.1 `docs/` afectada (er-diagram si aplica al soft-deprecate, use-cases/flujo de reserva
