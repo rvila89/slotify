@@ -144,7 +144,7 @@
 - [x] 11.2 Informe `.../reports/YYYY-MM-DD-step-review-code-review.md` con línea `Veredicto: APTO`.
 
 ## 12. ⏸ Gate revisión humana final (OBLIGATORIO — review-gate-final — PARADA)
-- [ ] 12.1 Tras code-review APTO + validación manual, ESPERAR el OK humano antes de archive/PR.
+- [x] 12.1 Tras code-review APTO + validación manual, ESPERAR el OK humano antes de archive/PR.
 
 ## 13. Archivar change + abrir PR (OBLIGATORIO — archive)
 - [ ] 13.1 `openspec archive reserva-viva-edicion-recalculo-ficha` (solo tras gate final y APTO;
