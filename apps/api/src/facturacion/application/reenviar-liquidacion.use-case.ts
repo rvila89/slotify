@@ -55,6 +55,10 @@ export interface ReservaReenvio {
   liquidacionStatus: LiquidacionStatus;
   fianzaStatus: FianzaStatus;
   clienteEmail: string;
+  /** Nombre de pila del cliente (para el nombre del adjunto PDF del email E4). */
+  clienteNombre?: string;
+  /** Apellidos del cliente (para el nombre del adjunto PDF del email E4). */
+  clienteApellidos?: string;
 }
 
 /** Adjunto de E4 por referencia a `pdf_url`. */
@@ -220,7 +224,7 @@ export class ReenviarLiquidacionUseCase {
       adjuntos: [
         {
           clave: 'liquidacion',
-          nombre: 'factura-liquidacion.pdf',
+              nombre: `${liquidacion.numeroFactura ?? 'Liquidación'} ${reserva.clienteNombre ?? ''} ${reserva.clienteApellidos ?? ''}`.trim() + '.pdf',
           pdfUrl: liquidacion.pdfUrl ?? '',
         },
       ],

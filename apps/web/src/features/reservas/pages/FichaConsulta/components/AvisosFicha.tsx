@@ -11,6 +11,7 @@ import { AvisoEmailEnviado } from './AvisoEmailEnviado';
 import { AvisoDescarte } from './AvisoDescarte';
 import { AvisoEdicionConsulta } from './AvisoEdicionConsulta';
 import { AvisoCondicionesFirmadas } from '@/features/condiciones-firmadas';
+import { AvisoFacturaSenalEnviada } from './AvisoFacturaSenalEnviada';
 import type { PendienteInvitadosResultado, Reserva } from '../../../model/types';
 import type { components } from '@/api-client';
 
@@ -62,6 +63,9 @@ type Props = {
       inline verde con el código de la consulta. */
   edicionConsulta: string | null;
   onCerrarEdicionConsulta: () => void;
+  /** Factura de señal enviada al cliente (E3 inicial): banner inline verde. */
+  facturaEnviada: boolean;
+  onCerrarFacturaEnviada: () => void;
 };
 
 export const AvisosFicha = ({
@@ -95,6 +99,8 @@ export const AvisosFicha = ({
   onCerrarFirma,
   edicionConsulta,
   onCerrarEdicionConsulta,
+  facturaEnviada,
+  onCerrarFacturaEnviada,
 }: Props) => (
   <>
     {emailEnviado && <AvisoEmailEnviado onCerrar={onCerrarEmailEnviado} />}
@@ -129,5 +135,8 @@ export const AvisosFicha = ({
       onCerrarForzar={onCerrarForzar}
       onCerrarFinalizar={onCerrarFinalizar}
     />
+    {facturaEnviada && (
+      <AvisoFacturaSenalEnviada onCerrar={onCerrarFacturaEnviada} />
+    )}
   </>
 );

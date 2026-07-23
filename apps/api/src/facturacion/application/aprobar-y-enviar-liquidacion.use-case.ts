@@ -69,6 +69,10 @@ export interface ReservaEmision {
   fianzaStatus: FianzaStatus;
   importeLiquidacion: string;
   clienteEmail: string;
+  /** Nombre de pila del cliente (para el nombre del adjunto PDF del email E4). */
+  clienteNombre?: string;
+  /** Apellidos del cliente (para el nombre del adjunto PDF del email E4). */
+  clienteApellidos?: string;
 }
 
 /** FACTURA emitible (liquidación o fianza) en su estado de partida (borrador). */
@@ -401,14 +405,14 @@ export class AprobarYEnviarLiquidacionUseCase {
     const adjuntos: AdjuntoEmision[] = [
       {
         clave: 'liquidacion',
-        nombre: 'factura-liquidacion.pdf',
+        nombre: `${numeroLiquidacion ?? 'Liquidación'} ${reserva.clienteNombre ?? ''} ${reserva.clienteApellidos ?? ''}`.trim() + '.pdf',
         pdfUrl: liquidacion.pdfUrl ?? '',
       },
     ];
     if (fianzaEmitible !== null) {
       adjuntos.push({
         clave: 'fianza',
-        nombre: 'recibo-fianza.pdf',
+        nombre: `${numeroFianza ?? 'Fianza'} ${reserva.clienteNombre ?? ''} ${reserva.clienteApellidos ?? ''}`.trim() + '.pdf',
         pdfUrl: fianzaEmitible.pdfUrl ?? '',
       });
     }

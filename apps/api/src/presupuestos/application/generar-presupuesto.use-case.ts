@@ -313,6 +313,8 @@ export interface DispararE2Port {
      * `despacharReenvio` (envío real) y renderizar la variante "presupuesto actualizado".
      */
     esEdicion?: boolean;
+    /** Número `AAAANNN` del presupuesto (para el nombre del adjunto PDF del email E2). */
+    numeroPresupuesto?: string | null;
   }): Promise<void>;
 }
 
@@ -788,7 +790,11 @@ export class GenerarPresupuestoUseCase {
     // Post-commit (D-6/D-7, FUERA de la tx crítica): genera el PDF y dispara el E2.
     // Un fallo aquí NO revierte la pre_reserva ya comprometida.
     const pdfUrl = await this.generarPdfPostCommit(comando, salida.presupuesto);
-    await this.dispararE2PostCommit(comando, pdfUrl ?? salida.presupuesto.pdfUrl);
+    await this.dispararE2PostCommit(
+      comando,
+      pdfUrl ?? salida.presupuesto.pdfUrl,
+      salida.presupuesto.numeroPresupuesto,
+    );
 
     return {
       presupuesto: salida.presupuesto,
@@ -1041,6 +1047,7 @@ export class GenerarPresupuestoUseCase {
   private async dispararE2PostCommit(
     comando: ConfirmarPresupuestoComando,
     pdfUrl: string | null,
+    numeroPresupuesto?: string | null,
   ): Promise<void> {
     if (this.deps.dispararE2 === undefined) {
       return;
@@ -1049,6 +1056,7 @@ export class GenerarPresupuestoUseCase {
       tenantId: comando.tenantId,
       reservaId: comando.reservaId,
       pdfUrl,
+      numeroPresupuesto,
     });
   }
 }

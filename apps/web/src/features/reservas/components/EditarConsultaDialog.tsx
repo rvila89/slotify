@@ -265,7 +265,7 @@ export const EditarConsultaDialog = ({
 
           <div className="flex flex-col gap-2">
             <label htmlFor="editar-notas" className={claseLabel}>
-              Comentarios
+              Notas internas
             </label>
             <textarea
               id="editar-notas"

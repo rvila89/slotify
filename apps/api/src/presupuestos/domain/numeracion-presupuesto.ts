@@ -47,3 +47,18 @@ export const siguienteNumeroPresupuesto = (
   const siguiente = secuenciaPrevia + 1;
   return `${prefijo}${String(siguiente).padStart(PADDING_MINIMO, '0')}`;
 };
+
+/**
+ * Deriva el nombre del fichero adjunto del PDF del presupuesto presentado al destinatario.
+ * Formato: `P{numeroPresupuesto} {nombre} {apellidos}.pdf` (p. ej. `P2026019 Mercè Escribano.pdf`).
+ * Cuando `numeroPresupuesto` es null (borrador histórico sin número), usa `Presupuesto` como prefijo.
+ * Función de flecha inmutable, sin dependencias de framework/infra.
+ */
+export const nombreAdjuntoPresupuesto = (
+  numeroPresupuesto: string | null,
+  nombre: string,
+  apellidos: string,
+): string => {
+  const prefijo = numeroPresupuesto !== null ? `P${numeroPresupuesto}` : 'Presupuesto';
+  return `${prefijo} ${nombre} ${apellidos}`.trim() + '.pdf';
+};

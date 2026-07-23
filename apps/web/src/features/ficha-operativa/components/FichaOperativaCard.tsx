@@ -45,7 +45,7 @@ type Props = {
 };
 
 const claseSeccion =
-  'flex flex-col gap-6 rounded-[20px] border border-border-default/20 bg-surface-subtle/30 p-4 sm:p-6 lg:p-8';
+  'flex flex-col gap-6 rounded-[20px] border border-border-default/20 bg-[#f6f3ee] p-4 sm:p-6 lg:p-8';
 
 const claseBotonPrimario =
   'inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-6 font-display text-sm text-brand-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';

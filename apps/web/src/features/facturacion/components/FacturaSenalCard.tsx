@@ -46,10 +46,12 @@ import type { FacturaSenal } from '../model/types';
  */
 type Props = {
   reservaId: string;
+  /** Callback invocado tras enviar exitosamente la factura de señal; la página muestra el banner arriba. */
+  onEnviada?: () => void;
 };
 
 const claseBotonPrimario =
-  'inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-6 font-display text-sm text-brand-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
+  'inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-accent-success px-6 font-display text-sm text-accent-success-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
 
 const claseBotonSecundario =
   'inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-border-default bg-canvas px-6 font-body text-sm font-medium text-text-secondary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
@@ -112,7 +114,7 @@ const EnlacePdf = ({ url }: { url: string }) => (
   </a>
 );
 
-export const FacturaSenalCard = ({ reservaId }: Props) => {
+export const FacturaSenalCard = ({ reservaId, onEnviada }: Props) => {
   const { data: factura, isLoading, isError } = useFacturaSenal(reservaId);
   const regenerar = useRegenerarPdf();
   const [dialogoAprobar, setDialogoAprobar] = useState(false);
@@ -246,7 +248,7 @@ export const FacturaSenalCard = ({ reservaId }: Props) => {
 
       {/* Enviada (emitida): factura lista para remitir al cliente por email E3 (6.4b). */}
       {estadoVisual === 'enviada' && (
-        <EnvioFacturaSenal reservaId={reservaId} e3Enviado={factura.e3Enviado} />
+        <EnvioFacturaSenal reservaId={reservaId} e3Enviado={factura.e3Enviado} onEnviada={onEnviada} />
       )}
 
       {regenerar.error && <AvisoErrorFactura error={regenerar.error} />}

@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { CalendarPlus, User } from 'lucide-react';
 import { useReserva } from '../../api/useReserva';
 import { formatearFecha } from '../../lib/fecha';
+import { puedeForzarInicioEvento } from '../../lib/forzarInicioEvento';
 import { Badge } from './components/Badge';
 import { Dato } from './components/Dato';
 import { DetallesEvento } from './components/DetallesEvento';
@@ -134,6 +135,8 @@ export const FichaConsultaPage = () => {
         onCerrarFirma={avisos.cerrar}
         edicionConsulta={avisos.edicionConsulta}
         onCerrarEdicionConsulta={avisos.cerrar}
+        facturaEnviada={avisos.facturaEnviada}
+        onCerrarFacturaEnviada={avisos.cerrar}
       />
 
       <section className={claseSeccion} aria-labelledby="ficha-cliente">
@@ -171,7 +174,11 @@ export const FichaConsultaPage = () => {
           comentarios, con placeholder para los opcionales ausentes. */}
       <DetallesEvento reserva={reserva} />
 
-      <section className={claseSeccion} aria-labelledby="ficha-acciones">
+      {/* Acciones: se oculta en `reserva_confirmada` cuando la única acción posible
+          ("Forzar inicio") no está disponible (hoy no es el día del evento). */}
+      {(reserva.estado !== 'reserva_confirmada' ||
+        puedeForzarInicioEvento(reserva.estado, reserva.fechaEvento, new Date())) && (
+        <section className={claseSeccion} aria-labelledby="ficha-acciones">
         <div id="ficha-acciones" className="flex items-center gap-3">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary">
             <CalendarPlus aria-hidden className="size-4" />
@@ -239,6 +246,7 @@ export const FichaConsultaPage = () => {
           }}
         />
       </section>
+      )}
 
       {id && (
         <SeccionesFicha
@@ -252,6 +260,12 @@ export const FichaConsultaPage = () => {
           }}
           onFirmaRegistrada={(tipo) => {
             avisos.mostrarFirma(tipo);
+            if (typeof window !== 'undefined') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          }}
+          onFacturaSenalEnviada={() => {
+            avisos.mostrarFacturaSenalEnviada();
             if (typeof window !== 'undefined') {
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }
@@ -306,7 +320,10 @@ export const FichaConsultaPage = () => {
             avisos.mostrarEdicion({ clase: 'reenvio', datos });
             if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
-          onConfirmadoSenal={avisos.mostrarSenal}
+          onConfirmadoSenal={(resultado) => {
+            avisos.mostrarSenal(resultado);
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
           onForzado={avisos.mostrarForzar}
           onFinalizado={avisos.mostrarFinalizar}
           // Desenlaces terminales (archivado US-038 / descarte US-013): el descarte

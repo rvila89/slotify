@@ -418,6 +418,33 @@ sistema DEBE registrar `AUDIT_LOG` con `accion = 'actualizar'`, `datos_anteriore
 negocio`, `§Reglas de Validación`; UC-21 pasos 3–6; `er-diagram.md §3.12 FACTURA`, `§3.10
 RESERVA_EXTRA`.)
 
+### Requirement: Nomenclatura personalizada de los adjuntos PDF de factura (E4 y envío separado)
+
+El sistema SHALL (DEBE) nombrar los ficheros adjuntos de los emails de facturación con el
+**número de factura** y el **nombre del cliente**, siguiendo el patrón
+`{numeroFactura} {clienteNombre} {clienteApellidos}.pdf`. Cuando `numero_factura` sea `null`
+(caso inesperado / borrador histórico), el prefijo SHALL ser el tipo de documento en español
+(`Liquidación`, `Fianza`). Esta nomenclatura aplica a:
+- Adjunto de **liquidación** en E4: `F-YYYY-NNNN {nombre} {apellidos}.pdf`
+  (p. ej. `F-2026-0042 Mercè Escribano.pdf`)
+- Adjunto de **recibo de fianza** en E4 y en el envío separado:
+  `F-YYYY-NNNN {nombre} {apellidos}.pdf` (p. ej. `F-2026-0009 Mercè Escribano.pdf`)
+- Adjunto de **señal** en E3 y su reenvío: ya implementado con el mismo patrón
+  (change `factura-senal-pdf-idioma-email-ux`)
+
+#### Scenario: El adjunto de liquidación lleva el número y el nombre del cliente
+
+- **GIVEN** una emisión de liquidación con `numero_factura = 'F-2026-0042'` y un cliente
+  con nombre `Mercè` y apellidos `Escribano`
+- **WHEN** se envía el E4
+- **THEN** el adjunto de liquidación tiene `nombre = 'F-2026-0042 Mercè Escribano.pdf'`
+
+#### Scenario: El adjunto de fianza lleva su propio número y el nombre del cliente
+
+- **GIVEN** un recibo de fianza con `numero_factura = 'F-2026-0043'` y el mismo cliente
+- **WHEN** se envía el E4 (o el envío separado del recibo)
+- **THEN** el adjunto de fianza tiene `nombre = 'F-2026-0043 Mercè Escribano.pdf'`
+
 #### Scenario: Aprobar y enviar emite la liquidación con número y la deja enviada
 
 - **GIVEN** una FACTURA `tipo = 'liquidacion'` en `estado = 'borrador'` con `numero_factura =

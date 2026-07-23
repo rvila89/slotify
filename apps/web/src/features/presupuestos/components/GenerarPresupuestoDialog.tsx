@@ -95,10 +95,14 @@ export const GenerarPresupuestoDialog = ({
   const precioManual = watch('precioManual');
   const metodoPago = watch('metodoPago');
 
+  // Solo se envía al hook de preview cuando el usuario termina de escribir (onBlur),
+  // evitando que el modal se refresque con cada pulsación de tecla (FA-02).
+  const [precioManualCommitted, setPrecioManualCommitted] = useState('');
+
   const { cantidades, cambiarCantidad, extrasInput, preview } = useBorradorPresupuesto(
     reservaId,
     abierto,
-    { precioManual, metodoPago },
+    { precioManual: precioManualCommitted, metodoPago },
   );
   const { data: extras = [], isLoading: cargandoExtras } = useExtras(abierto);
   const { data: reserva } = useReserva(abierto ? reservaId : undefined);
@@ -116,6 +120,7 @@ export const GenerarPresupuestoDialog = ({
     if (!abierto) {
       resetConfirmar();
       reset({ precioManual: '', metodoPago: METODO_PAGO_POR_DEFECTO });
+      setPrecioManualCommitted('');
       setCamposResaltados([]);
     }
   }, [abierto, resetConfirmar, reset]);
@@ -233,22 +238,31 @@ export const GenerarPresupuestoDialog = ({
               <label htmlFor="presupuesto-precio-manual" className={claseLabel}>
                 Precio manual (€, IVA incluido) — requerido
               </label>
-              <input
-                id="presupuesto-precio-manual"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                step="0.01"
-                disabled={confirmar.isPending}
-                aria-invalid={errors.precioManual || faltaPrecioManual ? 'true' : undefined}
-                aria-describedby={
-                  errors.precioManual ? 'presupuesto-precio-manual-error' : undefined
-                }
-                {...register('precioManual')}
-                placeholder="0.00"
-                data-testid="input-precio-manual"
-                className={claseInput}
-              />
+              {(() => {
+                const { onBlur: rhfOnBlur, ...precioManualProps } = register('precioManual');
+                return (
+                  <input
+                    id="presupuesto-precio-manual"
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    disabled={confirmar.isPending}
+                    aria-invalid={errors.precioManual || faltaPrecioManual ? 'true' : undefined}
+                    aria-describedby={
+                      errors.precioManual ? 'presupuesto-precio-manual-error' : undefined
+                    }
+                    {...precioManualProps}
+                    onBlur={(e) => {
+                      void rhfOnBlur(e);
+                      setPrecioManualCommitted(e.target.value);
+                    }}
+                    placeholder="0.00"
+                    data-testid="input-precio-manual"
+                    className={claseInput}
+                  />
+                );
+              })()}
               {errors.precioManual ? (
                 <p
                   id="presupuesto-precio-manual-error"

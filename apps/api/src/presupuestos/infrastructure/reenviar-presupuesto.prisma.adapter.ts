@@ -14,6 +14,7 @@ import {
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { DespacharEmailService } from '../../comunicaciones/application/despachar-email.service';
 import type { ComunicacionE2Reenvio } from '../application/editar-presupuesto.use-case';
+import { nombreAdjuntoPresupuesto } from '../domain/numeracion-presupuesto';
 
 /**
  * Reenvía el E2 (best-effort) INVOCANDO el motor de email por su camino de reenvío
@@ -53,7 +54,17 @@ export class ReenviarE2PresupuestoAdapter {
     // Adjunto del presupuesto vigente por referencia (solo si hay PDF).
     const adjuntos =
       pdfUrl !== null
-        ? [{ clave: 'presupuesto', nombre: 'presupuesto.pdf', pdfUrl }]
+        ? [
+            {
+              clave: 'presupuesto',
+              nombre: nombreAdjuntoPresupuesto(
+                (params.numeroPresupuesto as string | null) ?? null,
+                reserva.cliente.nombre,
+                reserva.cliente.apellidos ?? '',
+              ),
+              pdfUrl,
+            },
+          ]
         : [];
 
     // Camino de reenvío REAL (no idempotente): escribe la única fila E2

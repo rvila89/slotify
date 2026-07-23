@@ -100,6 +100,7 @@ describe('DispararE2Adapter — dos adjuntos con presupuesto y condiciones (2.7a
       tenantId: TENANT,
       reservaId: RESERVA_ID,
       pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
+      numeroPresupuesto: '2026001',
     });
 
     // Assert — el motor recibe DOS adjuntos, con las claves y nombres esperados.
@@ -108,7 +109,7 @@ describe('DispararE2Adapter — dos adjuntos con presupuesto y condiciones (2.7a
     expect(comando.adjuntos).toEqual([
       {
         clave: 'presupuesto',
-        nombre: 'presupuesto.pdf',
+        nombre: 'P2026001 Anna Puig Soler.pdf',
         pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
       },
       {
@@ -141,6 +142,7 @@ describe('DispararE2Adapter — condiciones null omite el segundo adjunto (2.7b)
       tenantId: TENANT,
       reservaId: RESERVA_ID,
       pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
+      numeroPresupuesto: '2026001',
     });
 
     // Assert — un solo adjunto; el E2 no se rompe por la ausencia de condiciones.
@@ -148,7 +150,7 @@ describe('DispararE2Adapter — condiciones null omite el segundo adjunto (2.7b)
     expect(comando.adjuntos).toEqual([
       {
         clave: 'presupuesto',
-        nombre: 'presupuesto.pdf',
+        nombre: 'P2026001 Anna Puig Soler.pdf',
         pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
       },
     ]);
@@ -249,6 +251,7 @@ describe('DispararE2Adapter — fallo de condiciones no propaga (2.7e)', () => {
         tenantId: TENANT,
         reservaId: RESERVA_ID,
         pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
+        numeroPresupuesto: '2026001',
       }),
     ).resolves.toBeUndefined();
 
@@ -256,7 +259,38 @@ describe('DispararE2Adapter — fallo de condiciones no propaga (2.7e)', () => {
     expect(comando.adjuntos).toEqual([
       {
         clave: 'presupuesto',
-        nombre: 'presupuesto.pdf',
+        nombre: 'P2026001 Anna Puig Soler.pdf',
+        pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
+      },
+    ]);
+  });
+});
+
+// ===========================================================================
+// 2.7 (f) — sin numeroPresupuesto → fallback 'Presupuesto {nombre} {apellidos}.pdf'.
+// ===========================================================================
+
+describe('DispararE2Adapter — fallback de nombre cuando no hay número de presupuesto (2.7f)', () => {
+  it('debe_usar_prefijo_Presupuesto_cuando_numeroPresupuesto_es_null', async () => {
+    const motor = motorFalso();
+    const adaptador = new DispararE2Adapter(
+      motor as unknown as DespacharEmailService,
+      prismaFalso(reservaConCliente()),
+      condicionesQueDevuelve(null),
+    );
+
+    await adaptador.disparar({
+      tenantId: TENANT,
+      reservaId: RESERVA_ID,
+      pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
+      numeroPresupuesto: null,
+    });
+
+    const comando = motor.despachar.mock.calls[0][0];
+    expect(comando.adjuntos).toEqual([
+      {
+        clave: 'presupuesto',
+        nombre: 'Presupuesto Anna Puig Soler.pdf',
         pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
       },
     ]);

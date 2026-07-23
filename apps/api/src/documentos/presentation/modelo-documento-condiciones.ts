@@ -39,11 +39,18 @@ export interface ModeloDocumentoCondiciones {
  * Etiquetas fijas del bloque de firma (LAYOUT FIJO, no contenido de negocio). El orden
  * es contractual (verificado por el test de plantilla).
  */
-const ETIQUETAS_FIRMA: ReadonlyArray<string> = [
+const ETIQUETAS_FIRMA_CA: ReadonlyArray<string> = [
   'NOM I COGNOMS CLIENT',
   'SIGNATURA CLIENT',
   'DNI',
   'DATA ESDEVENIMENT',
+];
+
+const ETIQUETAS_FIRMA_ES: ReadonlyArray<string> = [
+  'NOMBRE Y APELLIDOS CLIENTE',
+  'FIRMA CLIENTE',
+  'DNI',
+  'FECHA DEL EVENTO',
 ];
 
 /**
@@ -78,5 +85,5 @@ export const construirModeloDocumentoCondiciones = (
     titulo: seccion.titulo[idioma],
     cuerpo: seccion.cuerpo[idioma],
   })),
-  firma: { etiquetas: ETIQUETAS_FIRMA },
+  firma: { etiquetas: idioma === 'ca' ? ETIQUETAS_FIRMA_CA : ETIQUETAS_FIRMA_ES },
 });
