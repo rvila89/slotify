@@ -73,6 +73,16 @@ export const FichaConsultaPage = () => {
     : 'Cliente';
   const subEstado = reserva.subEstado;
 
+  const ESTADOS_RESERVA = [
+    'reserva_confirmada',
+    'evento_en_curso',
+    'post_evento',
+    'reserva_completada',
+    'reserva_cancelada',
+  ] as const;
+  const esReserva = (ESTADOS_RESERVA as readonly string[]).includes(reserva.estado);
+  const tituloFicha = esReserva ? 'Reserva' : 'Consulta';
+
   // US-051 §D-2: la fecha se gestiona por el flujo atómico según el sub-estado —
   // `2a` (sin fecha) usa "Añadir fecha" (`POST /fecha`); `2b/2c/2v` (fecha ya
   // bloqueada) usa el cambio atómico (`POST /cambiar-fecha`). El editor se cierra
@@ -95,12 +105,14 @@ export const FichaConsultaPage = () => {
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
-            Consulta {reserva.codigo}
+            {tituloFicha} {reserva.codigo}
           </h1>
           <Badge subEstado={subEstado} estado={reserva.estado} />
         </div>
         <p className="font-body text-sm text-text-secondary sm:text-base">
-          Ficha del lead. Revisa los datos y gestiona la consulta según su estado.
+          {esReserva
+            ? 'Ficha de la reserva. Revisa los datos y gestiona la reserva según su estado.'
+            : 'Ficha del lead. Revisa los datos y gestiona la consulta según su estado.'}
         </p>
       </header>
 
