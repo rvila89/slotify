@@ -303,9 +303,13 @@ export class ReenviarE3UseCase {
       },
     ];
     if (documento !== null && documento !== undefined) {
+      const idiomaDoc: 'es' | 'ca' = reserva.idioma === 'ca' ? 'ca' : 'es';
       adjuntos.push({
         clave: 'condiciones',
-        nombre: 'condicions-particulars.pdf',
+        nombre:
+          idiomaDoc === 'ca'
+            ? 'condicions-particulars.pdf'
+            : 'condiciones-particulares.pdf',
         pdfUrl: documento.url,
       });
     }

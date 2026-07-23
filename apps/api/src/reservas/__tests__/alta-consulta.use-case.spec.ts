@@ -206,7 +206,7 @@ const comandoBase = (
 ): AltaConsultaComando => ({
   tenantId: TENANT,
   usuarioId: GESTOR,
-  canalEntrada: 'web',
+  canalEntrada: 'email',
   cliente: {
     nombre: 'Marta',
     apellidos: 'Soler',

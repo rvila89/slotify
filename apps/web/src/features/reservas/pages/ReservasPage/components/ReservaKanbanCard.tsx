@@ -45,6 +45,9 @@ export const ReservaKanbanCard = ({ reserva }: ReservaKanbanCardProps) => {
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-0.5">
           <span className="font-display text-sm font-semibold text-text-primary">{nombre}</span>
+          {nombre !== reserva.codigo && (
+            <span className="font-body text-xs text-text-muted">{reserva.codigo}</span>
+          )}
           {metaPartes.length > 0 && (
             <span className="text-xs text-text-secondary">{metaPartes.join(' · ')}</span>
           )}

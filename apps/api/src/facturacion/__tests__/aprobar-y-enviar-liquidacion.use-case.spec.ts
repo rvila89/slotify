@@ -2,24 +2,22 @@
  * TESTS del caso de uso `AprobarYEnviarLiquidacionUseCase` (US-028 / UC-21 pasos 3–6) —
  * fase TDD RED. tasks.md Fase 3: 3.2 (emisión de la liquidación), 3.3 (efecto sobre la
  * fianza), 3.8 (reglas de validación: no aprobar si no está en borrador → 409, no
- * retroceso facturada → pendiente). Incluye el descuento negociado (D-2) en la emisión.
+ * retroceso facturada → pendiente).
  *
  * Trazabilidad: US-028, spec-delta `facturacion` (Requirements "Emisión de la factura de
  * liquidación al aprobar y enviar", "Emisión del recibo de fianza como efecto del envío
- * de E4", "Ajuste del importe (descuento negociado) antes de aprobar", "Solo se puede
- * aprobar y enviar desde borrador; el estado facturada no retrocede"); spec-delta
- * `comunicaciones` (E4 con ambos PDFs). design.md §D-1 opción A (atomicidad síncrona
- * estado↔E4), §D-2 (descuento), §D-3 (fianza ya enviada por separado), §D-6 (numeración
- * en la emisión). Contrato: `aprobarEnviarLiquidacion` (200 / 409 FACTURA_NO_BORRADOR /
- * 422 / 502-503).
+ * de E4", "Solo se puede aprobar y enviar desde borrador; el estado facturada no
+ * retrocede"); spec-delta `comunicaciones` (E4 con ambos PDFs). design.md §D-1 opción A
+ * (atomicidad síncrona estado↔E4), §D-3 (fianza ya enviada por separado), §D-6
+ * (numeración en la emisión). Contrato: `aprobarEnviarLiquidacion` (200 / 409
+ * FACTURA_NO_BORRADOR / 502-503).
  *
  * Ejercita la APLICACIÓN contra DOBLES DE LOS PUERTOS (in-memory), sin tocar Prisma
  * (hexagonal, hook `no-infra-in-domain`). La atomicidad REAL con transacción y el
  * rollback viven en `aprobar-y-enviar-atomicidad.spec.ts`; la numeración concurrente en
  * `aprobar-y-enviar-concurrencia.spec.ts`. Aquí se fija la ORQUESTACIÓN: guardas de
  * estado, asignación del número EN la emisión, transición de ambas facturas, marcado de
- * RESERVA_EXTRA, actualización de importe_liquidacion con descuento, envío E4 síncrono y
- * AUDIT_LOG `actualizar`.
+ * RESERVA_EXTRA, envío E4 síncrono y AUDIT_LOG `actualizar`.
  *
  * RED: aún NO existe `facturacion/application/aprobar-y-enviar-liquidacion.use-case.ts`.
  * El import falla y la batería está en ROJO por AUSENCIA DE IMPLEMENTACIÓN. GREEN es de
@@ -308,53 +306,6 @@ describe('AprobarYEnviarLiquidacion — emisión de la liquidación (3.2)', () =
     expect(resultado.liquidacion.numeroFactura).toBe(`F-${anio}-0001`);
     expect(resultado.liquidacionStatus).toBe('facturada');
     expect(resultado.fianzaStatus).toBe('recibo_enviado');
-  });
-});
-
-// ===========================================================================
-// 3.2 — Descuento negociado (D-2) en la emisión: total recalculado 3.900,
-//        importe_liquidacion actualizado y descuento en AUDIT_LOG.
-// ===========================================================================
-
-describe('AprobarYEnviarLiquidacion — descuento negociado en la emisión (3.2 / D-2)', () => {
-  it('debe_emitir_por_3900_con_desglose_recalculado_cuando_se_aplica_descuento_de_200', async () => {
-    const { useCase, repos } = montar();
-
-    await useCase.ejecutar(comando({ descuento: '200.00', motivo: 'Cliente recurrente' }));
-
-    const liq = emitirArgsDe(repos, 'liquidacion');
-    expect(liq!.total).toBe('3900.00');
-    expect(liq!.baseImponible).toBe('3223.14');
-    expect(liq!.ivaImporte).toBe('676.86');
-  });
-
-  it('debe_actualizar_importe_liquidacion_de_la_reserva_al_nuevo_total_con_descuento', async () => {
-    const { useCase, repos } = montar();
-
-    await useCase.ejecutar(comando({ descuento: '200.00', motivo: 'Cliente recurrente' }));
-
-    expect(repos.reservas.actualizarImporteLiquidacion).toHaveBeenCalledWith(
-      expect.objectContaining({ reservaId: RESERVA_ID, importeLiquidacion: '3900.00' }),
-    );
-  });
-
-  it('debe_dejar_el_total_original_e_no_tocar_importe_liquidacion_sin_descuento', async () => {
-    const { useCase, repos } = montar();
-
-    await useCase.ejecutar(comando());
-
-    expect(emitirArgsDe(repos, 'liquidacion')!.total).toBe('4100.00');
-    expect(repos.reservas.actualizarImporteLiquidacion).not.toHaveBeenCalled();
-  });
-
-  it('debe_trazar_el_descuento_en_AUDIT_LOG_con_el_total_anterior_y_el_nuevo', async () => {
-    const { useCase, repos } = montar();
-
-    await useCase.ejecutar(comando({ descuento: '200.00', motivo: 'Cliente recurrente' }));
-
-    const trazas = JSON.stringify(repos.auditoria.registrar.mock.calls);
-    expect(trazas).toContain('4100.00');
-    expect(trazas).toContain('3900.00');
   });
 });
 

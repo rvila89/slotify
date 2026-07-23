@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { CalendarPlus, User } from 'lucide-react';
 import { useReserva } from '../../api/useReserva';
 import { formatearFecha } from '../../lib/fecha';
+import { puedeForzarInicioEvento } from '../../lib/forzarInicioEvento';
 import { Badge } from './components/Badge';
 import { Dato } from './components/Dato';
 import { DetallesEvento } from './components/DetallesEvento';
@@ -72,6 +73,16 @@ export const FichaConsultaPage = () => {
     : 'Cliente';
   const subEstado = reserva.subEstado;
 
+  const ESTADOS_RESERVA = [
+    'reserva_confirmada',
+    'evento_en_curso',
+    'post_evento',
+    'reserva_completada',
+    'reserva_cancelada',
+  ] as const;
+  const esReserva = (ESTADOS_RESERVA as readonly string[]).includes(reserva.estado);
+  const tituloFicha = esReserva ? 'Reserva' : 'Consulta';
+
   // US-051 §D-2: la fecha se gestiona por el flujo atómico según el sub-estado —
   // `2a` (sin fecha) usa "Añadir fecha" (`POST /fecha`); `2b/2c/2v` (fecha ya
   // bloqueada) usa el cambio atómico (`POST /cambiar-fecha`). El editor se cierra
@@ -94,12 +105,14 @@ export const FichaConsultaPage = () => {
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
-            Consulta {reserva.codigo}
+            {tituloFicha} {reserva.codigo}
           </h1>
           <Badge subEstado={subEstado} estado={reserva.estado} />
         </div>
         <p className="font-body text-sm text-text-secondary sm:text-base">
-          Ficha del lead. Revisa los datos y gestiona la consulta según su estado.
+          {esReserva
+            ? 'Ficha de la reserva. Revisa los datos y gestiona la reserva según su estado.'
+            : 'Ficha del lead. Revisa los datos y gestiona la consulta según su estado.'}
         </p>
       </header>
 
@@ -132,6 +145,10 @@ export const FichaConsultaPage = () => {
         onCerrarDescarte={avisos.cerrar}
         firma={avisos.firma}
         onCerrarFirma={avisos.cerrar}
+        edicionConsulta={avisos.edicionConsulta}
+        onCerrarEdicionConsulta={avisos.cerrar}
+        facturaEnviada={avisos.facturaEnviada}
+        onCerrarFacturaEnviada={avisos.cerrar}
       />
 
       <section className={claseSeccion} aria-labelledby="ficha-cliente">
@@ -169,7 +186,11 @@ export const FichaConsultaPage = () => {
           comentarios, con placeholder para los opcionales ausentes. */}
       <DetallesEvento reserva={reserva} />
 
-      <section className={claseSeccion} aria-labelledby="ficha-acciones">
+      {/* Acciones: se oculta en `reserva_confirmada` cuando la única acción posible
+          ("Forzar inicio") no está disponible (hoy no es el día del evento). */}
+      {(reserva.estado !== 'reserva_confirmada' ||
+        puedeForzarInicioEvento(reserva.estado, reserva.fechaEvento, new Date())) && (
+        <section className={claseSeccion} aria-labelledby="ficha-acciones">
         <div id="ficha-acciones" className="flex items-center gap-3">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary">
             <CalendarPlus aria-hidden className="size-4" />
@@ -237,6 +258,7 @@ export const FichaConsultaPage = () => {
           }}
         />
       </section>
+      )}
 
       {id && (
         <SeccionesFicha
@@ -250,6 +272,12 @@ export const FichaConsultaPage = () => {
           }}
           onFirmaRegistrada={(tipo) => {
             avisos.mostrarFirma(tipo);
+            if (typeof window !== 'undefined') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          }}
+          onFacturaSenalEnviada={() => {
+            avisos.mostrarFacturaSenalEnviada();
             if (typeof window !== 'undefined') {
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }
@@ -283,7 +311,10 @@ export const FichaConsultaPage = () => {
           }}
           onResuelto={mostrarResultadoFecha}
           onCambiadaFecha={mostrarResultadoFecha}
-          onEditado={() => {}}
+          onEditado={() => {
+            avisos.mostrarEdicionConsulta(reserva.codigo);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
           onResueltoInvitados={avisos.mostrarInvitados}
           onResueltoVisita={avisos.mostrarVisita}
           onResueltoInteresado={avisos.mostrarInteresado}
@@ -291,27 +322,20 @@ export const FichaConsultaPage = () => {
           onResueltoExtension={avisos.mostrarExtension}
           onConfirmadoPresupuesto={(resultado) => {
             avisos.mostrarPresupuesto(resultado);
-            // Sube al top para que el banner "Presupuesto generado…" quede visible
-            // (precedente vivo: NuevaConsultaPage).
-            if (typeof window !== 'undefined') {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
           onEditadoPresupuesto={(datos) => {
             avisos.mostrarEdicion({ clase: 'edicion', datos });
-            // Sube al top para que el banner de éxito quede visible (mismo patrón
-            // que onConfirmadoPresupuesto).
-            if (typeof window !== 'undefined') {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
           onReenviadoPresupuesto={(datos) => {
             avisos.mostrarEdicion({ clase: 'reenvio', datos });
-            if (typeof window !== 'undefined') {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
-          onConfirmadoSenal={avisos.mostrarSenal}
+          onConfirmadoSenal={(resultado) => {
+            avisos.mostrarSenal(resultado);
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
           onForzado={avisos.mostrarForzar}
           onFinalizado={avisos.mostrarFinalizar}
           // Desenlaces terminales (archivado US-038 / descarte US-013): el descarte

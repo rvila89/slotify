@@ -52,7 +52,12 @@ export const ListadoView = ({ reservas }: ListadoViewProps) => {
                 data-label="Nombre"
                 className="font-display font-semibold text-text-primary before:mr-2 before:font-body before:text-xs before:font-semibold before:uppercase before:text-text-muted before:content-[attr(data-label)] lg:px-4 lg:py-3 lg:before:content-none"
               >
-                {nombre}
+                <span className="flex flex-col gap-0.5">
+                  <span>{nombre}</span>
+                  {nombre !== reserva.codigo && (
+                    <span className="font-body text-xs font-normal text-text-muted">{reserva.codigo}</span>
+                  )}
+                </span>
               </td>
               <td
                 data-label="Estado"

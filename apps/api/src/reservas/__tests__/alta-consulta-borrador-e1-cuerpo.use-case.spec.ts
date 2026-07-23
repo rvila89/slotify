@@ -207,7 +207,7 @@ const montar = (opts: MontarOpts = {}) => {
 const comando = (over: Partial<AltaConsultaComando> = {}): AltaConsultaComando => ({
   tenantId: TENANT,
   usuarioId: GESTOR,
-  canalEntrada: 'web',
+  canalEntrada: 'email',
   cliente: { nombre: 'Marta', apellidos: 'Soler', email: EMAIL, telefono: '600111222' },
   ...over,
 });

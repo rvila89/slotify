@@ -121,7 +121,7 @@ const reservaHidratada = (
   clienteId: CLIENTE_ID,
   estado: 'evento_en_curso',
   subEstado: null,
-  canalEntrada: 'web',
+  canalEntrada: 'email',
   fechaEvento: hoyMediodia(),
   duracionHoras: 8,
   tipoEvento: 'boda',

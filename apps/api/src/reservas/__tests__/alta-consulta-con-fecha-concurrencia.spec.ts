@@ -49,7 +49,7 @@ const comando = (email: string): AltaConsultaComando =>
   ({
     tenantId: TENANT,
     usuarioId: GESTOR,
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     fechaEvento: FECHA,
     cliente: { nombre: 'Conc', apellidos: 'Test', email, telefono: '600000000' },
   } as ComandoConFecha);

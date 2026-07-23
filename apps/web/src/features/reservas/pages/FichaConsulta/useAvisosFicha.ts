@@ -35,6 +35,10 @@ export const useAvisosFicha = () => {
   const [descarte, setDescarte] = useState<Descarte | null>(null);
   const [emailEnviado, setEmailEnviado] = useState(false);
   const [firma, setFirma] = useState<'registrada' | 'reregistrada' | null>(null);
+  /** Código de la reserva editada (banner emerald tras editar campos simples). */
+  const [edicionConsulta, setEdicionConsulta] = useState<string | null>(null);
+  /** Factura de señal enviada exitosamente (E3 inicial): banner arriba de la ficha. */
+  const [facturaEnviada, setFacturaEnviada] = useState(false);
 
   // Limpia TODOS los avisos. Es la base del invariante: cada `mostrarX` la invoca
   // antes de fijar el suyo, de modo que solo el último queda no nulo.
@@ -53,6 +57,8 @@ export const useAvisosFicha = () => {
     setDescarte(null);
     setEmailEnviado(false);
     setFirma(null);
+    setEdicionConsulta(null);
+    setFacturaEnviada(false);
   }, []);
 
   const mostrarResultado = useCallback(
@@ -150,6 +156,17 @@ export const useAvisosFicha = () => {
     },
     [cerrar],
   );
+  const mostrarEdicionConsulta = useCallback(
+    (codigo: string) => {
+      cerrar();
+      setEdicionConsulta(codigo);
+    },
+    [cerrar],
+  );
+  const mostrarFacturaSenalEnviada = useCallback(() => {
+    cerrar();
+    setFacturaEnviada(true);
+  }, [cerrar]);
 
   return {
     resultado,
@@ -166,6 +183,7 @@ export const useAvisosFicha = () => {
     descarte,
     emailEnviado,
     firma,
+    edicionConsulta,
     mostrarResultado,
     mostrarInvitados,
     mostrarVisita,
@@ -180,6 +198,9 @@ export const useAvisosFicha = () => {
     mostrarDescarte,
     mostrarEmailEnviado,
     mostrarFirma,
+    facturaEnviada,
+    mostrarEdicionConsulta,
+    mostrarFacturaSenalEnviada,
     cerrar,
   };
 };

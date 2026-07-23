@@ -60,6 +60,10 @@ export interface ReservaFianza {
   liquidacionStatus: LiquidacionStatus;
   fianzaStatus: FianzaStatus;
   clienteEmail: string;
+  /** Nombre de pila del cliente (para el nombre del adjunto PDF del email fianza). */
+  clienteNombre?: string;
+  /** Apellidos del cliente (para el nombre del adjunto PDF del email fianza). */
+  clienteApellidos?: string;
 }
 
 /** Parámetros de emisión de la fianza (borrador → enviada). */
@@ -311,7 +315,7 @@ export class EnviarReciboFianzaSeparadoUseCase {
         adjuntos: [
           {
             clave: 'fianza',
-            nombre: 'recibo-fianza.pdf',
+              nombre: `${numeroFianza ?? 'Fianza'} ${reserva.clienteNombre ?? ''} ${reserva.clienteApellidos ?? ''}`.trim() + '.pdf',
             pdfUrl: fianza.pdfUrl ?? '',
           },
         ],

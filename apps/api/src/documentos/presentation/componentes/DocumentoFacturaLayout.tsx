@@ -11,7 +11,7 @@
  */
 import type { ModeloDocumentoFactura } from '../modelo-documento-factura';
 import type { KitReactPdf } from '../kit-react-pdf';
-import { construirEstilos } from '../estilos';
+import { construirEstilos, COLOR_ACENTO } from '../estilos';
 import { etiquetasDocumento } from '../etiquetas-por-idioma';
 import { Cabecera } from './Cabecera';
 import { BloqueCliente } from './BloqueCliente';
@@ -67,12 +67,13 @@ export const DocumentoFacturaLayout = ({ kit, modelo }: DocumentoFacturaLayoutPr
 
         <View style={estilos.filaTitulo}>
           <View style={estilos.columnaCliente}>
-            <BloqueCliente kit={kit} estilos={estilos} cliente={modelo.cliente} />
+            <BloqueCliente kit={kit} estilos={estilos} cliente={modelo.cliente} titulo={etiquetas.datosCliente} />
           </View>
           <BloqueTitulo
             kit={kit}
             estilos={estilos}
             colorPrimario={colorPrimario}
+            colorTitulo={COLOR_ACENTO}
             titulo={tituloPorTipo(modelo.tipo, idioma)}
             etiquetaNumero={etiquetaMetaPorTipo(modelo.tipo, idioma)}
             etiquetaFecha={etiquetas.fecha}

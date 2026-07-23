@@ -37,7 +37,7 @@ export const AvisoReservaConfirmada = ({ resultado, onCerrar }: Props) => {
 
         <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className="flex flex-col">
-            <dt className="text-emerald-700/80">Señal (congelada)</dt>
+            <dt className="text-emerald-700/80">Señal (pagada)</dt>
             <dd className="font-semibold">{formatearEuros(reserva.importeSenal)}</dd>
           </div>
           <div className="flex flex-col">

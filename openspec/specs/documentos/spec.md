@@ -828,12 +828,12 @@ guardarraíl `componentes/` solo `.tsx`.)
   `Validesa | Base imp. | % Iva | Total`, la mini-tabla de condicions
   40/60/fiança con acento amarillo, y el pie con el IBAN centrado
 
-#### Scenario: La factura conserva el título turquesa
+#### Scenario: La factura usa el título amarillo (mismo acento que el presupuesto)
 
 - **GIVEN** el tenant piloto con `branding.color_primario = "#5edada"`
 - **WHEN** se renderiza una factura (señal/liquidación/fianza)
-- **THEN** el título de la factura se pinta en **turquesa** (`branding.color_primario`),
-  NO en el amarillo del presupuesto
+- **THEN** el título de la factura ("FACTURA"/"REBUT") se pinta en **amarillo**
+  (`COLOR_ACENTO = #ffd978`), igual que el presupuesto, no en el turquesa del tenant
 
 #### Scenario: La factura de señal replica la identidad visual de su referencia
 

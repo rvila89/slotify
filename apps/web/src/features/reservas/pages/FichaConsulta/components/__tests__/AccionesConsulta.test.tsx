@@ -23,7 +23,7 @@ const reserva = (over: Partial<Reserva> = {}): Reserva =>
     clienteId: crypto.randomUUID(),
     estado: 'consulta' as EstadoReserva,
     subEstado: '2b',
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     fechaEvento: '2999-06-01',
     ttlExpiracion: TTL_FUTURO,
     ...over,

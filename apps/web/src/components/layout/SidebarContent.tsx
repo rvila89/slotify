@@ -31,7 +31,7 @@ export const SidebarContent = () => {
 
   return (
     <div className="flex h-full flex-col bg-accent-active">
-      <div className="flex items-center gap-2 p-8">
+      <div className="flex items-center gap-2 px-8 pb-8 pt-6">
         <img src="/slotify-icon.svg" alt="" aria-hidden="true" className="size-7" />
         <span className="font-display text-3xl font-bold tracking-tight text-brand-primary">
           Slotify

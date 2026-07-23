@@ -11,6 +11,7 @@ import {
 import { useFacturaSenal } from '../api/useFacturaSenal';
 import { useRegenerarPdf } from '../api/useRegenerarPdf';
 import { formatearEuros, formatearPorcentaje } from '../lib/dinero';
+import { formatearFechaHora } from '../lib/fecha';
 import { estadoVisualFactura, puedeAprobar, puedeRechazar } from '../lib/estado';
 import { AprobarFacturaDialog } from './AprobarFacturaDialog';
 import { RechazarFacturaDialog } from './RechazarFacturaDialog';
@@ -46,10 +47,12 @@ import type { FacturaSenal } from '../model/types';
  */
 type Props = {
   reservaId: string;
+  /** Callback invocado tras enviar exitosamente la factura de señal; la página muestra el banner arriba. */
+  onEnviada?: () => void;
 };
 
 const claseBotonPrimario =
-  'inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-6 font-display text-sm text-brand-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
+  'inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-accent-success px-6 font-display text-sm text-accent-success-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
 
 const claseBotonSecundario =
   'inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-border-default bg-canvas px-6 font-body text-sm font-medium text-text-secondary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
@@ -112,7 +115,7 @@ const EnlacePdf = ({ url }: { url: string }) => (
   </a>
 );
 
-export const FacturaSenalCard = ({ reservaId }: Props) => {
+export const FacturaSenalCard = ({ reservaId, onEnviada }: Props) => {
   const { data: factura, isLoading, isError } = useFacturaSenal(reservaId);
   const regenerar = useRegenerarPdf();
   const [dialogoAprobar, setDialogoAprobar] = useState(false);
@@ -246,7 +249,27 @@ export const FacturaSenalCard = ({ reservaId }: Props) => {
 
       {/* Enviada (emitida): factura lista para remitir al cliente por email E3 (6.4b). */}
       {estadoVisual === 'enviada' && (
-        <EnvioFacturaSenal reservaId={reservaId} e3Enviado={factura.e3Enviado} />
+        <>
+          {factura.e3Enviado && (
+            <p
+              role="status"
+              data-testid="aviso-factura-senal-enviada"
+              className="flex items-start gap-3 rounded-[16px] border border-emerald-200 bg-emerald-50 p-4 font-body text-sm text-emerald-800"
+            >
+              <CheckCircle2 aria-hidden className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+              <span>
+                Factura de señal <strong>enviada al cliente</strong>
+                {factura.fechaEmision && (
+                  <>
+                    {' '}el <strong>{formatearFechaHora(factura.fechaEmision)}</strong>
+                  </>
+                )}
+                .
+              </span>
+            </p>
+          )}
+          <EnvioFacturaSenal reservaId={reservaId} e3Enviado={factura.e3Enviado} onEnviada={onEnviada} />
+        </>
       )}
 
       {regenerar.error && <AvisoErrorFactura error={regenerar.error} />}

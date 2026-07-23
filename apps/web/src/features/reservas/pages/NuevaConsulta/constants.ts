@@ -1,7 +1,6 @@
 import type { CanalEntrada, TipoEvento } from '../../model/types';
 
 export const CANALES: { value: CanalEntrada; label: string }[] = [
-  { value: 'web', label: 'Web' },
   { value: 'email', label: 'Email' },
   { value: 'whatsapp', label: 'WhatsApp' },
   { value: 'instagram', label: 'Instagram' },

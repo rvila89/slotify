@@ -31,7 +31,7 @@ const reserva = (over: Partial<Reserva> = {}): Reserva =>
     codigo: 'SLO-2026-0001',
     clienteId: '22222222-2222-2222-2222-222222222222',
     estado: 'reserva_confirmada',
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     nombreEvento: 'Boda Ada Lovelace',
     fechaEvento: '2026-09-12',
     numInvitadosFinal: 120,

@@ -35,7 +35,6 @@ pr: null
     - E4 enviado automáticamente a `CLIENTE.email` con PDF de factura de liquidación Y PDF de recibo de fianza adjuntos
     - Como efecto del envío de E4: `FACTURA (fianza).estado = enviada`; `RESERVA.fianza_status = recibo_enviado`
     - Un registro `COMUNICACION` creado con `codigo_email = E4`, `estado = enviado`
-  - El gestor puede ajustar el borrador (descuentos negociados, corrección de extras) antes de aprobar
   - La transición de estado y el envío de E4 son atómicos: si el email falla, los estados no se actualizan
   - El `numero_factura` es único por `tenant_id` y secuencial (nunca se reutiliza)
 - Supuestos: los datos fiscales del `CLIENTE` (DNI, dirección, CP, población, provincia) están completos — son precondición de US-014
@@ -60,12 +59,6 @@ pr: null
   - Cambio registrado en `AUDIT_LOG`
 
 ### ⚠️ Flujos Alternativos y Edge Cases
-
-#### Gestor ajusta el importe antes de aprobar (descuento negociado)
-- **Dado** que el borrador de la factura de liquidación tiene `total = 4.100,00 €` y el gestor aplica un descuento de 200 €
-  **Cuando** el gestor modifica el campo de descuento en el editor de borrador y hace clic en "Aprobar y enviar"
-  **Entonces** la `FACTURA` se emite con `total = 3.900,00 €`; `RESERVA.importe_liquidacion` se actualiza con el nuevo importe; el descuento queda en `AUDIT_LOG`; el resto del flujo procede igual
-- Comportamiento del sistema: el editor de borrador permite ajustar totales/descuentos antes de aprobar; la modificación queda trazada
 
 #### Fallo en la generación del PDF o en el envío del email
 - **Dado** que el servicio de generación de PDF no responde al intentar crear el adjunto de E4

@@ -151,12 +151,14 @@ export const LoginPage = () => {
             La plataforma de gestión integral para espacios boutique de eventos privados
           </p>
           <div>
-            <button
-              type="button"
+            <a
+              href="https://mail.google.com/mail/?view=cm&to=info@masialencis.com"
+              target="_blank"
+              rel="noopener noreferrer"
               className="rounded-full bg-[#d98b74] px-[14px] py-[10px] font-body text-[12px] font-extrabold tracking-[0.6px] text-white"
             >
               CONTACTO
-            </button>
+            </a>
           </div>
           <div className="h-px w-full bg-white/20" />
         </div>

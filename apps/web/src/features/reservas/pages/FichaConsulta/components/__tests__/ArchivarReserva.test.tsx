@@ -26,7 +26,7 @@ const reserva = (estado: EstadoReserva, over: Partial<Reserva> = {}): Reserva =>
     codigo: 'SLO-2026-0038',
     clienteId: crypto.randomUUID(),
     estado,
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     // Por defecto sin fianza (resuelta por ausencia), salvo override.
     fianzaEur: null,
     ...over,

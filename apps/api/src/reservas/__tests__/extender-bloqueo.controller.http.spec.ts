@@ -51,7 +51,7 @@ const detalleOk = (): ReservaDetalleLectura =>
     clienteId: 'cli-1',
     estado: 'consulta',
     subEstado: '2b',
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     fechaEvento: new Date('2027-09-12T00:00:00.000Z'),
     duracionHoras: null,
     tipoEvento: null,

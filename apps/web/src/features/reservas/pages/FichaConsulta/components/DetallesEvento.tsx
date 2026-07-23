@@ -10,9 +10,12 @@ import type { ReservaDetalle } from '../../../model/types';
  * información" en lugar de omitir el campo, para que el gestor vea qué falta. El nº de
  * invitados se muestra en una sola fila "Invitados" (el desglose adultos/niños ≤ 4 y
  * el aforo final no se piden al crear la consulta, así que no se muestran aquí; siguen
- * en el editor y en el aforo del Kanban/Listado — mejoras-detalle-consulta §D-1). Los
- * "Comentarios" son los que dejó el cliente al crear la consulta (`comentarios`, solo
- * lectura; distinto de `notas`). Es de LECTURA: no muta nada.
+ * en el editor y en el aforo del Kanban/Listado — mejoras-detalle-consulta §D-1).
+ *
+ * Diferencia entre los dos campos de texto:
+ * - `comentarios`: texto libre que escribió el cliente al crear el lead. Solo lectura.
+ * - `notas`: anotaciones internas del gestor, editables vía el editor de consulta.
+ * Ambas se muestran con etiquetas distintas. Es de LECTURA: no muta nada.
  */
 const claseSeccion =
   'flex flex-col gap-6 rounded-[20px] border border-border-default/20 bg-surface-subtle/30 p-4 sm:p-6 lg:p-8';
@@ -30,6 +33,7 @@ export const DetallesEvento = ({ reserva }: Props) => {
       : PLACEHOLDER_DATO_AUSENTE;
   const horario = reserva.horario ?? PLACEHOLDER_DATO_AUSENTE;
   const comentarios = reserva.comentarios ?? PLACEHOLDER_DATO_AUSENTE;
+  const notas = reserva.notas ?? PLACEHOLDER_DATO_AUSENTE;
 
   return (
     <section className={claseSeccion} aria-labelledby="ficha-detalles-evento" data-testid="detalles-evento">
@@ -45,7 +49,8 @@ export const DetallesEvento = ({ reserva }: Props) => {
         <Dato etiqueta="Duración" valor={duracion} />
         <Dato etiqueta="Hora de inicio" valor={horario} />
         <Dato etiqueta="Invitados" valor={invitados} />
-        <Dato etiqueta="Comentarios" valor={comentarios} />
+        <Dato etiqueta="Comentarios del cliente" valor={comentarios} />
+        <Dato etiqueta="Notas internas" valor={notas} />
       </dl>
     </section>
   );

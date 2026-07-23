@@ -1,7 +1,6 @@
-import { Loader2, Send } from 'lucide-react';
-import { notify } from '@/lib/notify';
+import { useState } from 'react';
+import { AlertTriangle, Info, Loader2, Send, X } from 'lucide-react';
 import { useEnviarFacturaSenal } from '../api/useEnviarFacturaSenal';
-import { AvisoErrorEnvioSenal } from './AvisoErrorEnvioSenal';
 import { AccionReenviarE3 } from './AccionReenviarE3';
 
 /**
@@ -36,31 +35,53 @@ type Props = {
    * qué acción se muestra (enviar vs. reenviar), nunca ambas a la vez.
    */
   e3Enviado: boolean;
+  /** Callback invocado tras un envío exitoso; la página muestra el banner arriba + scroll. */
+  onEnviada?: () => void;
 };
 
 const claseBotonPrimario =
-  'inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-6 font-display text-sm text-brand-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
+  'inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-accent-success px-6 font-display text-sm text-accent-success-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto';
 
-export const EnvioFacturaSenal = ({ reservaId, e3Enviado }: Props) => {
+type TipoResultado = 'ya-enviado' | 'error-envio' | 'error';
+
+interface ResultadoEnvio {
+  tipo: TipoResultado;
+  mensaje: string;
+}
+
+const claseBannerPorTipo: Record<TipoResultado, string> = {
+  'ya-enviado': 'flex items-start gap-3 rounded-[16px] border border-blue-200 bg-blue-50 p-4 text-blue-800',
+  'error-envio': 'flex items-start gap-3 rounded-[16px] border border-amber-200 bg-amber-50 p-4 text-amber-900',
+  error: 'flex items-start gap-3 rounded-[16px] border border-red-200 bg-red-50 p-4 text-red-700',
+};
+
+const IconoBannerPorTipo = ({ tipo }: { tipo: TipoResultado }) => {
+  if (tipo === 'ya-enviado') return <Info aria-hidden className="mt-0.5 size-5 shrink-0 text-blue-500" />;
+  if (tipo === 'error-envio') return <AlertTriangle aria-hidden className="mt-0.5 size-5 shrink-0 text-amber-600" />;
+  return <AlertTriangle aria-hidden className="mt-0.5 size-5 shrink-0 text-red-600" />;
+};
+
+export const EnvioFacturaSenal = ({ reservaId, e3Enviado, onEnviada }: Props) => {
   const enviarSenal = useEnviarFacturaSenal();
+  const [resultado, setResultado] = useState<ResultadoEnvio | null>(null);
 
   const onEnviarSenal = () => {
+    setResultado(null);
     enviarSenal.mutate(
       { reservaId },
       {
         onSuccess: () => {
-          // Desde el change condiciones-idioma-e2-firma-banner las condiciones particulares
-          // se adjuntan en E2 (confirmar presupuesto), no en E3; E3 solo emite la factura de señal.
-          notify.success('Factura de señal enviada al cliente.');
+          setResultado(null);
+          onEnviada?.();
         },
         onError: (error) => {
-          // 502 (recuperable) y 409 "ya enviado" se avisan sin alarmar; el resto como error.
+          window.scrollTo({ top: 0, behavior: 'smooth' });
           if (error.tipo === 'envio-fallido') {
-            notify.warning('Error de envío, reintenta', { description: error.mensaje });
+            setResultado({ tipo: 'error-envio', mensaje: error.mensaje });
           } else if (error.tipo === 'ya-enviado') {
-            notify.info(error.mensaje);
+            setResultado({ tipo: 'ya-enviado', mensaje: error.mensaje });
           } else {
-            notify.error(error.mensaje);
+            setResultado({ tipo: 'error', mensaje: error.mensaje });
           }
         },
       },
@@ -69,7 +90,24 @@ export const EnvioFacturaSenal = ({ reservaId, e3Enviado }: Props) => {
 
   return (
     <div className="flex flex-col gap-4">
-      {enviarSenal.error && <AvisoErrorEnvioSenal error={enviarSenal.error} />}
+      {resultado && (
+        <div
+          role={resultado.tipo === 'exito' ? 'status' : 'alert'}
+          data-testid="banner-resultado-envio"
+          className={claseBannerPorTipo[resultado.tipo]}
+        >
+          <IconoBannerPorTipo tipo={resultado.tipo} />
+          <p className="flex-1 font-body text-sm">{resultado.mensaje}</p>
+          <button
+            type="button"
+            aria-label="Cerrar aviso"
+            onClick={() => setResultado(null)}
+            className="shrink-0 opacity-70 hover:opacity-100"
+          >
+            <X aria-hidden className="size-4" />
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
         {e3Enviado ? (

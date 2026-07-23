@@ -26,7 +26,7 @@ const reserva = (over: Partial<Reserva>): Reserva =>
     codigo: 'SLO-2026-0001',
     clienteId: crypto.randomUUID(),
     estado: 'reserva_confirmada',
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     nombreEvento: 'Evento sin nombre',
     fechaEvento: '2026-09-12',
     numInvitadosFinal: 100,

@@ -14,6 +14,7 @@ import { PrismaService } from '../../shared/prisma/prisma.service';
 import { DespacharEmailService } from '../../comunicaciones/application/despachar-email.service';
 import type { GenerarPdfCondicionesPort } from '../../documentos/domain/generar-pdf-condiciones.port';
 import type { DispararE2Port } from '../application/generar-presupuesto.use-case';
+import { nombreAdjuntoPresupuesto } from '../domain/numeracion-presupuesto';
 
 /** Un adjunto del email E2 (presupuesto y/o condicions particulars). */
 interface AdjuntoE2 {
@@ -35,6 +36,7 @@ export class DispararE2Adapter implements DispararE2Port {
     reservaId: string;
     pdfUrl: string | null;
     esEdicion?: boolean;
+    numeroPresupuesto?: string | null;
   }): Promise<void> {
     const reserva = await this.prisma.$transaction(async (tx) => {
       await this.prisma.fijarTenant(tx, params.tenantId);
@@ -51,7 +53,15 @@ export class DispararE2Adapter implements DispararE2Port {
     // particulars (épico #6, 6.4a; se omite sin romper el E2 si degrada a null).
     const adjuntos: AdjuntoE2[] = [];
     if (params.pdfUrl !== null) {
-      adjuntos.push({ clave: 'presupuesto', nombre: 'presupuesto.pdf', pdfUrl: params.pdfUrl });
+      adjuntos.push({
+        clave: 'presupuesto',
+        nombre: nombreAdjuntoPresupuesto(
+          params.numeroPresupuesto ?? null,
+          reserva.cliente.nombre,
+          reserva.cliente.apellidos ?? '',
+        ),
+        pdfUrl: params.pdfUrl,
+      });
     }
     // La generación puede degradar a `null` (negocio) o LANZAR (fallo real de render
     // react-pdf/subida, p. ej. la flakiness ESM). Al ser post-commit, un fallo del
@@ -66,7 +76,10 @@ export class DispararE2Adapter implements DispararE2Port {
     if (urlCondiciones !== null) {
       adjuntos.push({
         clave: 'condiciones',
-        nombre: 'condicions-particulars.pdf',
+        nombre:
+          idiomaCondiciones === 'ca'
+            ? 'condicions-particulars.pdf'
+            : 'condiciones-particulares.pdf',
         pdfUrl: urlCondiciones,
       });
     }

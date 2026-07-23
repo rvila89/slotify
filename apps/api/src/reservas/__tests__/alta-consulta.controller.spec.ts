@@ -32,7 +32,7 @@ const usuario: UsuarioAutenticado = { sub: GESTOR, tenantId: TENANT, rol: 'gesto
 
 const dtoBase = (): CreateReservaRequestDto =>
   ({
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     cliente: {
       nombre: 'Marta',
       apellidos: 'Soler',
@@ -50,7 +50,7 @@ const resultadoOk = (): AltaConsultaResultado => ({
     estado: 'consulta',
     subEstado: '2a',
     ttlExpiracion: null,
-    canalEntrada: 'web',
+    canalEntrada: 'email',
   },
   cliente: {
     idCliente: 'cli-1',

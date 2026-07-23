@@ -55,7 +55,7 @@ export class CargarReservaEmisionPrismaAdapter {
           liquidacionStatus: true,
           fianzaStatus: true,
           importeLiquidacion: true,
-          cliente: { select: { email: true } },
+          cliente: { select: { email: true, nombre: true, apellidos: true } },
         },
       });
     });
@@ -72,6 +72,8 @@ export class CargarReservaEmisionPrismaAdapter {
       importeLiquidacion:
         fila.importeLiquidacion === null ? '0.00' : fila.importeLiquidacion.toFixed(2),
       clienteEmail: fila.cliente.email ?? '',
+      clienteNombre: fila.cliente.nombre,
+      clienteApellidos: fila.cliente.apellidos ?? '',
     };
     return reserva;
   };
@@ -161,7 +163,7 @@ export class CargarReservaFianzaPrismaAdapter {
           codigo: true,
           liquidacionStatus: true,
           fianzaStatus: true,
-          cliente: { select: { email: true } },
+          cliente: { select: { email: true, nombre: true, apellidos: true } },
         },
       });
     });
@@ -176,6 +178,8 @@ export class CargarReservaFianzaPrismaAdapter {
       liquidacionStatus: fila.liquidacionStatus,
       fianzaStatus: fila.fianzaStatus,
       clienteEmail: fila.cliente.email ?? '',
+      clienteNombre: fila.cliente.nombre,
+      clienteApellidos: fila.cliente.apellidos ?? '',
     };
     return reserva;
   };
@@ -198,7 +202,7 @@ export class CargarReservaReenvioPrismaAdapter {
           codigo: true,
           liquidacionStatus: true,
           fianzaStatus: true,
-          cliente: { select: { email: true } },
+          cliente: { select: { email: true, nombre: true, apellidos: true } },
         },
       });
     });
@@ -213,6 +217,8 @@ export class CargarReservaReenvioPrismaAdapter {
       liquidacionStatus: fila.liquidacionStatus,
       fianzaStatus: fila.fianzaStatus,
       clienteEmail: fila.cliente.email ?? '',
+      clienteNombre: fila.cliente.nombre,
+      clienteApellidos: fila.cliente.apellidos ?? '',
     };
     return reserva;
   };

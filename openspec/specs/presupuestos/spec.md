@@ -633,12 +633,27 @@ Mejora A+B.)
 
 #### Scenario: E2 adjunta presupuesto y condiciones en el idioma de la reserva
 
-- **GIVEN** un tenant con configuración de documento, una RESERVA con `idioma = 'es'`
-  y un presupuesto con `pdf_url` válida
+- **GIVEN** un tenant con configuración de documento, una RESERVA con `idioma = 'es'`,
+  un presupuesto con `pdf_url` válida y `numero_presupuesto = '2026019'`, y un cliente
+  con nombre `Mercè` y apellidos `Escribano`
 - **WHEN** se dispara el E2 post-commit
 - **THEN** el motor de email recibe dos adjuntos: `presupuesto`
-  (`presupuesto.pdf`) y `condiciones` (`condicions-particulars.pdf`)
+  (`P{numeroPresupuesto} {nombre} {apellidos}.pdf`, p. ej. `P2026019 Mercè Escribano.pdf`) y `condiciones` (`condicions-particulars.pdf`)
 - **AND** el PDF de condiciones es el generado con `idioma = 'es'`
+
+#### Scenario: El nombre del adjunto usa el número de presupuesto y el nombre del cliente
+
+- **GIVEN** un presupuesto con `numero_presupuesto = '2026019'` y un cliente con
+  nombre `Mercè` y apellidos `Escribano`
+- **WHEN** se dispara el E2 post-commit
+- **THEN** el adjunto del presupuesto tiene `nombre = 'P2026019 Mercè Escribano.pdf'`
+
+#### Scenario: El nombre del adjunto usa fallback cuando no hay número de presupuesto
+
+- **GIVEN** un presupuesto histórico sin `numero_presupuesto` (`null`) y un cliente con
+  nombre `Mercè` y apellidos `Escribano`
+- **WHEN** se dispara el E2 post-commit
+- **THEN** el adjunto del presupuesto tiene `nombre = 'Presupuesto Mercè Escribano.pdf'`
 
 #### Scenario: E2 omite condiciones si el documento devuelve null post-commit
 

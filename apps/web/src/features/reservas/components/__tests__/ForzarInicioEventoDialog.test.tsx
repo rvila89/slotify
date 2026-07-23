@@ -26,7 +26,7 @@ const ok = (precondicionesIncumplidas: string[] = ['liquidacion_status']) => ({
     codigo: 'SLO-2026-0032',
     clienteId: '22222222-2222-2222-2222-222222222222',
     estado: 'evento_en_curso',
-    canalEntrada: 'web',
+    canalEntrada: 'email',
     forzadoPorGestor: true,
     precondicionesIncumplidas,
   },

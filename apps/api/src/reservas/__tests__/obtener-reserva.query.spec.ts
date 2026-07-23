@@ -22,7 +22,7 @@ const detalle2b = (): ReservaDetalleLectura => ({
   clienteId: 'cli-1',
   estado: 'consulta',
   subEstado: '2b',
-  canalEntrada: 'web',
+  canalEntrada: 'email',
   fechaEvento: new Date('2027-10-20T00:00:00.000Z'),
   duracionHoras: null,
   tipoEvento: null,

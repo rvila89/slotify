@@ -4435,6 +4435,16 @@ fecha".)
 - **WHEN** el gestor edita los campos simples y confirma
 - **THEN** el sistema persiste los campos sin regenerar ni crear ninguna `COMUNICACION`
 
+#### Scenario: Editar con éxito muestra banner y scroll al top
+
+- **GIVEN** el gestor tiene abierto el diálogo "Editar consulta" de una RESERVA
+- **WHEN** modifica algún campo y pulsa "Guardar cambios" (botón verde)
+- **THEN** el sistema persiste los cambios, cierra el diálogo y hace scroll al inicio de
+  la ficha
+- **AND** se muestra un banner inline verde (emerald) en la cabecera con el mensaje
+  "Consulta {código} actualizada"
+- **AND** el banner es descartable con un botón de cerrar
+
 ### Requirement: Cambio atómico de una fecha ya bloqueada
 
 El sistema SHALL (DEBE), cuando el gestor cambia la **fecha del evento** de una RESERVA que

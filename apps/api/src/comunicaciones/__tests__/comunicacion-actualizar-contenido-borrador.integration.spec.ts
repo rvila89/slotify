@@ -52,7 +52,7 @@ beforeAll(async () => {
       clienteId,
       codigo: CODIGO_RESERVA,
       estado: 'consulta',
-      canalEntrada: 'web',
+      canalEntrada: 'email',
     },
   });
   reservaId = reserva.idReserva;

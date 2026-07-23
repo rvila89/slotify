@@ -25,6 +25,8 @@ type Props = {
   /** Éxito de registro de la firma de condicions particulars (Mejora C): la página
       muestra el banner inline arriba + scroll, en lugar del toast de Sonner. */
   onFirmaRegistrada?: (tipo: 'registrada' | 'reregistrada') => void;
+  /** Éxito de envío de la factura de señal (E3): la página muestra el banner arriba + scroll. */
+  onFacturaSenalEnviada?: () => void;
 };
 
 export const SeccionesFicha = ({
@@ -32,25 +34,13 @@ export const SeccionesFicha = ({
   reserva,
   onEmailEnviado,
   onFirmaRegistrada,
+  onFacturaSenalEnviada,
 }: Props) => (
   <>
-    {/* US-046 · UC-36: sección "Comunicaciones" de la ficha. Lista las COMUNICACION de
-        la reserva y permite revisar/editar/enviar o descartar un borrador y crear un
-        email manual. Visible en TODA RESERVA (self-contained: resuelve cargando/error/
-        vacío); no depende del estado. */}
-    <ComunicacionesCard reservaId={reservaId} onEmailEnviado={onEmailEnviado} />
-
-    {reserva.estado === 'reserva_confirmada' && <FacturaSenalCard reservaId={reservaId} />}
-
+    {/* US-022: Factura de señal — primera sección en `reserva_confirmada`.
+        Visible solo en ese estado; las fases posteriores no la repiten. */}
     {reserva.estado === 'reserva_confirmada' && (
-      <DocumentosLiquidacionFianza
-        reservaId={reservaId}
-        liquidacionStatus={reserva.liquidacionStatus}
-        fianzaStatus={reserva.fianzaStatus}
-        fechaEvento={reserva.fechaEvento}
-        fianzaEur={reserva.fianzaEur}
-        fianzaCobradaFecha={reserva.fianzaCobradaFecha}
-      />
+      <FacturaSenalCard reservaId={reservaId} onEnviada={onFacturaSenalEnviada} />
     )}
 
     {/* Ficha operativa del evento (US-025): editable desde `reserva_confirmada`
@@ -74,6 +64,23 @@ export const SeccionesFicha = ({
         onRegistrado={onFirmaRegistrada}
       />
     )}
+
+    {reserva.estado === 'reserva_confirmada' && (
+      <DocumentosLiquidacionFianza
+        reservaId={reservaId}
+        liquidacionStatus={reserva.liquidacionStatus}
+        fianzaStatus={reserva.fianzaStatus}
+        fechaEvento={reserva.fechaEvento}
+        fianzaEur={reserva.fianzaEur}
+        fianzaCobradaFecha={reserva.fianzaCobradaFecha}
+      />
+    )}
+
+    {/* US-046 · UC-36: sección "Comunicaciones" de la ficha. Lista las COMUNICACION de
+        la reserva y permite revisar/editar/enviar o descartar un borrador y crear un
+        email manual. Visible en TODA RESERVA (self-contained: resuelve cargando/error/
+        vacío); no depende del estado. */}
+    <ComunicacionesCard reservaId={reservaId} onEmailEnviado={onEmailEnviado} />
 
     {/* US-033: captura de la documentación obligatoria del evento (checklist en
         tiempo real: DNI anverso/reverso + cláusula de responsabilidad firmada).

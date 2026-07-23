@@ -71,12 +71,17 @@ const renderDisponibleCA = ({
     '',
     'Moltes gràcies per la teva resposta i per compartir-nos la data! 😊',
     `He revisat la disponibilitat i tinc una bona notícia: la data que ens proposes, ${fecha}, està actualment disponible.`,
+    '',
     `Si et sembla bé, et preparo el pressupost per a ${valorOplaceholder(personas)} persones i ${valorOplaceholder(horas)} hores pel ${fecha} perquè puguis fer el pagament del 40% i així deixar la reserva confirmada. En cas que finalment acabeu sent més persones ho afegiríem a l'import restant pendent d'abonar.`,
     "Aquest import final l'hauríeu de fer efectiu tres dies abans de l'esdeveniment, que seria també la data límit per confirmar possibles canvis en el nombre de persones.",
+    '',
     'Per poder-te preparar el pressupost, necessitaria les següents dades:',
     'Nom i cognoms / DNI / Adreça i població',
+    '',
     'Quedo pendent de la teva confirmació per avançar amb la reserva.',
-    `Una abraçada, ${FIRMA}`,
+    'Una abraçada, ',
+    'Ari',
+    "Masia l'Encís",
   ].join('\n');
   return { asunto, cuerpo };
 };
@@ -94,12 +99,17 @@ const renderDisponibleES = ({
     '',
     '¡Muchas gracias por tu respuesta y por compartirnos la fecha! 😊',
     `He revisado la disponibilidad y tengo una buena noticia: la fecha que nos propones, ${fecha}, está actualmente disponible.`,
+    '',
     `Si te parece bien, te preparo el presupuesto para ${valorOplaceholder(personas)} personas y ${valorOplaceholder(horas)} horas para el ${fecha} para que puedas hacer el pago del 40% y así dejar la reserva confirmada. En caso de que finalmente acabéis siendo más personas lo añadiríamos al importe restante pendiente de abonar.`,
     'Ese importe final deberíais hacerlo efectivo tres días antes del evento, que sería también la fecha límite para confirmar posibles cambios en el número de personas.',
+    '',
     'Para poder prepararte el presupuesto, necesitaría los siguientes datos:',
     'Nombre y apellidos / DNI / Dirección y población',
+    '',
     'Quedo pendiente de tu confirmación para avanzar con la reserva.',
-    `Un abrazo, ${FIRMA}`,
+    'Un abrazo, ',
+    'Ari',
+    "Masia l'Encís",
   ].join('\n');
   return { asunto, cuerpo };
 };

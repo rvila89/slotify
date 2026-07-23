@@ -51,7 +51,7 @@ type Props = {
 };
 
 const claseBotonPrimario =
-  'inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-6 font-display text-base text-brand-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto';
+  'inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-accent-success px-6 font-display text-base text-accent-success-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto';
 
 const claseBotonSecundario =
   'inline-flex h-12 w-full items-center justify-center gap-2 rounded-full border border-border-default bg-canvas px-6 font-body text-base font-medium text-text-secondary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto';

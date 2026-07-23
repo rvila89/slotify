@@ -247,6 +247,8 @@ export interface DispararE2EdicionPort {
      * la marca hasta el render de E2 ("presupuesto actualizado").
      */
     esEdicion?: boolean;
+    /** Número `AAAANNN` del presupuesto (para el nombre del adjunto PDF del email E2). */
+    numeroPresupuesto?: string | null;
   }): Promise<void>;
 }
 
@@ -825,7 +827,11 @@ export class EditarPresupuestoUseCase {
     let comunicacion: ComunicacionE2Reenvio | null = null;
     if (comando.enviar) {
       const pdfUrl = await this.generarPdfPostCommit(comando, salida.presupuesto);
-      await this.dispararE2PostCommit(comando, pdfUrl ?? salida.presupuesto.pdfUrl);
+      await this.dispararE2PostCommit(
+        comando,
+        pdfUrl ?? salida.presupuesto.pdfUrl,
+        salida.presupuesto.numeroPresupuesto,
+      );
       // Proyección OPTIMISTA (D1): la fila real (con su estado enviado/fallido) la
       // escribe el motor post-commit; la respuesta HTTP proyecta el encolado como
       // `enviado` / `esReenvio=true` sin depender de la fila de la tx (ya eliminada).
@@ -1156,6 +1162,7 @@ export class EditarPresupuestoUseCase {
   private async dispararE2PostCommit(
     comando: EditarPresupuestoConfirmarComando,
     pdfUrl: string | null,
+    numeroPresupuesto?: string | null,
   ): Promise<void> {
     if (this.deps.dispararE2 === undefined) {
       return;
@@ -1165,6 +1172,7 @@ export class EditarPresupuestoUseCase {
       reservaId: comando.reservaId,
       pdfUrl,
       esEdicion: true,
+      numeroPresupuesto,
     });
   }
 }
@@ -1215,6 +1223,7 @@ export class ReenviarPresupuestoUseCase {
       tenantId: comando.tenantId,
       reservaId: comando.reservaId,
       pdfUrl,
+      numeroPresupuesto: vigente.numeroPresupuesto,
     });
 
     const comunicacion = await this.deps.registrarE2Reenvio({
