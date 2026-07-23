@@ -500,28 +500,6 @@ atomicidad, `§Fallo en la generación del PDF o en el envío del email`, `§Reg
   'facturada'`, la emisión de la fianza y el `COMUNICACION` E4
 - **AND** si el proveedor no confirma, no se consolida ninguno de esos cambios
 
-### Requirement: Ajuste del importe (descuento negociado) antes de aprobar
-
-El sistema SHALL (DEBE) permitir al Gestor **ajustar** el borrador de la factura de liquidación
-(aplicar un descuento negociado o corregir extras) **mientras la FACTURA sigue en `borrador`**.
-Al aplicar el ajuste, el sistema **recalcula el `total`** y su **desglose fiscal reutilizando la
-función de dominio puro ya existente de `facturacion`** (US-022: `base_imponible = round(total /
-1,21, 2)`, `iva_importe = total − base_imponible`, `iva_porcentaje = 21,00`, con `base + iva =
-total` exacto). Al emitir con el ajuste, `RESERVA.importe_liquidacion` se **actualiza** con el
-nuevo importe y el **descuento** (importe/motivo) queda registrado en `AUDIT_LOG`. El ajuste es
-**manual del Gestor**: el sistema NO recalcula tarifa ni porcentaje. (Fuente: `US-028 §Gestor
-ajusta el importe antes de aprobar`; `design.md §D-2`.)
-
-#### Scenario: Un descuento de 200 € emite la factura por 3.900 € con desglose recalculado
-
-- **GIVEN** un borrador de liquidación con `total = 4.100,00 €` y el Gestor aplica un descuento
-  de 200,00 €
-- **WHEN** el Gestor modifica el descuento y pulsa "Aprobar y enviar"
-- **THEN** la FACTURA se emite con `total = 3.900,00 €`, `base_imponible = 3.223,14 €`,
-  `iva_importe = 676,86 €` (`base + iva = total` exacto)
-- **AND** `RESERVA.importe_liquidacion` se actualiza a 3.900,00 € y el descuento queda en
-  `AUDIT_LOG`
-
 ### Requirement: Emisión del recibo de fianza como efecto del envío de E4
 
 El sistema SHALL (DEBE), como **efecto del envío de E4** (que adjunta el recibo de fianza junto

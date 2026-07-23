@@ -755,10 +755,6 @@ uq_comunicacion_reserva_codigo (reserva_id, codigo_email, subtipo) NULLS NOT DIS
 
 Los reenvíos (`esReenvio = true`) quedan fuera del constraint, permitiendo trazabilidad de cada envío sin violar la idempotencia del envío original.
 
-#### Descuento negociado antes de emitir (D-2)
-
-El Gestor puede aplicar un descuento sobre la factura de liquidación mientras está en `borrador`, antes de llamar a `aprobar-enviar`. El body opcional `{ descuento?, extrasCorregidos?, motivo? }` dispara la función pura `aplicarDescuentoLiquidacion` (dominio, reutiliza `calcularDesgloseFiscal` de US-022 con el total ajustado) y actualiza `RESERVA.importe_liquidacion`; el descuento y su motivo quedan en `AUDIT_LOG accion='actualizar'`.
-
 #### Envío separado del recibo de fianza (D-3)
 
 El recibo de fianza puede enviarse de forma independiente de la liquidación. `EnviarReciboFianzaUseCase` registra el email con `codigo_email = 'manual'` (no E4), por lo que no colisiona con la idempotencia `(reserva_id, E4)`. Si la fianza ya se envió por separado antes de aprobar la liquidación, `AprobarYEnviarLiquidacionUseCase` incluye solo la factura de liquidación en E4 y no sobreescribe `fianza_status = 'recibo_enviado'` (ya establecido).

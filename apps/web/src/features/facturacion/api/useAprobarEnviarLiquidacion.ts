@@ -8,17 +8,11 @@ import type {
 } from '../model/types';
 
 /**
- * Variables de "Aprobar y enviar" la factura de liquidación (US-028 · UC-21). El
- * `descuento`/`motivo` son OPCIONALES (ajuste negociado, design.md §D-2); si se omiten,
- * la liquidación se emite con el total del borrador.
+ * Variables de "Aprobar y enviar" la factura de liquidación (US-028 · UC-21).
  */
 export type AprobarEnviarLiquidacionVars = {
   /** ID de la RESERVA (path del endpoint y clave de la query cacheada de sus facturas). */
   reservaId: string;
-  /** Descuento a restar del total, `Importe` (string decimal, p. ej. "200.00"). */
-  descuento?: string;
-  /** Motivo opcional del descuento; se registra en `AUDIT_LOG`. */
-  motivo?: string;
 };
 
 /**
@@ -32,7 +26,7 @@ export type AprobarEnviarLiquidacionVars = {
  * Desenlaces (normalizados a `LiquidacionError` en español):
  *  - 200: `AprobarEnviarLiquidacionResponse` (liquidación emitida + fianza + status).
  *  - 409 `FACTURA_NO_BORRADOR` → la liquidación ya no está en borrador (usa "Reenviar").
- *  - 422 `DATOS_FISCALES_INCOMPLETOS` / `PDF_PENDIENTE` / `DESCUENTO_INVALIDO`.
+ *  - 422 `DATOS_FISCALES_INCOMPLETOS` / `PDF_PENDIENTE`.
  *  - 502 / 503 `EMISION_ENVIO_FALLIDO` → fallo recuperable, rollback total, reintentable.
  *
  * Tras éxito invalida la colección de facturas de la reserva para reflejar `numeroFactura`,
@@ -46,14 +40,10 @@ export const useAprobarEnviarLiquidacion = () => {
     LiquidacionError,
     AprobarEnviarLiquidacionVars
   >({
-    mutationFn: async ({ reservaId, descuento, motivo }) => {
-      const body: { descuento?: string; motivo?: string } = {};
-      if (descuento) body.descuento = descuento;
-      if (motivo) body.motivo = motivo;
-
+    mutationFn: async ({ reservaId }) => {
       const { data, error, response } = await apiClient.POST(
         '/reservas/{id}/facturas/liquidacion/aprobar-enviar',
-        { params: { path: { id: reservaId } }, body },
+        { params: { path: { id: reservaId } } },
       );
       if (data) return data;
       throw normalizarErrorLiquidacion(response?.status, error, 'aprobar-enviar');

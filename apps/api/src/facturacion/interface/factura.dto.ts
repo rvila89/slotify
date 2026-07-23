@@ -146,25 +146,12 @@ export type FianzaStatusDto =
   | 'retenida_parcial';
 
 /**
- * Cuerpo OPCIONAL de "Aprobar y enviar" la liquidación (contrato `AprobarEnviarLiquidacionRequest`,
- * US-028 / UC-21). Sin body emite la liquidación tal cual; con body aplica el descuento negociado
- * (D-2) y registra el motivo en AUDIT_LOG.
+ * Cuerpo de "Aprobar y enviar" la liquidación (contrato `AprobarEnviarLiquidacionRequest`,
+ * US-028 / UC-21). El endpoint no requiere parámetros; la liquidación se emite con el total
+ * del borrador.
  */
-export class AprobarEnviarLiquidacionDto {
-  @ApiPropertyOptional({
-    example: '200.00',
-    description: 'Descuento negociado (> 0 y < total). Inválido → 422 DESCUENTO_INVALIDO.',
-  })
-  @IsOptional()
-  @IsString()
-  descuento?: string;
-
-  @ApiPropertyOptional({ description: 'Motivo del descuento, registrado en AUDIT_LOG.' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  motivo?: string;
-}
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+export class AprobarEnviarLiquidacionDto {}
 
 /**
  * Respuesta de "Aprobar y enviar" la liquidación (contrato `AprobarEnviarLiquidacionResponse`).

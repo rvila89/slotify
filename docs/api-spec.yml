@@ -2386,9 +2386,8 @@ paths:
   # Acciones DEDICADAS del Gestor sobre los borradores de liquidación/fianza generados como efecto
   # post-commit de la confirmación (US-021 / US-027). Reutilizan el envelope estándar y el mapeo HTTP
   # heredado (F5-02): 404 = liquidación/reserva inexistente en el tenant (RLS); 409 = conflicto de
-  # estado (factura no en `borrador` / no `enviada`); 422 = validación de negocio (descuento inválido);
-  # 502/503 = fallo recuperable de emisión/envío (rollback total, se reintenta). El descuento y los
-  # importes viajan como `Importe` (string Decimal(10,2)); el `tenant_id`/`usuario_id` derivan del JWT.
+  # estado (factura no en `borrador` / no `enviada`); 502/503 = fallo recuperable de emisión/envío
+  # (rollback total, se reintenta). El `tenant_id`/`usuario_id` derivan del JWT.
   /reservas/{id}/facturas/liquidacion/aprobar-enviar:
     parameters:
       - { $ref: '#/components/parameters/IdReserva' }
@@ -2401,21 +2400,16 @@ paths:
         envía** la factura de liquidación en `borrador` de la RESERVA `{id}`. En una **única unidad de
         trabajo** (tx + RLS del tenant del JWT), con reintento ante colisión de numeración (`P2002`,
         US-022; nunca locks distribuidos), all-or-nothing:
-        1. (Opcional, D-2) **Descuento negociado**: recalcula total + desglose fiscal de la liquidación
-           (base = total / 1.21, IVA 21 %) y marca la actualización de `RESERVA.importeLiquidacion`.
-        2. Numera la liquidación (y la fianza si sigue en `borrador`) — `F-YYYY-NNNN` consecutivos.
-        3. **Envío E4 SÍNCRONO y CONFIRMADO** con los PDFs adjuntos (la fianza solo si NO se envió por
+        1. Numera la liquidación (y la fianza si sigue en `borrador`) — `F-YYYY-NNNN` consecutivos.
+        2. **Envío E4 SÍNCRONO y CONFIRMADO** con los PDFs adjuntos (la fianza solo si NO se envió por
            separado, D-3). Si E4 falla → la tx REVIERTE (rollback total: nada de número/estado/status/
            extras/COMUNICACION) y responde 502/503.
-        4. SOLO tras confirmar E4: emite ambas facturas a `enviada`, avanza `liquidacionStatus='facturada'`
+        3. SOLO tras confirmar E4: emite ambas facturas a `enviada`, avanza `liquidacionStatus='facturada'`
            (+ `fianzaStatus='recibo_enviado'` si la fianza se emitió aquí), marca los `RESERVA_EXTRA` con
-           el `factura_id`, actualiza `importeLiquidacion` si hubo descuento, y registra la COMUNICACION
-           E4 `enviado` + el AUDIT_LOG `actualizar`.
+           el `factura_id`, y registra la COMUNICACION E4 `enviado` + el AUDIT_LOG `actualizar`.
 
         Aislada por `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
       requestBody:
-        # OPCIONAL: sin body emite la liquidación tal cual (sin descuento). Con body aplica el descuento
-        # negociado (D-2) y registra el motivo en AUDIT_LOG.
         required: false
         content:
           application/json:
@@ -2446,14 +2440,6 @@ paths:
             Conflicto de estado (F5-02: 409). La factura de liquidación **no está en `borrador`** (ya
             `enviada`/`cobrada`; p. ej. doble aprobación): `FACTURA_NO_BORRADOR`. No se muta nada. El
             cuerpo añade `codigo` y `motivo` al envelope estándar.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/LiquidacionError' }
-        '422':
-          description: |
-            Validación de negocio sin efectos (F5-02: 422). El **descuento negociado es inválido**
-            (`DESCUENTO_INVALIDO`): negativo, mal formado o mayor/igual que el total. No se emite ni se
-            muta nada.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/LiquidacionError' }
@@ -5723,19 +5709,10 @@ components:
     # liquidación, enviar el recibo de fianza por separado y reenviar la liquidación. Los objetos
     # de factura reutilizan el schema `Factura`; los status, los enums `LiquidacionStatus`/`FianzaStatus`.
     AprobarEnviarLiquidacionRequest:
-      # Cuerpo OPCIONAL de la acción. Sin body: emite la liquidación tal cual (sin descuento). Con body:
-      # aplica el descuento negociado (D-2) y registra el motivo en AUDIT_LOG.
+      # Cuerpo de la acción. El endpoint no requiere parámetros; la liquidación se emite con el
+      # total del borrador.
       type: object
-      properties:
-        descuento:
-          allOf: [{ $ref: '#/components/schemas/Importe' }]
-          description: >-
-            Descuento negociado OPCIONAL sobre el total de la liquidación (Importe string Decimal(10,2),
-            p. ej. `"200.00"`). Debe ser > 0 y < total; recalcula el desglose fiscal (base = total / 1.21,
-            IVA 21 %). Un valor inválido → 422 `DESCUENTO_INVALIDO`.
-        motivo:
-          type: string
-          description: 'Motivo OPCIONAL del descuento, registrado en AUDIT_LOG.'
+      properties: {}
     AprobarEnviarLiquidacionResponse:
       type: object
       required: [liquidacion, fianza, liquidacionStatus, fianzaStatus]

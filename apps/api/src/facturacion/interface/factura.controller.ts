@@ -56,7 +56,6 @@ import {
 import type { FacturaSenalResultado } from '../application/generar-factura-senal.use-case';
 import {
   AprobarYEnviarLiquidacionUseCase,
-  DescuentoInvalidoError,
   EmisionEnvioFallidoError,
   FacturaLiquidacionNoEncontradaError,
   FacturaNoBorradorError as LiquidacionNoBorradorError,
@@ -339,7 +338,7 @@ export class FacturaController {
   })
   async aprobarEnviarLiquidacion(
     @Param('id') id: string,
-    @Body() body: AprobarEnviarLiquidacionDto,
+    @Body() _body: AprobarEnviarLiquidacionDto,
     @CurrentUser() usuario: UsuarioAutenticado,
   ): Promise<AprobarEnviarLiquidacionResponseDto> {
     try {
@@ -347,8 +346,6 @@ export class FacturaController {
         tenantId: usuario.tenantId,
         usuarioId: usuario.sub,
         reservaId: id,
-        descuento: body?.descuento,
-        motivo: body?.motivo,
       });
       return {
         liquidacion: aFacturaEmitidaDto(resultado.liquidacion),
@@ -725,14 +722,6 @@ export class FacturaController {
         message: error.message,
         codigo: error.codigo,
         motivo: error.message,
-      });
-    }
-    if (error instanceof DescuentoInvalidoError) {
-      throw new UnprocessableEntityException({
-        statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-        error: 'Unprocessable Entity',
-        message: error.message,
-        codigo: error.codigo,
       });
     }
     if (

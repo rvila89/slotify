@@ -8,9 +8,7 @@
  *   0. Carga la RESERVA (RLS) + carga los borradores. Guardas: la liquidación debe existir en
  *      `borrador` (→ FacturaNoBorrador si ya `enviada`; → NoEncontrada si no existe/reserva
  *      cross-tenant).
- *   1. (Opcional) Descuento negociado (D-2): recalcula total + desglose (dominio puro) y
- *      marca la actualización de `importe_liquidacion`.
- *   2. En UNA unidad de trabajo (tx + RLS) con reintento ante `P2002` (numeración de US-022,
+ *   1. En UNA unidad de trabajo (tx + RLS) con reintento ante `P2002` (numeración de US-022,
  *      nunca locks distribuidos):
  *        a. Numera la liquidación (y la fianza si aplica) — `F-YYYY-NNNN` consecutivos.
  *        b. Envía E4 SÍNCRONO y CONFIRMADO con los adjuntos (fianza solo si no se envió por
@@ -18,17 +16,13 @@
  *           total: nada de número/estado/status/extras/COMUNICACION).
  *        c. SOLO tras confirmar E4: emite ambas facturas a `enviada`, avanza
  *           `liquidacion_status='facturada'` (+ `fianza_status='recibo_enviado'` si aplica),
- *           marca los RESERVA_EXTRA con el `factura_id`, actualiza `importe_liquidacion` si
- *           hubo descuento, registra la COMUNICACION E4 `enviado` y el AUDIT_LOG `actualizar`.
+ *           marca los RESERVA_EXTRA con el `factura_id`, registra la COMUNICACION E4 `enviado`
+ *           y el AUDIT_LOG `actualizar`.
  *
  * Hexagonal (hook `no-infra-in-domain`): depende SOLO de puertos inyectados; no importa Prisma
  * ni `@nestjs/*`.
  */
 import { siguienteNumeroFactura } from '../domain/numeracion-factura';
-import {
-  aplicarDescuentoLiquidacion,
-  DescuentoInvalidoError,
-} from '../domain/aplicar-descuento-liquidacion';
 import type { EstadoFactura, TipoFactura } from '../domain/factura';
 
 // ---------------------------------------------------------------------------
@@ -43,10 +37,6 @@ export interface AprobarYEnviarLiquidacionComando {
   usuarioId: string;
   /** RESERVA cuya liquidación se emite. */
   reservaId: string;
-  /** Descuento negociado OPCIONAL (D-2), Importe string de 2 decimales. */
-  descuento?: string;
-  /** Motivo OPCIONAL del descuento (AUDIT_LOG). */
-  motivo?: string;
 }
 
 /** Sub-estados de liquidación de la RESERVA relevantes. */
@@ -289,9 +279,6 @@ export class EmisionEnvioFallidoError extends Error {
   }
 }
 
-// Re-exporta el error de descuento para el mapeo HTTP del controlador (422).
-export { DescuentoInvalidoError };
-
 // ---------------------------------------------------------------------------
 // Constantes y helpers puros
 // ---------------------------------------------------------------------------
@@ -378,17 +365,13 @@ export class AprobarYEnviarLiquidacionUseCase {
     const fianza = await repos.facturas.buscarPorReservaYTipo(comando.reservaId, 'fianza');
     const fianzaEmitible = fianza !== null && fianza.estado === 'borrador' ? fianza : null;
 
-    // (1) Descuento negociado (D-2): recalcula total + desglose (dominio puro).
-    const hayDescuento =
-      comando.descuento !== undefined && Number(comando.descuento) > 0;
-    const desglose = hayDescuento
-      ? aplicarDescuentoLiquidacion({ total: liquidacion.total }, comando.descuento as string)
-      : {
-          total: liquidacion.total,
-          baseImponible: liquidacion.baseImponible,
-          ivaPorcentaje: liquidacion.ivaPorcentaje,
-          ivaImporte: liquidacion.ivaImporte,
-        };
+    // Usamos el desglose del borrador tal cual (sin descuento).
+    const desglose = {
+      total: liquidacion.total,
+      baseImponible: liquidacion.baseImponible,
+      ivaPorcentaje: liquidacion.ivaPorcentaje,
+      ivaImporte: liquidacion.ivaImporte,
+    };
 
     // (2a) Numeración consecutiva (liquidación y, si aplica, fianza) — US-022.
     const ahora = this.deps.clock.ahora();
@@ -458,7 +441,6 @@ export class AprobarYEnviarLiquidacionUseCase {
         estado: 'enviada',
         numeroFactura: numeroLiquidacion,
         total: desglose.total,
-        ...(comando.motivo ? { motivo: comando.motivo } : {}),
       },
     });
 
@@ -503,26 +485,6 @@ export class AprobarYEnviarLiquidacionUseCase {
       reservaId: comando.reservaId,
       facturaId: liquidacion.idFactura,
     });
-
-    // Actualización de importe_liquidacion (solo si hubo descuento) + AUDIT_LOG del ajuste.
-    if (hayDescuento) {
-      await repos.reservas.actualizarImporteLiquidacion({
-        reservaId: comando.reservaId,
-        importeLiquidacion: desglose.total,
-      });
-      await repos.auditoria.registrar({
-        tenantId: comando.tenantId,
-        usuarioId: comando.usuarioId,
-        entidad: 'RESERVA',
-        entidadId: comando.reservaId,
-        accion: 'actualizar',
-        datosAnteriores: { importeLiquidacion: reserva.importeLiquidacion },
-        datosNuevos: {
-          importeLiquidacion: desglose.total,
-          ...(comando.motivo ? { motivo: comando.motivo } : {}),
-        },
-      });
-    }
 
     // Registro de la COMUNICACION E4 `enviado`.
     await repos.comunicaciones.crear({
