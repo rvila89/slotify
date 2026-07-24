@@ -2258,15 +2258,12 @@ export interface paths {
          *     1. Guardas: existencia de `FACTURA tipo='senal'` (404), estado enviable (`borrador`; `rechazada`
          *        → 409), idempotencia de E3 (COMUNICACION E3 `enviado` previa → 409), y `pdf_url` de la señal
          *        presente (si null → se trata como fallo de emisión, 502).
-         *     2. **Obtener el adjunto de condiciones — GUARDA (requisito DURO, US-023 §D-condiciones-bloqueante):**
-         *        `GenerarPdfCondicionesPort.generar(...)`. Las condiciones son un adjunto **IMPRESCINDIBLE**: si
-         *        devuelve `null` (tenant sin config/sin secciones) → **NO se envía E3, NO se persiste DOCUMENTO,
-         *        rollback total** (la señal sigue en `borrador`, `cond_part_enviadas_fecha` NULL) y se aborta con
-         *        el error de negocio `CONDICIONES_NO_CONFIGURADAS` (409) — alerta al gestor "Configura las
-         *        condiciones particulares del espacio para poder enviar E3". Una **excepción de render/subida**
-         *        (fallo transitorio) se trata como error **recuperable** (`EMISION_ENVIO_FALLIDO`, 502/503) también
-         *        con rollback. Esto **REVIERTE** la concesión tolerante de 6.4b (`.catch(() => null)`): US-023
-         *        endurece las condiciones como requisito duro.
+         *     2. **Condiciones particulares — YA NO se adjuntan en E3** (change
+         *        `condiciones-particulares-senal-y-recordatorio-liquidacion`): las condiciones se envían con el
+         *        presupuesto (E2, confirmar presupuesto). Si el tenant no tiene condiciones configuradas, la
+         *        obtención del adjunto es **degradable** (`.catch(() => null)`): E3 se envía **sin** el adjunto de
+         *        condiciones y **sin ningún 409** por ese motivo. Ya no existe ningún guard duro de condiciones
+         *        en este endpoint.
          *     3. **Envío E3 SÍNCRONO y CONFIRMADO** por el puerto de emisión DIRECTO (propaga el fallo, NO pasa
          *        por el motor/catálogo). Si E3 falla → la tx REVIERTE (rollback total: la señal sigue en
          *        `borrador`, `cond_part_enviadas_fecha` no se fija, sin COMUNICACION E3 `enviado`) → 502.
@@ -4131,10 +4128,10 @@ export interface components {
         };
         PresupuestoGuardaOrigenError: components["schemas"]["ErrorResponse"] & {
             /**
-             * @description `ORIGEN_INVALIDO` (2d/terminal/pre_reserva+); `PRESUPUESTO_YA_EXISTE` (hay uno enviado/aceptado — usar UC-15); `FECHA_NO_DISPONIBLE` (carrera D4 sobre UNIQUE(tenant,fecha)); `CONDICIONES_NO_CONFIGURADAS` (change `condiciones-idioma-e2-firma-banner`): el tenant no tiene condiciones particulares configuradas y desde este change se adjuntan en E2 al confirmar el presupuesto — guard pre-tx sin efectos.
+             * @description `ORIGEN_INVALIDO` (2d/terminal/pre_reserva+); `PRESUPUESTO_YA_EXISTE` (hay uno enviado/aceptado — usar UC-15); `FECHA_NO_DISPONIBLE` (carrera D4 sobre UNIQUE(tenant,fecha)).
              * @enum {string}
              */
-            codigo: "ORIGEN_INVALIDO" | "PRESUPUESTO_YA_EXISTE" | "FECHA_NO_DISPONIBLE" | "CONDICIONES_NO_CONFIGURADAS";
+            codigo: "ORIGEN_INVALIDO" | "PRESUPUESTO_YA_EXISTE" | "FECHA_NO_DISPONIBLE";
             /** @description Mensaje legible para la UI (p. ej. "Fecha no disponible" o "Usa la edición del presupuesto"). */
             motivo: string;
         };
@@ -4394,10 +4391,10 @@ export interface components {
         };
         FacturaSenalEnvioError: components["schemas"]["ErrorResponse"] & {
             /**
-             * @description Código de error de dominio: `FACTURA_SENAL_NO_ENCONTRADA` (404), `FACTURA_SENAL_NO_ENVIABLE`/`E3_YA_ENVIADO`/`CONDICIONES_NO_CONFIGURADAS` (409, envío), `E3_NO_ENVIADO_PREVIAMENTE` (409, reenvío), `EMISION_ENVIO_FALLIDO` (502/503). `CONDICIONES_NO_CONFIGURADAS` (US-023 §D-condiciones-bloqueante): el tenant no tiene condiciones particulares configuradas; no se envía E3 (rollback total).
+             * @description Código de error de dominio: `FACTURA_SENAL_NO_ENCONTRADA` (404), `FACTURA_SENAL_NO_ENVIABLE`/`E3_YA_ENVIADO` (409, envío), `E3_NO_ENVIADO_PREVIAMENTE` (409, reenvío), `EMISION_ENVIO_FALLIDO` (502/503).
              * @enum {string}
              */
-            codigo: "FACTURA_SENAL_NO_ENCONTRADA" | "FACTURA_SENAL_NO_ENVIABLE" | "E3_YA_ENVIADO" | "CONDICIONES_NO_CONFIGURADAS" | "E3_NO_ENVIADO_PREVIAMENTE" | "EMISION_ENVIO_FALLIDO";
+            codigo: "FACTURA_SENAL_NO_ENCONTRADA" | "FACTURA_SENAL_NO_ENVIABLE" | "E3_YA_ENVIADO" | "E3_NO_ENVIADO_PREVIAMENTE" | "EMISION_ENVIO_FALLIDO";
             /** @description Mensaje legible para la UI (presente en 409). */
             motivo?: string;
         };
@@ -6030,10 +6027,6 @@ export interface operations {
              *       la RESERVA ya no está en `{2a,2b,2c,2v}`.
              *     - **Guarda de origen / presupuesto existente**: la RESERVA está en `2d`/terminal/`pre_reserva`+
              *       o ya tiene un PRESUPUESTO `enviado`/`aceptado` (remite a la edición, UC-15).
-             *     - **Condiciones no configuradas** (change `condiciones-idioma-e2-firma-banner`):
-             *       `CONDICIONES_NO_CONFIGURADAS` — las condiciones particulares se adjuntan ahora en E2 (con el
-             *       presupuesto), por lo que la confirmación exige que el tenant las tenga configuradas. Guard
-             *       pre-tx sin efectos: alerta al gestor "Configura las condiciones particulares del espacio".
              */
             409: {
                 headers: {
@@ -6870,8 +6863,8 @@ export interface operations {
              *     `numeroFactura` y `fechaEmision`, más el timestamp `condPartEnviadasFecha` (fijado al enviar
              *     las condiciones en E2, confirmar presupuesto). Desde el change
              *     `condiciones-idioma-e2-firma-banner` las condiciones particulares **ya no se adjuntan en E3**
-             *     (se envían con el presupuesto, E2); el guard duro `CONDICIONES_NO_CONFIGURADAS` se aplica
-             *     ahora al confirmar el presupuesto, no aquí.
+             *     (se envían con el presupuesto, E2). El envío de condiciones es **degradable**: si el tenant no
+             *     las tiene configuradas, E3 (y E2) se envían igualmente sin adjunto, sin bloquear con 409.
              */
             200: {
                 headers: {
@@ -6898,10 +6891,7 @@ export interface operations {
             /**
              * @description Conflicto de estado o idempotencia (F5-02: 409). La factura de señal **no es enviable** (p. ej.
              *     `rechazada`): `FACTURA_SENAL_NO_ENVIABLE`; o **E3 ya se envió** (COMUNICACION E3 `enviado`
-             *     previa): `E3_YA_ENVIADO` (no re-envía, no duplica); o el **tenant no tiene condiciones
-             *     configuradas** (US-023 §D-condiciones-bloqueante): `CONDICIONES_NO_CONFIGURADAS` — no se envía
-             *     E3 ni se persiste DOCUMENTO, rollback total, con la alerta al gestor "Configura las condiciones
-             *     particulares del espacio para poder enviar E3". No se muta nada. El cuerpo añade `codigo` y
+             *     previa): `E3_YA_ENVIADO` (no re-envía, no duplica). No se muta nada. El cuerpo añade `codigo` y
              *     `motivo` al envelope estándar.
              */
             409: {

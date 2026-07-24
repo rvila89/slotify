@@ -225,6 +225,106 @@ describe('CatalogoPlantillasEnCodigo — E4 liquidación standalone activa (fix-
 //   el cuerpo confirma la devolución de `{fianzaEur}` € por transferencia.
 // ===========================================================================
 
+// ===========================================================================
+// change `condiciones-particulares-senal-y-recordatorio-liquidacion` — condiciones
+// condicionales en las plantillas:
+//   · E2 (es/ca): el cuerpo YA NO menciona las condiciones particulares (se mueven a E3).
+//   · E3 (es/ca): el cuerpo incluye el párrafo de condiciones SOLO si
+//     `condicionesAdjuntas === true`; si es false/ausente, NO lo incluye.
+//   · E4 (es/ca): el cuerpo incluye el párrafo recordatorio de condiciones firmadas
+//     pendientes SOLO si `recordarCondicionesPendientes === true`.
+// RED: los renders vivos IGNORAN estas variables (E2 aún menciona condiciones; E3/E4 no
+// tienen el párrafo condicional) → estos asserts FALLAN. GREEN es de `backend-developer`.
+// ===========================================================================
+
+/** Regex tolerante para el texto de condiciones particulares (es/ca, singular/plural). */
+const RX_CONDICIONES = /condici[oó]n(es|s)? particular(es|s)?/i;
+
+describe('CatalogoPlantillasEnCodigo — E2 ya no menciona condiciones (condiciones-…-senal-…)', () => {
+  it.each(['es', 'ca'] as const)(
+    'renderE2_en_%s_NO_debe_contener_la_frase_de_condiciones_particulares',
+    (idioma) => {
+      const catalogo = new CatalogoPlantillasEnCodigo();
+
+      const render = catalogo
+        .seleccionar('E2', idioma)
+        ?.render({ nombre: 'Marta', codigoReserva: 'SLO-2026-0023' });
+      const cuerpo = `${render?.cuerpoTexto} ${render?.cuerpoHtml}`;
+
+      expect(cuerpo).not.toMatch(RX_CONDICIONES);
+    },
+  );
+});
+
+describe('CatalogoPlantillasEnCodigo — E3 párrafo de condiciones condicionado a condicionesAdjuntas', () => {
+  it.each(['es', 'ca'] as const)(
+    'renderE3_en_%s_con_condicionesAdjuntas_true_SI_debe_mencionar_las_condiciones',
+    (idioma) => {
+      const catalogo = new CatalogoPlantillasEnCodigo();
+
+      const render = catalogo.seleccionar('E3', idioma)?.render({
+        nombre: 'Marta',
+        codigoReserva: 'SLO-2026-0023',
+        condicionesAdjuntas: true,
+      });
+      const cuerpo = `${render?.cuerpoTexto} ${render?.cuerpoHtml}`;
+
+      expect(cuerpo).toMatch(RX_CONDICIONES);
+    },
+  );
+
+  it.each(['es', 'ca'] as const)(
+    'renderE3_en_%s_con_condicionesAdjuntas_false_NO_debe_mencionar_las_condiciones',
+    (idioma) => {
+      const catalogo = new CatalogoPlantillasEnCodigo();
+
+      const render = catalogo.seleccionar('E3', idioma)?.render({
+        nombre: 'Marta',
+        codigoReserva: 'SLO-2026-0023',
+        condicionesAdjuntas: false,
+      });
+      const cuerpo = `${render?.cuerpoTexto} ${render?.cuerpoHtml}`;
+
+      expect(cuerpo).not.toMatch(RX_CONDICIONES);
+    },
+  );
+});
+
+describe('CatalogoPlantillasEnCodigo — E4 recordatorio condicionado a recordarCondicionesPendientes', () => {
+  it.each(['es', 'ca'] as const)(
+    'renderE4_en_%s_con_recordarCondicionesPendientes_true_SI_debe_incluir_el_recordatorio',
+    (idioma) => {
+      const catalogo = new CatalogoPlantillasEnCodigo();
+
+      const render = catalogo.seleccionar('E4', idioma)?.render({
+        nombre: 'Marta',
+        fianzaEur: '500.00',
+        recordarCondicionesPendientes: true,
+      });
+      const cuerpo = `${render?.cuerpoTexto} ${render?.cuerpoHtml}`;
+
+      // El párrafo recordatorio menciona las condiciones (particulares) firmadas pendientes.
+      expect(cuerpo).toMatch(RX_CONDICIONES);
+    },
+  );
+
+  it.each(['es', 'ca'] as const)(
+    'renderE4_en_%s_con_recordarCondicionesPendientes_false_NO_debe_incluir_el_recordatorio',
+    (idioma) => {
+      const catalogo = new CatalogoPlantillasEnCodigo();
+
+      const render = catalogo.seleccionar('E4', idioma)?.render({
+        nombre: 'Marta',
+        fianzaEur: '500.00',
+        recordarCondicionesPendientes: false,
+      });
+      const cuerpo = `${render?.cuerpoTexto} ${render?.cuerpoHtml}`;
+
+      expect(cuerpo).not.toMatch(RX_CONDICIONES);
+    },
+  );
+});
+
 describe('CatalogoPlantillasEnCodigo — E10 fianza devuelta activa (fix-liquidacion-fianza-independientes)', () => {
   it.each(['es', 'ca'] as const)(
     'debe_marcar_la_plantilla_E10_en_%s_como_activa',

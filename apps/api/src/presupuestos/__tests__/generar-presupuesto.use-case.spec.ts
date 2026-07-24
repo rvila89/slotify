@@ -30,11 +30,6 @@ import {
   OrigenInvalidoError,
   PresupuestoYaExisteError,
   ReservaNoEncontradaError,
-  // MEJORA B (change `condiciones-idioma-e2-firma-banner`): la guarda dura de condiciones
-  // se MUEVE de E3 a E2 (confirmar presupuesto). En RED este símbolo aún NO está exportado
-  // por el use-case → el import falla y la batería arranca en ROJO por AUSENCIA DE
-  // IMPLEMENTACIÓN. GREEN es de `backend-developer`.
-  CondicionesNoConfiguradasError,
   type GenerarPresupuestoDeps,
   type PreviewPresupuestoComando,
   type ConfirmarPresupuestoComando,
@@ -744,102 +739,71 @@ describe('GenerarPresupuestoUseCase.confirmar — reintento de numeración vs. D
 });
 
 // ===========================================================================
-// MEJORA B (change `condiciones-idioma-e2-firma-banner`) — guarda dura de
-// condiciones movida a E2 (confirmar presupuesto):
-//   · PRE-TX: se llama a `generarCondicionesPort.generar({ tenantId, idioma })`
-//     ANTES de abrir la transacción. `null` → `CondicionesNoConfiguradasError` (409)
-//     y la RESERVA NO transiciona ni se crea PRESUPUESTO (la UoW ni se invoca).
-//   · DENTRO de la tx (camino feliz): la RESERVA fija `cond_part_enviadas_fecha=now()`
-//     y `cond_part_firmadas=false` (el port de reservas recibe el campo).
-// RED: `generarCondicionesPort` aún NO es una dependencia del use-case ni existe la
-// guarda; los asserts FALLAN. GREEN es de `backend-developer`.
+// REVERSIÓN Mejora B (change `condiciones-particulares-senal-y-recordatorio-liquidacion`)
+// — confirmar presupuesto DEJA DE tener nada que ver con las condiciones:
+//   · YA NO hay guarda dura: un tenant sin condiciones configuradas confirma igual
+//     (no existe `CondicionesNoConfiguradasError` ni respuesta 409; las condiciones se
+//     mueven a E3, degradables). El use-case NO consulta ningún puerto de condiciones
+//     PRE-TX.
+//   · La transición a `pre_reserva` YA NO fija `cond_part_enviadas_fecha` /
+//     `cond_part_firmadas`: `transicionarAPrereserva` recibe SOLO `{ idReserva, ttlExpiracion }`.
+// RED: la implementación viva (Mejora B) SIGUE lanzando la guarda y pasando
+// `condPartEnviadasFecha`/`condPartFirmadas` al port → estos asserts FALLAN. GREEN es de
+// `backend-developer`.
 // ===========================================================================
 
-/** Puerto de generación del PDF de condiciones (E2), inyectado; degrada a `null`. */
-type GenerarCondicionesFake = jest.Mock<
-  Promise<string | null>,
-  [{ tenantId: string; idioma: 'es' | 'ca' }]
->;
+describe('GenerarPresupuestoUseCase.confirmar — condiciones fuera de E2 (reversión Mejora B)', () => {
+  it('debe_confirmar_igual_cuando_el_tenant_no_tiene_condiciones_configuradas_sin_lanzar_409', async () => {
+    // No se inyecta ningún puerto de condiciones: confirmar no debe bloquearse por ello.
+    const { useCase, repos } = montar();
 
-const montarConCondiciones = (opciones: {
-  /** Comportamiento del puerto de condiciones: url (config presente) | null (sin config). */
-  condiciones?: 'url' | 'null';
-} = {}) => {
-  const reserva = reservaActiva();
-  const cliente = clienteFiscalCompleto();
-  const motor = crearMotorFake();
-  const repos = crearReposFake();
-  const uow = crearUowFake(repos);
-  const modo = opciones.condiciones ?? 'url';
-  const generarCondicionesPort: { generar: GenerarCondicionesFake } = {
-    generar: jest.fn(async (_params: { tenantId: string; idioma: 'es' | 'ca' }) =>
-      modo === 'null' ? null : 'https://storage.local/condiciones/tenant-1-es.pdf',
-    ),
-  };
-  // La dependencia `generarCondicionesPort` aún NO existe en `GenerarPresupuestoDeps`
-  // (RED). Se inyecta vía cast para que el test compile su intención; la firma tipada
-  // la añade el backend-developer al implementar la Mejora B.
-  const deps = {
-    motorTarifa: motor as unknown as CalculadoraTarifaService,
-    unidadDeTrabajo: uow,
-    tenantSettings: { obtener: jest.fn(async () => settings) },
-    cargarReserva: jest.fn(async () => reserva),
-    cargarCliente: jest.fn(async () => cliente),
-    generarPdf: jest.fn(async () => 'https://docs/p-1.pdf'),
-    clock: relojFijo,
-    guardarPdfUrl: jest.fn(async () => undefined),
-    generarCondicionesPort,
-  } as unknown as GenerarPresupuestoDeps;
-  return {
-    useCase: new GenerarPresupuestoUseCase(deps),
-    repos,
-    uow,
-    generarCondicionesPort,
-  };
-};
+    const resultado = await useCase.confirmar(comandoConfirmar());
 
-describe('GenerarPresupuestoUseCase.confirmar — guarda de condiciones en E2 (Mejora B)', () => {
-  it('debe_lanzar_CondicionesNoConfiguradas_cuando_el_puerto_devuelve_null_sin_abrir_la_tx', async () => {
-    const { useCase, uow, repos, generarCondicionesPort } = montarConCondiciones({
-      condiciones: 'null',
-    });
-
-    const promesa = useCase.confirmar(comandoConfirmar());
-    await expect(promesa).rejects.toBeInstanceOf(CondicionesNoConfiguradasError);
-    await expect(promesa).rejects.toMatchObject({ codigo: 'CONDICIONES_NO_CONFIGURADAS' });
-
-    // La guarda es PRE-TX: se consultaron las condiciones...
-    expect(generarCondicionesPort.generar).toHaveBeenCalledTimes(1);
-    // ...pero la unidad de trabajo NI se invocó (ni PRESUPUESTO ni transición).
-    expect(uow.ejecutar).not.toHaveBeenCalled();
-    expect(repos.presupuestos.crear).not.toHaveBeenCalled();
-    expect(repos.reservas.transicionarAPrereserva).not.toHaveBeenCalled();
+    // Se crea el PRESUPUESTO y se transiciona con normalidad (sin guarda dura).
+    expect(repos.presupuestos.crear).toHaveBeenCalledTimes(1);
+    expect(repos.reservas.transicionarAPrereserva).toHaveBeenCalledTimes(1);
+    expect(resultado.presupuesto).toBeDefined();
   });
 
-  it('debe_consultar_las_condiciones_con_el_idioma_de_la_reserva', async () => {
-    const { useCase, generarCondicionesPort } = montarConCondiciones();
+  it('NO_debe_consultar_ningun_puerto_de_condiciones_al_confirmar', async () => {
+    // Si se inyectara un puerto de condiciones (residuo Mejora B), NO debe invocarse:
+    // confirmar ya no genera ni consulta condiciones (eso pasa a E3).
+    const repos = crearReposFake();
+    const uow = crearUowFake(repos);
+    const generarCondicionesPort = { generar: jest.fn(async () => null) };
+    const deps = {
+      motorTarifa: crearMotorFake() as unknown as CalculadoraTarifaService,
+      unidadDeTrabajo: uow,
+      tenantSettings: { obtener: jest.fn(async () => settings) },
+      cargarReserva: jest.fn(async () => reservaActiva()),
+      cargarCliente: jest.fn(async () => clienteFiscalCompleto()),
+      generarPdf: jest.fn(async () => 'https://docs/p-1.pdf'),
+      clock: relojFijo,
+      guardarPdfUrl: jest.fn(async () => undefined),
+      // Se pasa vía cast: tras la reversión la firma ya no incluye este puerto.
+      generarCondicionesPort,
+    } as unknown as GenerarPresupuestoDeps;
+    const useCase = new GenerarPresupuestoUseCase(deps);
 
     await useCase.confirmar(comandoConfirmar());
 
-    expect(generarCondicionesPort.generar).toHaveBeenCalledWith(
-      expect.objectContaining({ tenantId: TENANT }),
-    );
-    const args = generarCondicionesPort.generar.mock.calls[0][0];
-    expect(args.idioma).toMatch(/^(es|ca)$/);
+    expect(generarCondicionesPort.generar).not.toHaveBeenCalled();
   });
 
-  it('debe_fijar_cond_part_enviadas_fecha_en_la_reserva_dentro_de_la_tx_cuando_hay_condiciones', async () => {
-    const { useCase, repos } = montarConCondiciones({ condiciones: 'url' });
+  it('NO_debe_pasar_condPartEnviadasFecha_ni_condPartFirmadas_a_transicionarAPrereserva', async () => {
+    const { useCase, repos } = montar();
 
     await useCase.confirmar(comandoConfirmar());
 
-    // El port de reservas recibe `cond_part_enviadas_fecha` (now()) al transicionar.
     const args = repos.reservas.transicionarAPrereserva.mock.calls[0][0] as Record<
       string,
       unknown
     >;
-    expect(args.condPartEnviadasFecha).toEqual(AHORA);
-    expect(args.condPartFirmadas).toBe(false);
+    // La transición fija SOLO el TTL: la fijación de condiciones se traslada a E3.
+    expect(args.condPartEnviadasFecha).toBeUndefined();
+    expect(args.condPartFirmadas).toBeUndefined();
+    // Sigue fijando el TTL derivado del setting.
+    expect((args.ttlExpiracion as Date).getTime()).toBe(AHORA.getTime() + 7 * DIA_MS);
   });
 });
 

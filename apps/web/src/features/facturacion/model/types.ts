@@ -103,19 +103,12 @@ export type ReenviarE3Response = components['schemas']['ReenviarE3Response'];
  * inicial; el reenvío observa este subconjunto de `codigo` (via `normalizarErrorReenvioE3`):
  *  - `no-enviado-previamente` (409 `E3_NO_ENVIADO_PREVIAMENTE`): no hay un E3 enviado previamente que
  *    reenviar.
- *  - `condiciones-no-configuradas` (409 `CONDICIONES_NO_CONFIGURADAS`): el tenant no tiene condiciones
- *    particulares configuradas (endurecido en GAP 2); hay que configurarlas para poder enviar E3.
  *  - `no-encontrada` (404 `FACTURA_SENAL_NO_ENCONTRADA`): no existe factura de señal en la reserva.
  *  - `envio-fallido` (502/503 `EMISION_ENVIO_FALLIDO`): fallo RECUPERABLE, reintentable (rollback total).
  *  - `generico` (401/403/otros/red).
  */
 export type ReenvioE3Error = {
-  tipo:
-    | 'no-enviado-previamente'
-    | 'condiciones-no-configuradas'
-    | 'no-encontrada'
-    | 'envio-fallido'
-    | 'generico';
+  tipo: 'no-enviado-previamente' | 'no-encontrada' | 'envio-fallido' | 'generico';
   mensaje: string;
 };
 

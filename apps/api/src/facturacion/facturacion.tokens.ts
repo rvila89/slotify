@@ -87,8 +87,6 @@ export const CARGAR_RESERVA_REENVIO_E3_PORT = Symbol('CargarReservaReenvioE3Port
 export const CARGAR_FACTURA_SENAL_REENVIO_PORT = Symbol('CargarFacturaSenalReenvioPort');
 /** Lectura de la COMUNICACION E3 `enviado` previa (precondición del reenvío). */
 export const BUSCAR_E3_PREVIA_PORT = Symbol('BuscarE3PreviaPort');
-/** Lectura del DOCUMENTO de condiciones ya persistido (GAP 1), a reutilizar en el reenvío. */
-export const BUSCAR_DOCUMENTO_CONDICIONES_PORT = Symbol('BuscarDocumentoCondicionesPort');
 /** Reenvío de E3 (reutiliza los documentos ya persistidos). */
 export const REENVIAR_E3_PORT = Symbol('ReenviarE3Port');
 /** Registro de la NUEVA COMUNICACION E3 del reenvío (es_reenvio=true). */

@@ -4,10 +4,12 @@
  * `aprobar-y-enviar-liquidacion.use-case.ts` de E4) que FUNDE "aprobar + enviar" sobre la factura
  * de señal, envía el email E3 con el PDF de la señal y avanza los sub-procesos de la RESERVA.
  *
- * Mejora B (change `condiciones-idioma-e2-firma-banner`): las CONDICIONS PARTICULARS ya NO se
- * envían en E3, sino en E2 (al confirmar el presupuesto). Este caso de uso deja de tener nada que
- * ver con condiciones: E3 lleva SOLO el adjunto de la señal, no genera ni persiste el DOCUMENTO
- * de condiciones y no fija `cond_part_enviadas_fecha`.
+ * change `condiciones-particulares-senal-y-recordatorio-liquidacion`: las CONDICIONS PARTICULARS
+ * vuelven a E3 (dejan E2) de forma DEGRADABLE. El PDF de condiciones se genera PRE-TX con el
+ * idioma de la reserva vía `GenerarPdfCondicionesPort` (`.catch(() => null)`): si hay URL, E3 lleva
+ * DOS adjuntos (señal + condiciones), se fija `cond_part_enviadas_fecha` DENTRO de la tx y
+ * `condicionesAdjuntas: true` viaja a los params de E3; si degrada a `null`, E3 lleva SOLO la señal,
+ * NO se fija la fecha, `condicionesAdjuntas: false` y no hay 409.
  *
  * Orquesta:
  *   0. Carga la RESERVA (RLS). Cross-tenant/inexistente → `FacturaSenalNoEncontradaError` (404).
@@ -28,6 +30,7 @@
  * `@nestjs/*`.
  */
 import type { EstadoFactura, TipoFactura } from '../domain/factura';
+import type { GenerarPdfCondicionesPort } from '../../documentos/domain/generar-pdf-condiciones.port';
 
 /**
  * Estado de la señal de partida a efectos de la guarda de "enviable". Además de los estados
@@ -121,9 +124,22 @@ export interface AuditoriaSenalEmisionPort {
   registrar(registro: RegistroAuditoriaSenalEmision): Promise<void>;
 }
 
+/** Repositorio tx-bound de la RESERVA: fija `cond_part_enviadas_fecha` al adjuntar condiciones. */
+export interface ReservasSenalEmisionPort {
+  /**
+   * Fija `cond_part_enviadas_fecha` (y `cond_part_firmadas=false`) DENTRO de la tx de la emisión,
+   * SOLO cuando E3 lleva el adjunto de condiciones (change condiciones-…-senal-…).
+   */
+  fijarCondicionesEnviadas(params: {
+    reservaId: string;
+    condPartEnviadasFecha: Date;
+  }): Promise<void>;
+}
+
 /** Conjunto de repositorios disponibles dentro de la unidad de trabajo. */
 export interface RepositoriosSenalEmision {
   facturas: FacturasSenalEmisionPort;
+  reservas: ReservasSenalEmisionPort;
   comunicaciones: ComunicacionesSenalEmisionPort;
   auditoria: AuditoriaSenalEmisionPort;
 }
@@ -183,6 +199,8 @@ export interface EnviarE3EmisionParams {
   idioma?: string;
   /** Nombre de pila del cliente para el saludo de la plantilla. */
   nombre?: string;
+  /** ¿El email lleva el adjunto de condiciones? Gobierna el párrafo condicional del render E3. */
+  condicionesAdjuntas?: boolean;
   adjuntos: AdjuntoSenalEmision[];
   /** Índice laxo: permite que el doble de test tipe los params como `Record`. */
   [extra: string]: unknown;
@@ -207,6 +225,11 @@ export interface EnviarFacturaSenalDeps {
   unidadDeTrabajo: UnidadDeTrabajoSenalEmisionPort;
   cargarReserva: CargarReservaSenalEmisionPort;
   enviarE3: EnviarE3EmisionPort;
+  /**
+   * Genera el PDF de condicions particulars PRE-TX con el idioma de la reserva (degradable:
+   * `null`/lanza → E3 sin condiciones). change condiciones-…-senal-….
+   */
+  generarCondiciones: GenerarPdfCondicionesPort;
   clock: ClockPort;
 }
 
@@ -312,13 +335,21 @@ export class EnviarFacturaSenalUseCase {
       throw new FacturaSenalNoEncontradaError(comando.reservaId);
     }
 
+    // PRE-TX (degradable): genera el PDF de condicions particulars con el idioma de la reserva.
+    // Un `null` (tenant sin config) o un fallo de render (`.catch(() => null)`) degrada: E3 se
+    // envía SOLO con la señal, sin fijar `cond_part_enviadas_fecha` ni 409. change condiciones-….
+    const idiomaCondiciones: 'es' | 'ca' = reserva.idioma === 'ca' ? 'ca' : 'es';
+    const urlCondiciones = await this.deps.generarCondiciones
+      .generar({ tenantId: comando.tenantId, idioma: idiomaCondiciones })
+      .catch(() => null);
+
     // (1) Unidad de trabajo con reintento ante colisión de numeración (P2002). El envío de E3
     //     vive DENTRO de la tx: si falla, la tx revierte (rollback total, §Atomicidad).
     let ultimoError: unknown = null;
     for (let intento = 0; intento < MAX_REINTENTOS_NUMERACION; intento += 1) {
       try {
         return (await this.deps.unidadDeTrabajo.ejecutar(comando.tenantId, (repos) =>
-          this.emitir(comando, reserva, repos),
+          this.emitir(comando, reserva, repos, urlCondiciones, idiomaCondiciones),
         )) as EnviarFacturaSenalResultado;
       } catch (error) {
         // Los fallos de negocio (E3, guardas, idempotencia) NO son reintentables.
@@ -343,6 +374,8 @@ export class EnviarFacturaSenalUseCase {
     comando: EnviarFacturaSenalComando,
     reserva: ReservaSenalEmision,
     repos: RepositoriosSenalEmision,
+    urlCondiciones: string | null,
+    idiomaCondiciones: 'es' | 'ca',
   ): Promise<EnviarFacturaSenalResultado> {
     // Guarda de existencia: la señal debe existir para la reserva.
     const senal = await repos.facturas.buscarPorReservaYTipo(comando.reservaId, 'senal');
@@ -370,9 +403,10 @@ export class EnviarFacturaSenalUseCase {
 
     const ahora = this.deps.clock.ahora();
 
-    // (1b) Envío E3 SÍNCRONO y CONFIRMADO (§D-ruta-email): adjunta SOLO la factura de señal.
-    //      Mejora B: las condicions particulars se envían ahora en E2 (confirmar presupuesto),
-    //      NO en E3. Si el envío falla → PROPAGA para que la tx revierta (rollback total).
+    // (1b) Envío E3 SÍNCRONO y CONFIRMADO (§D-ruta-email): adjunta la factura de señal y, si el
+    //      PDF de condiciones se generó (degradable, PRE-TX), también las condicions particulars
+    //      (change condiciones-…-senal-…). Si el envío falla → PROPAGA (rollback total).
+    const condicionesAdjuntas = urlCondiciones !== null;
     const adjuntos: AdjuntoSenalEmision[] = [
       {
         clave: 'senal',
@@ -380,6 +414,16 @@ export class EnviarFacturaSenalUseCase {
         pdfUrl: senal.pdfUrl,
       },
     ];
+    if (condicionesAdjuntas) {
+      adjuntos.push({
+        clave: 'condiciones',
+        nombre:
+          idiomaCondiciones === 'ca'
+            ? 'condicions-particulars.pdf'
+            : 'condiciones-particulares.pdf',
+        pdfUrl: urlCondiciones,
+      });
+    }
     let comunicacionEnviada: {
       idComunicacion: string;
       estado: 'enviado';
@@ -394,6 +438,7 @@ export class EnviarFacturaSenalUseCase {
         codigoReserva: reserva.codigo,
         idioma: reserva.idioma,
         nombre: reserva.clienteNombre,
+        condicionesAdjuntas,
         adjuntos,
       });
     } catch (error) {
@@ -401,7 +446,8 @@ export class EnviarFacturaSenalUseCase {
     }
 
     // (1c) Consolidación SOLO tras confirmar E3: emisión de la señal (conservando su número de
-    //      US-022), COMUNICACION E3 y AUDIT_LOG. Mejora B: sin condiciones (van en E2).
+    //      US-022), COMUNICACION E3 y AUDIT_LOG. Si E3 llevó condiciones, se fija
+    //      `cond_part_enviadas_fecha` DENTRO de la misma tx (change condiciones-…-senal-…).
     await repos.facturas.emitir({
       idFactura: senal.idFactura,
       tipo: 'senal',
@@ -433,6 +479,16 @@ export class EnviarFacturaSenalUseCase {
       destinatarioEmail: reserva.clienteEmail,
     });
 
+    // Fijación de `cond_part_enviadas_fecha` SOLO si E3 llevó el adjunto de condiciones.
+    let condPartEnviadasFecha = reserva.condPartEnviadasFecha;
+    if (condicionesAdjuntas) {
+      await repos.reservas.fijarCondicionesEnviadas({
+        reservaId: comando.reservaId,
+        condPartEnviadasFecha: ahora,
+      });
+      condPartEnviadasFecha = ahora;
+    }
+
     // Resultado: proyección de la señal emitida.
     const senalEmitida: FacturaSenalEmitible = {
       ...senal,
@@ -440,6 +496,6 @@ export class EnviarFacturaSenalUseCase {
       fechaEmision: senal.fechaEmision ?? ahora,
     };
 
-    return { senal: senalEmitida, condPartEnviadasFecha: reserva.condPartEnviadasFecha };
+    return { senal: senalEmitida, condPartEnviadasFecha };
   }
 }

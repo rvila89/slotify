@@ -153,7 +153,7 @@ const renderE2 = (variables: Record<string, unknown>): RenderPlantilla => {
       : []),
     "¡Muchas gracias por confiar en la Masia l'Encís!",
     'Te adjuntamos el presupuesto para que podáis efectuar el pago anticipado del 40% del importe total y así dejar confirmada la reserva.\nEl presupuesto está basado en las personas que tienes confirmadas actualmente y, una semana antes de la reserva, nos pondremos en contacto contigo para concretar el listado final de asistentes. En ese momento recalcularemos el importe total si es necesario.',
-    'A la hora de realizar la transferencia, debes indicar como destinatario "Canoliart, SL" y, en el concepto, "Masia l\'Encís".\nTambién te adjuntamos las condiciones particulares, que deberéis devolver debidamente firmadas antes de la fecha de la reserva.',
+    'A la hora de realizar la transferencia, debes indicar como destinatario "Canoliart, SL" y, en el concepto, "Masia l\'Encís".',
     'Si tienes cualquier duda o necesitas adaptar algún detalle del presupuesto, ¡estaremos encantados de ayudarte!\nUn abrazo,\nAri\nMasia l\'Encís',
   ];
   const cuerpoTexto = parrafos.join('\n\n');
@@ -185,7 +185,7 @@ const renderE2Ca = (variables: Record<string, unknown>): RenderPlantilla => {
       : []),
     "Moltes gràcies per confiar en la Masia l'Encís!",
     "T'adjuntem el pressupost perquè pugueu efectuar el pagament anticipat del 40% de l'import total i així deixar confirmada la reserva.\nEl pressupost està basat en les persones que tens confirmades actualment i, una setmana abans de la reserva, ens posarem en contacte amb tu per concretar el llistat final d'assistents. En aquest moment recalcularem l'import total si cal.",
-    "A l'hora de realitzar la transferència, cal indicar com a destinatari \"Canoliart, SL\" i, en el concepte, \"Masia l'Encís\".\nTambé t'adjuntem les condicions particulars, que haureu de retornar degudament signades abans de la data de la reserva.",
+    "A l'hora de realitzar la transferència, cal indicar com a destinatari \"Canoliart, SL\" i, en el concepte, \"Masia l'Encís\".",
     "Si tens qualsevol dubte o necessites adaptar algun detall del pressupost, estarem encantats d'ajudar-te!\nUna abraçada,\nAri\nMasia l'Encís",
   ];
   const cuerpoTexto = parrafos.join('\n\n');
@@ -199,11 +199,13 @@ const renderE2Ca = (variables: Record<string, unknown>): RenderPlantilla => {
  * Render real de la plantilla E3 en castellano (factura de señal 40%). Texto de marca aprobado
  * del tenant (Masia l'Encís): agradece la confianza, adjunta la factura del primer pago (40%),
  * recuerda el 60% restante antes del evento y cierra con la firma «Ari — Masia l'Encís». Las
- * condicions particulars ya se enviaron en E2, así que E3 NO las repite.
+ * condicions particulars se adjuntan en E3 (change condiciones-…-senal-…): SOLO si
+ * `condicionesAdjuntas === true` se incluye el párrafo que pide devolverlas firmadas.
  */
 const renderE3 = (variables: Record<string, unknown>): RenderPlantilla => {
   const nombre = texto(variables.nombre);
   const codigoReserva = texto(variables.codigoReserva);
+  const condicionesAdjuntas = variables.condicionesAdjuntas === true;
   const referencia = codigoReserva === '' ? '' : ` — reserva ${codigoReserva}`;
   const asunto = `Factura de señal${referencia}`;
   const parrafos = [
@@ -211,6 +213,11 @@ const renderE3 = (variables: Record<string, unknown>): RenderPlantilla => {
     "¡Muchas gracias por confiar en la Masia l'Encís!",
     'Te adjuntamos la factura correspondiente al primer pago realizado, equivalente al 40% del importe total de la reserva.',
     'Te recordamos que antes de la fecha del evento, será necesario efectuar el pago del 60% restante.',
+    ...(condicionesAdjuntas
+      ? [
+          'También te adjuntamos las condiciones particulares, que deberéis devolver debidamente firmadas antes de la fecha de la reserva.',
+        ]
+      : []),
     'Si tienes cualquier duda o necesitas que te ayudemos con cualquier detalle, estaremos encantados de atenderte.',
     "¡Muchas gracias!\nUn abrazo,\nAri\nMasia l'Encís",
   ];
@@ -223,11 +230,13 @@ const renderE3 = (variables: Record<string, unknown>): RenderPlantilla => {
 
 /**
  * Render real de la plantilla E3 en catalán (factura de senyal 40%). Variante catalana del texto
- * de marca aprobado, análoga a `renderE3` (ES). Las condicions particulars ya se enviaron en E2.
+ * de marca aprobado, análoga a `renderE3` (ES). Las condicions particulars se adjuntan en E3 SOLO
+ * si `condicionesAdjuntas === true` (change condiciones-…-senal-…).
  */
 const renderE3Ca = (variables: Record<string, unknown>): RenderPlantilla => {
   const nombre = texto(variables.nombre);
   const codigoReserva = texto(variables.codigoReserva);
+  const condicionesAdjuntas = variables.condicionesAdjuntas === true;
   const referencia = codigoReserva === '' ? '' : ` — reserva ${codigoReserva}`;
   const asunto = `Factura de senyal${referencia}`;
   const parrafos = [
@@ -235,6 +244,11 @@ const renderE3Ca = (variables: Record<string, unknown>): RenderPlantilla => {
     "Moltes gràcies per confiar en la Masia l'Encís!",
     "T'adjuntem la factura corresponent al primer pagament realitzat, equivalent al 40% de l'import total de la reserva.",
     "Et recordem que abans de la data de l'esdeveniment, serà necessari efectuar el pagament del 60% restant.",
+    ...(condicionesAdjuntas
+      ? [
+          "També t'adjuntem les condicions particulars, que haureu de retornar degudament signades abans de la data de la reserva.",
+        ]
+      : []),
     "Si tens qualsevol dubte o necessites que t'ajudem amb algun detall, estarem encantats d'atendre't.",
     "Moltes gràcies!\nUna abraçada,\nAri\nMasia l'Encís",
   ];
@@ -263,12 +277,18 @@ const formatarImporteEsLiq = (valor: unknown): string => {
 const renderE4 = (variables: Record<string, unknown>): RenderPlantilla => {
   const nombre = texto(variables.nombre);
   const fianzaEur = formatarImporteEsLiq(variables.fianzaEur);
+  const recordarCondicionesPendientes = variables.recordarCondicionesPendientes === true;
   const asunto = 'Factura de liquidación de tu reserva';
   const parrafos = [
     `Hola ${nombre},`,
     "¡Muchas gracias por confiar en la Masia l'Encís!",
     'Te adjuntamos la factura correspondiente al segundo pago, equivalente al 60% restante del importe total de la reserva.',
     `Te recordamos que, antes de la fecha del evento o el mismo día, deberás abonar la fianza de ${fianzaEur}.`,
+    ...(recordarCondicionesPendientes
+      ? [
+          'Te recordamos también que aún tenemos pendiente recibir las condiciones particulares firmadas, que deberéis devolver antes de la fecha de la reserva.',
+        ]
+      : []),
     'Si tienes cualquier duda o necesitas ayuda con cualquier detalle de la organización, estaremos encantados de atenderte.',
     "¡Muchas gracias!\nUn abrazo,\nAri — Masia l'Encís",
   ];
@@ -283,12 +303,18 @@ const renderE4 = (variables: Record<string, unknown>): RenderPlantilla => {
 const renderE4Ca = (variables: Record<string, unknown>): RenderPlantilla => {
   const nombre = texto(variables.nombre);
   const fianzaEur = formatarImporteEsLiq(variables.fianzaEur);
+  const recordarCondicionesPendientes = variables.recordarCondicionesPendientes === true;
   const asunto = 'Factura de liquidació de la teva reserva';
   const parrafos = [
     `Hola ${nombre},`,
     "Moltes gràcies per confiar en la Masia l'Encís!",
     "T'adjuntem la factura corresponent al segon pagament, equivalent al 60% restant de l'import total de la reserva.",
     `Et recordem que, abans de la data de l'esdeveniment o el mateix dia, caldrà abonar la fiança de ${fianzaEur}.`,
+    ...(recordarCondicionesPendientes
+      ? [
+          "Et recordem també que encara tenim pendent rebre les condicions particulars signades, que haureu de retornar abans de la data de la reserva.",
+        ]
+      : []),
     "Si tens qualsevol dubte o necessites ajuda amb qualsevol detall de l'organització, estarem encantats d'atendre't.",
     "Moltes gràcies!\nUna abraçada,\nAri — Masia l'Encís",
   ];

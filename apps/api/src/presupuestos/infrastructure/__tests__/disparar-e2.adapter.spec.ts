@@ -1,32 +1,26 @@
 /**
- * TESTS del `DispararE2Adapter` con el ADJUNTO de "Condicions particulars"
- * (épico #6, rebanada 6.4a `documentos-condiciones-particulares-pdf`) — fase TDD RED.
- * tasks.md Fase 2: 2.7.
+ * TESTS del `DispararE2Adapter` — fase TDD RED del change
+ * `condiciones-particulares-senal-y-recordatorio-liquidacion`.
  *
- * Trazabilidad: design.md §"Bloque B — Adjuntar condiciones al E2". El adapter gana
- * la dependencia inyectada `GenerarPdfCondicionesPort` (token
- * `GENERAR_PDF_CONDICIONES_PORT`). Tras resolver el presupuesto, resuelve la URL de
- * condiciones y AÑADE `{ clave: 'condiciones', nombre: 'condicions-particulars.pdf',
- * pdfUrl }` al array de adjuntos; si condiciones devuelve `null` se omite SIN romper
- * el E2 (post-commit fire-and-forget). El presupuesto se adjunta igual que hoy.
+ * REVIERTE la parte E2 de la "Mejora B": el email de presupuesto (E2) vuelve a adjuntar
+ * ÚNICAMENTE el PDF del presupuesto y DEJA de invocar `GenerarPdfCondicionesPort` / adjuntar
+ * las condicions particulars (que pasan a la factura de la señal, E3). Por tanto el adapter
+ * pierde su tercera dependencia (`generarCondiciones`): el constructor vuelve a 2 argumentos.
  *
- * Comportamiento:
- *   (a) presupuesto + condiciones presentes → el motor recibe DOS adjuntos
- *       (`presupuesto` + `condiciones`).
- *   (b) condiciones `null`                  → SOLO el adjunto `presupuesto`.
- *   (c) `pdfUrl` presupuesto `null` y condiciones `null` → `adjuntos: []`, sin fallar.
- *   (d) idempotencia/comportamiento actual intactos: la reserva se resuelve bajo RLS
- *       y el motor de email (idempotente por `(reserva, E2)`) sigue recibiendo el
- *       comando E2 con `codigoEmail='E2'` y los datos de reserva/cliente.
+ * Comportamiento esperado tras la reversión:
+ *   (a) presupuesto presente → el motor recibe UN ÚNICO adjunto (`presupuesto`).
+ *   (b) presupuesto `null`   → `adjuntos: []`, sin fallar.
+ *   (c) comportamiento actual intacto: la reserva se resuelve bajo RLS y el motor de email
+ *       (idempotente por `(reserva, E2)`) recibe el comando E2 con `codigoEmail='E2'`.
+ *   (d) sin numeroPresupuesto → fallback `Presupuesto {nombre} {apellidos}.pdf`.
+ *   (e) propaga el idioma de la RESERVA al motor.
  *
  * ESTRATEGIA: UNIT con dobles (no toca la BD real). Se dobla `PrismaService`
- * (`$transaction`/`fijarTenant`), `DespacharEmailService.despachar` (espía el comando)
- * y `GenerarPdfCondicionesPort.generar`.
+ * (`$transaction`/`fijarTenant`) y `DespacharEmailService.despachar` (espía el comando).
  *
- * RED: el `DispararE2Adapter` aún NO recibe `GenerarPdfCondicionesPort` (constructor
- * de 2 args) ni añade el adjunto de condiciones. Construirlo con el tercer argumento
- * no compila y las aserciones del segundo adjunto fallan → batería en ROJO. GREEN es
- * de `backend-developer`.
+ * RED: el `DispararE2Adapter` vivo SIGUE recibiendo `GenerarPdfCondicionesPort` (constructor de
+ * 3 args) y AÑADE el adjunto de condiciones. Construirlo con 2 argumentos no compila y los
+ * asserts de "un solo adjunto" fallan → batería en ROJO. GREEN es de `backend-developer`.
  */
 import { DispararE2Adapter } from '../disparar-e2.adapter';
 import type {
@@ -34,7 +28,6 @@ import type {
   DespacharEmailService,
 } from '../../../comunicaciones/application/despachar-email.service';
 import type { PrismaService } from '../../../shared/prisma/prisma.service';
-import type { GenerarPdfCondicionesPort } from '../../../documentos/domain/generar-pdf-condiciones.port';
 
 const TENANT = '00000000-0000-0000-0000-000000000001';
 const RESERVA_ID = 'res-2b';
@@ -69,33 +62,30 @@ const motorFalso = (): jest.Mocked<Pick<DespacharEmailService, 'despachar'>> => 
   despachar: jest.fn(async (_comando: DespacharEmailComando) => ({}) as never),
 });
 
-const condicionesQueDevuelve = (valor: string | null): GenerarPdfCondicionesPort => ({
-  generar: jest.fn(async () => valor),
-});
-
-/** Doble que LANZA al generar condiciones (p. ej. fallo de render react-pdf/subida). */
-const condicionesQueLanza = (): GenerarPdfCondicionesPort => ({
-  generar: jest.fn(async () => {
-    throw new Error('fallo de render react-pdf');
-  }),
-});
+/**
+ * Construye el adapter con SOLO 2 argumentos (post-reversión). Se usa un cast del constructor
+ * a `any` porque en RED la firma viva aún exige el 3.er argumento; el cambio de firma lo aplica
+ * el backend-developer. Al invocarlo con 2 args el test verifica que el adapter YA NO depende
+ * del puerto de condiciones.
+ */
+const construirAdapter = (
+  motor: ReturnType<typeof motorFalso>,
+  prisma: PrismaService,
+): DispararE2Adapter =>
+  new (DispararE2Adapter as unknown as new (
+    m: DespacharEmailService,
+    p: PrismaService,
+  ) => DispararE2Adapter)(motor as unknown as DespacharEmailService, prisma);
 
 // ===========================================================================
-// 2.7 (a) — presupuesto + condiciones → DOS adjuntos.
+// (a) — presupuesto presente → UN ÚNICO adjunto (sin condiciones).
 // ===========================================================================
 
-describe('DispararE2Adapter — dos adjuntos con presupuesto y condiciones (2.7a)', () => {
-  it('debe_adjuntar_presupuesto_y_condicions_particulars', async () => {
-    // Arrange
+describe('DispararE2Adapter — un único adjunto de presupuesto (reversión Mejora B)', () => {
+  it('debe_adjuntar_SOLO_el_presupuesto_sin_condiciones', async () => {
     const motor = motorFalso();
-    const condiciones = condicionesQueDevuelve('https://storage.local/condiciones/T.pdf');
-    const adaptador = new DispararE2Adapter(
-      motor as unknown as DespacharEmailService,
-      prismaFalso(reservaConCliente()),
-      condiciones,
-    );
+    const adaptador = construirAdapter(motor, prismaFalso(reservaConCliente()));
 
-    // Act
     await adaptador.disparar({
       tenantId: TENANT,
       reservaId: RESERVA_ID,
@@ -103,50 +93,9 @@ describe('DispararE2Adapter — dos adjuntos con presupuesto y condiciones (2.7a
       numeroPresupuesto: '2026001',
     });
 
-    // Assert — el motor recibe DOS adjuntos, con las claves y nombres esperados.
     expect(motor.despachar).toHaveBeenCalledTimes(1);
     const comando = motor.despachar.mock.calls[0][0];
-    expect(comando.adjuntos).toEqual([
-      {
-        clave: 'presupuesto',
-        nombre: 'P2026001 Anna Puig Soler.pdf',
-        pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
-      },
-      {
-        clave: 'condiciones',
-        nombre: 'condicions-particulars.pdf',
-        pdfUrl: 'https://storage.local/condiciones/T.pdf',
-      },
-    ]);
-    // Se pidió el PDF de condiciones para el tenant del disparo, en el idioma de la reserva.
-    expect(condiciones.generar).toHaveBeenCalledWith({ tenantId: TENANT, idioma: 'es' });
-  });
-});
-
-// ===========================================================================
-// 2.7 (b) — condiciones null → solo el adjunto presupuesto, sin fallar.
-// ===========================================================================
-
-describe('DispararE2Adapter — condiciones null omite el segundo adjunto (2.7b)', () => {
-  it('debe_adjuntar_solo_el_presupuesto_cuando_condiciones_es_null', async () => {
-    // Arrange
-    const motor = motorFalso();
-    const adaptador = new DispararE2Adapter(
-      motor as unknown as DespacharEmailService,
-      prismaFalso(reservaConCliente()),
-      condicionesQueDevuelve(null),
-    );
-
-    // Act
-    await adaptador.disparar({
-      tenantId: TENANT,
-      reservaId: RESERVA_ID,
-      pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
-      numeroPresupuesto: '2026001',
-    });
-
-    // Assert — un solo adjunto; el E2 no se rompe por la ausencia de condiciones.
-    const comando = motor.despachar.mock.calls[0][0];
+    // UN solo adjunto: el presupuesto. Ninguna entrada de condiciones.
     expect(comando.adjuntos).toEqual([
       {
         clave: 'presupuesto',
@@ -154,24 +103,24 @@ describe('DispararE2Adapter — condiciones null omite el segundo adjunto (2.7b)
         pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
       },
     ]);
+    expect(comando.adjuntos).toHaveLength(1);
+    expect(
+      (comando.adjuntos as ReadonlyArray<{ clave: string }>).some(
+        (a) => a.clave === 'condiciones',
+      ),
+    ).toBe(false);
   });
 });
 
 // ===========================================================================
-// 2.7 (c) — presupuesto null y condiciones null → adjuntos vacíos, sin fallar.
+// (b) — presupuesto null → adjuntos vacíos, sin fallar.
 // ===========================================================================
 
-describe('DispararE2Adapter — sin presupuesto ni condiciones → adjuntos vacíos (2.7c)', () => {
+describe('DispararE2Adapter — sin presupuesto → adjuntos vacíos', () => {
   it('debe_despachar_con_adjuntos_vacios_sin_lanzar', async () => {
-    // Arrange
     const motor = motorFalso();
-    const adaptador = new DispararE2Adapter(
-      motor as unknown as DespacharEmailService,
-      prismaFalso(reservaConCliente()),
-      condicionesQueDevuelve(null),
-    );
+    const adaptador = construirAdapter(motor, prismaFalso(reservaConCliente()));
 
-    // Act / Assert — no lanza.
     await expect(
       adaptador.disparar({ tenantId: TENANT, reservaId: RESERVA_ID, pdfUrl: null }),
     ).resolves.toBeUndefined();
@@ -182,29 +131,21 @@ describe('DispararE2Adapter — sin presupuesto ni condiciones → adjuntos vac�
 });
 
 // ===========================================================================
-// 2.7 (d) — comportamiento actual intacto: RLS + comando E2 al motor idempotente.
+// (c) — comportamiento actual intacto: RLS + comando E2 al motor idempotente.
 // ===========================================================================
 
-describe('DispararE2Adapter — comportamiento E2 actual intacto (2.7d)', () => {
+describe('DispararE2Adapter — comportamiento E2 actual intacto', () => {
   it('debe_resolver_la_reserva_bajo_RLS_y_despachar_el_codigo_E2_con_los_datos_de_reserva_cliente', async () => {
-    // Arrange
     const motor = motorFalso();
     const prisma = prismaFalso(reservaConCliente());
-    const adaptador = new DispararE2Adapter(
-      motor as unknown as DespacharEmailService,
-      prisma,
-      condicionesQueDevuelve('https://storage.local/condiciones/T.pdf'),
-    );
+    const adaptador = construirAdapter(motor, prisma);
 
-    // Act
     await adaptador.disparar({
       tenantId: TENANT,
       reservaId: RESERVA_ID,
       pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
     });
 
-    // Assert — RLS fijado y comando E2 con reserva/cliente (idempotencia la garantiza
-    // el motor por (reserva, E2); aquí verificamos que el comando llega intacto).
     expect(prisma.fijarTenant).toHaveBeenCalledWith(expect.anything(), TENANT);
     const comando = motor.despachar.mock.calls[0][0];
     expect(comando.tenantId).toBe(TENANT);
@@ -214,14 +155,8 @@ describe('DispararE2Adapter — comportamiento E2 actual intacto (2.7d)', () => 
   });
 
   it('no_debe_despachar_cuando_la_reserva_no_existe_o_no_tiene_cliente', async () => {
-    // Guarda actual: sin reserva/cliente no se dispara el E2 (ni se piden condiciones).
     const motor = motorFalso();
-    const condiciones = condicionesQueDevuelve('https://storage.local/condiciones/T.pdf');
-    const adaptador = new DispararE2Adapter(
-      motor as unknown as DespacharEmailService,
-      prismaFalso(null),
-      condiciones,
-    );
+    const adaptador = construirAdapter(motor, prismaFalso(null));
 
     await adaptador.disparar({ tenantId: TENANT, reservaId: RESERVA_ID, pdfUrl: null });
 
@@ -230,54 +165,13 @@ describe('DispararE2Adapter — comportamiento E2 actual intacto (2.7d)', () => 
 });
 
 // ===========================================================================
-// 2.7 (e) — un FALLO al generar condiciones no rompe el E2 (fire-and-forget).
+// (d) — sin numeroPresupuesto → fallback 'Presupuesto {nombre} {apellidos}.pdf'.
 // ===========================================================================
 
-describe('DispararE2Adapter — fallo de condiciones no propaga (2.7e)', () => {
-  it('debe_despachar_solo_el_presupuesto_cuando_generar_condiciones_lanza', async () => {
-    // Arrange — la generación de condiciones lanza (fallo real de render/subida, p. ej.
-    // la flakiness ESM). El E2 es post-commit: un fallo del adjunto NUNCA debe propagar
-    // ni tumbar la pre_reserva ya commiteada.
-    const motor = motorFalso();
-    const adaptador = new DispararE2Adapter(
-      motor as unknown as DespacharEmailService,
-      prismaFalso(reservaConCliente()),
-      condicionesQueLanza(),
-    );
-
-    // Act / Assert — no lanza y despacha el E2 con solo el presupuesto.
-    await expect(
-      adaptador.disparar({
-        tenantId: TENANT,
-        reservaId: RESERVA_ID,
-        pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
-        numeroPresupuesto: '2026001',
-      }),
-    ).resolves.toBeUndefined();
-
-    const comando = motor.despachar.mock.calls[0][0];
-    expect(comando.adjuntos).toEqual([
-      {
-        clave: 'presupuesto',
-        nombre: 'P2026001 Anna Puig Soler.pdf',
-        pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
-      },
-    ]);
-  });
-});
-
-// ===========================================================================
-// 2.7 (f) — sin numeroPresupuesto → fallback 'Presupuesto {nombre} {apellidos}.pdf'.
-// ===========================================================================
-
-describe('DispararE2Adapter — fallback de nombre cuando no hay número de presupuesto (2.7f)', () => {
+describe('DispararE2Adapter — fallback de nombre cuando no hay número de presupuesto', () => {
   it('debe_usar_prefijo_Presupuesto_cuando_numeroPresupuesto_es_null', async () => {
     const motor = motorFalso();
-    const adaptador = new DispararE2Adapter(
-      motor as unknown as DespacharEmailService,
-      prismaFalso(reservaConCliente()),
-      condicionesQueDevuelve(null),
-    );
+    const adaptador = construirAdapter(motor, prismaFalso(reservaConCliente()));
 
     await adaptador.disparar({
       tenantId: TENANT,
@@ -298,38 +192,20 @@ describe('DispararE2Adapter — fallback de nombre cuando no hay número de pres
 });
 
 // ===========================================================================
-// 3.2 — El disparo de E2 PROPAGA el idioma de la RESERVA al motor.
-//        Change `presupuesto-confirmar-ux-e2-idioma`, workstream D — fase TDD RED.
-//
-// Trazabilidad: spec-delta `comunicaciones` (MODIFIED "La activación de pre_reserva
-// dispara el email E2 …": "El disparo (`DispararE2Adapter`) DEBE propagar el idioma de
-// la RESERVA (`idioma: RESERVA.idioma`) en el comando del motor"; Scenario "El disparo
-// de E2 propaga el idioma de la RESERVA al motor").
-//
-// RED: hoy `disparar-e2.adapter.ts` NO lee `reserva.idioma` ni lo incluye en el comando
-// `motorEmail.despachar(...)`, de modo que el motor cae al idioma del TENANT_SETTINGS.
-// El `expect.objectContaining({ idioma: 'ca' })` falla por comportamiento hasta que
-// `backend-developer` propague `idioma: reserva.idioma`. GREEN es de `backend-developer`.
+// (e) — El disparo de E2 PROPAGA el idioma de la RESERVA al motor.
 // ===========================================================================
 
-describe('DispararE2Adapter — propaga el idioma de la RESERVA al motor (3.2)', () => {
+describe('DispararE2Adapter — propaga el idioma de la RESERVA al motor', () => {
   it('debe_pasar_idioma_ca_al_motor_cuando_la_reserva_esta_en_catalan', async () => {
-    // Arrange
     const motor = motorFalso();
-    const adaptador = new DispararE2Adapter(
-      motor as unknown as DespacharEmailService,
-      prismaFalso(reservaConCliente('ca')),
-      condicionesQueDevuelve(null),
-    );
+    const adaptador = construirAdapter(motor, prismaFalso(reservaConCliente('ca')));
 
-    // Act
     await adaptador.disparar({
       tenantId: TENANT,
       reservaId: RESERVA_ID,
       pdfUrl: 'https://storage.local/presupuestos/T/p.pdf',
     });
 
-    // Assert — el comando del motor lleva el idioma del lead (RESERVA.idioma), no el del tenant.
     expect(motor.despachar).toHaveBeenCalledWith(
       expect.objectContaining({ idioma: 'ca' }),
     );

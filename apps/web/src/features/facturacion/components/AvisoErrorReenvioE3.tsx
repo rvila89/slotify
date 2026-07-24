@@ -1,4 +1,4 @@
-import { AlertTriangle, Info, RefreshCw, Settings } from 'lucide-react';
+import { AlertTriangle, Info, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ReenvioE3Error } from '../model/types';
 
@@ -7,9 +7,6 @@ import type { ReenvioE3Error } from '../model/types';
  * del contrato:
  *  - `no-enviado-previamente` (409 `E3_NO_ENVIADO_PREVIAMENTE`): no hay un E3 previo que reenviar
  *    (aviso neutro/informativo; nada que reintentar).
- *  - `condiciones-no-configuradas` (409 `CONDICIONES_NO_CONFIGURADAS`): el tenant no tiene
- *    condiciones particulares configuradas; hay que configurarlas para poder enviar E3 (acción
- *    requerida, ámbar).
  *  - `envio-fallido` (502/503 `EMISION_ENVIO_FALLIDO`): fallo RECUPERABLE; **nada ha cambiado** y el
  *    Gestor puede reintentar (ámbar, no rojo).
  *  - `no-encontrada` (404) / `generico`: error rojo.
@@ -23,8 +20,7 @@ type Props = {
 export const AvisoErrorReenvioE3 = ({ error }: Props) => {
   const recuperable = error.tipo === 'envio-fallido';
   const informativo = error.tipo === 'no-enviado-previamente';
-  const configuracion = error.tipo === 'condiciones-no-configuradas';
-  const suave = recuperable || informativo || configuracion;
+  const suave = recuperable || informativo;
 
   return (
     <div
@@ -40,8 +36,6 @@ export const AvisoErrorReenvioE3 = ({ error }: Props) => {
     >
       {recuperable ? (
         <RefreshCw aria-hidden className="mt-0.5 size-5 shrink-0 text-amber-600" />
-      ) : configuracion ? (
-        <Settings aria-hidden className="mt-0.5 size-5 shrink-0 text-amber-600" />
       ) : informativo ? (
         <Info aria-hidden className="mt-0.5 size-5 shrink-0 text-amber-600" />
       ) : (
@@ -53,13 +47,6 @@ export const AvisoErrorReenvioE3 = ({ error }: Props) => {
         {recuperable && (
           <p className="text-amber-800/90">
             No se ha reenviado nada: la factura y las condiciones siguen intactas. Puedes volver a
-            intentarlo.
-          </p>
-        )}
-
-        {configuracion && (
-          <p className="text-amber-800/90">
-            Configura las condiciones particulares del espacio en los ajustes del tenant y vuelve a
             intentarlo.
           </p>
         )}

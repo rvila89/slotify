@@ -33,7 +33,6 @@ import { RolesGuard } from '../../shared/auth/roles.guard';
 import type { UsuarioAutenticado } from '../../shared/auth/usuario-autenticado';
 import {
   GenerarPresupuestoUseCase,
-  CondicionesNoConfiguradasError,
   DatosFiscalesIncompletosError,
   MetodoPagoRequeridoError,
   OrigenInvalidoError,
@@ -184,15 +183,6 @@ export class GenerarPresupuestoController {
         message: error.message,
         codigo: error.codigo,
         motivo: error.motivo,
-      });
-    }
-    // Mejora B: condiciones no configuradas al confirmar → 409 (guarda dura de E2).
-    if (error instanceof CondicionesNoConfiguradasError) {
-      throw new ConflictException({
-        statusCode: HttpStatus.CONFLICT,
-        error: 'Conflict',
-        message: error.message,
-        codigo: error.codigo,
       });
     }
     if (error instanceof FechaYaBloqueadaError || this.esColisionUnique(error)) {

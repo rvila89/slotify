@@ -63,6 +63,12 @@ export interface ReservaLiquidacionEmision {
   clienteApellidos?: string;
   /** Importe de la fianza (Decimal string) para el recordatorio del email E4. */
   fianzaEur: string | null;
+  /**
+   * ¿Se han recibido las condiciones particulares firmadas? Gobierna el recordatorio condicional
+   * de E4 (change condiciones-…-recordatorio-liquidacion): si es `false`/ausente, E4 recuerda al
+   * cliente que aún debe devolverlas firmadas.
+   */
+  condPartFirmadas?: boolean;
 }
 
 /** FACTURA de liquidación emitible en su estado de partida (borrador). */
@@ -202,6 +208,11 @@ export interface EnviarE4EmisionParams {
   nombre?: string;
   /** Importe de la fianza (Decimal string) para el recordatorio del email. */
   fianzaEur?: string | null;
+  /**
+   * ¿Recordar en E4 que las condiciones particulares firmadas están pendientes? Gobierna el
+   * párrafo condicional del render E4 (change condiciones-…-recordatorio-liquidacion).
+   */
+  recordarCondicionesPendientes?: boolean;
   adjuntos: AdjuntoLiquidacionEmision[];
   /** Índice laxo: permite que el doble de test tipe los params como `Record`. */
   [extra: string]: unknown;
@@ -417,6 +428,9 @@ export class EnviarFacturaLiquidacionUseCase {
         idioma: reserva.idioma,
         nombre: reserva.clienteNombre,
         fianzaEur: reserva.fianzaEur,
+        // change condiciones-…-recordatorio-liquidacion: recuerda las condiciones firmadas
+        // pendientes SOLO si aún no se han recibido (`cond_part_firmadas = false`).
+        recordarCondicionesPendientes: !reserva.condPartFirmadas,
         adjuntos,
       });
     } catch (error) {

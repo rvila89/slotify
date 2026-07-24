@@ -4,19 +4,19 @@
  * Dispara el email E2 (presupuesto enviado) POST-COMMIT reutilizando el motor de
  * email de US-045 (`DespacharEmailService`): NO se reinventa el envío. El motor es
  * idempotente por el índice UNIQUE parcial `(reserva_id, codigo_email)`, de modo que
- * un doble disparo (doble clic / reintento) NO duplica la COMUNICACION E2. El PDF del
- * presupuesto se adjunta por referencia (`pdf_url`). Un fallo del proveedor NO revierte
+ * un doble disparo (doble clic / reintento) NO duplica la COMUNICACION E2. E2 adjunta SOLO
+ * el PDF del presupuesto por referencia (`pdf_url`); las condicions particulars viajan en E3
+ * (change condiciones-…-senal-…). Un fallo del proveedor NO revierte
  * la pre_reserva (el motor traza el fallo en COMUNICACION sin propagar excepción). En
  * test/CI el transporte va en modo fake.
  */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { DespacharEmailService } from '../../comunicaciones/application/despachar-email.service';
-import type { GenerarPdfCondicionesPort } from '../../documentos/domain/generar-pdf-condiciones.port';
 import type { DispararE2Port } from '../application/generar-presupuesto.use-case';
 import { nombreAdjuntoPresupuesto } from '../domain/numeracion-presupuesto';
 
-/** Un adjunto del email E2 (presupuesto y/o condicions particulars). */
+/** Un adjunto del email E2 (presupuesto). */
 interface AdjuntoE2 {
   clave: string;
   nombre: string;
@@ -28,7 +28,6 @@ export class DispararE2Adapter implements DispararE2Port {
   constructor(
     private readonly motorEmail: DespacharEmailService,
     private readonly prisma: PrismaService,
-    private readonly generarCondiciones: GenerarPdfCondicionesPort,
   ) {}
 
   async disparar(params: {
@@ -49,8 +48,8 @@ export class DispararE2Adapter implements DispararE2Port {
       return;
     }
 
-    // Adjuntos post-commit fire-and-forget: presupuesto (si hay PDF) + condicions
-    // particulars (épico #6, 6.4a; se omite sin romper el E2 si degrada a null).
+    // Adjunto post-commit fire-and-forget: SOLO el presupuesto (si hay PDF). Las
+    // condicions particulars se envían en E3 (change condiciones-…-senal-…), no en E2.
     const adjuntos: AdjuntoE2[] = [];
     if (params.pdfUrl !== null) {
       adjuntos.push({
@@ -61,26 +60,6 @@ export class DispararE2Adapter implements DispararE2Port {
           reserva.cliente.apellidos ?? '',
         ),
         pdfUrl: params.pdfUrl,
-      });
-    }
-    // La generación puede degradar a `null` (negocio) o LANZAR (fallo real de render
-    // react-pdf/subida, p. ej. la flakiness ESM). Al ser post-commit, un fallo del
-    // adjunto NUNCA debe propagar ni tumbar la pre_reserva ya commiteada: se traga y se
-    // omite el adjunto (mismo criterio que `generarPdfPostCommit` del use-case).
-    // El idioma de la reserva se persiste como String; se normaliza a 'es' | 'ca' (Mejora A)
-    // para elegir la clave y el texto bilingüe del PDF de condiciones (por defecto 'es').
-    const idiomaCondiciones: 'es' | 'ca' = reserva.idioma === 'ca' ? 'ca' : 'es';
-    const urlCondiciones = await this.generarCondiciones
-      .generar({ tenantId: params.tenantId, idioma: idiomaCondiciones })
-      .catch(() => null);
-    if (urlCondiciones !== null) {
-      adjuntos.push({
-        clave: 'condiciones',
-        nombre:
-          idiomaCondiciones === 'ca'
-            ? 'condicions-particulars.pdf'
-            : 'condiciones-particulares.pdf',
-        pdfUrl: urlCondiciones,
       });
     }
 

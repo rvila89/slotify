@@ -168,7 +168,8 @@ describe('CatalogoPlantillasEnCodigo — E2 en catalán (workstream E)', () => {
     expect(cuerpo).toContain("Moltes gràcies per confiar en la Masia l'Encís");
     expect(cuerpo).toContain('40%');
     expect(cuerpo).toContain('Canoliart, SL');
-    expect(cuerpo).toContain('condicions particulars');
+    // change condiciones-…-senal-…: las condicions particulars se mueven a E3; E2 ya NO las menciona.
+    expect(cuerpo).not.toMatch(/condici[oó]ns? particulars?/i);
     expect(cuerpo).toContain('Ari');
   });
 
@@ -220,7 +221,8 @@ describe('CatalogoPlantillasEnCodigo — E2 en español con texto de marca (work
     expect(cuerpo).toContain("Muchas gracias por confiar en la Masia l'Encís");
     expect(cuerpo).toContain('40%');
     expect(cuerpo).toContain('Canoliart, SL');
-    expect(cuerpo).toContain('condiciones particulares');
+    // change condiciones-…-senal-…: las condiciones particulares se mueven a E3; E2 ya NO las menciona.
+    expect(cuerpo).not.toMatch(/condici[oó]n(es|s)? particular(es|s)?/i);
     expect(cuerpo).toContain('Ari');
     // NO el cuerpo genérico anterior.
     expect(cuerpo).not.toContain('Adjuntamos el presupuesto para tu evento');

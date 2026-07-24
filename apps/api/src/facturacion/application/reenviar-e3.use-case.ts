@@ -17,8 +17,14 @@
  * (rollback). El use-case NO expone ningún puerto de emisión/renumeración de factura ni de
  * transición de la RESERVA (garantía de que un reenvío jamás muta la factura).
  *
+ * change `condiciones-particulares-senal-y-recordatorio-liquidacion`: las condiciones ya NO se
+ * persisten como DOCUMENTO (dejaron E2); el reenvío REGENERA el PDF en blanco vía
+ * `GenerarPdfCondicionesPort` (degradable: `null` → E3 solo con la señal), en vez de buscar un
+ * DOCUMENTO stale.
+ *
  * Hexagonal (hook `no-infra-in-domain`): depende SOLO de puertos inyectados; no importa Prisma.
  */
+import type { GenerarPdfCondicionesPort } from '../../documentos/domain/generar-pdf-condiciones.port';
 
 /** Reloj inyectable para determinismo. */
 export interface ClockPort {
@@ -68,15 +74,6 @@ export interface ComunicacionE3PreviaReenvio {
   esReenvio: boolean;
 }
 
-/** Proyección del DOCUMENTO de condiciones ya persistido (GAP 1), que el reenvío reutiliza. */
-export interface DocumentoCondicionesReenvio {
-  idDocumento: string;
-  tipo: 'condiciones_particulares';
-  reservaId: string;
-  tenantId: string;
-  url: string;
-  mimeType: string;
-}
 
 /** Adjunto de E3 por referencia a `pdf_url`. */
 export interface AdjuntoReenvioE3 {
@@ -105,6 +102,8 @@ export interface ReenviarE3Params {
   idioma?: string;
   /** Nombre de pila del cliente para el saludo de la plantilla. */
   nombre?: string;
+  /** ¿El reenvío lleva el adjunto de condiciones? Gobierna el párrafo condicional del render E3. */
+  condicionesAdjuntas?: boolean;
   adjuntos: AdjuntoReenvioE3[];
   /** Índice laxo: permite que el doble de test tipe los params como `Record`. */
   [extra: string]: unknown;
@@ -181,14 +180,6 @@ export interface BuscarE3PreviaPort {
   }): Promise<ComunicacionE3PreviaReenvio | null | undefined>;
 }
 
-/** Lectura del DOCUMENTO de condiciones ya persistido (GAP 1), para reutilizarlo en el reenvío. */
-export interface BuscarDocumentoCondicionesPort {
-  (params: {
-    tenantId: string;
-    reservaId: string;
-  }): Promise<DocumentoCondicionesReenvio | null | undefined>;
-}
-
 /**
  * Dependencias del reenvío de E3. Intencionadamente SIN puertos de emisión/renumeración de
  * factura, de transición de la RESERVA ni de creación/regeneración de documentos: el reenvío
@@ -198,7 +189,11 @@ export interface ReenviarE3Deps {
   cargarReserva: CargarReservaReenvioE3Port;
   cargarFacturaSenal: CargarFacturaSenalReenvioPort;
   buscarE3Previa: BuscarE3PreviaPort;
-  buscarDocumentoCondiciones: BuscarDocumentoCondicionesPort;
+  /**
+   * Regenera el PDF de condicions particulars en blanco (change condiciones-…-senal-…). Degradable:
+   * `null` → el reenvío va SOLO con la señal. Sustituye al `buscarDocumentoCondiciones` stale.
+   */
+  generarCondiciones: GenerarPdfCondicionesPort;
   reenviarE3: ReenviarE3Port;
   registrarComunicacion: RegistrarComunicacionReenvioE3Port;
   fijarCondicionesEnviadas: FijarCondicionesEnviadasReenvioPort;
@@ -289,12 +284,13 @@ export class ReenviarE3UseCase {
       throw new E3NoEnviadoPreviamenteError(comando.reservaId);
     }
 
-    // (2) Reutiliza los documentos existentes (NO regenera el PDF de condiciones ni duplica el
-    //     DOCUMENTO): el PDF de la señal ya emitido + el DOCUMENTO de condiciones ya persistido.
-    const documento = await this.deps.buscarDocumentoCondiciones({
-      tenantId: comando.tenantId,
-      reservaId: comando.reservaId,
-    });
+    // (2) REGENERA el PDF de condicions particulars en blanco (change condiciones-…-senal-…) con el
+    //     idioma de la reserva, en vez de buscar un DOCUMENTO persistido (stale). Degradable
+    //     (`.catch(() => null)`): si degrada, el reenvío adjunta SOLO la señal ya emitida.
+    const idiomaCondiciones: 'es' | 'ca' = reserva.idioma === 'ca' ? 'ca' : 'es';
+    const urlCondiciones = await this.deps.generarCondiciones
+      .generar({ tenantId: comando.tenantId, idioma: idiomaCondiciones })
+      .catch(() => null);
     const adjuntos: AdjuntoReenvioE3[] = [
       {
         clave: 'senal',
@@ -302,15 +298,14 @@ export class ReenviarE3UseCase {
         pdfUrl: senal.pdfUrl ?? '',
       },
     ];
-    if (documento !== null && documento !== undefined) {
-      const idiomaDoc: 'es' | 'ca' = reserva.idioma === 'ca' ? 'ca' : 'es';
+    if (urlCondiciones !== null) {
       adjuntos.push({
         clave: 'condiciones',
         nombre:
-          idiomaDoc === 'ca'
+          idiomaCondiciones === 'ca'
             ? 'condicions-particulars.pdf'
             : 'condiciones-particulares.pdf',
-        pdfUrl: documento.url,
+        pdfUrl: urlCondiciones,
       });
     }
 
@@ -326,6 +321,7 @@ export class ReenviarE3UseCase {
         numeroFactura: senal.numeroFactura,
         idioma: reserva.idioma,
         nombre: reserva.clienteNombre,
+        condicionesAdjuntas: urlCondiciones !== null,
         adjuntos,
       });
     } catch (error) {
@@ -345,11 +341,13 @@ export class ReenviarE3UseCase {
       fechaEnvio,
       destinatarioEmail: reserva.clienteEmail,
     });
-    await this.deps.fijarCondicionesEnviadas({
-      tenantId: comando.tenantId,
-      reservaId: comando.reservaId,
-      condPartEnviadasFecha: fechaEnvio,
-    });
+    if (urlCondiciones !== null) {
+      await this.deps.fijarCondicionesEnviadas({
+        tenantId: comando.tenantId,
+        reservaId: comando.reservaId,
+        condPartEnviadasFecha: fechaEnvio,
+      });
+    }
     await this.deps.registrarAuditoria({
       tenantId: comando.tenantId,
       usuarioId: comando.usuarioId,
