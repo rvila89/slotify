@@ -22,6 +22,7 @@ export type CodigoEmail =
   | 'E7'
   | 'E8'
   | 'E9'
+  | 'E10'
   | 'manual';
 
 /** Estado de la trazabilidad de una comunicación. */

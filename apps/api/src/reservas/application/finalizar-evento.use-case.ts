@@ -30,7 +30,6 @@
  *   5. Devuelve estado resultante + resultado de E5 + `documentacionPendiente`.
  */
 import {
-  debeEnviarseE5,
   resolverFinalizacionEvento,
   type EstadoReserva,
   type SubEstadoConsulta,
@@ -50,12 +49,7 @@ export const MOTIVO_DATO_ANOMALO_FIANZA = 'dato_anomalo_fianza' as const;
 // ---------------------------------------------------------------------------
 
 /** Estado de cobro de la fianza (valor de dominio; espejo del enum Prisma). */
-export type FianzaStatusFinalizacion =
-  | 'pendiente'
-  | 'recibo_enviado'
-  | 'cobrada'
-  | 'devuelta'
-  | 'retenida_parcial';
+export type FianzaStatusFinalizacion = 'pendiente' | 'cobrada' | 'devuelta';
 
 /**
  * Proyección mínima de la RESERVA que la finalización necesita (leída bajo RLS del tenant
@@ -374,28 +368,15 @@ export class FinalizarEventoUseCase {
   }
 
   /**
-   * Dispara E5 SOLO si `debeEnviarseE5(fianzaEur)`; si no, `no_aplica`. Best-effort: una
-   * excepción del puerto (proveedor caído tras el commit) se captura como `fallido` SIN
-   * propagar (la transición ya está commiteada, D-2).
+   * fix-liquidacion-fianza-independientes: la finalización del evento YA NO dispara E5
+   * (se elimina la captura de IBAN E5/E8). Siempre devuelve `no_aplica`; el campo `e5`
+   * del contrato se conserva por compatibilidad pero nunca envía ningún email.
    */
   private async dispararE5SiProcede(
-    comando: FinalizarEventoComando,
-    reserva: ReservaFinalizacion,
+    _comando: FinalizarEventoComando,
+    _reserva: ReservaFinalizacion,
   ): Promise<ResultadoDispararE5> {
-    const fianzaEur = reserva.fianzaEur === null ? null : Number(reserva.fianzaEur);
-    if (!debeEnviarseE5(fianzaEur)) {
-      return E5_NO_APLICA;
-    }
-    try {
-      return await this.deps.dispararE5.disparar({
-        tenantId: comando.tenantId,
-        reservaId: reserva.idReserva,
-        clienteId: reserva.clienteId,
-      });
-    } catch {
-      // El fallo del envío NO revierte el estado ni tumba la respuesta (best-effort).
-      return { resultado: 'fallido', comunicacionId: null };
-    }
+    return E5_NO_APLICA;
   }
 
   /** Lee los ítems de documentación pendientes; fail-open a `[]` si el puerto no responde. */

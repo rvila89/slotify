@@ -77,7 +77,7 @@ export interface BorradorFactura {
   tenantId: string;
   reservaId: string;
   numeroFactura: string | null;
-  tipo: 'liquidacion' | 'fianza';
+  tipo: 'liquidacion';
   estado: 'borrador' | 'enviada' | 'cobrada';
   total: string;
   baseImponible: string;
@@ -85,12 +85,12 @@ export interface BorradorFactura {
   ivaImporte: string;
 }
 
-/** Parámetros de creación de un borrador (tx-bound). `numeroFactura` NULL: se difiere a US-028. */
+/** Parámetros de creación de un borrador (tx-bound). `numeroFactura` NULL: se difiere a la emisión. */
 export interface CrearBorradorParams {
   tenantId: string;
   reservaId: string;
   numeroFactura: null;
-  tipo: 'liquidacion' | 'fianza';
+  tipo: 'liquidacion';
   estado: 'borrador';
   total: string;
   baseImponible: string;
@@ -112,7 +112,7 @@ export interface RegistroAuditoriaBorrador {
 export interface FacturaBorradorRepositoryPort {
   buscarPorReservaYTipo(
     reservaId: string,
-    tipo: 'liquidacion' | 'fianza',
+    tipo: 'liquidacion',
   ): Promise<BorradorFactura | null>;
   crear(params: CrearBorradorParams): Promise<BorradorFactura>;
 }
@@ -156,24 +156,22 @@ export interface CargarExtrasPendientesPort {
   }): Promise<ReadonlyArray<ExtraPendiente>>;
 }
 
-/** Lectura del importe de fianza por defecto del tenant (Decimal string). */
-export interface CargarFianzaDefaultPort {
-  (params: { tenantId: string }): Promise<string>;
-}
-
 /** Dependencias del caso de uso (puertos inyectados). */
 export interface GenerarBorradoresLiquidacionFianzaDeps {
   unidadDeTrabajo: UnidadDeTrabajoBorradoresPort;
   cargarReserva: CargarReservaLiquidablePort;
   cargarExtrasPendientes: CargarExtrasPendientesPort;
-  cargarFianzaDefault: CargarFianzaDefaultPort;
 }
 
-/** Resultado: ambos borradores (o null si se omite la fianza) + flag de omisión (§D-6). */
+/**
+ * Resultado: SOLO el borrador de liquidación (fix-liquidacion-fianza-independientes: la fianza
+ * deja de generarse como FACTURA). `fianza` y `fianzaOmitida` se conservan para compatibilidad
+ * de firma pero son siempre `null`/`true` (nunca se crea recibo de fianza).
+ */
 export interface GenerarBorradoresResultado {
   liquidacion: BorradorFactura;
-  fianza: BorradorFactura | null;
-  fianzaOmitida: boolean;
+  fianza: null;
+  fianzaOmitida: true;
 }
 
 // ---------------------------------------------------------------------------
@@ -252,15 +250,9 @@ export class GenerarBorradoresLiquidacionFianzaUseCase {
     });
     const desgloseLiquidacion = calcularDesgloseFactura(totalLiquidacion, reserva.regimenIva);
 
-    // Fianza: total = fianza_default_eur; se OMITE si es 0 (§D-3).
-    const fianzaDefault = await this.deps.cargarFianzaDefault({ tenantId: comando.tenantId });
-    const fianzaOmitida = Number(fianzaDefault) <= 0;
-    const desgloseFianza = fianzaOmitida
-      ? null
-      : calcularDesgloseFactura(fianzaDefault, reserva.regimenIva);
-
     // (2) UNA unidad de trabajo (tx + RLS) con reintento ante colisión de idempotencia
-    //     (`P2002` del UNIQUE(reserva_id, tipo)); nunca locks distribuidos (§D-4/§D-8).
+    //     (`P2002` del UNIQUE(reserva_id, tipo)); nunca locks distribuidos. E4 = solo
+    //     liquidación: la fianza deja de generarse como FACTURA.
     let ultimoError: unknown = null;
     for (let intento = 0; intento < 2; intento += 1) {
       try {
@@ -268,25 +260,13 @@ export class GenerarBorradoresLiquidacionFianzaUseCase {
           comando.tenantId,
           async (repos): Promise<GenerarBorradoresResultado> => {
             const liquidacion = await this.crearOExistente(comando, repos, {
-              tipo: 'liquidacion',
               total: desgloseLiquidacion.total,
               baseImponible: desgloseLiquidacion.baseImponible,
               ivaPorcentaje: desgloseLiquidacion.ivaPorcentaje,
               ivaImporte: desgloseLiquidacion.ivaImporte,
               concepto: `Liquidación reserva ${reserva.codigo}`,
             });
-            const fianza =
-              desgloseFianza === null
-                ? null
-                : await this.crearOExistente(comando, repos, {
-                    tipo: 'fianza',
-                    total: desgloseFianza.total,
-                    baseImponible: desgloseFianza.baseImponible,
-                    ivaPorcentaje: desgloseFianza.ivaPorcentaje,
-                    ivaImporte: desgloseFianza.ivaImporte,
-                    concepto: `Fianza reserva ${reserva.codigo}`,
-                  });
-            return { liquidacion, fianza, fianzaOmitida };
+            return { liquidacion, fianza: null, fianzaOmitida: true };
           },
         )) as GenerarBorradoresResultado;
       } catch (error) {
@@ -297,7 +277,7 @@ export class GenerarBorradoresLiquidacionFianzaUseCase {
         throw error;
       }
     }
-    throw ultimoError ?? new Error('No se pudieron generar los borradores de liquidación/fianza');
+    throw ultimoError ?? new Error('No se pudo generar el borrador de liquidación');
   }
 
   /**
@@ -309,7 +289,6 @@ export class GenerarBorradoresLiquidacionFianzaUseCase {
     comando: GenerarBorradoresComando,
     repos: RepositoriosBorradores,
     datos: {
-      tipo: 'liquidacion' | 'fianza';
       total: string;
       baseImponible: string;
       ivaPorcentaje: string;
@@ -317,7 +296,7 @@ export class GenerarBorradoresLiquidacionFianzaUseCase {
       concepto: string;
     },
   ): Promise<BorradorFactura> {
-    const previa = await repos.facturas.buscarPorReservaYTipo(comando.reservaId, datos.tipo);
+    const previa = await repos.facturas.buscarPorReservaYTipo(comando.reservaId, 'liquidacion');
     if (previa !== null) {
       return previa;
     }
@@ -325,7 +304,7 @@ export class GenerarBorradoresLiquidacionFianzaUseCase {
       tenantId: comando.tenantId,
       reservaId: comando.reservaId,
       numeroFactura: null,
-      tipo: datos.tipo,
+      tipo: 'liquidacion',
       estado: 'borrador',
       total: datos.total,
       baseImponible: datos.baseImponible,
@@ -340,7 +319,7 @@ export class GenerarBorradoresLiquidacionFianzaUseCase {
       accion: 'crear',
       datosNuevos: {
         reservaId: comando.reservaId,
-        tipo: datos.tipo,
+        tipo: 'liquidacion',
         estado: 'borrador',
         numeroFactura: null,
       },

@@ -133,7 +133,7 @@ const reservaHidratada = (
   fianzaEur: '1000.00',
   fianzaCobradaFecha: null,
   fianzaDevueltaFecha: null,
-  fianzaDevueltaEur: null,
+  fianzaComprobanteFecha: null,
   condPartFirmadas: null,
   condPartFechaEnvio: null,
   condPartFechaFirma: null,
@@ -156,7 +156,6 @@ const reservaHidratada = (
     codigoPostal: null,
     poblacion: null,
     provincia: null,
-    ibanDevolucion: null,
   },
   ...over,
 });
@@ -220,14 +219,16 @@ const comando = (
 });
 
 // ===========================================================================
-// 3.3 — Happy path con fianza: transiciona a post_evento + AUDIT_LOG (origen Usuario) +
-//        E5 disparado (resultado=enviado, comunicacionId poblado). NPS programada.
+// 3.3 — Happy path con fianza: transiciona a post_evento + AUDIT_LOG (origen Usuario).
+//        fix-liquidacion-fianza-independientes: la finalización YA NO dispara E5 (se elimina
+//        la captura de IBAN E5/E8). e5.resultado=no_aplica siempre; el puerto NO se invoca.
+//        NPS programada. La transición + auditoría son idénticas.
 // ===========================================================================
 
-describe('FinalizarEvento — happy path con fianza (3.3)', () => {
-  it('debe_transicionar_a_post_evento_disparar_e5_enviado_y_auditar_como_usuario', async () => {
+describe('FinalizarEvento — happy path con fianza sin E5 (3.3)', () => {
+  it('debe_transicionar_a_post_evento_sin_disparar_e5_y_auditar_como_usuario', async () => {
     const { deps, repos, e5 } = construir({
-      resultadoE5: { resultado: 'enviado', comunicacionId: 'com-e5-1' },
+      reserva: reservaEnCurso({ fianzaEur: '1000.00', fianzaStatus: 'cobrada' }),
     });
     const uc = new FinalizarEventoUseCase(deps);
 
@@ -235,8 +236,9 @@ describe('FinalizarEvento — happy path con fianza (3.3)', () => {
 
     // Estado resultante en la respuesta.
     expect(resultado.estado).toBe('post_evento');
-    expect(resultado.e5.resultado).toBe('enviado');
-    expect(resultado.e5.comunicacionId).toBe('com-e5-1');
+    // E5 ya no se envía: no_aplica aun con fianza > 0.
+    expect(resultado.e5.resultado).toBe('no_aplica');
+    expect(resultado.e5.comunicacionId).toBeNull();
     expect(resultado.documentacionPendiente).toEqual([]);
 
     // Transición aplicada exactamente una vez.
@@ -256,11 +258,8 @@ describe('FinalizarEvento — happy path con fianza (3.3)', () => {
       }),
     );
 
-    // E5 disparado (post-commit) con el cliente y trigger correctos.
-    expect(e5.disparar).toHaveBeenCalledTimes(1);
-    expect(e5.disparar).toHaveBeenCalledWith(
-      expect.objectContaining({ tenantId: TENANT, reservaId: RESERVA_ID, clienteId: CLIENTE_ID }),
-    );
+    // El puerto de E5 NUNCA se invoca (flujo E5 eliminado).
+    expect(e5.disparar).not.toHaveBeenCalled();
   });
 
   it('debe_hidratar_la_reserva_completa_releida_post_commit_para_el_allof_reserva', async () => {
@@ -294,7 +293,7 @@ describe('FinalizarEvento — happy path con fianza (3.3)', () => {
 
     expect(resultado.estado).toBe('post_evento');
     expect(resultado.reserva).toBeNull();
-    expect(resultado.e5.resultado).toBe('enviado');
+    expect(resultado.e5.resultado).toBe('no_aplica');
   });
 
   it('debe_marcar_la_nps_como_programada_en_el_paso_transaccional', async () => {
@@ -390,43 +389,28 @@ describe('FinalizarEvento — dato anómalo fianza cobrada sin importe (3.5)', (
 });
 
 // ===========================================================================
-// 3.6 — Fallo de E5 (proveedor caído): la transición a post_evento SE MANTIENE (no se
-//        revierte); resultado=fallido (COMUNICACION.estado=fallido en integración). La
-//        transición (paso transaccional) y el envío (post-commit) son SEPARADOS.
+// 3.6 — fix-liquidacion-fianza-independientes: el flujo de E5 (solicitud de IBAN) se ha
+//        eliminado. La finalización NO dispara ningún email: no existe un E5 que pueda
+//        fallar. Se conserva un único caso que fija que la finalización procede sin envío
+//        alguno (puerto de E5 nunca invocado, e5.resultado=no_aplica).
 // ===========================================================================
 
-describe('FinalizarEvento — fallo de E5 no revierte la transición (3.6)', () => {
-  it('debe_mantener_post_evento_y_devolver_e5_fallido_cuando_el_envio_falla', async () => {
-    const { deps, repos } = construir({
-      resultadoE5: { resultado: 'fallido', comunicacionId: 'com-e5-fallida' },
+describe('FinalizarEvento — la finalización no dispara ningún email (3.6)', () => {
+  it('debe_finalizar_sin_disparar_e5_y_devolver_no_aplica', async () => {
+    const { deps, repos, e5 } = construir({
+      reserva: reservaEnCurso({ fianzaEur: '1000.00', fianzaStatus: 'cobrada' }),
     });
     const uc = new FinalizarEventoUseCase(deps);
 
     const resultado = await uc.ejecutar(comando());
 
-    // La transición se commiteó ANTES del envío: post_evento se mantiene.
+    // La transición se commiteó; post_evento se mantiene.
     expect(resultado.estado).toBe('post_evento');
     expect(repos.reservas.finalizarEvento).toHaveBeenCalledTimes(1);
-    // E5 fallido con su COMUNICACION trazada (para el reenvío desde la ficha).
-    expect(resultado.e5.resultado).toBe('fallido');
-    expect(resultado.e5.comunicacionId).toBe('com-e5-fallida');
-  });
-
-  it('no_debe_propagar_la_excepcion_si_el_puerto_de_e5_lanza_tras_el_commit', async () => {
-    const { deps, repos } = construir();
-    // El puerto de E5 lanza (best-effort post-commit): la transición ya commiteó, el
-    // fallo del envío NO debe tumbar la respuesta ni revertir el estado.
-    (deps.dispararE5.disparar as jest.Mock).mockRejectedValueOnce(
-      new Error('PROVEEDOR_EMAIL_CAIDO'),
-    );
-    const uc = new FinalizarEventoUseCase(deps);
-
-    const resultado = await uc.ejecutar(comando());
-
-    expect(resultado.estado).toBe('post_evento');
-    expect(resultado.e5.resultado).toBe('fallido');
-    // La transición sí se aplicó (una vez), pese al fallo del envío.
-    expect(repos.reservas.finalizarEvento).toHaveBeenCalledTimes(1);
+    // Sin envío de E5: no_aplica y puerto no invocado.
+    expect(resultado.e5.resultado).toBe('no_aplica');
+    expect(resultado.e5.comunicacionId).toBeNull();
+    expect(e5.disparar).not.toHaveBeenCalled();
   });
 });
 

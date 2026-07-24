@@ -16,10 +16,12 @@ import type {
 } from '../model/types';
 
 /** Contexto de la mutación, para desambiguar el 409 (no-borrador vs. no-enviada). */
-export type ContextoLiquidacion = 'aprobar-enviar' | 'enviar-fianza' | 'reenviar';
+export type ContextoLiquidacion = 'enviar' | 'reenviar';
 
 type CodigoError =
+  | 'FACTURA_LIQUIDACION_NO_ENCONTRADA'
   | 'FACTURA_NO_BORRADOR'
+  | 'FACTURA_NO_ENVIADA'
   | 'DATOS_FISCALES_INCOMPLETOS'
   | 'PDF_PENDIENTE'
   | 'DESCUENTO_INVALIDO'
@@ -67,8 +69,18 @@ export const normalizarErrorLiquidacion = (
   const cuerpo = error as CuerpoError | undefined;
 
   switch (cuerpo?.codigo) {
+    case 'FACTURA_LIQUIDACION_NO_ENCONTRADA':
+      return {
+        tipo: 'generico',
+        mensaje:
+          cuerpo.motivo ??
+          primerMensaje(cuerpo) ??
+          'No existe factura de liquidación en esta reserva.',
+      };
     case 'FACTURA_NO_BORRADOR':
-      return conflictoEstado(contexto, cuerpo.motivo ?? primerMensaje(cuerpo));
+      return conflictoEstado('enviar', cuerpo.motivo ?? primerMensaje(cuerpo));
+    case 'FACTURA_NO_ENVIADA':
+      return conflictoEstado('reenviar', cuerpo.motivo ?? primerMensaje(cuerpo));
     case 'DATOS_FISCALES_INCOMPLETOS':
       return {
         tipo: 'datos-fiscales-incompletos',

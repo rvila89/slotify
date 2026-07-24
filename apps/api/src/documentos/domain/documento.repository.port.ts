@@ -30,7 +30,9 @@ export type TipoDocumentoDominio =
   | 'condiciones_particulares'
   | 'dni_anverso'
   | 'dni_reverso'
-  | 'clausula_responsabilidad';
+  | 'clausula_responsabilidad'
+  // fix-liquidacion-fianza-independientes: comprobante de la transferencia de fianza recibida.
+  | 'comprobante_fianza';
 
 /** Proyección mínima del DOCUMENTO persistido. */
 export interface DocumentoPersistido {

@@ -48,19 +48,17 @@ export const LISTAR_FACTURAS_RESERVA_PORT = Symbol('ListarFacturasReservaPort');
  */
 export const CARGAR_DATOS_DOCUMENTO_FACTURA_PORT = Symbol('CargarDatosDocumentoFacturaPort');
 
-// --- US-028: emisión y envío de la liquidación / fianza (UC-21, UC-22, D-4) ---
+// --- fix-liquidacion-fianza-independientes: emisión standalone de la liquidación (UC-21) ---
 /** Unidad de trabajo transaccional de la emisión de la liquidación (tx + RLS). */
-export const UNIDAD_DE_TRABAJO_EMISION_PORT = Symbol('UnidadDeTrabajoEmisionPort');
-/** Lectura de la RESERVA para la emisión de la liquidación (email cliente). */
-export const CARGAR_RESERVA_EMISION_PORT = Symbol('CargarReservaEmisionPort');
-/** Envío SÍNCRONO/CONFIRMADO de E4 (liquidación + fianza). */
+export const UNIDAD_DE_TRABAJO_EMISION_PORT = Symbol('UnidadDeTrabajoLiquidacionEmisionPort');
+/** Lectura de la RESERVA para la emisión de la liquidación (email + idioma + fianzaEur). */
+export const CARGAR_RESERVA_EMISION_PORT = Symbol('CargarReservaLiquidacionEmisionPort');
+/** Envío SÍNCRONO/CONFIRMADO de E4 (solo liquidación). */
 export const ENVIAR_E4_EMISION_PORT = Symbol('EnviarE4EmisionPort');
-/** Unidad de trabajo transaccional del envío separado del recibo de fianza (tx + RLS). */
-export const UNIDAD_DE_TRABAJO_FIANZA_PORT = Symbol('UnidadDeTrabajoFianzaPort');
-/** Lectura de la RESERVA para el envío separado del recibo de fianza. */
-export const CARGAR_RESERVA_FIANZA_PORT = Symbol('CargarReservaFianzaPort');
-/** Envío SÍNCRONO/CONFIRMADO del recibo de fianza (email `manual`). */
-export const ENVIAR_RECIBO_FIANZA_PORT = Symbol('EnviarReciboFianzaPort');
+/** Lectura de la FACTURA de liquidación (GET /reservas/{id}/factura-liquidacion). */
+export const CARGAR_FACTURA_LIQUIDACION_PORT = Symbol('CargarFacturaLiquidacionPort');
+/** Verificación de si ya se envió E4 (COMUNICACION E4 `enviado`, no reenvío). */
+export const VERIFICAR_E4_ENVIADO_PORT = Symbol('VerificarE4EnviadoPort');
 /** Lectura de la RESERVA para el reenvío de la liquidación. */
 export const CARGAR_RESERVA_REENVIO_PORT = Symbol('CargarReservaReenvioPort');
 /** Lectura de la FACTURA de liquidación ya emitida (reenvío). */
@@ -104,16 +102,21 @@ export const REGISTRAR_AUDITORIA_REENVIO_E3_PORT = Symbol('RegistrarAuditoriaRee
 /** Unidad de trabajo transaccional del cobro (tx + RLS + SELECT ... FOR UPDATE sobre RESERVA). */
 export const UNIDAD_DE_TRABAJO_COBRO_PORT = Symbol('UnidadDeTrabajoCobroPort');
 
-// --- US-030: registro del cobro de la fianza (UC-22 pasos 5-9, D-1/D-2) ---
+// --- fix-liquidacion-fianza-independientes: fianza pasiva (comprobante) + devolución completa ---
+/** Unidad de trabajo transaccional de la subida del comprobante de la fianza (tx + RLS). */
+export const UNIDAD_DE_TRABAJO_COMPROBANTE_FIANZA_PORT = Symbol(
+  'UnidadDeTrabajoComprobanteFianzaPort',
+);
+/** Lectura de la RESERVA (estado + fianza_status) para la subida del comprobante. */
+export const CARGAR_RESERVA_COMPROBANTE_FIANZA_PORT = Symbol(
+  'CargarReservaComprobanteFianzaPort',
+);
+/** Almacenamiento físico del comprobante de la fianza (clave versionada). */
+export const ALMACENAR_COMPROBANTE_FIANZA_PORT = Symbol('AlmacenarComprobanteFianzaPort');
 /**
- * Unidad de trabajo transaccional del cobro de la FIANZA (tx + RLS + SELECT ... FOR UPDATE sobre
- * RESERVA para serializar el doble cobro; política "Negociable" para `fianza_status = pendiente`).
+ * Unidad de trabajo transaccional de la DEVOLUCIÓN completa de la FIANZA (tx + RLS + SELECT ...
+ * FOR UPDATE sobre RESERVA para serializar el doble registro).
  */
-export const UNIDAD_DE_TRABAJO_COBRO_FIANZA_PORT = Symbol('UnidadDeTrabajoCobroFianzaPort');
-
-// --- US-036: registro de la devolución de la fianza (UC-27 pasos 4-8, D-1/D-4) ---
-/**
- * Unidad de trabajo transaccional de la DEVOLUCIÓN de la FIANZA (tx + RLS + SELECT ... FOR UPDATE
- * sobre RESERVA para serializar el doble registro; simétrico inverso del cobro de US-030).
- */
-export const UNIDAD_DE_TRABAJO_DEVOLUCION_FIANZA_PORT = Symbol('UnidadDeTrabajoDevolucionFianzaPort');
+export const UNIDAD_DE_TRABAJO_DEVOLVER_FIANZA_PORT = Symbol('UnidadDeTrabajoDevolverFianzaPort');
+/** Disparo de E10 (fianza devuelta) POST-COMMIT best-effort. */
+export const DISPARAR_E10_PORT = Symbol('DispararE10Port');

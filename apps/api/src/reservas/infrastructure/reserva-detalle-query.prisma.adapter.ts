@@ -93,7 +93,7 @@ export class ReservaDetalleQueryPrismaAdapter implements ReservaDetalleQueryPort
       fianzaEur: aImporte(fila.fianzaEur),
       fianzaCobradaFecha: fila.fianzaCobradaFecha,
       fianzaDevueltaFecha: fila.fianzaDevueltaFecha,
-      fianzaDevueltaEur: aImporte(fila.fianzaDevueltaEur),
+      fianzaComprobanteFecha: fila.fianzaComprobanteFecha,
       condPartFirmadas: fila.condPartFirmadas,
       condPartFechaEnvio: fila.condPartEnviadasFecha,
       condPartFechaFirma: fila.condPartFirmadasFecha,
@@ -117,7 +117,6 @@ export class ReservaDetalleQueryPrismaAdapter implements ReservaDetalleQueryPort
         codigoPostal: fila.cliente.codigoPostal,
         poblacion: fila.cliente.poblacion,
         provincia: fila.cliente.provincia,
-        ibanDevolucion: fila.cliente.ibanDevolucion,
       },
     };
   }

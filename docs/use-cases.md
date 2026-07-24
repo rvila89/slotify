@@ -1398,76 +1398,67 @@ flowchart TD
 | **Nombre** | Gestionar Sub-proceso Liquidación |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor gestiona el cobro del 60% restante (liquidación) antes del evento |
-| **Precondiciones** | - Reserva en estado reserva_confirmada<br>- liquidacion_status = pendiente o facturada |
-| **Postcondiciones** | - liquidacion_status actualizado<br>- Factura de liquidación generada/enviada/cobrada |
+| **Descripción** | El gestor gestiona el cobro del 60% restante (liquidación) antes del evento. Flujo standalone espejo de la señal (change `fix-liquidacion-fianza-independientes`). |
+| **Precondiciones** | - Reserva en estado `reserva_confirmada`<br>- `liquidacion_status ∈ {pendiente, facturada}` |
+| **Postcondiciones** | - `liquidacion_status` actualizado<br>- Factura de liquidación generada / enviada / cobrada |
 | **Prioridad** | Crítica |
 | **Frecuencia** | Alta |
 
 **Flujo Básico:**
-1. El sistema genera automáticamente la factura de liquidación en borrador (`tipo='liquidacion'`, `estado='borrador'`, `numero_factura=NULL`, `total = importe_liquidacion + Σ extras pendientes`) como efecto post-commit de la activación de sub-procesos de US-021, a través del use-case `GenerarBorradoresLiquidacionFianzaUseCase` (US-027). El fallo de este paso **no revierte** la confirmación ya realizada; la operación es idempotente por `(reserva_id, tipo)`.
-2. El sistema alerta al gestor en la UI: "Documentos de liquidación y fianza pendientes de revisión" (US-027). Esta alerta es una señal de UI, no un email (E4 se dispara en US-028 tras la aprobación).
-3. El gestor revisa y ajusta si es necesario. Puede aplicar un descuento negociado mientras la factura está en `borrador` (D-2 US-028: el `total` y el desglose fiscal se recalculan en dominio puro; `RESERVA.importe_liquidacion` se actualiza con el nuevo importe; el descuento y su motivo quedan en `AUDIT_LOG`).
-4. El gestor aprueba y envía la factura mediante **`AprobarYEnviarLiquidacionUseCase`** (US-028 / `POST /reservas/{id}/facturas/liquidacion/aprobar-enviar`): en una única operación atómica (D-1 US-028 — excepción síncrona al patrón post-commit), el use-case asigna `numero_factura = F-YYYY-NNNN`, pasa ambas facturas (`liquidacion` y `fianza` si no fue enviada por separado) a `estado='enviada'`, fija `fecha_emision = now()`, envía email E4 al cliente con los PDFs adjuntos y, **solo si E4 se confirma**, commitea los cambios de estado; si E4 falla → rollback total.
-5. El sistema actualiza `liquidacion_status = 'facturada'` y `fianza_status = 'recibo_enviado'` (atómicos con el commit del paso 4).
-6. El sistema registra `COMUNICACION E4` con `estado='enviado'` y `es_reenvio = false`.
+1. El sistema genera automáticamente la factura de liquidación en borrador (`tipo='liquidacion'`, `estado='borrador'`, `numero_factura=NULL`, `total = importe_liquidacion + Σ extras pendientes`) como efecto post-commit de la activación de sub-procesos de US-021. El fallo de este paso **no revierte** la confirmación ya realizada; la operación es idempotente por `(reserva_id, tipo)`. **Ya no se genera borrador de fianza.**
+2. El sistema alerta al gestor en la UI: "Factura de liquidación pendiente de revisión". Esta alerta es una señal de UI, no un email (E4 se dispara tras la aprobación del Gestor en el paso 4).
+3. El gestor revisa el borrador. Puede ajustar extras antes de emitir.
+4. El gestor aprueba y envía la factura de liquidación (`POST /reservas/{id}/facturas/liquidacion/enviar`): en una única operación atómica (excepción síncrona al patrón post-commit), el use-case asigna `numero_factura = F-YYYY-NNNN`, pasa la factura a `estado='enviada'`, fija `fecha_emision = now()`, envía email **E4 = solo liquidación** al cliente (texto bilingüe CA/ES, PDF adjunto) y, **solo si E4 se confirma**, commitea los cambios de estado; si E4 falla → rollback total (no se asigna número de factura, `liquidacion_status` sin cambio).
+5. El sistema actualiza `RESERVA.liquidacion_status = 'facturada'` (atómico con el commit del paso 4). El banner permanente "Factura de liquidación enviada el {fecha/hora}" aparece en la ficha.
+6. El sistema registra `COMUNICACION E4` con `codigo_email='E4'`, `estado='enviado'` y `es_reenvio = false`.
 7. El cliente realiza la transferencia bancaria del 60% restante.
 8. El gestor recibe el justificante de la transferencia.
-9. El gestor registra el cobro en el sistema (`POST /reservas/{id}/facturas/liquidacion/cobro`, US-029): proporciona `importe`, `fecha_cobro` (≤ hoy) y, opcionalmente, `justificante_doc_id` (referencia a un `DOCUMENTO(tipo=justificante_pago)` ya subido). El justificante es **opcional**; el cobro es válido sin él.
-10. El sistema, en una **única transacción atómica** (US-029 `RegistrarCobroLiquidacionUseCase`): relee `RESERVA.liquidacion_status` con `SELECT ... FOR UPDATE` (guarda de doble cobro y precondición); crea el registro `PAGO` (`tenant_id`, `factura_id`, `importe`, `fecha_cobro`, `justificante_doc_id`); transiciona `FACTURA(liquidacion).estado: enviada → cobrada`; transiciona `RESERVA.liquidacion_status: facturada → cobrada`. `RESERVA.estado` permanece `reserva_confirmada`. Si el importe cobrado difiere del total de la factura, la respuesta incluye `alertaDiscrepancia { importeFacturado, importeCobrado, diferencia }` (alerta informativa, no bloquea).
-11. El sistema registra en `AUDIT_LOG`: `accion = 'crear'` para el `PAGO` (y para el `DOCUMENTO` del justificante si se adjuntó), `accion = 'actualizar'` para la transición de `FACTURA` y de `RESERVA`. Si hubo discrepancia, también queda registrada en `AUDIT_LOG`.
+9. El gestor registra el cobro en el sistema (`POST /reservas/{id}/facturas/liquidacion/cobro`): proporciona `importe`, `fecha_cobro` (≤ hoy) y, opcionalmente, `justificante_doc_id`. El justificante es **opcional**; el cobro es válido sin él.
+10. El sistema, en una **única transacción atómica** (`RegistrarCobroLiquidacionUseCase`): relee `RESERVA.liquidacion_status` con `SELECT ... FOR UPDATE`; crea el registro `PAGO`; transiciona `FACTURA(liquidacion).estado: enviada → cobrada`; transiciona `RESERVA.liquidacion_status: facturada → cobrada`. `RESERVA.estado` permanece `reserva_confirmada`. Si el importe cobrado difiere del total de la factura, la respuesta incluye `alertaDiscrepancia` (informativa, no bloquea).
+11. El sistema registra en `AUDIT_LOG`: `accion = 'crear'` para el `PAGO`, `accion = 'actualizar'` para las transiciones de `FACTURA` y `RESERVA`.
 
-**Resultado:** `liquidacion_status = 'cobrada'` habilita una de las tres precondiciones de la transición `reserva_confirmada → evento_en_curso` (US-031). Las otras dos son `pre_evento_status = cerrado` y `fianza_status = cobrada`.
+**Resultado:** `liquidacion_status = 'cobrada'` habilita una de las **dos** precondiciones de la transición `reserva_confirmada → evento_en_curso` (junto con `pre_evento_status = cerrado`). La fianza ya no es precondición.
 
 **Flujos Alternativos:**
-- **FA-01**: T-1d sin cobro → Política "Negociable" activada, alerta crítica al gestor
-- **FA-02** (fallo de email E4 — D-1 US-028): el proveedor de email rechaza el envío → rollback completo: `numero_factura` no asignado, ambas facturas permanecen en `borrador`, `liquidacion_status`/`fianza_status` sin cambio; error `502/503` recuperable devuelto al Gestor. El Gestor puede reintentar la aprobación.
-- **FA-03** (reenvío de la factura ya emitida — D-4 US-028): `POST /reservas/{id}/facturas/liquidacion/reenviar` cuando `FACTURA.estado = 'enviada'`; reenvia el PDF ya emitido sin reasignar `numero_factura` ni mutar estado; crea nuevo registro `COMUNICACION E4` con `es_reenvio = true`. Si `estado != 'enviada'` → `409`.
-- **FA-04** (descuento negociado — D-2 US-028): body opcional `{ descuento, extrasCorregidos, motivo }` en `aprobar-enviar`; el use-case recalcula `total`, desglose fiscal y `RESERVA.importe_liquidacion`; el descuento queda en `AUDIT_LOG`.
-- **FA-05** (PDF no disponible): si `pdf_url` es nulo para alguna factura → `422`; el Gestor debe regenerar el PDF antes de aprobar.
-- **FA-06** (cobro ya registrado — US-029): `RESERVA.liquidacion_status = 'cobrada'` → `409 LIQUIDACION_YA_COBRADA` "La liquidación ya está marcada como cobrada"; no se crea ningún `PAGO` adicional. Dos peticiones concurrentes se serializan por el lock de fila (`SELECT ... FOR UPDATE` sobre RESERVA); la segunda ve `cobrada` y aborta.
-- **FA-07** (precondición no cumplida — US-029): `RESERVA.liquidacion_status = 'pendiente'` (la factura de liquidación aún no fue enviada) → `409 LIQUIDACION_NO_FACTURADA` "La factura de liquidación debe estar enviada antes de registrar su cobro"; no se crea `PAGO`.
-- **FA-08** (discrepancia de importe — US-029): `importe` ≠ `FACTURA(liquidacion).total` → el sistema crea el `PAGO` con el importe real y avanza a `cobrada`; la respuesta incluye `alertaDiscrepancia`. La conciliación se delega al Gestor; el MVP no ajusta la factura ni genera nota de crédito.
+- **FA-01**: T-1d sin cobro → alerta no bloqueante al gestor.
+- **FA-02** (fallo de email E4): el proveedor rechaza el envío → rollback completo; `numero_factura` no asignado; `liquidacion_status` sin cambio; error `502/503` recuperable. El Gestor puede reintentar la aprobación.
+- **FA-03** (reenvío de la factura ya emitida): `POST /reservas/{id}/facturas/liquidacion/reenviar` cuando `FACTURA.estado = 'enviada'`; reenvía el PDF sin reasignar `numero_factura` ni mutar estado; crea nuevo `COMUNICACION E4` con `es_reenvio = true`. Si `estado != 'enviada'` → `409`.
+- **FA-04** (PDF no disponible): si `pdf_url` es nulo → `422`; el Gestor debe regenerar el PDF antes de aprobar.
+- **FA-05** (cobro ya registrado): `RESERVA.liquidacion_status = 'cobrada'` → `409 LIQUIDACION_YA_COBRADA`; no se crea `PAGO` adicional.
+- **FA-06** (precondición no cumplida): `RESERVA.liquidacion_status = 'pendiente'` → `409 LIQUIDACION_NO_FACTURADA`.
+- **FA-07** (discrepancia de importe): el sistema crea el `PAGO` con el importe real y avanza a `cobrada`; la respuesta incluye `alertaDiscrepancia`.
 
 ---
 
-#### UC-22: Gestionar Sub-proceso Fianza
+#### UC-22: Registrar Comprobante de Fianza
 
 | Campo | Descripción |
 |-------|-------------|
 | **ID** | UC-22 |
-| **Nombre** | Gestionar Sub-proceso Fianza |
+| **Nombre** | Registrar Comprobante de Fianza |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor gestiona el cobro de la fianza (depósito reembolsable) antes o el día del evento. El ciclo completo abarca la generación del recibo (US-027), su emisión al cliente (US-028) y el registro del cobro (US-030). |
-| **Precondiciones** | - Reserva en estado `reserva_confirmada`<br>- `fianza_status ∈ {pendiente, recibo_enviado}` |
-| **Postcondiciones** | - `fianza_status = 'cobrada'`<br>- `FACTURA(fianza).estado = 'cobrada'`<br>- `RESERVA.fianza_eur` y `RESERVA.fianza_cobrada_fecha` registrados<br>- `PAGO` creado conciliado contra el recibo de fianza<br>- Habilitada la **tercera precondición** de la transición a `evento_en_curso` (US-031) |
-| **Prioridad** | Alta |
+| **Descripción** | El gestor sube el comprobante de la transferencia de fianza recibida. Flujo pasivo opcional espejo de `condiciones_particulares` (change `fix-liquidacion-fianza-independientes`). No hay FACTURA de fianza, no hay PAGO, no hay recibo ni email al cliente. La fianza no es precondición del inicio del evento. |
+| **Precondiciones** | - Reserva en estado `reserva_confirmada` (o posterior)<br>- `fianza_status = 'pendiente'` o `'cobrada'` (el comprobante es sustituible) |
+| **Postcondiciones** | - `DOCUMENTO(tipo='comprobante_fianza')` creado o actualizado<br>- `RESERVA.fianza_status = 'cobrada'`<br>- `RESERVA.fianza_cobrada_fecha` registrada<br>- `RESERVA.fianza_comprobante_fecha = now()`<br>- `AUDIT_LOG` registrado |
+| **Prioridad** | Media |
 | **Frecuencia** | Alta |
-| **US** | US-027 (pasos 1-2), US-028 (pasos 3-4), US-030 (pasos 5-9) |
-| **Endpoint cobro** | `POST /reservas/{id}/facturas/fianza/cobro` — operationId `registrarCobroFianza` |
+| **US** | UC-22 (change `fix-liquidacion-fianza-independientes`) |
+| **Endpoint** | `POST /reservas/{id}/fianza/comprobante` |
 
 **Flujo Básico:**
-1. El sistema genera automáticamente el recibo de fianza en borrador (`tipo='fianza'`, `estado='borrador'`, `numero_factura=NULL`, `total = TENANT_SETTINGS.fianza_default_eur`) como efecto post-commit de la activación de sub-procesos de US-021, a través del use-case `GenerarBorradoresLiquidacionFianzaUseCase` (US-027). **Edge case**: si `fianza_default_eur = 0`, el recibo **no se genera**; `fianza_status` permanece `pendiente` y la alerta al Gestor menciona solo la liquidación. La generación de la fianza es independiente de la de la liquidación. El fallo de este paso **no revierte** la confirmación; la operación es idempotente por `(reserva_id, tipo)`.
-2. El sistema alerta al gestor en la UI: "Documentos de liquidación y fianza pendientes de revisión" (US-027). Esta alerta es una señal de UI, no un email (E4 se dispara en US-028 tras la aprobación).
-3. El gestor puede enviar el recibo de fianza al cliente **de forma independiente** mediante **`EnviarReciboFianzaUseCase`** (US-028 / `POST /reservas/{id}/facturas/fianza/enviar`, D-3 US-028): asigna `numero_factura = F-YYYY-NNNN` al recibo de fianza, pasa a `estado='enviada'` y actualiza `fianza_status = 'recibo_enviado'`. El email enviado se registra en `COMUNICACION` con `codigo_email = 'manual'` (no E4); `liquidacion_status` **no cambia**. Alternativamente, si la liquidación y la fianza se aprueban juntas vía `aprobar-enviar` (UC-21 paso 4), la fianza también se emite y `fianza_status` pasa a `recibo_enviado` en el mismo commit.
-4. El sistema actualiza `fianza_status = 'recibo_enviado'`.
-5. El cliente realiza el pago externo por transferencia bancaria o efectivo (Slotify registra el cobro, **no** procesa el pago; sin integración de pasarela en MVP).
-6. El gestor recibe el justificante del pago (opcional; el cobro es válido sin justificante).
-7. El gestor accede a la ficha de la reserva y abre el formulario de registro de cobro de fianza (`RegistrarCobroFianzaDialog`). Introduce `importe` (`> 0`), `fecha_cobro` (`≤ RESERVA.fecha_evento`; el cobro en T-0 es válido) y, opcionalmente, el `justificante_doc_id` referenciando un `DOCUMENTO(tipo='justificante_pago')` ya subido.
-8. El sistema ejecuta `RegistrarCobroFianzaUseCase` en una **única unidad transaccional atómica** (con `SELECT ... FOR UPDATE` sobre la fila de RESERVA para serializar el doble cobro concurrente; nunca locks distribuidos): crea el `PAGO` con `factura_id` del recibo de fianza, `importe`, `fecha_cobro` y `justificante_doc_id` (nullable); si se adjuntó justificante, referencia el `DOCUMENTO(tipo='justificante_pago')`; transiciona `FACTURA(fianza).estado = 'cobrada'`; establece `RESERVA.fianza_eur = importe` y `RESERVA.fianza_cobrada_fecha = fecha_cobro`; y registra `AUDIT_LOG` con `accion='crear'` (PAGO y, si aplica, DOCUMENTO) y `accion='actualizar'` (transición de FACTURA y RESERVA, incluidos `fianza_eur`/`fianza_cobrada_fecha`).
-9. El sistema transiciona `RESERVA.fianza_status = 'cobrada'` (dentro de la misma transacción del paso 8). `RESERVA.estado` **permanece** `reserva_confirmada`; este paso habilita la **tercera de las tres precondiciones** de la transición a `evento_en_curso` (las otras dos son `pre_evento_status = cerrado` y `liquidacion_status = cobrada`; la transición es responsabilidad de US-031).
-10. La UI actualiza la ficha de la reserva mostrando `fianza_status = 'cobrada'`, `fianza_eur` y `fianza_cobrada_fecha`; oculta el botón de registro de cobro.
+1. El gestor accede a la sección de fianza de la ficha de la reserva.
+2. El gestor sube el archivo de comprobante de transferencia (imagen o PDF) mediante `POST /reservas/{id}/fianza/comprobante`.
+3. El sistema crea un `DOCUMENTO(tipo='comprobante_fianza')` con la URL del archivo subido, asociado a la reserva y al tenant.
+4. En la misma transacción atómica, el sistema: fija `RESERVA.fianza_status = 'cobrada'`, `RESERVA.fianza_cobrada_fecha = now()`, `RESERVA.fianza_comprobante_fecha = now()`; registra `AUDIT_LOG` con `accion='actualizar'`, `entidad='RESERVA'`.
+5. La UI actualiza la sección de fianza mostrando el estado `cobrada` y el comprobante subido.
 
 **Flujos Alternativos:**
-- **FA-01** (T-0 sin cobro — alerta no bloqueante): si en el día del evento `fianza_status ≠ 'cobrada'`, la política hardcoded "Negociable" genera una alerta crítica **no bloqueante** ("⚠️ Fianza pendiente de cobro. Puede registrarla ahora o proceder sin ella (política Negociable)"). El inicio del evento **no se bloquea** por fianza impagada; el Gestor decide manualmente. La integración de esta alerta en el flujo de transición a `evento_en_curso` es responsabilidad de US-031.
-- **FA-02** (`fianza_default_eur = 0`): el recibo de fianza no se genera en US-027; `fianza_status` permanece `pendiente`. El Gestor puede aún registrar el cobro vía la política "Negociable" (FA-04 a continuación).
-- **FA-03** (fianza ya enviada por separado antes de la aprobación de la liquidación): cuando la liquidación se aprueba vía `aprobar-enviar` (UC-21), si la fianza ya está en `estado='enviada'` / `fianza_status='recibo_enviado'`, el use-case incluye solo la factura de liquidación en E4 sin volver a cambiar `fianza_status` (D-3 US-028: E4 no sobreescribe `recibo_enviado` ya establecido).
-- **FA-04** (política "Negociable" — `fianza_status = 'pendiente'` sin recibo enviado): si el Gestor intenta registrar el cobro con `fianza_status = 'pendiente'` sin el flag `confirmarSinRecibo`, el sistema devuelve 200 `confirmacion_requerida` ("El recibo de fianza no ha sido enviado al cliente. ¿Desea registrar el cobro igualmente?") sin crear PAGO ni cambiar estados; el frontend muestra el diálogo de confirmación. Si el Gestor **confirma** (reintento con `confirmarSinRecibo: true`), el cobro se registra igualmente: (a) si la FACTURA(fianza) existe en `borrador`, salta directamente `borrador → cobrada` (sin pasar por `enviada`), documentando el salto en AUDIT_LOG; (b) si no existe FACTURA(fianza), se crea al vuelo y se marca `cobrada`. Si el Gestor **cancela**, no se realiza ninguna acción. Este comportamiento **diverge** del bloqueo duro de la liquidación (US-029).
-- **FA-05** (doble cobro — `fianza_status = 'cobrada'`): intento de registrar un cobro sobre fianza ya cobrada → el sistema responde 409 `FIANZA_YA_COBRADA` ("La fianza ya está marcada como cobrada"); no se crea ningún `PAGO` adicional. Dos peticiones concurrentes se serializan por el `SELECT ... FOR UPDATE`: solo la primera registra el cobro; la segunda ve `cobrada` y aborta.
-- **FA-06** (validación de entrada — `importe ≤ 0` o `fecha_cobro > fecha_evento`): el sistema responde 400 `COBRO_INVALIDO` sin crear PAGO ni cambiar estados.
-- **FA-07** (reserva, factura de fianza o justificante inexistente): el sistema responde 404 con código `FACTURA_FIANZA_NO_ENCONTRADA` o `JUSTIFICANTE_NO_ENCONTRADO` según corresponda.
-- **FA-08** (sin auth / rol insuficiente): 401/403.
+- **FA-01** (comprobante ya subido — sustitución): si ya existe un `DOCUMENTO(tipo='comprobante_fianza')` para esta reserva, el nuevo archivo lo sustituye; `fianza_comprobante_fecha` se actualiza.
+- **FA-02** (sin auth / rol insuficiente): 401/403.
+- **FA-03** (formato inválido o tamaño excesivo): 422 `ARCHIVO_INVALIDO`.
+
+> **Nota de eliminación:** En el flujo anterior a este change, UC-22 describía la generación del recibo de fianza (US-027), su emisión y el cobro vía PAGO (US-030), con política "Negociable" y `FACTURA(tipo='fianza')`. Todos esos elementos han sido eliminados (change `fix-liquidacion-fianza-independientes`). Los endpoints `POST /reservas/{id}/facturas/fianza/enviar` y `/cobro` dejan de existir.
 
 ---
 
@@ -1484,7 +1475,7 @@ flowchart TD
 | **Actor Principal** | Sistema |
 | **Actores Secundarios** | Gestor (via US-032, implementado), Equipo (briefing 📐, fuera de alcance MVP) |
 | **Descripción** | El Sistema transiciona automáticamente la reserva al estado `evento_en_curso` a las 00:00 del día del evento (T-0), cuando se cumplen las tres precondiciones. Implementado en US-031 (barrido `POST /cron/barrido-eventos`). El Gestor puede forzar manualmente la transición el día del evento aunque alguna precondición esté incumplida (US-032, flujo alternativo FA-01, `POST /reservas/{id}/forzar-inicio-evento`). |
-| **Precondiciones** | - Reserva en estado `reserva_confirmada`<br>- `pre_evento_status = cerrado` (producido por US-025/US-026)<br>- `liquidacion_status = cobrada` (producido por US-029)<br>- `fianza_status = cobrada` (producido por US-030)<br>- `date(fecha_evento) = date(hoy)` (es el día del evento, T-0) |
+| **Precondiciones** | - Reserva en estado `reserva_confirmada`<br>- `pre_evento_status = cerrado` (producido por US-025/US-026)<br>- `liquidacion_status = cobrada` (producido por US-029)<br>- `date(fecha_evento) = date(hoy)` (es el día del evento, T-0)<br>_(La fianza ya no es precondición — change `fix-liquidacion-fianza-independientes`)_ |
 | **Postcondiciones** | - `RESERVA.estado = evento_en_curso`<br>- `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`, `datos_anteriores = {estado: reserva_confirmada}`, `datos_nuevos = {estado: evento_en_curso}`, origen Sistema (`usuario_id` nulo)<br>- El estado `evento_en_curso` habilita la captura de documentación del evento (US-033 / UC-24) y la acción de finalización del evento del gestor (US-034 / UC-25) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
@@ -1501,8 +1492,8 @@ flowchart TD
 7. La captura de documentación del evento (US-033) y la acción de finalización del evento (US-034 / UC-25, implementada) se activan al detectar `RESERVA.estado = evento_en_curso` desde `GET /reservas` (US-049)
 
 **Flujos Alternativos:**
-- **FA-01 (precondiciones incumplidas — US-031 / forzado manual US-032):** si alguna de las tres precondiciones no se cumple en T-0 → el sistema no transiciona la RESERVA (permanece en `reserva_confirmada`) y genera una alerta crítica al gestor con la lista de precondiciones incumplidas. El Gestor puede entonces forzar manualmente la transición vía `POST /reservas/{id}/forzar-inicio-evento` (US-032, **implementado**): la RESERVA transiciona a `evento_en_curso` con independencia de si las precondiciones se cumplen (`forzado_por_gestor = true`), los sub-procesos incumplidos NO se resuelven, y la acción se audita en `AUDIT_LOG` con origen Usuario (`usuario_id` del gestor, a diferencia del origen Sistema del barrido de US-031) y `datos_nuevos = {estado: evento_en_curso, forzado_por_gestor: true, precondiciones_incumplidas: [lista]}`. La UI presenta al gestor la lista de precondiciones incumplidas y exige doble confirmación antes de disparar el `POST`. El forzado solo está disponible el día del evento (`fecha_evento = hoy`; la guarda `esDiaDelEvento` devuelve 422 `fecha_evento_no_es_hoy` en cualquier otro día). Si el barrido de US-031 llega primero (carrera cron↔gestor), el forzado termina como no-op idempotente con 409 `conflicto_estado` ("El evento ya está en curso"). Ver endpoint `forzarInicioEvento` en `api-spec.yml`.
-- **FA-02 (A29 — condiciones particulares no firmadas — US-031):** `cond_part_firmadas = false` en T-0 → el sistema emite la alerta no bloqueante A29 ("Las condiciones particulares de esta reserva no están firmadas. El cliente puede firmarlas presencialmente.") con independencia del resultado de la transición; la RESERVA transiciona igualmente a `evento_en_curso` si las tres precondiciones se cumplen.
+- **FA-01 (precondiciones incumplidas — US-031 / forzado manual US-032):** si alguna de las **dos** precondiciones no se cumple en T-0 → el sistema no transiciona la RESERVA (permanece en `reserva_confirmada`) y genera una alerta crítica al gestor con la lista de precondiciones incumplidas. El Gestor puede entonces forzar manualmente la transición vía `POST /reservas/{id}/forzar-inicio-evento` (US-032, **implementado**): la RESERVA transiciona a `evento_en_curso` con independencia de si las precondiciones se cumplen (`forzado_por_gestor = true`), los sub-procesos incumplidos NO se resuelven, y la acción se audita en `AUDIT_LOG` con origen Usuario (`usuario_id` del gestor, a diferencia del origen Sistema del barrido de US-031) y `datos_nuevos = {estado: evento_en_curso, forzado_por_gestor: true, precondiciones_incumplidas: [lista]}`. La UI presenta al gestor la lista de precondiciones incumplidas y exige doble confirmación antes de disparar el `POST`. El forzado solo está disponible el día del evento (`fecha_evento = hoy`; la guarda `esDiaDelEvento` devuelve 422 `fecha_evento_no_es_hoy` en cualquier otro día). Si el barrido de US-031 llega primero (carrera cron↔gestor), el forzado termina como no-op idempotente con 409 `conflicto_estado` ("El evento ya está en curso"). Ver endpoint `forzarInicioEvento` en `api-spec.yml`.
+- **FA-02 (A29 — condiciones particulares no firmadas — US-031):** `cond_part_firmadas = false` en T-0 → el sistema emite la alerta no bloqueante A29 ("Las condiciones particulares de esta reserva no están firmadas. El cliente puede firmarlas presencialmente.") con independencia del resultado de la transición; la RESERVA transiciona igualmente a `evento_en_curso` si las dos precondiciones se cumplen.
 - **FA-03 (idempotencia):** una RESERVA ya en `evento_en_curso` (pase previo o gestor US-032) no es candidata; el barrido la omite sin duplicar auditorías.
 - **FA-04 (sin token / token inválido):** `POST /cron/barrido-eventos` sin `X-Cron-Token` o con valor incorrecto → `401`; ninguna RESERVA se transiciona.
 
@@ -1515,7 +1506,7 @@ flowchart TD
     D --> E{¿Hay candidatas?}
     E -->|No| F[Resumen vacío — 200]
     E -->|Sí| G[Por cada candidata: SELECT FOR UPDATE]
-    G --> H{¿3 precondiciones cumplidas?}
+    G --> H{¿2 precondiciones cumplidas?}
     H -->|Sí| I[estado = evento_en_curso + AUDIT_LOG Sistema]
     H -->|No| J[Alerta crítica al gestor — RESERVA sin cambio]
     I --> K{cond_part_firmadas = false?}
@@ -1611,12 +1602,12 @@ flowchart TD
 | **Actores Secundarios** | Sistema |
 | **Descripción** | El gestor marca el evento como finalizado, transicionando la reserva a `post_evento` e iniciando el sub-proceso post-evento. Si hay fianza cobrada (`fianza_eur > 0`), el sistema envía automáticamente el email E5 (agradecimiento + solicitud de IBAN + enlace NPS). Implementado en **US-034** (change `2026-07-09-us-034-finalizar-evento`). |
 | **Precondiciones** | - Reserva en `estado = evento_en_curso` (provista automáticamente por US-031 en T-0 o forzada manualmente por US-032)<br>- Gestor autenticado con rol gestor sobre el tenant (autenticación JWT de usuario, nunca `X-Cron-Token`) |
-| **Postcondiciones** | - `RESERVA.estado = post_evento` (transición **irreversible**, incondicional respecto a fianza y email)<br>- Si `fianza_eur > 0`: `COMUNICACION` creada con `codigo_email = E5`, `estado = enviado` (o `fallido` si el proveedor falla); email E5 enviado al `CLIENTE.email`<br>- Si `fianza_eur = 0` o `IS NULL`: no se envía E5 ni se crea `COMUNICACION` para E5<br>- NPS marcada como programada (T+3d), independientemente de la fianza (el envío real es 📐 fuera de MVP)<br>- `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`, `datos_anteriores = {estado: evento_en_curso}`, `datos_nuevos = {estado: post_evento}`, **origen Usuario** (gestor autenticado, `usuario_id` poblado — a diferencia del barrido de Sistema de UC-23/US-031) |
+| **Postcondiciones** | - `RESERVA.estado = post_evento` (transición **irreversible**, incondicional)<br>- NPS marcada como programada (T+3d) (el envío real es 📐 fuera de MVP)<br>- No se envía E5 (eliminado en change `fix-liquidacion-fianza-independientes`)<br>- `AUDIT_LOG` con `accion = 'transicion'`, `entidad = 'RESERVA'`, `datos_anteriores = {estado: evento_en_curso}`, `datos_nuevos = {estado: post_evento}`, **origen Usuario** (gestor autenticado, `usuario_id` poblado — a diferencia del barrido de Sistema de UC-23/US-031) |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
 | **US** | US-034 (flujo básico); US-032 (forzado manual — implementado, produce el `evento_en_curso` que habilita esta acción) |
 | **Endpoint** | `POST /reservas/{id}/finalizar-evento` — body vacío o `{}` |
-| **Entidades afectadas** | RESERVA (UPDATE `estado`), COMUNICACION (INSERT si `fianza_eur > 0`), AUDIT_LOG — sin migración de esquema (todos los campos y enums ya existían) |
+| **Entidades afectadas** | RESERVA (UPDATE `estado`), AUDIT_LOG — sin migración de esquema (todos los campos y enums ya existían) |
 
 **Flujo Básico (US-034 — implementado):**
 1. El gestor accede a la ficha de la reserva en `evento_en_curso`
@@ -1625,17 +1616,13 @@ flowchart TD
 4. El gestor confirma la acción
 5. El sistema re-evalúa la guarda de origen (`estado = evento_en_curso`) dentro de una transacción con `SELECT … FOR UPDATE` sobre la fila RESERVA; si el estado ya no es `evento_en_curso` (doble finalización concurrente), la segunda request termina como conflicto de estado sin efectos
 6. **Paso transaccional (crítico):** el sistema fija `RESERVA.estado = post_evento` y registra la transición en `AUDIT_LOG` (origen Usuario); la NPS queda marcada como programada (T+3d, marca derivada)
-7. **Paso post-commit (best-effort):** si `fianza_eur > 0`, el motor de email de `comunicaciones` (US-045) dispara el trigger E5 al `CLIENTE.email`; crea `COMUNICACION` con `codigo_email = 'E5'`, `estado = enviado` (o `fallido` si el proveedor falla); si `fianza_eur = 0` o `IS NULL`, no se envía E5 ni se crea `COMUNICACION`
-8. Si E5 falla: la transición a `post_evento` se mantiene; `COMUNICACION.estado = fallido`; el gestor ve la alerta "La reserva ha pasado a post-evento, pero el email E5 no pudo enviarse. Puedes reenviarlo desde la ficha."
-9. El sistema responde 200 con `FinalizarEventoResponse = allOf(Reserva)` (objeto Reserva completo, ya en `estado = post_evento`, rehidratado post-commit vía el read-model de `GET /reservas/{id}`) + `e5: { resultado: enviado|fallido|no_aplica, comunicacionId }` + `documentacionPendiente: string[]`
+7. **Paso post-commit:** no se envía E5 (eliminado en change `fix-liquidacion-fianza-independientes`).
+8. El sistema responde 200 con `FinalizarEventoResponse = allOf(Reserva)` (objeto Reserva completo, ya en `estado = post_evento`, rehidratado post-commit vía el read-model de `GET /reservas/{id}`) + `documentacionPendiente: string[]`
 
 **Flujos Alternativos:**
 - **FA-01 (documentación incompleta):** checklist de documentación del evento con ítems pendientes → el sistema muestra advertencia informativa (no bloqueante) antes de la confirmación; si el gestor confirma, la transición se ejecuta igualmente; el checklist sigue accesible para subidas tardías en `post_evento`
-- **FA-02 (sin fianza — `fianza_eur = 0` o `NULL`):** la RESERVA transiciona a `post_evento`; no se envía E5 ni se crea `COMUNICACION` para E5; la NPS queda marcada como programada igualmente
-- **FA-03 (dato anómalo de fianza — `fianza_status = cobrada` con `fianza_eur IS NULL`):** el sistema trata la condición como "sin fianza" (`fianza_eur IS NULL` ≡ 0); no se envía E5; la inconsistencia se registra en `AUDIT_LOG` como alerta de dato anómalo; la transición procede igualmente
-- **FA-04 (fallo de E5):** si el proveedor de email falla post-commit, la transición a `post_evento` no se revierte; `COMUNICACION.estado = fallido`; el gestor puede reintentar el envío desde la ficha
-- **FA-05 (estado incorrecto — guarda de origen):** RESERVA en cualquier estado distinto de `evento_en_curso` → el sistema responde 409 (`transicion_no_permitida`); la RESERVA no se modifica, E5 no se dispara, `AUDIT_LOG` no registra transición
-- **FA-06 (doble finalización concurrente):** dos peticiones simultáneas sobre la misma RESERVA → exactamente una transición gana; la segunda observa el lock (`estado ≠ evento_en_curso`, 0 filas afectadas) y termina como conflicto de estado; `AUDIT_LOG` recibe exactamente una entrada de transición; E5 se dispara a lo sumo una vez
+- **FA-02 (estado incorrecto — guarda de origen):** RESERVA en cualquier estado distinto de `evento_en_curso` → el sistema responde 409 (`transicion_no_permitida`); la RESERVA no se modifica, `AUDIT_LOG` no registra transición.
+- **FA-03 (doble finalización concurrente):** dos peticiones simultáneas sobre la misma RESERVA → exactamente una transición gana; la segunda observa el lock (`estado ≠ evento_en_curso`, 0 filas afectadas) y termina como conflicto de estado; `AUDIT_LOG` recibe exactamente una entrada de transición.
 
 ```mermaid
 flowchart TD
@@ -1651,24 +1638,14 @@ flowchart TD
     I -->|No — carrera perdida| C
     I -->|Sí| J[UPDATE RESERVA: estado=post_evento + NPS programada]
     J --> K[INSERT AUDIT_LOG: transicion + origen Usuario]
-    K --> L{fianza_eur > 0?}
-    L -->|No 0 o NULL| M[e5: no_aplica — sin COMUNICACION E5]
-    L -->|NULL con fianza_status=cobrada| N[Sin E5 + alerta dato anómalo en AUDIT_LOG]
-    L -->|Sí| O[Motor US-045: disparar E5 al CLIENTE.email]
-    O --> P{Envío exitoso?}
-    P -->|Sí| Q[COMUNICACION E5 estado=enviado]
-    P -->|No| R[COMUNICACION E5 estado=fallido + alerta al gestor]
-    M --> S[200 estado=post_evento + e5 + documentacionPendiente]
-    N --> S
-    Q --> S
-    R --> S
+    K --> S[200 estado=post_evento + documentacionPendiente]
 ```
 
 **Nota de alcance (US-034):**
-- **Implementado:** transición manual `evento_en_curso → post_evento` (irreversible), E5 condicional a `fianza_eur > 0`, separación transición↔envío (fallo de E5 no revierte el estado), NPS marcada como programada (sin envío), advertencia no bloqueante de documentación incompleta, dato anómalo de fianza (`NULL` con `fianza_status=cobrada`), concurrencia doble finalización por `SELECT … FOR UPDATE`, auditoría con origen Usuario.
-- **Fuera de alcance (📐):** envío real de la NPS a T+3d (recordatorios automáticos extendidos); A23 (T+3d recordatorio IBAN); A24 (T+7d segundo recordatorio IBAN); factura complementaria post-evento; reenvío de E5 desde la ficha (→ US futura); UI del dashboard de notificaciones (→ US-044).
+- **Implementado:** transición manual `evento_en_curso → post_evento` (irreversible), NPS marcada como programada (sin envío), advertencia no bloqueante de documentación incompleta, concurrencia doble finalización por `SELECT … FOR UPDATE`, auditoría con origen Usuario. E5 eliminado (change `fix-liquidacion-fianza-independientes`).
+- **Fuera de alcance (📐):** envío real de la NPS a T+3d; factura complementaria post-evento; UI del dashboard de notificaciones (→ US-044).
 - **Implementado en US coordinadas:** checklist de documentación del evento implementado en US-033 (consultado por US-034 en el paso 3 del flujo básico; advertencia informativa no bloqueante si hay ítems pendientes).
-- **US coordinadas:** US-031 (inicio automático de `evento_en_curso`); US-032 (forzado manual del inicio — implementado); US-033 (checklist de documentación, consultado por US-034); US-045 (motor de email `comunicaciones`, reutilizado para E5).
+- **US coordinadas:** US-031 (inicio automático de `evento_en_curso`); US-032 (forzado manual del inicio — implementado); US-033 (checklist de documentación, consultado por US-034).
 
 ---
 
@@ -1676,72 +1653,65 @@ flowchart TD
 
 ---
 
-#### UC-26: Solicitar IBAN para Devolución de Fianza
+#### UC-26: Devolver Fianza
 
 | Campo | Descripción |
 |-------|-------------|
 | **ID** | UC-26 |
-| **Nombre** | Solicitar IBAN para Devolución de Fianza |
-| **Actor Principal** | Sistema |
-| **Actores Secundarios** | Cliente, Gestor |
-| **Descripción** | El sistema solicita automáticamente al cliente su IBAN al entrar en `post_evento` con fianza cobrada (E5, US-034). El gestor registra el IBAN recibido del cliente en Slotify y el sistema confirma la recepción al cliente con E8 (US-035). |
-| **Precondiciones** | - Reserva en estado `post_evento`<br>- `fianza_eur > 0` |
-| **Postcondiciones** | - Email E5 enviado al cliente (US-034)<br>- `CLIENTE.iban_devolucion` persistido con validación mod-97 (US-035)<br>- Email E8 enviado al cliente confirmando recepción del IBAN (US-035) |
+| **Nombre** | Devolver Fianza |
+| **Actor Principal** | Gestor |
+| **Actores Secundarios** | Sistema |
+| **Descripción** | El gestor registra la devolución completa de la fianza al cliente. El sistema transiciona `fianza_status → 'devuelta'` y envía email E10 al cliente. Flujo simplificado (change `fix-liquidacion-fianza-independientes`): sin IBAN, sin E5/E8, sin retención parcial. |
+| **Precondiciones** | - Reserva en estado `post_evento`<br>- `fianza_status = 'cobrada'` |
+| **Postcondiciones** | - `RESERVA.fianza_status = 'devuelta'`<br>- `RESERVA.fianza_devuelta_fecha = now()`<br>- `COMUNICACION` creada con `codigo_email = 'E10'`, `estado = enviado` (o `fallido`)<br>- `AUDIT_LOG` registrado |
 | **Prioridad** | Alta |
 | **Frecuencia** | Media |
-| **US** | US-034 (E5 al entrar en `post_evento`); US-035 (registro IBAN + E8) |
+| **Endpoint** | `POST /reservas/{id}/fianza/devolver` |
 
 **Flujo Básico:**
-1. Al entrar en `post_evento`, el sistema detecta `fianza_eur > 0`
-2. El sistema envía email E5 (agradecimiento + solicitud de IBAN) al cliente vía el motor de `comunicaciones` (US-034)
-3. El cliente responde al gestor con su IBAN (por email u otra vía directa; en MVP no hay formulario web autónomo)
-4. El gestor introduce el IBAN recibido en la ficha de la reserva (campo IBAN, visible solo si `fianza_eur > 0`)
-5. El frontend llama a `PATCH /reservas/{id}/iban-devolucion` con body `{ iban }` (JWT de usuario; D-5A)
-6. El backend valida el IBAN por **checksum módulo 97** (función pura de dominio, antes de toda escritura); si es inválido devuelve `422` sin efectos
-7. El backend valida la precondición dual (`estado = post_evento` AND `fianza_eur > 0`); si no se cumple devuelve `409` (`estado_no_post_evento` o `sin_fianza`) sin efectos
-8. **Paso transaccional:** `UPDATE CLIENTE.iban_devolucion` + `INSERT AUDIT_LOG` (`accion='actualizar'`, `entidad='CLIENTE'`, `datos_anteriores={iban_devolucion:<previo o null>}`, `datos_nuevos={iban_devolucion:<nuevo>}`). Commit.
-9. **Paso post-commit (best-effort):** el motor de `comunicaciones` (US-045) despacha el email **E8** (confirmación de recepción del IBAN + próximos pasos para la devolución) al `CLIENTE.email`; crea `COMUNICACION` con `codigo_email='E8'`, `estado='enviado'` (o `'fallido'` si el proveedor falla); el fallo de E8 **no revierte** el IBAN ya guardado
-10. El sistema responde `200` con `{ iban, avisoEmail }` (D-5A): `avisoEmail` indica si E8 se envió o falló
+1. El gestor accede a la ficha de la reserva en `post_evento` con fianza cobrada.
+2. El gestor pulsa el botón "Devolver fianza" y confirma en el diálogo.
+3. El sistema valida `RESERVA.estado = post_evento` AND `RESERVA.fianza_status = 'cobrada'` con `SELECT … FOR UPDATE` sobre la fila RESERVA.
+4. **Paso transaccional:** fija `RESERVA.fianza_status = 'devuelta'`, `RESERVA.fianza_devuelta_fecha = now()` + INSERT en `AUDIT_LOG` (`accion='actualizar'`, `entidad='RESERVA'`). Commit.
+5. **Paso post-commit (best-effort):** el motor de comunicaciones dispara el email **E10** ("fianza devuelta", CA/ES seleccionado por `RESERVA.idioma`) al `CLIENTE.email`; crea `COMUNICACION` con `codigo_email='E10'`; un fallo de E10 **no revierte** la devolución ya registrada.
+6. La UI muestra el estado `devuelta` y permite al gestor reintentar E10 desde la ficha si quedó `fallido`.
 
 **Flujos Alternativos:**
-- **FA-01 (IBAN inválido):** checksum mod-97 falla → `422`; `CLIENTE.iban_devolucion` no se actualiza; E8 no se envía. Mensaje: "El IBAN introducido no tiene un formato válido. Verifica los dígitos de control y la longitud."
-- **FA-02 (corrección del IBAN):** el gestor registra un IBAN corregido → `CLIENTE.iban_devolucion` se sobreescribe; se crea una **nueva** `COMUNICACION` E8 (excepción explícita y auditada a la idempotencia D-3A, coherente con el precedente del reenvío de E4 en US-028)
-- **FA-03 (fallo de E8):** IBAN guardado, `COMUNICACION.estado='fallido'`; el gestor ve alerta "IBAN guardado, pero E8 no pudo enviarse. Puedes reenviarlo desde la ficha."
-- **FA-04 (sin fianza):** `fianza_eur = 0` o `IS NULL` → `409 sin_fianza`; la UI oculta/deshabilita el campo IBAN
-- **📐 Fuera de MVP:** recordatorios automáticos A23 (T+3d) y A24 (T+7d) si el cliente no aporta IBAN; formulario web autónomo del cliente para aportar IBAN; validación bancaria en tiempo real
+- **FA-01 (devolución ya registrada):** `fianza_status = 'devuelta'` → `409 DEVOLUCION_YA_REGISTRADA`.
+- **FA-02 (precondición no cumplida):** `fianza_status ≠ 'cobrada'` → `409 PRECONDICION_NO_CUMPLIDA`.
+- **FA-03 (fallo de E10):** la devolución permanece registrada; `COMUNICACION.estado = 'fallido'`; el gestor puede reintentar desde la ficha.
+
+> **Nota de eliminación:** En el flujo anterior a este change, UC-26 describía la solicitud de IBAN al cliente (email E5, US-034) y el registro del IBAN por el gestor con confirmación E8 (US-035). Todos esos elementos han sido eliminados (change `fix-liquidacion-fianza-independientes`). El endpoint `PATCH /reservas/{id}/iban-devolucion` deja de existir.
 
 ---
 
-#### UC-27: Procesar Devolución de Fianza
+#### UC-27: Reenviar Email de Fianza Devuelta
 
 | Campo | Descripción |
 |-------|-------------|
 | **ID** | UC-27 |
-| **Nombre** | Procesar Devolución de Fianza |
+| **Nombre** | Reenviar Email de Fianza Devuelta |
 | **Actor Principal** | Gestor |
 | **Actores Secundarios** | Sistema |
-| **Descripción** | El gestor registra el IBAN del cliente en Slotify (pasos 1–3, implementado en **US-035**) y posteriormente procesa la devolución efectiva de la fianza (pasos 4–8, implementado en **US-036**). |
-| **Precondiciones** | - Reserva en estado `post_evento`<br>- `fianza_eur > 0`<br>- `CLIENTE.iban_devolucion` registrado (para los pasos de devolución) |
-| **Postcondiciones** | - `CLIENTE.iban_devolucion` persistido con validación mod-97 + E8 confirmado al cliente (US-035)<br>- `RESERVA.fianza_status = 'devuelta'` (devolución completa) o `'retenida_parcial'` (parcial o retención total) (US-036)<br>- `RESERVA.fianza_devuelta_fecha` registrada (US-036)<br>- `RESERVA.fianza_devuelta_eur` registrado (US-036)<br>- `RESERVA.motivo_retencion` registrado cuando `fianza_devuelta_eur < fianza_eur` o = 0 (US-036)<br>- AUDIT_LOG registrado (US-036)<br>- Justificante de transferencia almacenado como DOCUMENTO (opcional, US-036) |
-| **Prioridad** | Alta |
-| **Frecuencia** | Media |
-| **US** | US-035 (pasos 1–3: registro IBAN + E8); US-036 (pasos 4–8: devolución completa o parcial) |
+| **Descripción** | El gestor reenvía el email E10 ("fianza devuelta") al cliente cuando el envío original quedó en `fallido` o el cliente no lo recibió. Flujo de reintento post-commit (change `fix-liquidacion-fianza-independientes`). |
+| **Precondiciones** | - Reserva en estado `post_evento` o `reserva_completada`<br>- `fianza_status = 'devuelta'` |
+| **Postcondiciones** | - `COMUNICACION` creada con `codigo_email = 'E10'`, `es_reenvio = true`, `estado = enviado` (o `fallido`)<br>- `AUDIT_LOG` registrado |
+| **Prioridad** | Media |
+| **Frecuencia** | Baja |
+| **Endpoint** | `POST /reservas/{id}/fianza/devolucion/reenviar` |
 
-**Flujo Básico (devolución completa):**
-1. El cliente proporciona IBAN al gestor (email u otra vía directa)
-2. El gestor introduce el IBAN en la ficha de la reserva en Slotify
-3. El sistema valida el IBAN (mod-97), lo persiste en `CLIENTE.iban_devolucion` y envía E8 al cliente confirmando recepción (`PATCH /reservas/{id}/iban-devolucion`, body `{ iban }`, respuesta `200 { iban, avisoEmail }`) — **implementado en US-035**
-4. El gestor realiza la transferencia externamente
-5. El gestor accede a la ficha de reserva
-6. El gestor selecciona "Registrar devolución de fianza"
-7. El gestor introduce:
-   - Importe devuelto = fianza_eur
-   - Justificante de transferencia
-8. El sistema registra `fianza_devuelta_fecha`, `fianza_devuelta_eur`, fija `fianza_status = 'devuelta'` y registra en `AUDIT_LOG` — **implementado en US-036** (`POST /reservas/{id}/fianza/devolucion`)
+**Flujo Básico:**
+1. El gestor accede a la ficha de la reserva y detecta que el email E10 original quedó `fallido`.
+2. El gestor pulsa el botón "Reenviar email de devolución".
+3. El sistema verifica que `fianza_status = 'devuelta'`.
+4. El motor de comunicaciones reenvía E10 al `CLIENTE.email`; crea `COMUNICACION` con `codigo_email='E10'`, `es_reenvio = true`.
+5. La UI confirma el resultado del reenvío.
 
 **Flujos Alternativos:**
-- **FA-01**: Devolución parcial por desperfectos → Gestor indica `fianza_devuelta_eur` menor que `fianza_eur` y `motivo_retencion` (obligatorio); `fianza_status → 'retenida_parcial'`. Retención total (`fianza_devuelta_eur = 0`) también usa `retenida_parcial` con `motivo_retencion` obligatorio. (US-036)
-- **FA-02**: IBAN erróneo → Gestor corrige el IBAN en la ficha; el sistema sobreescribe `CLIENTE.iban_devolucion` y reenvía E8 como nueva `COMUNICACION` (excepción auditada D-3A, US-035 FA-02)
+- **FA-01 (fianza no devuelta):** `fianza_status ≠ 'devuelta'` → `409 PRECONDICION_NO_CUMPLIDA`.
+- **FA-02 (fallo del reenvío):** `COMUNICACION.estado = 'fallido'`; el gestor puede reintentar.
+
+> **Nota de eliminación:** En el flujo anterior a este change, UC-27 describía la devolución de fianza con registro de IBAN (US-035), devolución completa/parcial con `motivo_retencion` y `fianza_devuelta_eur` (US-036). Todos esos elementos han sido eliminados (change `fix-liquidacion-fianza-independientes`). La devolución completa ahora la describe UC-26.
 
 ---
 
@@ -1754,7 +1724,7 @@ flowchart TD
 | **Actor Principal** | Sistema (flujo básico automático, US-037) / Gestor (flujo alternativo manual, US-038) |
 | **Actores Secundarios** | - |
 | **Descripción** | La reserva pasa al histórico consultable, quedando en estado terminal `reserva_completada` (inmutable). Hay dos mecanismos: el automático por barrido periódico en T+7d (US-037) y el manual por acción del gestor (US-038). |
-| **Precondiciones** | - Reserva en `estado = post_evento`<br>- Guarda de fianza resuelta: `fianza_status ∈ {devuelta, retenida_parcial}` O `fianza_eur <= 0` O `fianza_eur IS NULL`<br>- (Solo flujo automático) `date(fecha_post_evento) <= date(hoy) - 7` |
+| **Precondiciones** | - Reserva en `estado = post_evento`<br>- Guarda de fianza resuelta: `fianza_status = 'devuelta'` O `fianza_eur <= 0` O `fianza_eur IS NULL` (change `fix-liquidacion-fianza-independientes`: se elimina `retenida_parcial` del conjunto)<br>- (Solo flujo automático) `date(fecha_post_evento) <= date(hoy) - 7` |
 | **Postcondiciones** | - `RESERVA.estado = reserva_completada` (terminal, sin arista de salida)<br>- Flujo automático: `AUDIT_LOG` con `accion='transicion'`, `datos_nuevos={estado:reserva_completada, causa:'T+7d'}`, `usuario_id` nulo (Sistema)<br>- Flujo manual: `AUDIT_LOG` con `accion='transicion'`, `datos_nuevos={estado:reserva_completada}`, `usuario_id` del gestor (origen Gestor, NO Sistema)<br>- Reserva visible y filtrable en el módulo Histórico (UC-32); excluida del pipeline activo (`GET /reservas`)<br>- No se envía ningún email al cliente ni al gestor (ninguno de los dos flujos) |
 | **Prioridad** | Media |
 | **Frecuencia** | Media |
@@ -1777,18 +1747,18 @@ flowchart TD
 4. La candidata se contabiliza como `fianzaPendiente` en el resumen del barrido.
 
 **Flujo Alternativo B — archivado manual por el gestor (US-038):**
-1. El gestor abre la ficha de la reserva en `post_evento`. El botón "Archivar reserva" es visible solo en ese estado; se deshabilita con mensaje explicativo cuando la fianza no está resuelta (`fianza_status ∈ {cobrada, recibo_enviado, pendiente}` con `fianza_eur > 0`).
+1. El gestor abre la ficha de la reserva en `post_evento`. El botón "Archivar reserva" es visible solo en ese estado; se deshabilita con mensaje explicativo cuando la fianza no está resuelta (`fianza_status ∈ {cobrada, pendiente}` con `fianza_eur > 0`).
 2. El gestor hace clic en "Archivar reserva" y confirma en el diálogo de confirmación (patrón `FinalizarEventoDialog` de US-034). No se aplica ningún filtro de antigüedad T+7d: el gestor puede archivar en cualquier momento tras entrar en `post_evento`.
 3. El frontend llama a `POST /reservas/{id}/archivar` con el JWT del gestor (rol gestor). El `tenant_id` y el `usuario_id` se derivan siempre del JWT, nunca del path ni del body.
 4. En una transacción atómica bajo el contexto RLS del tenant del JWT, con `SELECT … FOR UPDATE` sobre la fila RESERVA, el sistema re-evalúa bajo el lock dos guardas reutilizadas de US-037 (no se crean guardas nuevas):
    - **Guarda de origen** (`resolverArchivadoAutomatico`): si `estado ≠ post_evento` (incluido ya `reserva_completada`) → **409** `code: 'transicion_no_permitida'`, sin transicionar ni auditar. Cubre la idempotencia (doble clic del gestor) y la race condition con el cron de US-037.
-   - **Guarda de fianza** (`fianzaResuelta`, idéntica a US-037): resuelta si `fianza_status ∈ {devuelta, retenida_parcial}` O `fianza_eur ≤ 0` O `fianza_eur IS NULL`. Si el origen es `post_evento` válido pero la fianza no está resuelta → **422** `code: 'fianza_no_resuelta'` con el mensaje "No se puede archivar la reserva: la fianza está pendiente de resolución. Registra la devolución o retención de fianza antes de archivar."; la RESERVA permanece en `post_evento` sin auditoría. El backend valida siempre (defensa en profundidad), aunque la UI deshabilite el botón preventivamente.
+   - **Guarda de fianza** (`fianzaResuelta`, idéntica a US-037): resuelta si `fianza_status = 'devuelta'` O `fianza_eur ≤ 0` O `fianza_eur IS NULL` (change `fix-liquidacion-fianza-independientes`: `retenida_parcial` eliminado). Si el origen es `post_evento` válido pero la fianza no está resuelta → **422** `code: 'fianza_no_resuelta'` con el mensaje "No se puede archivar la reserva: la fianza está pendiente de resolución. Registra la devolución antes de archivar."; la RESERVA permanece en `post_evento` sin auditoría. El backend valida siempre (defensa en profundidad), aunque la UI deshabilite el botón preventivamente.
 5. Si ambas guardas se satisfacen: fija `RESERVA.estado = reserva_completada` y registra en `AUDIT_LOG` con `accion='transicion'`, `entidad='RESERVA'`, `datos_anteriores={estado: post_evento}`, `datos_nuevos={estado: reserva_completada}`, `usuario_id=<id del gestor del JWT>` (origen Gestor, `usuario_id` no nulo — a diferencia del barrido de US-037, que audita `usuario_id` nulo y `causa='T+7d'`). No se emite ningún email.
 6. El frontend muestra el toast de éxito: "Reserva [código] archivada correctamente. Ya está disponible en el Histórico." La reserva sale del pipeline activo.
 
 **Flujo Alternativo C — fianza no resuelta en archivado manual (FA-01/FA-02 — US-038):**
-1. El gestor intenta archivar una reserva en `post_evento` cuya fianza no está resuelta (`fianza_status ∈ {cobrada, recibo_enviado, pendiente}` con `fianza_eur > 0`).
-2. El sistema bloquea la acción y devuelve **422** `code: 'fianza_no_resuelta'` con el mensaje específico de FA-01/FA-02. La RESERVA permanece en `post_evento`; no se registra ninguna entrada de transición en `AUDIT_LOG`.
+1. El gestor intenta archivar una reserva en `post_evento` cuya fianza no está resuelta (`fianza_status ∈ {cobrada, pendiente}` con `fianza_eur > 0`).
+2. El sistema bloquea la acción y devuelve **422** `code: 'fianza_no_resuelta'`. La RESERVA permanece en `post_evento`; no se registra ninguna entrada de transición en `AUDIT_LOG`.
 
 **Concurrencia cron (US-037) vs. archivado manual (US-038):**
 Si el barrido de Sistema y el gestor intentan transicionar simultáneamente la misma RESERVA de `post_evento` a `reserva_completada`, exactamente una operación gana; la segunda observa bajo el `SELECT … FOR UPDATE` que el estado ya no es `post_evento` — no-op para el cron, **409** `transicion_no_permitida` para el gestor — sin doble transición ni doble `AUDIT_LOG`. La serialización la da PostgreSQL sobre la fila RESERVA, sin locks distribuidos (prohibidos por `no-distributed-lock`).

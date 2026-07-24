@@ -73,11 +73,6 @@ export {
   motivoArchivarBloqueado,
   MENSAJE_FIANZA_NO_RESUELTA,
 } from './lib/archivarReserva';
-export { useRegistrarIbanDevolucion } from './api/useRegistrarIbanDevolucion';
-export type {
-  RegistrarIbanError,
-  RegistrarIbanDevolucionVars,
-} from './api/useRegistrarIbanDevolucion';
 export { useDescartarConsulta } from './api/useDescartarConsulta';
 export type {
   DescartarConsultaError,
@@ -93,6 +88,3 @@ export {
   puedeDescartarPreReserva,
   MENSAJE_DESCARTE_PRERESERVA_TERMINAL,
 } from './lib/descartarPreReserva';
-export { IbanDevolucionCard } from './components/IbanDevolucionCard';
-export { puedeRegistrarIban, tieneFianza } from './lib/ibanDevolucion';
-export { esIbanValido, normalizarIban } from './lib/iban';

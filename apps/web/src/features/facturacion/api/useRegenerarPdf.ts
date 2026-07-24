@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api-client';
 import { normalizarErrorFactura } from './normalizarError';
 import { facturaSenalQueryKey } from './useFacturaSenal';
+import { facturaLiquidacionQueryKey } from './useFacturaLiquidacion';
 import type { FacturaError, FacturaSenal } from '../model/types';
 
 /** Variables del reintento de generación del PDF de la factura de señal (US-022). */
@@ -41,6 +42,8 @@ export const useRegenerarPdf = () => {
     onSuccess: (factura, { reservaId }) => {
       queryClient.setQueryData(facturaSenalQueryKey(reservaId), factura);
       void queryClient.invalidateQueries({ queryKey: facturaSenalQueryKey(reservaId) });
+      // La liquidación comparte el endpoint de regeneración de PDF; refresca también su query.
+      void queryClient.invalidateQueries({ queryKey: facturaLiquidacionQueryKey(reservaId) });
     },
   });
 };

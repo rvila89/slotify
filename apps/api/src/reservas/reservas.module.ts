@@ -180,17 +180,7 @@ import {
 import { CargarReservaForzarInicioPrismaAdapter } from './infrastructure/cargar-reserva-forzar-inicio.prisma.adapter';
 import { UnidadDeTrabajoForzarInicioPrismaAdapter } from './infrastructure/forzar-inicio-evento-uow.prisma.adapter';
 import { ForzarInicioEventoController } from './interface/forzar-inicio-evento.controller';
-import {
-  RegistrarIbanDevolucionUseCase,
-  type DispararE8Port,
-  type RegistrarIbanDevolucionComando,
-  type ReservaIbanDevolucion,
-  type UnidadDeTrabajoIbanDevolucionPort,
-} from './application/registrar-iban-devolucion.use-case';
-import { CargarReservaIbanDevolucionPrismaAdapter } from './infrastructure/cargar-reserva-iban-devolucion.prisma.adapter';
-import { RegistrarIbanDevolucionUoWPrismaAdapter } from './infrastructure/registrar-iban-devolucion-uow.prisma.adapter';
-import { DispararE8Adapter } from './infrastructure/disparar-e8.adapter';
-import { RegistrarIbanDevolucionController } from './interface/registrar-iban-devolucion.controller';
+// fix-liquidacion-fianza-independientes: se elimina el registro de IBAN de devolución (E5/E8).
 import {
   ActualizarDatosFiscalesClienteUseCase,
   type ActualizarDatosFiscalesClienteComando,
@@ -271,9 +261,6 @@ import {
   DOCUMENTACION_EVENTO_PORT,
   CARGAR_RESERVA_FORZAR_INICIO_PORT,
   UNIDAD_DE_TRABAJO_FORZAR_INICIO_PORT,
-  CARGAR_RESERVA_IBAN_DEVOLUCION_PORT,
-  UNIDAD_DE_TRABAJO_IBAN_DEVOLUCION_PORT,
-  DISPARAR_E8_PORT,
   CARGAR_RESERVA_DATOS_FISCALES_PORT,
   UNIDAD_DE_TRABAJO_DATOS_FISCALES_PORT,
   CANDIDATAS_ARCHIVADO_PORT,
@@ -313,8 +300,7 @@ import {
     BarridoCompletadasController,
     PromoverManualController,
     FinalizarEventoController,
-    ForzarInicioEventoController,
-    RegistrarIbanDevolucionController,
+    ForzarInicioEventoController,
     ActualizarDatosFiscalesClienteController,
     ArchivarReservaManualController,
     DescartarConsultaController,
@@ -861,49 +847,9 @@ import {
             }),
         }),
     },
-    // US-035 — registro del IBAN de devolución (post_evento + fianza > 0 →
-    // CLIENTE.iban_devolucion + E8). Validación mod-97 (dominio) previa a la escritura; el
-    // UPDATE CLIENTE + AUDIT_LOG (entidad CLIENTE, origen Usuario) van en una transacción
-    // bajo RLS; el disparo de E8 es POST-COMMIT best-effort reusando el motor de
-    // comunicaciones (US-045) con reenvío D-3A (nueva COMUNICACION E8 por cada corrección).
-    {
-      provide: CARGAR_RESERVA_IBAN_DEVOLUCION_PORT,
-      inject: [PrismaService],
-      useFactory: (prisma: PrismaService) =>
-        new CargarReservaIbanDevolucionPrismaAdapter(prisma),
-    },
-    {
-      provide: UNIDAD_DE_TRABAJO_IBAN_DEVOLUCION_PORT,
-      inject: [PrismaService],
-      useFactory: (prisma: PrismaService) =>
-        new RegistrarIbanDevolucionUoWPrismaAdapter(prisma),
-    },
-    {
-      provide: DISPARAR_E8_PORT,
-      inject: [DespacharEmailService, PrismaService],
-      useFactory: (motor: DespacharEmailService, prisma: PrismaService) =>
-        new DispararE8Adapter(motor, prisma),
-    },
-    {
-      provide: RegistrarIbanDevolucionUseCase,
-      inject: [
-        UNIDAD_DE_TRABAJO_IBAN_DEVOLUCION_PORT,
-        CARGAR_RESERVA_IBAN_DEVOLUCION_PORT,
-        DISPARAR_E8_PORT,
-      ],
-      useFactory: (
-        unidadDeTrabajo: UnidadDeTrabajoIbanDevolucionPort,
-        cargador: CargarReservaIbanDevolucionPrismaAdapter,
-        dispararE8: DispararE8Port,
-      ) =>
-        new RegistrarIbanDevolucionUseCase({
-          unidadDeTrabajo,
-          cargarReserva: (
-            comando: RegistrarIbanDevolucionComando,
-          ): Promise<ReservaIbanDevolucion | null> => cargador.cargar(comando),
-          dispararE8,
-        }),
-    },
+    // fix-liquidacion-fianza-independientes: se elimina el registro de IBAN de devolución
+    // (E5/E8, CLIENTE.iban_devolucion). La devolución de la fianza se registra ahora en
+    // `facturacion` (POST /reservas/{id}/fianza/devolver) sin IBAN.
     // US-014 #5 (Parte B) — actualización de datos fiscales del CLIENTE de una RESERVA. El CLIENTE
     // se resuelve a través de la RESERVA bajo RLS del tenant del JWT; el UPDATE PARCIAL de columnas
     // fiscales del CLIENTE + AUDIT_LOG (entidad CLIENTE, origen Usuario) van en una transacción bajo
@@ -1143,8 +1089,7 @@ import {
     PromoverManualEnColaService,
     IniciarEventosDelDiaService,
     FinalizarEventoUseCase,
-    ForzarInicioEventoUseCase,
-    RegistrarIbanDevolucionUseCase,
+    ForzarInicioEventoUseCase,
     ActualizarDatosFiscalesClienteUseCase,
     ArchivarReservasCompletadasService,
     ArchivarReservaManualUseCase,

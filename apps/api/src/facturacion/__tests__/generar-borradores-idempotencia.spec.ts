@@ -165,11 +165,13 @@ beforeEach(async () => {
 
 // ===========================================================================
 // 3.7 — Reinvocación SECUENCIAL del trigger: el segundo disparo NO duplica los
-//        borradores (guarda por (reserva_id, tipo)); una liquidación y una fianza.
+//        borradores (guarda por (reserva_id, tipo)); UNA sola liquidación y NINGUNA
+//        fianza (fix-liquidacion-fianza-independientes: la fianza deja de generarse
+//        como FACTURA).
 // ===========================================================================
 
 describe('GenerarBorradores — reinvocación secuencial del trigger no duplica (3.7)', () => {
-  it('debe_dejar_una_sola_liquidacion_y_una_sola_fianza_tras_dos_disparos_secuenciales', async () => {
+  it('debe_dejar_una_sola_liquidacion_y_ninguna_fianza_tras_dos_disparos_secuenciales', async () => {
     const reservaId = await sembrarReservaConfirmada({
       fecha: new Date(Date.UTC(2029, 5, 1)),
       importeLiquidacion: '3600.00',
@@ -185,9 +187,10 @@ describe('GenerarBorradores — reinvocación secuencial del trigger no duplica 
       select: { tipo: true, total: true, numeroFactura: true, estado: true },
     });
     const liquidaciones = facturas.filter((f) => f.tipo === 'liquidacion');
-    const fianzas = facturas.filter((f) => f.tipo === 'fianza');
+    const fianzas = facturas.filter((f) => (f.tipo as string) === 'fianza');
     expect(liquidaciones).toHaveLength(1);
-    expect(fianzas).toHaveLength(1);
+    // La fianza ya no se genera como FACTURA.
+    expect(fianzas).toHaveLength(0);
     // Borradores sin número; liquidación con el total 60 % + extras.
     expect(liquidaciones[0].numeroFactura).toBeNull();
     expect(Number(liquidaciones[0].total)).toBe(4100);
@@ -202,7 +205,7 @@ describe('GenerarBorradores — reinvocación secuencial del trigger no duplica 
 // ===========================================================================
 
 describe('GenerarBorradores — doble disparo concurrente de la misma reserva no duplica (3.7)', () => {
-  it('debe_crear_como_maximo_una_liquidacion_y_una_fianza_con_dos_disparos_simultaneos', async () => {
+  it('debe_crear_como_maximo_una_liquidacion_y_ninguna_fianza_con_dos_disparos_simultaneos', async () => {
     const reservaId = await sembrarReservaConfirmada({
       fecha: new Date(Date.UTC(2029, 5, 2)),
       importeLiquidacion: '3600.00',
@@ -219,12 +222,13 @@ describe('GenerarBorradores — doble disparo concurrente de la misma reserva no
     const rechazados = resultados.filter((r) => r.status === 'rejected');
     expect(rechazados).toHaveLength(0);
 
-    // Estado de BD: exactamente una liquidación y una fianza (sin duplicados).
+    // Estado de BD: exactamente una liquidación y NINGUNA fianza (la fianza ya no se
+    // genera como FACTURA; fix-liquidacion-fianza-independientes).
     const facturas = await prisma.factura.findMany({
       where: { reservaId },
       select: { tipo: true },
     });
     expect(facturas.filter((f) => f.tipo === 'liquidacion')).toHaveLength(1);
-    expect(facturas.filter((f) => f.tipo === 'fianza')).toHaveLength(1);
+    expect(facturas.filter((f) => (f.tipo as string) === 'fianza')).toHaveLength(0);
   });
 });

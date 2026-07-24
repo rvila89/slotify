@@ -36,9 +36,6 @@ export class ClienteDetalleDto {
 
   @ApiPropertyOptional({ type: String, nullable: true })
   provincia!: string | null;
-
-  @ApiPropertyOptional({ type: String, nullable: true })
-  ibanDevolucion!: string | null;
 }
 
 export class ReservaDetalleResponseDto {
@@ -130,8 +127,8 @@ export class ReservaDetalleResponseDto {
   @ApiPropertyOptional({ type: String, format: 'date', nullable: true })
   fianzaDevueltaFecha!: string | null;
 
-  @ApiPropertyOptional({ type: String, nullable: true })
-  fianzaDevueltaEur!: string | null;
+  @ApiPropertyOptional({ type: String, format: 'date-time', nullable: true })
+  fianzaComprobanteFecha!: string | null;
 
   @ApiPropertyOptional({ type: Boolean, nullable: true })
   condPartFirmadas!: boolean | null;
@@ -149,7 +146,7 @@ export class ReservaDetalleResponseDto {
   liquidacionStatus!: string;
 
   @ApiProperty({
-    enum: ['pendiente', 'recibo_enviado', 'cobrada', 'devuelta', 'retenida_parcial'],
+    enum: ['pendiente', 'cobrada', 'devuelta'],
   })
   fianzaStatus!: string;
 

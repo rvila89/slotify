@@ -119,7 +119,7 @@ export class DescartarConsultaResponseDto {
   fianzaDevueltaFecha!: string | null;
 
   @ApiPropertyOptional({ type: String, nullable: true })
-  fianzaDevueltaEur!: string | null;
+  fianzaComprobanteFecha!: string | null;
 
   @ApiPropertyOptional({ type: Boolean, nullable: true })
   condPartFirmadas!: boolean | null;
@@ -137,7 +137,7 @@ export class DescartarConsultaResponseDto {
   liquidacionStatus!: string;
 
   @ApiProperty({
-    enum: ['pendiente', 'recibo_enviado', 'cobrada', 'devuelta', 'retenida_parcial'],
+    enum: ['pendiente', 'cobrada', 'devuelta'],
   })
   fianzaStatus!: string;
 

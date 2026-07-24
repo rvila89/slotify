@@ -8,19 +8,21 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type {
-  CargarReservaEmisionPort,
-  ReservaEmision,
-} from '../application/aprobar-y-enviar-liquidacion.use-case';
-import type {
-  CargarReservaFianzaPort,
-  ReservaFianza,
-} from '../application/enviar-recibo-fianza-separado.use-case';
+  CargarReservaLiquidacionEmisionPort,
+  ReservaLiquidacionEmision,
+} from '../application/enviar-factura-liquidacion.use-case';
 import type {
   CargarLiquidacionReenvioPort,
   CargarReservaReenvioPort,
   FacturaEmitida,
   ReservaReenvio,
 } from '../application/reenviar-liquidacion.use-case';
+import type {
+  CargarFacturaLiquidacionPort,
+  FacturaLiquidacion,
+  VerificarE4EnviadoPort,
+} from '../application/obtener-factura-liquidacion.use-case';
+import type { EstadoFactura, TipoFactura } from '../domain/factura';
 import type {
   CargarReservaSenalEmisionPort,
   ReservaSenalEmision,
@@ -37,12 +39,12 @@ import type {
   ReservaReenvioE3,
 } from '../application/reenviar-e3.use-case';
 
-/** Carga la RESERVA para la emisión (email del cliente incluido). */
+/** Carga la RESERVA para la emisión de la liquidación (email + idioma + fianzaEur para E4). */
 @Injectable()
 export class CargarReservaEmisionPrismaAdapter {
   constructor(private readonly prisma: PrismaService) {}
 
-  readonly cargar: CargarReservaEmisionPort = async (params) => {
+  readonly cargar: CargarReservaLiquidacionEmisionPort = async (params) => {
     const fila = await this.prisma.$transaction(async (tx) => {
       await this.prisma.fijarTenant(tx, params.tenantId);
       return tx.reserva.findFirst({
@@ -52,9 +54,10 @@ export class CargarReservaEmisionPrismaAdapter {
           tenantId: true,
           clienteId: true,
           codigo: true,
+          idioma: true,
           liquidacionStatus: true,
           fianzaStatus: true,
-          importeLiquidacion: true,
+          fianzaEur: true,
           cliente: { select: { email: true, nombre: true, apellidos: true } },
         },
       });
@@ -62,15 +65,15 @@ export class CargarReservaEmisionPrismaAdapter {
     if (fila === null) {
       return null;
     }
-    const reserva: ReservaEmision = {
+    const reserva: ReservaLiquidacionEmision = {
       idReserva: fila.idReserva,
       tenantId: fila.tenantId,
       clienteId: fila.clienteId,
       codigo: fila.codigo,
+      idioma: fila.idioma,
       liquidacionStatus: fila.liquidacionStatus,
       fianzaStatus: fila.fianzaStatus,
-      importeLiquidacion:
-        fila.importeLiquidacion === null ? '0.00' : fila.importeLiquidacion.toFixed(2),
+      fianzaEur: fila.fianzaEur === null ? null : fila.fianzaEur.toFixed(2),
       clienteEmail: fila.cliente.email ?? '',
       clienteNombre: fila.cliente.nombre,
       clienteApellidos: fila.cliente.apellidos ?? '',
@@ -146,46 +149,7 @@ export class VerificarE3EnviadoPrismaAdapter {
   };
 }
 
-/** Carga la RESERVA para el envío separado del recibo de fianza. */
-@Injectable()
-export class CargarReservaFianzaPrismaAdapter {
-  constructor(private readonly prisma: PrismaService) {}
-
-  readonly cargar: CargarReservaFianzaPort = async (params) => {
-    const fila = await this.prisma.$transaction(async (tx) => {
-      await this.prisma.fijarTenant(tx, params.tenantId);
-      return tx.reserva.findFirst({
-        where: { idReserva: params.reservaId, tenantId: params.tenantId },
-        select: {
-          idReserva: true,
-          tenantId: true,
-          clienteId: true,
-          codigo: true,
-          liquidacionStatus: true,
-          fianzaStatus: true,
-          cliente: { select: { email: true, nombre: true, apellidos: true } },
-        },
-      });
-    });
-    if (fila === null) {
-      return null;
-    }
-    const reserva: ReservaFianza = {
-      idReserva: fila.idReserva,
-      tenantId: fila.tenantId,
-      clienteId: fila.clienteId,
-      codigo: fila.codigo,
-      liquidacionStatus: fila.liquidacionStatus,
-      fianzaStatus: fila.fianzaStatus,
-      clienteEmail: fila.cliente.email ?? '',
-      clienteNombre: fila.cliente.nombre,
-      clienteApellidos: fila.cliente.apellidos ?? '',
-    };
-    return reserva;
-  };
-}
-
-/** Carga la RESERVA para el reenvío. */
+/** Carga la RESERVA para el reenvío de la liquidación (email + idioma + fianzaEur para E4). */
 @Injectable()
 export class CargarReservaReenvioPrismaAdapter {
   constructor(private readonly prisma: PrismaService) {}
@@ -200,8 +164,10 @@ export class CargarReservaReenvioPrismaAdapter {
           tenantId: true,
           clienteId: true,
           codigo: true,
+          idioma: true,
           liquidacionStatus: true,
           fianzaStatus: true,
+          fianzaEur: true,
           cliente: { select: { email: true, nombre: true, apellidos: true } },
         },
       });
@@ -214,8 +180,10 @@ export class CargarReservaReenvioPrismaAdapter {
       tenantId: fila.tenantId,
       clienteId: fila.clienteId,
       codigo: fila.codigo,
+      idioma: fila.idioma,
       liquidacionStatus: fila.liquidacionStatus,
       fianzaStatus: fila.fianzaStatus,
+      fianzaEur: fila.fianzaEur === null ? null : fila.fianzaEur.toFixed(2),
       clienteEmail: fila.cliente.email ?? '',
       clienteNombre: fila.cliente.nombre,
       clienteApellidos: fila.cliente.apellidos ?? '',
@@ -410,5 +378,81 @@ export class CargarLiquidacionReenvioPrismaAdapter {
       fechaEmision: fila.fechaEmision,
     };
     return liquidacion;
+  };
+}
+
+/**
+ * Carga la FACTURA de liquidación de una reserva con desglose completo (para GET
+ * /reservas/{id}/factura-liquidacion). fix-liquidacion-fianza-independientes.
+ */
+@Injectable()
+export class CargarFacturaLiquidacionPrismaAdapter {
+  constructor(private readonly prisma: PrismaService) {}
+
+  readonly cargar: CargarFacturaLiquidacionPort = async (params) => {
+    const fila = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.fijarTenant(tx, params.tenantId);
+      return tx.factura.findFirst({
+        where: { reservaId: params.reservaId, tipo: 'liquidacion' },
+        select: {
+          idFactura: true,
+          tenantId: true,
+          reservaId: true,
+          numeroFactura: true,
+          tipo: true,
+          estado: true,
+          total: true,
+          baseImponible: true,
+          ivaPorcentaje: true,
+          ivaImporte: true,
+          pdfUrl: true,
+          fechaEmision: true,
+        },
+      });
+    });
+    if (fila === null) {
+      return null;
+    }
+    const liquidacion: FacturaLiquidacion = {
+      idFactura: fila.idFactura,
+      tenantId: fila.tenantId,
+      reservaId: fila.reservaId,
+      numeroFactura: fila.numeroFactura,
+      tipo: fila.tipo as TipoFactura,
+      estado: fila.estado as EstadoFactura,
+      total: fila.total.toFixed(2),
+      baseImponible: fila.baseImponible.toFixed(2),
+      ivaPorcentaje: fila.ivaPorcentaje.toFixed(2),
+      ivaImporte: fila.ivaImporte.toFixed(2),
+      pdfUrl: fila.pdfUrl,
+      fechaEmision: fila.fechaEmision,
+    };
+    return liquidacion;
+  };
+}
+
+/**
+ * Verifica si ya se envió E4 (COMUNICACION E4 `enviado`, `es_reenvio=false`) para la reserva,
+ * bajo el RLS del tenant. Alimenta el flag `e4Enviado` de la lectura de la liquidación.
+ */
+@Injectable()
+export class VerificarE4EnviadoPrismaAdapter {
+  constructor(private readonly prisma: PrismaService) {}
+
+  readonly verificar: VerificarE4EnviadoPort = async (params) => {
+    const fila = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.fijarTenant(tx, params.tenantId);
+      return tx.comunicacion.findFirst({
+        where: {
+          reservaId: params.reservaId,
+          tenantId: params.tenantId,
+          codigoEmail: 'E4',
+          estado: 'enviado',
+          esReenvio: false,
+        },
+        select: { idComunicacion: true },
+      });
+    });
+    return fila !== null;
   };
 }

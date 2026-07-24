@@ -92,7 +92,7 @@ export const EnvioFacturaSenal = ({ reservaId, e3Enviado, onEnviada }: Props) =>
     <div className="flex flex-col gap-4">
       {resultado && (
         <div
-          role={resultado.tipo === 'exito' ? 'status' : 'alert'}
+          role={resultado.tipo === 'ya-enviado' ? 'status' : 'alert'}
           data-testid="banner-resultado-envio"
           className={claseBannerPorTipo[resultado.tipo]}
         >

@@ -22,8 +22,8 @@
  *   - `conceptoSubtitulo: string | null` (indentado, no negrita):
  *       señal      → "*40% de l'import total anticipat del pressupost núm. {n}" (ca) /
  *                    "*40% del importe total anticipado del presupuesto núm. {n}" (es)
- *       liquidación→ "*Saldo del 60% de l'import del pressupost núm. {n}" (ca) /
- *                    "*Saldo del 60% del importe del presupuesto núm. {n}" (es)
+ *       liquidación→ "*60% de l'import restant del pressupost núm. {n}" (ca) /
+ *                    "*60% del importe restante del presupuesto núm. {n}" (es)
  *       fianza     → null
  *       numeroPresupuesto=null → se OMITE " núm. {n}".
  *   - El modelo de factura NO expone `pieLegal` (§D4: se elimina del modelo de factura).
@@ -182,7 +182,7 @@ describe('construirModeloDocumentoFactura — concepto principal y subtítulo de
     });
 
     expect(modelo.conceptoSubtitulo).toBe(
-      "*Saldo del 60% de l'import del pressupost núm. P2026029",
+      "*60% de l'import restant del pressupost núm. P2026029",
     );
   });
 });

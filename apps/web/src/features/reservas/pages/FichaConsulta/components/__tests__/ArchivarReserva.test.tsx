@@ -122,11 +122,10 @@ describe('lib/archivarReserva — guardas de cliente (US-038)', () => {
     // Sin fianza: resuelta por ausencia sin mirar status.
     expect(fianzaResueltaCliente('pendiente', null)).toBe(true);
     expect(fianzaResueltaCliente('cobrada', '0.00')).toBe(true);
-    // Con importe > 0: depende del status.
+    // Con importe > 0: depende del status. Tras fix-liquidacion-fianza-independientes
+    // la devolución es siempre completa (no existe `retenida_parcial`).
     expect(fianzaResueltaCliente('devuelta', '500.00')).toBe(true);
-    expect(fianzaResueltaCliente('retenida_parcial', '500.00')).toBe(true);
     expect(fianzaResueltaCliente('cobrada', '500.00')).toBe(false);
-    expect(fianzaResueltaCliente('recibo_enviado', '500.00')).toBe(false);
     expect(fianzaResueltaCliente('pendiente' as FianzaStatus, '500.00')).toBe(false);
   });
 

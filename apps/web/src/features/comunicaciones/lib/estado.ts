@@ -36,6 +36,7 @@ const CODIGO_EMAIL_LABEL: Record<CodigoEmail, string> = {
   E6: 'Liquidación (E6)',
   E7: 'Devolución de fianza (E7)',
   E8: 'Comunicación (E8)',
+  E10: 'Fianza devuelta (E10)',
   manual: 'Email manual',
 };
 

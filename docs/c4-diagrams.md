@@ -36,7 +36,7 @@ Person_Ext(cliente, "Cliente / Lead", "Contacta para consultar disponibilidad. R
 
 System(slotify, "Slotify", "Plataforma SaaS de gestión integral para espacios boutique de eventos privados. Unifica el ciclo completo: lead → consulta → presupuesto → reserva → ejecución → archivo. Proporciona visibilidad operativa, financiera e histórica en tiempo real.")
 
-System_Ext(email_provider, "Proveedor de Email Transaccional", "Resend / Postmark / Amazon SES. Entrega los emails automáticos del flujo de reserva (plantillas E1–E8) y los emails manuales enviados por el gestor.")
+System_Ext(email_provider, "Proveedor de Email Transaccional", "Resend / Postmark / Amazon SES. Entrega los emails automáticos del flujo de reserva (plantillas E1–E4, E6–E7, E9–E10; E5/E8 eliminadas en change fix-liquidacion-fianza-independientes) y los emails manuales enviados por el gestor.")
 
 System_Ext(storage, "Almacenamiento de Ficheros", "Servicio de almacenamiento de objetos (Supabase Storage en MVP / Amazon S3 en producción). Aloja PDFs generados (presupuestos, facturas) y justificantes de pago subidos por el gestor.")
 
@@ -87,7 +87,7 @@ Rel(gestor, web_spa, "Accede desde el navegador", "HTTPS")
 Rel(web_spa, api, "Llamadas REST cross-origin", "HTTPS / JSON (CORS habilitado)")
 Rel(api, db, "Lee y escribe con transacciones ACID", "SQL · Prisma · SELECT FOR UPDATE · puerto 5432")
 Rel(api, file_storage, "Sube y descarga PDFs y justificantes", "HTTPS / API")
-Rel(api, email_provider, "Envía emails automáticos y manuales (E1–E8)", "HTTPS / API")
+Rel(api, email_provider, "Envía emails automáticos y manuales (E1–E4, E6–E7, E9–E10)", "HTTPS / API")
 Rel(api, error_tracking, "Reporta errores y excepciones", "HTTPS")
 Rel(cron, api, "Invoca endpoint protegido de barrido periódico", "HTTP interno")
 Rel(api, cliente, "Entrega emails a través del proveedor", "Email (indirecto)")
@@ -130,9 +130,9 @@ Container_Boundary(api, "Backend NestJS API") {
 
     Component(presupuestos_module, "Presupuestos Module (M4)", "NestJS · Puppeteer / react-pdf", "Motor de cálculo de tarifas (temporada, tipo de evento, nº invitados, extras). Generación y versionado de PDFs de presupuesto. Expone plantillas configurables por tenant.")
 
-    Component(facturacion_module, "Facturación Module (M5)", "NestJS · Puppeteer / react-pdf", "Emisión de facturas (señal, liquidación, complementarias). Gestión completa de fianza (cobro, recibo independiente, solicitud IBAN, devolución). Registro de pagos parciales y conciliación.")
+    Component(facturacion_module, "Facturación Module (M5)", "NestJS · Puppeteer / react-pdf", "Emisión de facturas (señal, liquidación, complementarias). Fianza pasiva por comprobante (change fix-liquidacion-fianza-independientes). Devolución completa de fianza. Registro de pagos parciales y conciliación.")
 
-    Component(comunicaciones_module, "Comunicaciones Module (M6)", "NestJS", "Plantillas dinámicas de email (E1–E8). Envío automático en transiciones de estado. Envío manual por el gestor. Log de todas las comunicaciones vinculado a la reserva.")
+    Component(comunicaciones_module, "Comunicaciones Module (M6)", "NestJS", "Plantillas dinámicas de email (E1–E4, E6–E7, E9–E10). Envío automático en transiciones de estado. Envío manual por el gestor. Log de todas las comunicaciones vinculado a la reserva.")
 
     Component(ficha_evento_module, "Ficha Evento Module (M7)", "NestJS", "Briefing operativo del evento: timing del día, nº invitados final confirmado, menús acordados, contactos de guardia. Consultable por el personal el día del evento.")
 

@@ -57,11 +57,10 @@ describe('precondicionesIncumplidas (derivación en cliente)', () => {
     ({
       preEventoStatus: 'cerrado',
       liquidacionStatus: 'cobrada',
-      fianzaStatus: 'cobrada',
       ...over,
     }) as ReservaDetalle;
 
-  it('debe_devolver_vacio_cuando_las_tres_precondiciones_estan_cumplidas', () => {
+  it('debe_devolver_vacio_cuando_las_precondiciones_estan_cumplidas', () => {
     expect(precondicionesIncumplidas(reserva())).toEqual([]);
   });
 
@@ -77,29 +76,26 @@ describe('precondicionesIncumplidas (derivación en cliente)', () => {
     ]);
   });
 
-  it('debe_marcar_fianza_cuando_no_esta_cobrada', () => {
-    expect(precondicionesIncumplidas(reserva({ fianzaStatus: 'recibo_enviado' }))).toEqual([
-      'fianza_status',
-    ]);
+  it('no_debe_evaluar_la_fianza_como_precondicion_del_inicio_de_evento', () => {
+    // Tras fix-liquidacion-fianza-independientes (D-4) la fianza deja de bloquear el inicio.
+    expect(precondicionesIncumplidas(reserva({ fianzaStatus: 'pendiente' }))).toEqual([]);
   });
 
-  it('debe_marcar_las_tres_en_orden_estable_cuando_ninguna_se_cumple', () => {
+  it('debe_marcar_las_dos_en_orden_estable_cuando_ninguna_se_cumple', () => {
     expect(
       precondicionesIncumplidas(
         reserva({
           preEventoStatus: 'pendiente',
           liquidacionStatus: 'pendiente',
-          fianzaStatus: 'pendiente',
         }),
       ),
-    ).toEqual(['pre_evento_status', 'liquidacion_status', 'fianza_status']);
+    ).toEqual(['pre_evento_status', 'liquidacion_status']);
   });
 
   it('debe_tratar_los_status_ausentes_como_incumplidos_fail_safe', () => {
     expect(precondicionesIncumplidas({})).toEqual([
       'pre_evento_status',
       'liquidacion_status',
-      'fianza_status',
     ]);
   });
 });
@@ -108,7 +104,6 @@ describe('etiquetaPrecondicionIncumplida', () => {
   it('debe_traducir_las_claves_conocidas', () => {
     expect(etiquetaPrecondicionIncumplida('pre_evento_status')).toMatch(/pre-evento/i);
     expect(etiquetaPrecondicionIncumplida('liquidacion_status')).toMatch(/liquidaci/i);
-    expect(etiquetaPrecondicionIncumplida('fianza_status')).toMatch(/fianza/i);
   });
 
   it('debe_normalizar_claves_desconocidas_fail_open', () => {

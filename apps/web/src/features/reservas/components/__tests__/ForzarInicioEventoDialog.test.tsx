@@ -59,7 +59,7 @@ const renderDialog = (
     <QueryClientProvider client={queryClient}>
       <ForzarInicioEventoDialog
         reservaId={RESERVA_ID}
-        precondiciones={['liquidacion_status', 'fianza_status']}
+        precondiciones={['pre_evento_status', 'liquidacion_status']}
         abierto
         onAbiertoChange={onAbiertoChange}
         onForzado={onForzado}
@@ -88,7 +88,7 @@ describe('ForzarInicioEventoDialog — doble confirmación (US-032)', () => {
     renderDialog();
     const aviso = screen.getByTestId('aviso-precondiciones-incumplidas');
     expect(aviso).toHaveTextContent(/liquidaci/i);
-    expect(aviso).toHaveTextContent(/fianza/i);
+    expect(aviso).toHaveTextContent(/pre-evento/i);
   });
 
   it('el_paso_1_no_dispara_el_POST_solo_avanza_al_paso_2', async () => {

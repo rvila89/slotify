@@ -39,7 +39,7 @@ const detalle2b = (): ReservaDetalleLectura => ({
   fianzaEur: null,
   fianzaCobradaFecha: null,
   fianzaDevueltaFecha: null,
-  fianzaDevueltaEur: null,
+  fianzaComprobanteFecha: null,
   condPartFirmadas: false,
   condPartFechaEnvio: null,
   condPartFechaFirma: null,
@@ -63,7 +63,6 @@ const detalle2b = (): ReservaDetalleLectura => ({
     codigoPostal: null,
     poblacion: null,
     provincia: null,
-    ibanDevolucion: null,
   },
 });
 

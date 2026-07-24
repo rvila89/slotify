@@ -225,7 +225,7 @@ export class ListarReservasPrismaAdapter implements PipelineQueryPort {
       fianzaEur: aImporte(fila.fianzaEur),
       fianzaCobradaFecha: fila.fianzaCobradaFecha,
       fianzaDevueltaFecha: fila.fianzaDevueltaFecha,
-      fianzaDevueltaEur: aImporte(fila.fianzaDevueltaEur),
+      fianzaComprobanteFecha: fila.fianzaComprobanteFecha,
       condPartFirmadas: fila.condPartFirmadas,
       condPartFechaEnvio: fila.condPartEnviadasFecha,
       condPartFechaFirma: fila.condPartFirmadasFecha,
@@ -248,7 +248,6 @@ export class ListarReservasPrismaAdapter implements PipelineQueryPort {
         codigoPostal: fila.cliente.codigoPostal,
         poblacion: fila.cliente.poblacion,
         provincia: fila.cliente.provincia,
-        ibanDevolucion: fila.cliente.ibanDevolucion,
       },
     };
   }

@@ -92,7 +92,7 @@ const crearCandidatasFake = (
  */
 const fianzaResueltaLocal = (c: ReservaCompletableCandidata): boolean => {
   if (c.fianzaEur === null || c.fianzaEur <= 0) return true;
-  return c.fianzaStatus === 'devuelta' || c.fianzaStatus === 'retenida_parcial';
+  return c.fianzaStatus === 'devuelta';
 };
 
 const crearArchivadoFake = (
@@ -217,7 +217,7 @@ describe('ArchivarReservasCompletadasService — sin fianza archiva (4.4)', () =
 
 describe('ArchivarReservasCompletadasService — retención total archiva (4.5)', () => {
   it('debe_archivar_cuando_retenida_parcial_retencion_100', async () => {
-    const c = candidata({ fianzaStatus: 'retenida_parcial', fianzaEur: 500 });
+    const c = candidata({ fianzaStatus: 'devuelta', fianzaEur: 500 });
     const { servicio } = montar([c]);
 
     const resumen = await servicio.ejecutar();
@@ -327,7 +327,7 @@ describe('ArchivarReservasCompletadasService — idempotencia bajo lock (4.10)',
 describe('ArchivarReservasCompletadasService — múltiples reservas mixtas (4.11)', () => {
   it('debe_archivar_las_dos_resueltas_alertar_la_pendiente_y_omitir_la_ya_completada', async () => {
     const ok1 = candidata({ fianzaStatus: 'devuelta', fianzaEur: 300 });
-    const ok2 = candidata({ fianzaStatus: 'retenida_parcial', fianzaEur: 200 });
+    const ok2 = candidata({ fianzaStatus: 'devuelta', fianzaEur: 200 });
     const pendiente = candidata({ fianzaStatus: 'cobrada', fianzaEur: 300 });
     const yaCompletada = candidata({ fianzaStatus: 'devuelta', fianzaEur: 300 });
     const { servicio, archivadoPort, alertaPort } = montar(

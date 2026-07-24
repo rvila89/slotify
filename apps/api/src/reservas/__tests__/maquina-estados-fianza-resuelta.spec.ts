@@ -51,8 +51,8 @@ describe('fianzaResuelta — status resolutivo con importe > 0', () => {
     expect(r).toEqual<ResultadoFianzaResuelta>({ resuelta: true, pendiente: false });
   });
 
-  it('debe_estar_resuelta_cuando_retenida_parcial_con_importe_positivo', () => {
-    const r = fianzaResuelta({ fianzaStatus: 'retenida_parcial', fianzaEur: 300 });
+  it('debe_estar_resuelta_cuando_devuelta_con_importe_alto', () => {
+    const r = fianzaResuelta({ fianzaStatus: 'devuelta', fianzaEur: 900 });
     expect(r).toEqual<ResultadoFianzaResuelta>({ resuelta: true, pendiente: false });
   });
 });
@@ -64,10 +64,9 @@ describe('fianzaResuelta — status resolutivo con importe > 0', () => {
 //    spec-delta: "Retención total (retenida_parcial con importe devuelto 0) — resuelto".
 // ===========================================================================
 
-describe('fianzaResuelta — retención total (retenida_parcial) es estado resuelto', () => {
-  it('debe_estar_resuelta_cuando_retenida_parcial_con_importe_cobrado_positivo', () => {
-    // retenida_parcial NO se distingue por el importe devuelto: siempre resuelta.
-    const r = fianzaResuelta({ fianzaStatus: 'retenida_parcial', fianzaEur: 500 });
+describe('fianzaResuelta — devuelta es estado resuelto con cualquier importe', () => {
+  it('debe_estar_resuelta_cuando_devuelta_con_importe_cobrado_positivo', () => {
+    const r = fianzaResuelta({ fianzaStatus: 'devuelta', fianzaEur: 500 });
     expect(r.resuelta).toBe(true);
     expect(r.pendiente).toBe(false);
   });
@@ -82,10 +81,8 @@ describe('fianzaResuelta — retención total (retenida_parcial) es estado resue
 describe('fianzaResuelta — sin fianza (eur<=0 o null) satisface la guarda sin mirar el status', () => {
   const todosLosStatus: ReadonlyArray<FianzaStatusDominio> = [
     'pendiente',
-    'recibo_enviado',
     'cobrada',
     'devuelta',
-    'retenida_parcial',
   ];
 
   it.each(todosLosStatus)(
@@ -120,11 +117,7 @@ describe('fianzaResuelta — sin fianza (eur<=0 o null) satisface la guarda sin 
 // ===========================================================================
 
 describe('fianzaResuelta — status no resolutivo con importe > 0 está PENDIENTE (FA-01)', () => {
-  const statusPendientes: ReadonlyArray<FianzaStatusDominio> = [
-    'cobrada',
-    'pendiente',
-    'recibo_enviado',
-  ];
+  const statusPendientes: ReadonlyArray<FianzaStatusDominio> = ['cobrada', 'pendiente'];
 
   it.each(statusPendientes)(
     'no_debe_estar_resuelta_cuando_status_%s_con_importe_positivo_y_debe_marcar_pendiente',

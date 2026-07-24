@@ -1,14 +1,19 @@
 /**
- * Controladores HTTP de la capability `facturacion` (US-022 / UC-18). Traducen el contrato
- * congelado (`docs/api-spec.yml`, tag `Facturacion`) ↔ comandos de aplicación:
- *   - GET  /reservas/{id}/factura-senal   → 200 FacturaSenalDto | 404
- *   - POST /facturas/{id}/aprobar         → 200 | 409 FACTURA_NO_BORRADOR | 422 (datos/pdf) | 404
- *   - POST /facturas/{id}/rechazar        → 200 | 400 | 409 | 404
- *   - POST /facturas/{id}/regenerar-pdf   → 200 | 409 | 422 | 404
+ * Controladores HTTP de la capability `facturacion`. Traducen el contrato congelado
+ * (`docs/api-spec.yml`, tag `Facturacion`) ↔ comandos de aplicación:
+ *   - GET  /reservas/{id}/factura-senal          → 200 FacturaSenalDto | 404
+ *   - GET  /reservas/{id}/factura-liquidacion     → 200 FacturaLiquidacionDto | 404
+ *   - POST /facturas/{id}/aprobar                  → 200 | 409 | 422 | 404
+ *   - POST /facturas/{id}/rechazar                 → 200 | 400 | 409 | 404
+ *   - POST /facturas/{id}/regenerar-pdf            → 200 | 409 | 422 | 404
+ *   - POST /reservas/{id}/facturas/senal/enviar    → 200 (E3, atómico)
+ *   - POST /reservas/{id}/facturas/senal/reenviar  → 200 (E3 reenvío)
+ *   - POST /reservas/{id}/facturas/liquidacion/enviar   → 200 (E4, atómico, solo liquidación)
+ *   - POST /reservas/{id}/facturas/liquidacion/reenviar → 200 (E4 reenvío)
+ *   - POST /reservas/{id}/facturas/liquidacion/cobro    → 200 (US-029)
  *
- * El `tenant_id` y el `usuario_id` SIEMPRE derivan del JWT (`@CurrentUser`), nunca del
- * path/body (multi-tenancy). Mapeo de errores de dominio (F5-02): 409 FacturaNoBorrador,
- * 422 DatosFiscalesIncompletos/PdfPendiente, 404 no encontrada, 400 motivo requerido.
+ * El `tenant_id` y el `usuario_id` SIEMPRE derivan del JWT (`@CurrentUser`), nunca del path/body
+ * (multi-tenancy).
  */
 import {
   BadRequestException,
@@ -35,6 +40,11 @@ import {
   ObtenerFacturaSenalUseCase,
   FacturaSenalNoEncontradaError,
 } from '../application/obtener-factura-senal.use-case';
+import {
+  ObtenerFacturaLiquidacionUseCase,
+  FacturaLiquidacionNoEncontradaError as ObtenerLiquidacionNoEncontradaError,
+  type FacturaLiquidacionResultado,
+} from '../application/obtener-factura-liquidacion.use-case';
 import { AprobarFacturaUseCase } from '../application/aprobar-factura.use-case';
 import {
   DatosFiscalesIncompletosError,
@@ -55,17 +65,12 @@ import {
 } from '../application/listar-facturas-reserva.use-case';
 import type { FacturaSenalResultado } from '../application/generar-factura-senal.use-case';
 import {
-  AprobarYEnviarLiquidacionUseCase,
+  EnviarFacturaLiquidacionUseCase,
   EmisionEnvioFallidoError,
   FacturaLiquidacionNoEncontradaError,
   FacturaNoBorradorError as LiquidacionNoBorradorError,
-  type FacturaEmitible,
-} from '../application/aprobar-y-enviar-liquidacion.use-case';
-import {
-  EnviarReciboFianzaSeparadoUseCase,
-  FacturaFianzaNoEncontradaError,
-  FacturaNoBorradorError as FianzaNoBorradorError,
-} from '../application/enviar-recibo-fianza-separado.use-case';
+  type FacturaLiquidacionEmitible,
+} from '../application/enviar-factura-liquidacion.use-case';
 import {
   EnviarFacturaSenalUseCase,
   FacturaSenalNoEncontradaError as EnviarSenalNoEncontradaError,
@@ -93,20 +98,13 @@ import {
   LiquidacionYaCobradaError,
 } from '../application/registrar-cobro-liquidacion.use-case';
 import {
-  RegistrarCobroFianzaUseCase,
-  CobroInvalidoError as CobroFianzaInvalidoError,
-  FacturaFianzaNoEncontradaError as CobroFianzaNoEncontradaError,
-  FianzaYaCobradaError,
-  JustificanteNoEncontradoError as JustificanteFianzaNoEncontradoError,
-} from '../application/registrar-cobro-fianza.use-case';
-import {
-  AprobarEnviarLiquidacionDto,
-  AprobarEnviarLiquidacionResponseDto,
+  EnviarFacturaLiquidacionDto,
+  EnviarFacturaLiquidacionResponseDto,
   AprobarFacturaRequestDto,
   EnviarFacturaSenalDto,
   EnviarFacturaSenalResponseDto,
-  EnviarReciboFianzaResponseDto,
   FacturaDto,
+  FacturaLiquidacionDto,
   FacturaSenalDto,
   RechazarFacturaRequestDto,
   RegenerarPdfFacturaRequestDto,
@@ -115,16 +113,12 @@ import {
   ReenviarE3ResponseDto,
   RegistrarCobroLiquidacionDto,
   RegistrarCobroLiquidacionResponseDto,
-  RegistrarCobroFianzaDto,
-  RegistrarCobroFianzaCobradoDto,
-  RegistrarCobroFianzaConfirmacionRequeridaDto,
 } from './factura.dto';
 
 /** Tipos de factura admitidos por el filtro `?tipo=`. */
 const TIPOS_FACTURA: ReadonlyArray<TipoFacturaListado> = [
   'senal',
   'liquidacion',
-  'fianza',
   'complementaria',
 ];
 
@@ -143,12 +137,11 @@ const aFacturaDto = (f: FacturaListada): FacturaDto => ({
   estado: f.estado,
   fechaEmision: f.fechaEmision === null ? null : f.fechaEmision.toISOString(),
   fechaCreacion: f.fechaCreacion.toISOString(),
-  // Borradores de liquidación/fianza no derivan estos flags fiscales (propios de la señal).
   esBorradorInvalido: false,
   pdfPendiente: f.pdfUrl === null && f.estado !== 'borrador',
 });
 
-/** Mapea el resultado de aplicación al DTO del contrato. */
+/** Mapea el resultado de aplicación al DTO del contrato (señal). */
 const aDto = (r: FacturaSenalResultado): FacturaSenalDto => ({
   idFactura: r.idFactura,
   reservaId: r.reservaId,
@@ -167,17 +160,35 @@ const aDto = (r: FacturaSenalResultado): FacturaSenalDto => ({
   e3Enviado: r.e3Enviado ?? false,
 });
 
+/** Mapea el resultado de aplicación al DTO del contrato (liquidación). */
+const aLiquidacionDto = (r: FacturaLiquidacionResultado): FacturaLiquidacionDto => ({
+  idFactura: r.idFactura,
+  reservaId: r.reservaId,
+  numeroFactura: r.numeroFactura,
+  tipo: r.tipo,
+  baseImponible: r.baseImponible,
+  ivaPorcentaje: r.ivaPorcentaje,
+  ivaImporte: r.ivaImporte,
+  total: r.total,
+  concepto: undefined,
+  pdfUrl: r.pdfUrl,
+  estado: r.estado,
+  fechaEmision: r.fechaEmision === null ? null : r.fechaEmision.toISOString(),
+  esBorradorInvalido: r.esBorradorInvalido,
+  pdfPendiente: r.pdfPendiente,
+  e4Enviado: r.e4Enviado ?? false,
+});
+
 /**
- * Mapea una FACTURA emitida (proyección de US-028) al `FacturaDto` del contrato. Tolera las
- * proyecciones sin desglose fiscal (el reenvío solo trae `total`): los campos fiscales ausentes
- * se emiten como '0.00'.
+ * Mapea una FACTURA emitida (proyección) al `FacturaDto` del contrato. Tolera proyecciones sin
+ * desglose fiscal completo: los campos ausentes se emiten como '0.00'.
  */
 const aFacturaEmitidaDto = (
   f: Pick<
-    FacturaEmitible,
+    FacturaLiquidacionEmitible,
     'idFactura' | 'reservaId' | 'numeroFactura' | 'tipo' | 'total' | 'estado' | 'pdfUrl' | 'fechaEmision'
   > &
-    Partial<Pick<FacturaEmitible, 'baseImponible' | 'ivaPorcentaje' | 'ivaImporte'>>,
+    Partial<Pick<FacturaLiquidacionEmitible, 'baseImponible' | 'ivaPorcentaje' | 'ivaImporte'>>,
 ): FacturaDto => ({
   idFactura: f.idFactura,
   reservaId: f.reservaId,
@@ -203,28 +214,21 @@ const aFacturaEmitidaDto = (
 export class FacturaController {
   constructor(
     private readonly obtenerFacturaSenal: ObtenerFacturaSenalUseCase,
+    private readonly obtenerFacturaLiquidacion: ObtenerFacturaLiquidacionUseCase,
     private readonly aprobarFactura: AprobarFacturaUseCase,
     private readonly rechazarFactura: RechazarFacturaUseCase,
     private readonly regenerarPdfFactura: RegenerarPdfFacturaUseCase,
     private readonly listarFacturasReserva: ListarFacturasReservaUseCase,
-    private readonly aprobarYEnviarLiquidacion: AprobarYEnviarLiquidacionUseCase,
-    private readonly enviarReciboFianzaSeparado: EnviarReciboFianzaSeparadoUseCase,
+    private readonly enviarFacturaLiquidacion: EnviarFacturaLiquidacionUseCase,
     private readonly enviarFacturaSenal: EnviarFacturaSenalUseCase,
     private readonly reenviarLiquidacion: ReenviarLiquidacionUseCase,
     private readonly reenviarE3: ReenviarE3UseCase,
     private readonly registrarCobroLiquidacion: RegistrarCobroLiquidacionUseCase,
-    private readonly registrarCobroFianza: RegistrarCobroFianzaUseCase,
   ) {}
 
   @Get('reservas/:id/facturas')
-  @ApiOperation({
-    summary: 'Listar las facturas de la reserva, filtrables por tipo (US-027 / UC-21, UC-22)',
-  })
-  @ApiQuery({
-    name: 'tipo',
-    required: false,
-    enum: ['senal', 'liquidacion', 'fianza', 'complementaria'],
-  })
+  @ApiOperation({ summary: 'Listar las facturas de la reserva, filtrables por tipo (UC-21)' })
+  @ApiQuery({ name: 'tipo', required: false, enum: ['senal', 'liquidacion', 'complementaria'] })
   async listar(
     @Param('id') id: string,
     @CurrentUser() usuario: UsuarioAutenticado,
@@ -255,6 +259,23 @@ export class FacturaController {
         reservaId: id,
       });
       return aDto(resultado);
+    } catch (error) {
+      this.aHttp(error);
+    }
+  }
+
+  @Get('reservas/:id/factura-liquidacion')
+  @ApiOperation({ summary: 'Obtener la factura de liquidación de una reserva (UC-21)' })
+  async obtenerLiquidacion(
+    @Param('id') id: string,
+    @CurrentUser() usuario: UsuarioAutenticado,
+  ): Promise<FacturaLiquidacionDto> {
+    try {
+      const resultado = await this.obtenerFacturaLiquidacion.ejecutar({
+        tenantId: usuario.tenantId,
+        reservaId: id,
+      });
+      return aLiquidacionDto(resultado);
     } catch (error) {
       this.aHttp(error);
     }
@@ -331,49 +352,25 @@ export class FacturaController {
     }
   }
 
-  @Post('reservas/:id/facturas/liquidacion/aprobar-enviar')
+  @Post('reservas/:id/facturas/liquidacion/enviar')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Aprobar y enviar la liquidación (y fianza si sigue en borrador) (UC-21 / US-028)',
+    summary: 'Aprobar y enviar la liquidación por E4 (standalone, solo liquidación) (UC-21)',
   })
-  async aprobarEnviarLiquidacion(
+  async enviarLiquidacion(
     @Param('id') id: string,
-    @Body() _body: AprobarEnviarLiquidacionDto,
+    @Body() _body: EnviarFacturaLiquidacionDto,
     @CurrentUser() usuario: UsuarioAutenticado,
-  ): Promise<AprobarEnviarLiquidacionResponseDto> {
+  ): Promise<EnviarFacturaLiquidacionResponseDto> {
     try {
-      const resultado = await this.aprobarYEnviarLiquidacion.ejecutar({
+      const resultado = await this.enviarFacturaLiquidacion.ejecutar({
         tenantId: usuario.tenantId,
         usuarioId: usuario.sub,
         reservaId: id,
       });
       return {
         liquidacion: aFacturaEmitidaDto(resultado.liquidacion),
-        fianza: resultado.fianza === null ? null : aFacturaEmitidaDto(resultado.fianza),
         liquidacionStatus: resultado.liquidacionStatus,
-        fianzaStatus: resultado.fianzaStatus,
-      };
-    } catch (error) {
-      this.aHttp(error);
-    }
-  }
-
-  @Post('reservas/:id/facturas/fianza/enviar')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Enviar por separado el recibo de fianza (UC-22 / US-028)' })
-  async enviarReciboFianza(
-    @Param('id') id: string,
-    @CurrentUser() usuario: UsuarioAutenticado,
-  ): Promise<EnviarReciboFianzaResponseDto> {
-    try {
-      const resultado = await this.enviarReciboFianzaSeparado.ejecutar({
-        tenantId: usuario.tenantId,
-        usuarioId: usuario.sub,
-        reservaId: id,
-      });
-      return {
-        fianza: aFacturaEmitidaDto(resultado.fianza),
-        fianzaStatus: resultado.fianzaStatus,
       };
     } catch (error) {
       this.aHttp(error);
@@ -420,7 +417,7 @@ export class FacturaController {
 
   @Post('reservas/:id/facturas/liquidacion/reenviar')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Reenviar la factura de liquidación ya emitida (UC-21 / US-028)' })
+  @ApiOperation({ summary: 'Reenviar la factura de liquidación ya emitida (UC-21)' })
   async reenviar(
     @Param('id') id: string,
     @CurrentUser() usuario: UsuarioAutenticado,
@@ -528,71 +525,11 @@ export class FacturaController {
     }
   }
 
-  @Post('reservas/:id/facturas/fianza/cobro')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Registrar el cobro del recibo de la fianza (UC-22 pasos 5-9 / US-030)',
-  })
-  async cobrarFianza(
-    @Param('id') id: string,
-    @Body() body: RegistrarCobroFianzaDto,
-    @CurrentUser() usuario: UsuarioAutenticado,
-  ): Promise<RegistrarCobroFianzaCobradoDto | RegistrarCobroFianzaConfirmacionRequeridaDto> {
-    try {
-      const resultado = await this.registrarCobroFianza.ejecutar({
-        tenantId: usuario.tenantId,
-        usuarioId: usuario.sub,
-        reservaId: id,
-        importe: body.importe,
-        fechaCobro: body.fechaCobro,
-        justificanteDocId: body.justificanteDocId ?? null,
-        confirmarSinRecibo: body.confirmarSinRecibo ?? false,
-      });
-      // Política "Negociable" (D-2): aviso no bloqueante en 200, sin PAGO creado.
-      if (resultado.resultado === 'confirmacion_requerida') {
-        return {
-          resultado: 'confirmacion_requerida',
-          codigo: resultado.codigo,
-          mensaje: resultado.mensaje,
-          reintentarCon: { confirmarSinRecibo: true },
-        };
-      }
-      return {
-        resultado: 'cobrado',
-        pago: {
-          idPago: resultado.pago.idPago,
-          facturaId: resultado.pago.facturaId,
-          importe: resultado.pago.importe,
-          fechaCobro: resultado.pago.fechaCobro.toISOString().slice(0, 10),
-          justificanteDocId: resultado.pago.justificanteDocId,
-        },
-        facturaFianza: aFacturaEmitidaDto({
-          idFactura: resultado.facturaFianza.idFactura,
-          reservaId: resultado.facturaFianza.reservaId,
-          numeroFactura: resultado.facturaFianza.numeroFactura,
-          tipo: resultado.facturaFianza.tipo,
-          total: resultado.facturaFianza.total,
-          estado: resultado.facturaFianza.estado,
-          pdfUrl: null,
-          fechaEmision: null,
-        }),
-        fianzaStatus: resultado.fianzaStatus,
-        fianzaEur: resultado.fianzaEur,
-        fianzaCobradaFecha: resultado.fianzaCobradaFecha,
-      };
-    } catch (error) {
-      this.aHttp(error);
-    }
-  }
-
-  /**
-   * Recupera la liquidación ya emitida para incluirla SIN cambios en la respuesta del reenvío
-   * (el use-case no muta la factura; su resultado solo trae la nueva COMUNICACION).
-   */
+  /** Recupera la liquidación ya emitida para incluirla SIN cambios en la respuesta del reenvío. */
   private async cargarLiquidacionReenviada(
     tenantId: string,
     reservaId: string,
-  ): Promise<FacturaEmitible> {
+  ): Promise<FacturaLiquidacionEmitible> {
     const facturas = await this.listarFacturasReserva.ejecutar({
       tenantId,
       reservaId,
@@ -618,14 +555,11 @@ export class FacturaController {
     };
   }
 
-  /**
-   * Recupera la factura de señal ya emitida para incluirla SIN cambios en la respuesta del reenvío
-   * de E3 (el use-case no muta la factura; su resultado solo trae la nueva COMUNICACION y la fecha).
-   */
+  /** Recupera la factura de señal ya emitida para incluirla SIN cambios en el reenvío de E3. */
   private async cargarSenalReenviada(
     tenantId: string,
     reservaId: string,
-  ): Promise<FacturaEmitible> {
+  ): Promise<FacturaLiquidacionEmitible> {
     const facturas = await this.listarFacturasReserva.ejecutar({
       tenantId,
       reservaId,
@@ -673,12 +607,10 @@ export class FacturaController {
       error instanceof FacturaSenalNoEncontradaError ||
       error instanceof ReservaFacturasNoEncontradaError ||
       error instanceof FacturaLiquidacionNoEncontradaError ||
+      error instanceof ObtenerLiquidacionNoEncontradaError ||
       error instanceof LiquidacionReenvioNoEncontradaError ||
-      error instanceof FacturaFianzaNoEncontradaError ||
       error instanceof CobroLiquidacionNoEncontradaError ||
       error instanceof JustificanteNoEncontradoError ||
-      error instanceof CobroFianzaNoEncontradaError ||
-      error instanceof JustificanteFianzaNoEncontradoError ||
       error instanceof EnviarSenalNoEncontradaError ||
       error instanceof ReenviarE3NoEncontradaError
     ) {
@@ -700,11 +632,9 @@ export class FacturaController {
     }
     if (
       error instanceof LiquidacionNoBorradorError ||
-      error instanceof FianzaNoBorradorError ||
       error instanceof FacturaNoEnviadaError ||
       error instanceof LiquidacionYaCobradaError ||
       error instanceof LiquidacionNoFacturadaError ||
-      error instanceof FianzaYaCobradaError ||
       error instanceof FacturaSenalNoEnviableError
     ) {
       throw new ConflictException({
@@ -712,10 +642,10 @@ export class FacturaController {
         error: 'Conflict',
         message: error.message,
         codigo: error.codigo,
-        motivo: error.motivo,
+        motivo: (error as { motivo?: string }).motivo,
       });
     }
-    if (error instanceof CobroInvalidoError || error instanceof CobroFianzaInvalidoError) {
+    if (error instanceof CobroInvalidoError) {
       throw new BadRequestException({
         statusCode: HttpStatus.BAD_REQUEST,
         error: 'Bad Request',
@@ -724,10 +654,7 @@ export class FacturaController {
         motivo: error.message,
       });
     }
-    if (
-      error instanceof E3YaEnviadoError ||
-      error instanceof E3NoEnviadoPreviamenteError
-    ) {
+    if (error instanceof E3YaEnviadoError || error instanceof E3NoEnviadoPreviamenteError) {
       throw new ConflictException({
         statusCode: HttpStatus.CONFLICT,
         error: 'Conflict',

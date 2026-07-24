@@ -17,6 +17,19 @@ import type { Reserva } from '../../model/types';
 const claseSeccion =
   'flex flex-col gap-6 rounded-[20px] border border-border-default/20 bg-surface-subtle/30 p-4 sm:p-6 lg:p-8';
 
+/** Lleva al usuario al inicio de la ficha para ver el banner/aviso recién mostrado. */
+const scrollAlInicio = () => {
+  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+
+/** Envuelve un callback de aviso para que, tras mostrarlo, desplace la vista al inicio. */
+const conScroll =
+  <A extends unknown[]>(mostrar: (...args: A) => void) =>
+  (...args: A): void => {
+    mostrar(...args);
+    scrollAlInicio();
+  };
+
 /**
  * Ficha de consulta/reserva. Muestra el detalle de una RESERVA y, según su estado y
  * sub-estado, ofrece las acciones de transición del pipeline (US-005/007/008/006/
@@ -89,16 +102,11 @@ export const FichaConsultaPage = () => {
   // antes de abrir el diálogo de fecha para no anidar diálogos.
   // Desenlace de la transición de fecha (US-005 / cambio atómico): además de alimentar
   // el aviso 2b/2d, desplaza la vista al aviso para que el gestor lo vea (§D-4). SSR-safe.
-  const mostrarResultadoFecha = (r: Reserva | null) => {
-    if (!r) {
-      avisos.cerrar();
-      return;
-    }
-    avisos.mostrarResultado(r);
-    if (typeof window !== 'undefined') {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
+  const mostrarResultadoFecha = (r: Reserva | null) =>
+    r ? conScroll(avisos.mostrarResultado)(r) : avisos.cerrar();
+
+  const mostrarDescarte = (tipo: 'consulta' | 'prereserva') =>
+    conScroll((reserva: Reserva) => avisos.mostrarDescarte({ reserva, tipo }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -264,24 +272,11 @@ export const FichaConsultaPage = () => {
         <SeccionesFicha
           reservaId={id}
           reserva={reserva}
-          onEmailEnviado={() => {
-            avisos.mostrarEmailEnviado();
-            if (typeof window !== 'undefined') {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-          }}
-          onFirmaRegistrada={(tipo) => {
-            avisos.mostrarFirma(tipo);
-            if (typeof window !== 'undefined') {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-          }}
-          onFacturaSenalEnviada={() => {
-            avisos.mostrarFacturaSenalEnviada();
-            if (typeof window !== 'undefined') {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-          }}
+          onEmailEnviado={conScroll(avisos.mostrarEmailEnviado)}
+          onFirmaRegistrada={conScroll(avisos.mostrarFirma)}
+          onFacturaSenalEnviada={conScroll(avisos.mostrarFacturaSenalEnviada)}
+          // La card de liquidación muestra el banner permanente "enviada el {fecha/hora}".
+          onFacturaLiquidacionEnviada={scrollAlInicio}
         />
       )}
 
@@ -311,45 +306,27 @@ export const FichaConsultaPage = () => {
           }}
           onResuelto={mostrarResultadoFecha}
           onCambiadaFecha={mostrarResultadoFecha}
-          onEditado={() => {
-            avisos.mostrarEdicionConsulta(reserva.codigo);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
+          onEditado={conScroll(() => avisos.mostrarEdicionConsulta(reserva.codigo))}
           onResueltoInvitados={avisos.mostrarInvitados}
           onResueltoVisita={avisos.mostrarVisita}
           onResueltoInteresado={avisos.mostrarInteresado}
           onResueltoReservaInmediata={avisos.mostrarReservaInmediata}
           onResueltoExtension={avisos.mostrarExtension}
-          onConfirmadoPresupuesto={(resultado) => {
-            avisos.mostrarPresupuesto(resultado);
-            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          onEditadoPresupuesto={(datos) => {
-            avisos.mostrarEdicion({ clase: 'edicion', datos });
-            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          onReenviadoPresupuesto={(datos) => {
-            avisos.mostrarEdicion({ clase: 'reenvio', datos });
-            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          onConfirmadoSenal={(resultado) => {
-            avisos.mostrarSenal(resultado);
-            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
+          onConfirmadoPresupuesto={conScroll(avisos.mostrarPresupuesto)}
+          onEditadoPresupuesto={conScroll((datos) =>
+            avisos.mostrarEdicion({ clase: 'edicion', datos }),
+          )}
+          onReenviadoPresupuesto={conScroll((datos) =>
+            avisos.mostrarEdicion({ clase: 'reenvio', datos }),
+          )}
+          onConfirmadoSenal={conScroll(avisos.mostrarSenal)}
           onForzado={avisos.mostrarForzar}
           onFinalizado={avisos.mostrarFinalizar}
           // Desenlaces terminales (archivado US-038 / descarte US-013): el descarte
-          // muestra un aviso inline verde en la cabecera (en sustitución del toast de
-          // Sonner) y desplaza la vista al inicio para que el gestor lo vea.
+          // muestra un aviso inline verde en la cabecera y desplaza la vista al inicio.
           onArchivado={() => {}}
-          onDescartado={(reserva) => {
-            avisos.mostrarDescarte({ reserva, tipo: 'consulta' });
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          onDescartadoPreReserva={(reserva) => {
-            avisos.mostrarDescarte({ reserva, tipo: 'prereserva' });
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
+          onDescartado={mostrarDescarte('consulta')}
+          onDescartadoPreReserva={mostrarDescarte('prereserva')}
         />
       )}
     </div>

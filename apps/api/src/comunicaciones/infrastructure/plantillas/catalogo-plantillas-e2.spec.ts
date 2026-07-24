@@ -94,12 +94,13 @@ describe('CatalogoPlantillasEnCodigo — E2 activa con render real (workstream C
   it('no_debe_seguir_listando_E2_como_una_plantilla_diferida_inactiva', () => {
     const catalogo = new CatalogoPlantillasEnCodigo();
 
-    // Contraste con las diferidas restantes (E4–E8), que siguen inactivas.
+    // fix-liquidacion-fianza-independientes: E4 (factura de liquidación) pasa a estar ACTIVA;
+    // el contraste con diferidas inactivas se mantiene con E6 (aún sin render real).
     const e2 = catalogo.seleccionar('E2', 'es');
-    const e4 = catalogo.seleccionar('E4', 'es');
+    const e6 = catalogo.seleccionar('E6', 'es');
 
     expect(e2?.activa).toBe(true);
-    expect(e4?.activa).toBe(false);
+    expect(e6?.activa).toBe(false);
   });
 });
 

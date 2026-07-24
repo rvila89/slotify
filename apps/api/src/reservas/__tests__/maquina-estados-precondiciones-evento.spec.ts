@@ -67,10 +67,11 @@ describe('preconditionesEventoCumplidas — una sola incumplida', () => {
     expect(r.faltantes).toEqual(['liquidacion_status']);
   });
 
-  it('no_debe_cumplir_cuando_fianza_status_no_es_cobrada', () => {
-    const r = preconditionesEventoCumplidas({ ...cumplidas, fianzaStatus: 'recibo_enviado' });
-    expect(r.cumple).toBe(false);
-    expect(r.faltantes).toEqual(['fianza_status']);
+  // fix-liquidacion-fianza-independientes: la fianza YA NO es precondición del inicio del evento.
+  it('debe_cumplir_aunque_la_fianza_no_este_cobrada', () => {
+    const r = preconditionesEventoCumplidas({ ...cumplidas, fianzaStatus: 'pendiente' });
+    expect(r.cumple).toBe(true);
+    expect(r.faltantes).not.toContain('fianza_status');
   });
 });
 
@@ -80,7 +81,7 @@ describe('preconditionesEventoCumplidas — una sola incumplida', () => {
 // ===========================================================================
 
 describe('preconditionesEventoCumplidas — varias incumplidas se enumeran todas', () => {
-  it('debe_enumerar_las_tres_cuando_ninguna_se_cumple', () => {
+  it('debe_enumerar_las_dos_cuando_ninguna_se_cumple', () => {
     const r = preconditionesEventoCumplidas({
       preEventoStatus: 'pendiente',
       liquidacionStatus: 'pendiente',
@@ -88,19 +89,19 @@ describe('preconditionesEventoCumplidas — varias incumplidas se enumeran todas
     });
     expect(r.cumple).toBe(false);
     expect(r.faltantes.slice().sort()).toEqual(
-      ['fianza_status', 'liquidacion_status', 'pre_evento_status'].sort(),
+      ['liquidacion_status', 'pre_evento_status'].sort(),
     );
   });
 
-  it('debe_enumerar_las_dos_incumplidas_cuando_solo_una_se_cumple', () => {
+  it('debe_enumerar_la_incumplida_cuando_solo_una_falla', () => {
     const r = preconditionesEventoCumplidas({
       preEventoStatus: 'cerrado',
       liquidacionStatus: 'facturada',
       fianzaStatus: 'pendiente',
     });
     expect(r.cumple).toBe(false);
-    expect(r.faltantes).toHaveLength(2);
-    expect(r.faltantes).toEqual(expect.arrayContaining(['liquidacion_status', 'fianza_status']));
+    expect(r.faltantes).toHaveLength(1);
+    expect(r.faltantes).toEqual(['liquidacion_status']);
   });
 });
 

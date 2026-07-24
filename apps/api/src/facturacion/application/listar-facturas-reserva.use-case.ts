@@ -13,7 +13,7 @@
  */
 
 /** Tipos de factura del contrato. */
-export type TipoFacturaListado = 'senal' | 'liquidacion' | 'fianza' | 'complementaria';
+export type TipoFacturaListado = 'senal' | 'liquidacion' | 'complementaria';
 
 /** Vista de lectura de una FACTURA de la colección. */
 export interface FacturaListada {

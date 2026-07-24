@@ -59,7 +59,7 @@ const sembrar = async (params: {
   estado?: EstadoReserva;
   fianzaStatus?: FianzaStatus;
   fianzaEur?: string | null;
-  fianzaDevueltaEur?: string | null;
+  fianzaComprobanteFecha?: Date | null;
   fechaPostEvento?: Date | null;
   tenantId?: string;
 } = {}): Promise<string> => {
@@ -80,7 +80,7 @@ const sembrar = async (params: {
         params.fechaPostEvento === undefined ? new Date() : params.fechaPostEvento,
       fianzaStatus: params.fianzaStatus ?? FianzaStatus.devuelta,
       fianzaEur: params.fianzaEur === undefined ? '300.00' : params.fianzaEur,
-      fianzaDevueltaEur: params.fianzaDevueltaEur ?? null,
+      fianzaComprobanteFecha: null,
     },
   });
   return reserva.idReserva;
@@ -191,11 +191,13 @@ describe('Archivado manual US-038 — sin fianza / retención total / sin T+7d a
     expect((await leerReserva(reservaId))?.estado).toBe(EstadoReserva.reserva_completada);
   });
 
-  it('debe_archivar_retenida_parcial_con_devuelta_eur_0_retencion_100', async () => {
+  it('debe_archivar_cuando_la_fianza_esta_devuelta_con_importe', async () => {
+    // fix-liquidacion-fianza-independientes: la devolución es SIEMPRE completa. `devuelta`
+    // es un estado resuelto con cualquier importe; no existe ya `retenida_parcial`.
     const reservaId = await sembrar({
-      fianzaStatus: FianzaStatus.retenida_parcial,
+      fianzaStatus: FianzaStatus.devuelta,
       fianzaEur: '500.00',
-      fianzaDevueltaEur: '0.00',
+      fianzaComprobanteFecha: null,
     });
 
     await useCase.ejecutar(comando(reservaId));
@@ -214,9 +216,10 @@ describe('Archivado manual US-038 — sin fianza / retención total / sin T+7d a
 });
 
 // ===========================================================================
-// 4.4 (BD) — FA-01/FA-02: fianza NO resuelta (cobrada/recibo_enviado con eur>0) → NO
-//        transiciona (permanece post_evento), 0 auditorías de transición,
-//        FianzaNoResueltaError. La RESERVA queda intacta.
+// 4.4 (BD) — FA-01: fianza NO resuelta (cobrada con eur>0) → NO transiciona (permanece
+//        post_evento), 0 auditorías de transición, FianzaNoResueltaError. La RESERVA queda
+//        intacta. (fix-liquidacion-fianza-independientes: el estado `recibo_enviado` ya no
+//        existe; solo `cobrada` con eur>0 bloquea.)
 // ===========================================================================
 
 describe('Archivado manual US-038 — fianza no resuelta bloquea sin efectos (4.4 BD)', () => {
@@ -234,9 +237,11 @@ describe('Archivado manual US-038 — fianza no resuelta bloquea sin efectos (4.
     expect(await contarTransiciones(reservaId)).toBe(0);
   });
 
-  it('no_debe_transicionar_cuando_la_fianza_esta_en_recibo_enviado', async () => {
+  it('no_debe_transicionar_cuando_la_fianza_esta_pendiente_con_importe', async () => {
+    // fix-liquidacion-fianza-independientes: `recibo_enviado` desaparece; el otro estado NO
+    // resuelto con eur>0 es `pendiente` (comprobante aún no subido).
     const reservaId = await sembrar({
-      fianzaStatus: FianzaStatus.recibo_enviado,
+      fianzaStatus: FianzaStatus.pendiente,
       fianzaEur: '300.00',
     });
 
