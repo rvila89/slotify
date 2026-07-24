@@ -126,7 +126,7 @@ export class DescartarConsultaController {
       fianzaEur: r.fianzaEur,
       fianzaCobradaFecha: aFecha(r.fianzaCobradaFecha),
       fianzaDevueltaFecha: aFecha(r.fianzaDevueltaFecha),
-      fianzaDevueltaEur: r.fianzaDevueltaEur,
+      fianzaComprobanteFecha: aFechaHora(r.fianzaComprobanteFecha),
       condPartFirmadas: r.condPartFirmadas,
       condPartFechaEnvio: aFechaHora(r.condPartFechaEnvio),
       condPartFechaFirma: aFechaHora(r.condPartFechaFirma),

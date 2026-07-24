@@ -91,7 +91,7 @@ const detalleOk = (): ReservaDetalleLectura =>
     fianzaEur: null,
     fianzaCobradaFecha: null,
     fianzaDevueltaFecha: null,
-    fianzaDevueltaEur: null,
+    fianzaComprobanteFecha: null,
     condPartFirmadas: null,
     condPartFechaEnvio: null,
     condPartFechaFirma: null,
@@ -113,7 +113,6 @@ const detalleOk = (): ReservaDetalleLectura =>
       codigoPostal: null,
       poblacion: null,
       provincia: null,
-      ibanDevolucion: null,
     },
   }) as ReservaDetalleLectura;
 

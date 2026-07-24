@@ -18,13 +18,13 @@ import type { components } from '@/api-client';
 type EstadoReserva = components['schemas']['EstadoReserva'];
 type PreEventoStatus = components['schemas']['PreEventoStatus'];
 type LiquidacionStatus = components['schemas']['LiquidacionStatus'];
-type FianzaStatus = components['schemas']['FianzaStatus'];
 
-/** Clave de cada precondición del inicio de evento (espejo del audit log del backend). */
-export type PrecondicionInicioEvento =
-  | 'pre_evento_status'
-  | 'liquidacion_status'
-  | 'fianza_status';
+/**
+ * Clave de cada precondición del inicio de evento (espejo del audit log del backend).
+ * Tras fix-liquidacion-fianza-independientes (D-4) la fianza deja de ser precondición:
+ * quedan solo el cierre del pre-evento y el cobro de la liquidación.
+ */
+export type PrecondicionInicioEvento = 'pre_evento_status' | 'liquidacion_status';
 
 /**
  * Compara dos fechas por fecha de CALENDARIO (año-mes-día en horario local del
@@ -58,15 +58,15 @@ export const puedeForzarInicioEvento = (
 type PrecondicionesInput = {
   preEventoStatus?: PreEventoStatus;
   liquidacionStatus?: LiquidacionStatus;
-  fianzaStatus?: FianzaStatus;
 };
 
 /**
- * Deriva la lista de precondiciones INCUMPLIDAS a partir de los tres `*_status`.
- * Incumplida ⇔ `preEventoStatus ≠ 'cerrado'` / `liquidacionStatus ≠ 'cobrada'` /
- * `fianzaStatus ≠ 'cobrada'`. Un `*_status` ausente (`undefined`) se considera
- * incumplido (fail-safe: se avisa de más, nunca de menos). El orden es estable
- * (pre-evento → liquidación → fianza) para una presentación consistente.
+ * Deriva la lista de precondiciones INCUMPLIDAS a partir de los `*_status`.
+ * Incumplida ⇔ `preEventoStatus ≠ 'cerrado'` / `liquidacionStatus ≠ 'cobrada'`. Un
+ * `*_status` ausente (`undefined`) se considera incumplido (fail-safe: se avisa de más,
+ * nunca de menos). El orden es estable (pre-evento → liquidación) para una presentación
+ * consistente. Tras fix-liquidacion-fianza-independientes (D-4) la fianza no es
+ * precondición del inicio del evento.
  */
 export const precondicionesIncumplidas = (
   reserva: PrecondicionesInput,
@@ -74,7 +74,6 @@ export const precondicionesIncumplidas = (
   const faltantes: PrecondicionInicioEvento[] = [];
   if (reserva.preEventoStatus !== 'cerrado') faltantes.push('pre_evento_status');
   if (reserva.liquidacionStatus !== 'cobrada') faltantes.push('liquidacion_status');
-  if (reserva.fianzaStatus !== 'cobrada') faltantes.push('fianza_status');
   return faltantes;
 };
 
@@ -82,7 +81,6 @@ export const precondicionesIncumplidas = (
 const ETIQUETA_PRECONDICION: Record<PrecondicionInicioEvento, string> = {
   pre_evento_status: 'Cierre del pre-evento (ficha operativa)',
   liquidacion_status: 'Cobro de la liquidación',
-  fianza_status: 'Cobro de la fianza',
 };
 
 /**

@@ -51,7 +51,7 @@ El backend de Slotify es una API **NestJS + TypeScript** que aplica **arquitectu
 | Documentación | `@nestjs/swagger` | Contrato OpenAPI = fuente del cliente del front |
 | Jobs | `@nestjs/schedule` (cron) | Barrido idempotente de TTLs y cola |
 | PDF | `@react-pdf/renderer` | Presupuestos, facturas y condicions; plantilla fiel al documento real de Masia desde 6.5; logo cargado por data-URI vía `AlmacenDocumentosPort.obtener` |
-| Email | Resend / Postmark (SDK) | Plantillas E1–E8 |
+| Email | Resend / Postmark (SDK) | Plantillas E1–E4, E6–E7, E9–E10 (E5/E8 eliminadas en change `fix-liquidacion-fianza-independientes`) |
 | Storage | Puerto `AlmacenDocumentosPort` (`ALMACEN_PROVIDER`). Adaptador `local` durable en disco (`ALMACEN_LOCAL_DIR`); ruta estática `GET /almacen/*` servida por `ServeStaticModule`. Adaptador S3/Supabase diferido | PDFs y assets por tenant |
 | Observabilidad | Sentry | Captura de errores |
 | Testing | Jest + Supertest | Unitario + integración/e2e |

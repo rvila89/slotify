@@ -86,7 +86,7 @@ const filaReserva = (over: { comunicaciones?: ComunicacionFila[] } = {}) => ({
   fianzaEur: null,
   fianzaCobradaFecha: null,
   fianzaDevueltaFecha: null,
-  fianzaDevueltaEur: null,
+  fianzaComprobanteFecha: null,
   condPartFirmadas: null,
   condPartEnviadasFecha: null,
   condPartFirmadasFecha: null,
@@ -109,7 +109,6 @@ const filaReserva = (over: { comunicaciones?: ComunicacionFila[] } = {}) => ({
     codigoPostal: null,
     poblacion: null,
     provincia: null,
-    ibanDevolucion: null,
   },
 });
 

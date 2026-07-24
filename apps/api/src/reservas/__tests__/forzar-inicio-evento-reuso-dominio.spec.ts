@@ -75,18 +75,16 @@ describe('US-032 reutiliza preconditionesEventoCumplidas de US-031 (para el audi
     expect(r).toEqual({ cumple: true, faltantes: [] });
   });
 
-  it('debe_enumerar_las_tres_precondiciones_incumplidas_por_su_nombre_de_dominio', () => {
+  it('debe_enumerar_las_precondiciones_incumplidas_por_su_nombre_de_dominio', () => {
+    // fix-liquidacion-fianza-independientes (§D-4): la fianza deja de ser precondición del
+    // inicio del evento. Solo quedan pre_evento_status y liquidacion_status.
     const r = preconditionesEventoCumplidas({
       preEventoStatus: 'pendiente',
       liquidacionStatus: 'facturada',
       fianzaStatus: 'pendiente',
     });
     expect(r.cumple).toBe(false);
-    expect(r.faltantes).toEqual([
-      'pre_evento_status',
-      'liquidacion_status',
-      'fianza_status',
-    ]);
+    expect(r.faltantes).toEqual(['pre_evento_status', 'liquidacion_status']);
   });
 
   it('debe_enumerar_solo_la_incumplida_cuando_las_otras_dos_se_cumplen', () => {

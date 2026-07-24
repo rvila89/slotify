@@ -84,12 +84,14 @@ enum LiquidacionStatus {
   cobrada
 }
 
+// fix-liquidacion-fianza-independientes: la fianza deja de ser una FACTURA que se emite.
+// `cobrada` = comprobante de la transferencia recibida (subida pasiva por el gestor).
+// `devuelta` = devolución completa registrada. Se eliminan `recibo_enviado` (ya no hay
+// recibo emitido) y `retenida_parcial` (la devolución siempre es completa en MVP).
 enum FianzaStatus {
   pendiente
-  recibo_enviado
   cobrada
   devuelta
-  retenida_parcial
 }
 
 enum Temporada {
@@ -123,10 +125,10 @@ enum RegimenIva {
   sin_iva
 }
 
+// fix-liquidacion-fianza-independientes: se elimina `fianza` — la fianza ya no se factura.
 enum TipoFactura {
   senal
   liquidacion
-  fianza
   complementaria
 }
 
@@ -142,11 +144,18 @@ enum TipoDocumento {
   clausula_responsabilidad
   condiciones_particulares
   justificante_pago
+  // fix-liquidacion-fianza-independientes: comprobante de la transferencia de la fianza
+  // recibida (subida pasiva por el gestor, espejo de condiciones_particulares).
+  comprobante_fianza
   presupuesto
   factura
   otro
 }
 
+// fix-liquidacion-fianza-independientes: E10 = confirmación de fianza devuelta (nuevo,
+// CA/ES). E5 (solicitud de IBAN) y E8 (confirmación de IBAN) dejan de usarse — sus
+// plantillas/flujos se retiran; los valores del enum permanecen para no romper filas
+// históricas (PostgreSQL no soporta DROP VALUE sin recrear el tipo).
 enum CodigoEmail {
   E1
   E2
@@ -157,6 +166,7 @@ enum CodigoEmail {
   E7
   E8
   E9
+  E10
   manual
 }
 
@@ -320,7 +330,6 @@ model Cliente {
   codigoPostal       String?  @map("codigo_postal")
   poblacion          String?
   provincia          String?
-  ibanDevolucion     String?  @map("iban_devolucion")
   activo             Boolean  @default(true)
   fechaCreacion      DateTime @default(now()) @map("fecha_creacion")
   fechaActualizacion DateTime @updatedAt @map("fecha_actualizacion")
@@ -369,10 +378,13 @@ model Reserva {
   visitaProgramadaHora    String?            @map("visita_programada_hora")
   visitaRealizada         Boolean            @default(false) @map("visita_realizada")
   fianzaEur               Decimal?           @map("fianza_eur") @db.Decimal(10, 2)
+  // fix-liquidacion-fianza-independientes: `fianzaCobradaFecha` se puebla al subir el
+  // comprobante (fianza pasiva); `fianzaComprobanteFecha` marca la subida (espejo de
+  // `condPartFirmadasFecha`). Se eliminan `fianzaDevueltaEur` y `motivoRetencion`
+  // (devolución siempre completa = `fianzaEur`, sin retención parcial).
   fianzaCobradaFecha      DateTime?          @map("fianza_cobrada_fecha")
+  fianzaComprobanteFecha  DateTime?          @map("fianza_comprobante_fecha")
   fianzaDevueltaFecha     DateTime?          @map("fianza_devuelta_fecha")
-  fianzaDevueltaEur       Decimal?           @map("fianza_devuelta_eur") @db.Decimal(10, 2)
-  motivoRetencion         String?            @map("motivo_retencion") @db.Text
   condPartFirmadas        Boolean            @default(false) @map("cond_part_firmadas")
   condPartEnviadasFecha   DateTime?          @map("cond_part_enviadas_fecha")
   condPartFirmadasFecha   DateTime?          @map("cond_part_firmadas_fecha")

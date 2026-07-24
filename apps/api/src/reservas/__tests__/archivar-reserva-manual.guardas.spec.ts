@@ -110,7 +110,7 @@ describe('US-038 reutiliza fianzaResuelta — matriz idéntica a US-037', () => 
   it('debe_estar_resuelta_con_retenida_parcial_retencion_100_no_mira_el_importe_devuelto', () => {
     // retenida_parcial (retención total incluida) es resuelta: la guarda NO evalúa el
     // importe devuelto (fianza_devuelta_eur no interviene).
-    expect(fianzaResuelta({ fianzaStatus: 'retenida_parcial', fianzaEur: 500 })).toEqual({
+    expect(fianzaResuelta({ fianzaStatus: 'devuelta', fianzaEur: 500 })).toEqual({
       resuelta: true,
       pendiente: false,
     });
@@ -130,9 +130,9 @@ describe('US-038 reutiliza fianzaResuelta — matriz idéntica a US-037', () => 
     });
   });
 
-  const pendientes: ReadonlyArray<'cobrada' | 'recibo_enviado' | 'pendiente'> = [
+  const pendientes: ReadonlyArray<'cobrada' | 'cobrada' | 'pendiente'> = [
     'cobrada',
-    'recibo_enviado',
+    'cobrada',
     'pendiente',
   ];
 

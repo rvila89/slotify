@@ -2164,7 +2164,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reservas/{id}/facturas/liquidacion/aprobar-enviar": {
+    "/reservas/{id}/facturas/liquidacion/enviar": {
         parameters: {
             query?: never;
             header?: never;
@@ -2177,29 +2177,35 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Aprobar y enviar la factura de liquidación (y fianza si sigue en borrador) (UC-21 / US-028)
-         * @description [US-028 / UC-21] Acción ÚNICA y ATÓMICA estado↔E4 (design.md §D-1): el **Gestor aprueba y
-         *     envía** la factura de liquidación en `borrador` de la RESERVA `{id}`. En una **única unidad de
-         *     trabajo** (tx + RLS del tenant del JWT), con reintento ante colisión de numeración (`P2002`,
-         *     US-022; nunca locks distribuidos), all-or-nothing:
-         *     1. Numera la liquidación (y la fianza si sigue en `borrador`) — `F-YYYY-NNNN` consecutivos.
-         *     2. **Envío E4 SÍNCRONO y CONFIRMADO** con los PDFs adjuntos (la fianza solo si NO se envió por
-         *        separado, D-3). Si E4 falla → la tx REVIERTE (rollback total: nada de número/estado/status/
-         *        extras/COMUNICACION) y responde 502/503.
-         *     3. SOLO tras confirmar E4: emite ambas facturas a `enviada`, avanza `liquidacionStatus='facturada'`
-         *        (+ `fianzaStatus='recibo_enviado'` si la fianza se emitió aquí), marca los `RESERVA_EXTRA` con
-         *        el `factura_id`, y registra la COMUNICACION E4 `enviado` + el AUDIT_LOG `actualizar`.
+         * Aprobar y enviar la factura de liquidación por E4 (standalone, espejo de la señal) (UC-21)
+         * @description [fix-liquidacion-fianza-independientes] Acción ÚNICA y ATÓMICA estado↔E4 (espejo literal del
+         *     envío de la señal, US-023): el **Gestor aprueba y envía** la factura de liquidación en
+         *     `borrador` de la RESERVA `{id}`. **E4 = SOLO liquidación**: no emite, adjunta ni toca la fianza
+         *     (la fianza deja de ser una FACTURA). En una **única unidad de trabajo** (tx + RLS del tenant
+         *     del JWT), con reintento ante colisión de numeración (`P2002`, US-022; nunca locks distribuidos),
+         *     all-or-nothing:
+         *     1. Guardas: existencia de `FACTURA tipo='liquidacion'` (404), estado enviable (`borrador`; ya
+         *        `enviada`/`cobrada` → 409 `FACTURA_NO_BORRADOR`), y `pdf_url` de la liquidación presente
+         *        (si null → fallo de emisión, 502).
+         *     2. **Envío E4 SÍNCRONO y CONFIRMADO** con SOLO el PDF de la liquidación adjunto. Si E4 falla →
+         *        la tx REVIERTE (rollback total: nada de número/estado/status/extras/COMUNICACION) → 502/503.
+         *     3. SOLO tras confirmar E4: emite la liquidación a `enviada`, asigna `numeroFactura` `F-YYYY-NNNN`
+         *        y `fechaEmision=now()`, avanza `RESERVA.liquidacionStatus='facturada'`, marca los
+         *        `RESERVA_EXTRA` sumados con el `factura_id`, y registra la COMUNICACION E4 `enviado` + el
+         *        AUDIT_LOG `actualizar` (`datos_anteriores.estado='borrador'` → `datos_nuevos.estado='enviada'`).
          *
-         *     Aislada por `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
+         *     Tras emitir, la ficha muestra un **banner permanente** "Liquidación enviada el {fecha/hora}"
+         *     derivado de `fechaEmision`. Sin body: la acción no toma parámetros (la liquidación no se
+         *     negocia). Aislada por `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
          */
-        post: operations["aprobarEnviarLiquidacion"];
+        post: operations["enviarFacturaLiquidacion"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/reservas/{id}/facturas/fianza/enviar": {
+    "/reservas/{id}/factura-liquidacion": {
         parameters: {
             query?: never;
             header?: never;
@@ -2209,25 +2215,21 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
-        put?: never;
         /**
-         * Enviar por separado el recibo de fianza (edge case sin liquidación) (UC-22 / US-028)
-         * @description [US-028 / UC-22, D-3] Edge case **sin liquidación**: el Gestor envía al cliente SOLO el recibo
-         *     de fianza en `borrador` de la RESERVA `{id}`. En una **única unidad de trabajo** (tx + RLS del
-         *     tenant del JWT), con reintento ante colisión de numeración (`P2002`; nunca locks distribuidos),
-         *     all-or-nothing (misma atomicidad estado↔email de D-1):
-         *     1. **Envío SÍNCRONO y CONFIRMADO** del recibo (email `manual`, NO E4). Si falla → la tx REVIERTE
-         *        (rollback total) y responde 502/503.
-         *     2. SOLO tras confirmar el envío: emite la fianza a `estado='enviada'` con `numeroFactura` PROPIO
-         *        secuencial (`F-YYYY-NNNN`) y `fechaEmision`, avanza `fianzaStatus='recibo_enviado'` SIN tocar
-         *        `liquidacionStatus`, registra la COMUNICACION `codigo_email='manual'` (fuera del índice de
-         *        idempotencia parcial `(reserva_id, codigo_email)`, no colisiona con un E4 posterior) y el
-         *        AUDIT_LOG `actualizar`.
+         * Obtener la factura de liquidación de una reserva (UC-21)
+         * @description [fix-liquidacion-fianza-independientes] Devuelve la **factura de liquidación**
+         *     (`tipo='liquidacion'`) de la RESERVA `{id}`: número, estado, desglose fiscal (base + IVA 21 % +
+         *     total), `pdfUrl`, `fechaEmision` (para el banner permanente "Liquidación enviada el {fecha/hora}")
+         *     y los flags derivados que la UI usa para habilitar/bloquear la aprobación (`esBorradorInvalido`,
+         *     `pdfPendiente`) y para mostrar el banner (`e4Enviado`). Espejo literal de
+         *     `GET /reservas/{id}/factura-senal`. Es una vista de **solo lectura**: no crea ni muta la FACTURA.
          *
-         *     Sin body: la acción no toma parámetros. Aislada por `tenant_id` del JWT (RLS); nunca en el path.
+         *     La factura la crea el sistema como **efecto post-commit** de la confirmación de la reserva
+         *     (US-021/US-027), no este endpoint. Aislada por `tenant_id` del JWT (RLS); nunca en el path.
          */
-        post: operations["enviarReciboFianza"];
+        get: operations["obtenerFacturaLiquidacion"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2404,7 +2406,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reservas/{id}/facturas/fianza/cobro": {
+    "/reservas/{id}/fianza/comprobante": {
         parameters: {
             query?: never;
             header?: never;
@@ -2417,35 +2419,33 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Registrar el cobro del recibo de la fianza (UC-22 pasos 5-9 / US-030)
-         * @description [US-030 / UC-22 pasos 5-9] El **Gestor registra el cobro** de la fianza (depósito reembolsable)
-         *     de la RESERVA `{id}` cuando recibe el ingreso externo (Slotify **registra**, no procesa el pago;
-         *     sin pasarela en MVP). Precondición del happy path: `RESERVA.fianzaStatus='recibo_enviado'` y su
-         *     `FACTURA (tipo='fianza').estado='enviada'` (dejado por US-028).
+         * Subir el comprobante de la transferencia de fianza recibida (UC-22)
+         * @description [fix-liquidacion-fianza-independientes] El **Gestor** sube el **comprobante** de la
+         *     transferencia de fianza recibida del cliente, siguiendo el patrón pasivo de
+         *     `condiciones-firmadas` (US-024). Sobre una RESERVA en
+         *     `estado ∈ {reserva_confirmada, evento_en_curso, post_evento}`, en una **única transacción de BD**
+         *     (bajo el contexto RLS del tenant del JWT), all-or-nothing:
+         *     1. **Guardas de servidor** (autoritativas, ANTES de subir o escribir):
+         *        - `RESERVA.estado ∈ {reserva_confirmada, evento_en_curso, post_evento}`. Si es terminal o
+         *          cualquier otro → **422** (`ESTADO_INVALIDO`); sin efectos.
+         *        - Se adjunta **exactamente un** fichero con `mimeType ∈ {image/jpeg, image/png,
+         *          application/pdf}` y tamaño ≤ 10 MB. Si falta / formato no permitido / > 10 MB → **422**
+         *          (`COMPROBANTE_REQUERIDO` / `FORMATO_NO_PERMITIDO` / `TAMANO_EXCEDIDO`); sin efectos.
+         *     2. Sube el fichero al almacén de documentos (clave versionada; se conservan todas las versiones)
+         *        y **crea una nueva fila DOCUMENTO** con `tipo='comprobante_fianza'`, `reservaId`, `tenantId`
+         *        (del JWT), `url`, `mimeType`, `nombreArchivo`, `tamanoBytes`.
+         *     3. Marca `RESERVA.fianzaStatus='cobrada'` (comprobante recibido), `RESERVA.fianzaCobradaFecha=now()`
+         *        y `RESERVA.fianzaComprobanteFecha=now()`. **No transiciona `estado`** ni ningún otro
+         *        sub-proceso, **no** genera ninguna FACTURA, numeración ni email.
+         *     4. `AUDIT_LOG accion='actualizar'`, `entidad='RESERVA'`.
          *
-         *     En una **única unidad de trabajo atómica** (tx + RLS del tenant del JWT), releyendo el estado de
-         *     la RESERVA con `SELECT ... FOR UPDATE` para serializar el doble cobro concurrente (lock de fila
-         *     PostgreSQL, **nunca** locks distribuidos; design.md §D-1):
-         *     1. Crea un registro `PAGO` con `facturaId` del recibo de fianza, `importe` (el importe real
-         *        cobrado), `fechaCobro` y, si se adjunta, `justificanteDocId` (referencia a un DOCUMENTO
-         *        `tipo='justificante_pago'` **ya subido**; opcional, `null` si no se adjunta).
-         *     2. Transiciona `FACTURA (fianza).estado='cobrada'`.
-         *     3. Transiciona `RESERVA.fianzaStatus='cobrada'`, y establece `RESERVA.fianzaEur=importe` y
-         *        `RESERVA.fianzaCobradaFecha=fechaCobro` (habilita la 3.ª de las 3 precondiciones de
-         *        `evento_en_curso`, US-031; NO transiciona `RESERVA.estado`).
-         *     4. Registra `AUDIT_LOG` (`crear` del PAGO/DOCUMENTO; `actualizar` de FACTURA y RESERVA; y la
-         *        traza del flujo excepcional "Negociable" si se cobró sobre `pendiente`).
-         *
-         *     **Política "Negociable" (design.md §D-2, diverge de US-029)**: si `RESERVA.fianzaStatus='pendiente'`
-         *     (el recibo de fianza nunca se envió), el cobro **NO se bloquea de forma dura**. Sin
-         *     `confirmarSinRecibo=true` en el body, la respuesta es **200 con `confirmacionRequerida`** (aviso, NO
-         *     crea PAGO ni FACTURA) para que el frontend muestre el diálogo y reintente; con `confirmarSinRecibo=true`,
-         *     el cobro se registra igualmente (si la FACTURA(fianza) está en `borrador` salta `borrador → cobrada`;
-         *     si no existe se crea al vuelo `cobrada`) y el flujo excepcional queda trazado en `AUDIT_LOG`.
-         *
-         *     Aislada por `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
+         *     **Re-subible (no idempotente por diseño)**: si ya hay un comprobante, la operación NO se rechaza
+         *     — crea otra versión del DOCUMENTO, actualiza `fianzaComprobanteFecha` al nuevo timestamp y
+         *     conserva el histórico. La subida es **opcional** y **no bloquea** ningún avance de estado. Si el
+         *     envío al almacén o cualquier escritura falla, la transacción **revierte por completo**. Aislada
+         *     por `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
          */
-        post: operations["registrarCobroFianza"];
+        post: operations["subirComprobanteFianza"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2550,7 +2550,7 @@ export interface paths {
         };
         trace?: never;
     };
-    "/reservas/{id}/fianza/devolucion": {
+    "/reservas/{id}/fianza/devolver": {
         parameters: {
             query?: never;
             header?: never;
@@ -2563,38 +2563,34 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Registrar la devolución de la fianza (UC-27 pasos 4-8 / US-036)
-         * @description [US-036 / UC-27 pasos 4-8] El **Gestor registra la devolución** de la fianza (depósito
-         *     reembolsable) de la RESERVA `{id}` tras ejecutarla externamente en su banca (Slotify
-         *     **registra**, no procesa el pago; sin pasarela en MVP). Es el **paso simétrico inverso** del
-         *     cobro de US-030. Precondición del happy path (triple): `RESERVA.estado='post_evento'` **Y**
-         *     `RESERVA.fianzaStatus='cobrada'` **Y** `CLIENTE.iban_devolucion IS NOT NULL`.
+         * Registrar la devolución completa de la fianza y confirmar por email (UC-27)
+         * @description [fix-liquidacion-fianza-independientes] El **Gestor registra la devolución completa** de la
+         *     fianza de la RESERVA `{id}` tras ejecutarla externamente en su banca (Slotify **registra**, no
+         *     procesa el pago; sin pasarela en MVP), con una **única acción** ("Devolver fianza") **sin** pedir
+         *     IBAN, importe ni motivo. Precondición: `RESERVA.estado='post_evento'` **Y**
+         *     `RESERVA.fianzaStatus='cobrada'`.
          *
-         *     En una **única unidad de trabajo atómica** (tx + RLS del tenant del JWT), releyendo el estado
-         *     de la RESERVA con `SELECT ... FOR UPDATE` para serializar el doble registro concurrente (lock
-         *     de fila PostgreSQL, **nunca** locks distribuidos; design.md §D-1/§D-4):
-         *     1. Valida importe (`importeDevuelto`, `0.00 ≤ x ≤ RESERVA.fianzaEur`) y fecha
-         *        (`fechaCobro ≥ RESERVA.fianzaCobradaFecha`).
-         *     2. Deriva el estado final: `importeDevuelto == fianzaEur` ⇒ `fianzaStatus='devuelta'`;
-         *        `importeDevuelto < fianzaEur` (incl. `"0.00"`) ⇒ `fianzaStatus='retenida_parcial'`.
-         *     3. Si `fianzaStatus` resulta `retenida_parcial`, `motivoRetencion` es **obligatorio**
-         *        (validación de dominio) y se persiste en `RESERVA.motivoRetencion` (campo dedicado, G1-1);
-         *        en `devuelta`, `motivoRetencion` se ignora / queda `null`.
-         *     4. Si se referenció `justificanteDocId` (opcional), lo **vincula** validando que el DOCUMENTO
-         *        (`tipo='justificante_pago'`) exista en el tenant; NO es multipart (G1-3).
-         *     5. Establece `RESERVA.fianzaDevueltaEur=importeDevuelto`,
-         *        `RESERVA.fianzaDevueltaFecha=fechaCobro`, `RESERVA.fianzaStatus` al estado final y
-         *        `RESERVA.motivoRetencion` (si parcial). NO transiciona `RESERVA.estado`.
-         *     6. Registra `AUDIT_LOG` (`actualizar` de RESERVA; vínculo del DOCUMENTO si aplica).
+         *     En una **única transacción atómica** (tx + RLS del tenant del JWT), releyendo el estado de la
+         *     RESERVA con `SELECT ... FOR UPDATE` para serializar el doble registro concurrente (lock de fila
+         *     PostgreSQL, **nunca** locks distribuidos):
+         *     1. Establece `RESERVA.fianzaStatus='devuelta'` y `RESERVA.fianzaDevueltaFecha=now()`. La
+         *        devolución es **siempre** por el importe completo `RESERVA.fianzaEur` (no se persiste importe
+         *        parcial). NO transiciona `RESERVA.estado`.
+         *     2. Registra `AUDIT_LOG accion='actualizar'`, `entidad='RESERVA'`,
+         *        `datos_anteriores={fianza_status:'cobrada', fianza_devuelta_fecha:null}`,
+         *        `datos_nuevos={fianza_status:'devuelta', fianza_devuelta_fecha}`.
          *
-         *     **Estado final irreversible** (MVP): una vez en `devuelta`/`retenida_parcial`, un nuevo
-         *     intento se rechaza con 409 `DEVOLUCION_YA_REGISTRADA` (doble registro, incl. concurrentes:
-         *     solo la primera aplica). **Justificante opcional (FA-04)**: si se omite `justificanteDocId`,
-         *     la devolución se registra igualmente con `avisoSinJustificante=true`.
+         *     Como efecto **posterior al commit** y **best-effort** (patrón `disparar-e8`, invertido respecto
+         *     a la atomicidad de E4), el sistema dispara el **email E10 "fianza devuelta"** al `CLIENTE.email`
+         *     (bilingüe CA/ES por `RESERVA.idioma`, variables `{nombre}`/`{fianzaEur}`): un fallo del proveedor
+         *     **NO revierte** el registro (la RESERVA permanece en `devuelta`), deja la COMUNICACION en
+         *     `fallido` y es **reintentable** desde la ficha. Por eso la respuesta 200 lleva cuerpo con
+         *     `avisoEmail` opcional (espejo del aviso de E8). El estado `devuelta` es **final e irreversible**.
          *
-         *     Aislada por `tenant_id` del JWT (RLS); nunca en el path. Requiere rol Gestor.
+         *     Sin body: la acción no toma parámetros. Aislada por `tenant_id` del JWT (RLS); nunca en el path.
+         *     Requiere rol Gestor.
          */
-        post: operations["registrarDevolucionFianza"];
+        post: operations["devolverFianza"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2808,9 +2804,9 @@ export interface paths {
          *        auditar (cubre idempotencia y la race con el cron). **NO** se aplica el filtro de antigüedad
          *        T+7d de US-037: el gestor puede archivar en cualquier momento tras entrar en `post_evento`.
          *     2. **Guarda de fianza** (`fianzaResuelta`, idéntica a US-037): la fianza está resuelta si
-         *        `fianzaStatus ∈ {devuelta, retenida_parcial}` **O** `fianzaEur ≤ 0` **O** `fianzaEur IS
+         *        `fianzaStatus ∈ {devuelta}` **O** `fianzaEur ≤ 0` **O** `fianzaEur IS
          *        NULL`. Si el origen es válido (`post_evento`) pero la fianza NO está resuelta
-         *        (`fianzaStatus ∈ {cobrada, recibo_enviado, pendiente}` con `fianzaEur > 0`) → **422**
+         *        (`fianzaStatus ∈ {cobrada, pendiente}` con `fianzaEur > 0`) → **422**
          *        `code: 'fianza_no_resuelta'` (precondición de negocio incumplida, design.md §D-3=3.B;
          *        distinta del conflicto de estado 409), sin transicionar ni auditar; `RESERVA.estado`
          *        permanece `post_evento`.
@@ -2833,54 +2829,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/reservas/{id}/iban-devolucion": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description ID de la reserva */
-                id: components["parameters"]["IdReserva"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Registrar IBAN de devolución de fianza y confirmar recepción (UC-26/UC-27 / US-035)
-         * @description [US-035] El **Gestor** (JWT de usuario, rol gestor, RLS del tenant del JWT — NUNCA
-         *     `X-Cron-Token`: es acción manual) registra el **IBAN de devolución** que el cliente le
-         *     proporcionó, sobre una RESERVA concreta. La acción solo está disponible cuando
-         *     `RESERVA.estado='post_evento'` **Y** `RESERVA.fianzaEur > 0`; en cualquier otra combinación
-         *     se rechaza con **409** (FA-04). El efecto persistido recae en **`CLIENTE.iban_devolucion`**
-         *     (atributo del cliente, disponible para futuras reservas del mismo cliente — design.md §D-1),
-         *     no en la RESERVA.
-         *
-         *     Realiza **dos operaciones separadas** (patrón "guardar-luego-enviar", design.md §D-2):
-         *
-         *     1. **Validación previa + paso transaccional**: valida el IBAN con el algoritmo de
-         *        **checksum módulo 97** (ISO 13616: longitud por país, prefijo de país, dígitos de
-         *        control) **ANTES** de cualquier escritura. Si el IBAN es inválido responde **422** sin
-         *        tocar BD ni enviar E8 (FA-01). Si es válido, actualiza `CLIENTE.iban_devolucion`
-         *        (sobreescribiendo el valor previo en correcciones, FA-02) y escribe `AUDIT_LOG`
-         *        `accion='actualizar'`, `entidad='CLIENTE'`,
-         *        `datos_anteriores={iban_devolucion: <previo o null>}`,
-         *        `datos_nuevos={iban_devolucion: <nuevo>}`. Commit.
-         *     2. **Paso post-commit (best-effort)**: invoca el motor de email de `comunicaciones`
-         *        (US-045) con el trigger **E8** hacia `CLIENTE.email` (**nunca** al gestor), creando una
-         *        **nueva** COMUNICACION (`codigoEmail='E8'`, `reserva_id`, `cliente_id`, `tenant_id`) —
-         *        cada registro/corrección crea una fila nueva como excepción auditada a la idempotencia
-         *        `(reserva_id, codigoEmail)` (D-3A, simétrico al reenvío de E4/US-028). Si el proveedor
-         *        falla, el IBAN **permanece guardado** (no se revierte), `COMUNICACION.estado='fallido'` y
-         *        la respuesta 200 incluye `avisoEmail` para que la UI muestre la alerta y ofrezca reenvío
-         *        (FA-03). El reintento se apoya en el mecanismo de reintento del motor de `comunicaciones`.
-         */
-        patch: operations["registrarIbanDevolucion"];
         trace?: never;
     };
     "/reservas/{id}/datos-fiscales": {
@@ -3742,7 +3690,7 @@ export interface paths {
          *     en su **propia transacción** bajo el contexto RLS del tenant de la RESERVA (cross-tenant
          *     read / RLS write) y con `SELECT … FOR UPDATE` sobre la fila, re-evalúa la guarda de origen
          *     (`post_evento → reserva_completada`) y la **guarda pura de fianza resuelta**
-         *     (`fianza_status ∈ {devuelta, retenida_parcial}` OR `fianza_eur <= 0` OR `fianza_eur =
+         *     (`fianza_status ∈ {devuelta}` OR `fianza_eur <= 0` OR `fianza_eur =
          *     null`): si la fianza está **resuelta**, transiciona atómicamente `post_evento →
          *     reserva_completada` y registra `AUDIT_LOG accion='transicion'` origen Sistema
          *     (`datos_anteriores={estado:post_evento}`, `datos_nuevos={estado:reserva_completada,
@@ -3800,7 +3748,7 @@ export interface components {
         /** @enum {string} */
         OrigenExtra: "presupuesto" | "anadido_post_confirmacion";
         /** @enum {string} */
-        TipoFactura: "senal" | "liquidacion" | "fianza" | "complementaria";
+        TipoFactura: "senal" | "liquidacion" | "complementaria";
         /** @enum {string} */
         EstadoPresupuesto: "borrador" | "enviado" | "aceptado" | "rechazado";
         /** @enum {string} */
@@ -3810,17 +3758,17 @@ export interface components {
         /** @enum {string} */
         EstadoFactura: "borrador" | "enviada" | "cobrada";
         /** @enum {string} */
-        FianzaStatus: "pendiente" | "recibo_enviado" | "cobrada" | "devuelta" | "retenida_parcial";
+        FianzaStatus: "pendiente" | "cobrada" | "devuelta";
         /** @enum {string} */
         PreEventoStatus: "pendiente" | "en_curso" | "cerrado";
         /** @enum {string} */
         LiquidacionStatus: "pendiente" | "facturada" | "cobrada";
         /** @enum {string} */
-        TipoDocumento: "dni_anverso" | "dni_reverso" | "clausula_responsabilidad" | "condiciones_particulares" | "justificante_pago" | "presupuesto" | "factura" | "otro";
+        TipoDocumento: "dni_anverso" | "dni_reverso" | "clausula_responsabilidad" | "condiciones_particulares" | "comprobante_fianza" | "justificante_pago" | "presupuesto" | "factura" | "otro";
         /** @enum {string} */
         TipoDocumentoEvento: "dni_anverso" | "dni_reverso" | "clausula_responsabilidad";
         /** @enum {string} */
-        CodigoEmail: "E1" | "E2" | "E3" | "E4" | "E5" | "E6" | "E7" | "E8" | "manual";
+        CodigoEmail: "E1" | "E2" | "E3" | "E4" | "E5" | "E6" | "E7" | "E8" | "E10" | "manual";
         LoginRequest: {
             /** Format: email */
             email: string;
@@ -3876,9 +3824,8 @@ export interface components {
             fianzaCobradaFecha?: string | null;
             /** Format: date */
             fianzaDevueltaFecha?: string | null;
-            fianzaDevueltaEur?: components["schemas"]["Importe"] | null;
-            /** @description Motivo de retención de la fianza (solo en retenida_parcial; null en devuelta / sin devolver). */
-            motivoRetencion?: string | null;
+            /** Format: date-time */
+            fianzaComprobanteFecha?: string | null;
             condPartFirmadas?: boolean | null;
             /** Format: date-time */
             condPartFechaEnvio?: string | null;
@@ -4242,6 +4189,19 @@ export interface components {
              */
             codigo: "CONDICIONES_NO_ENVIADAS";
         };
+        SubirComprobanteFianzaResponse: {
+            /** @description RESERVA resultante con `fianzaStatus='cobrada'`, `fianzaCobradaFecha` y `fianzaComprobanteFecha` (timestamp del registro). `estado` y los demás sub-procesos (`preEventoStatus`/`liquidacionStatus`) permanecen inalterados. */
+            reserva: components["schemas"]["Reserva"];
+            /** @description DOCUMENTO creado con `tipo='comprobante_fianza'` (el comprobante de la transferencia), `url` y `mimeType` del fichero subido. En la re-subida esta es la versión más reciente. */
+            comprobante: components["schemas"]["Documento"];
+        };
+        SubirComprobanteFianzaValidacionError: components["schemas"]["ErrorResponse"] & {
+            /**
+             * @description `ESTADO_INVALIDO` → la RESERVA está fuera de `{reserva_confirmada, evento_en_curso, post_evento}`; `COMPROBANTE_REQUERIDO` → no se adjuntó el fichero del comprobante; `FORMATO_NO_PERMITIDO` → mime no permitido (no jpeg/png/pdf); `TAMANO_EXCEDIDO` → fichero > 10 MB.
+             * @enum {string}
+             */
+            codigo: "ESTADO_INVALIDO" | "COMPROBANTE_REQUERIDO" | "FORMATO_NO_PERMITIDO" | "TAMANO_EXCEDIDO";
+        };
         /** @description DOCUMENTO obligatorio del evento (er-diagram §DOCUMENTO). `reservaId` es obligatorio para la documentación del evento; `tipo` es uno de los tres tipos obligatorios. */
         DocumentoEvento: {
             /** Format: uuid */
@@ -4288,10 +4248,12 @@ export interface components {
             codigo: "ESTADO_NO_PERMITE_DOCUMENTACION" | "TIPO_DOCUMENTO_NO_PERMITIDO" | "ARCHIVO_REQUERIDO" | "FORMATO_NO_PERMITIDO" | "ARCHIVO_INVALIDO" | "TAMANO_EXCEDIDO";
         };
         /**
-         * @description FACTURA de una reserva (`tipo` ∈ {`senal`, `liquidacion`, `fianza`, `complementaria`}), con
+         * @description FACTURA de una reserva (`tipo` ∈ {`senal`, `liquidacion`, `complementaria`}), con
          *     desglose fiscal, estado del ciclo de vida y flags derivados para la UI. Es el item de la
          *     colección `GET /reservas/{id}/facturas`. En `borrador`, `numeroFactura` y `fechaEmision` son
-         *     `null`; la numeración `F-YYYY-NNNN` y la emisión se asignan al enviar (US-028).
+         *     `null`; la numeración `F-YYYY-NNNN` y la emisión se asignan al enviar (US-028). La fianza deja
+         *     de modelarse como FACTURA (fix-liquidacion-fianza-independientes): pasa a subida pasiva de
+         *     comprobante.
          */
         FacturaDto: {
             /**
@@ -4309,7 +4271,7 @@ export interface components {
              * @example F-2026-0001
              */
             numeroFactura?: string | null;
-            /** @description Tipo de la factura: `senal` (40 %, US-022), `liquidacion` (60 % + extras pendientes, US-027), `fianza` (fianza_default_eur, US-027) o `complementaria`. */
+            /** @description Tipo de la factura: `senal` (40 %, US-022), `liquidacion` (60 % + extras pendientes, US-027) o `complementaria`. El tipo `fianza` deja de existir (fix-liquidacion-fianza-independientes). */
             tipo: components["schemas"]["TipoFactura"];
             /** @description Base imponible = round(total / 1.21, 2). Decimal(10,2) como string. */
             baseImponible: components["schemas"]["Importe"];
@@ -4317,7 +4279,7 @@ export interface components {
             ivaPorcentaje: components["schemas"]["Porcentaje"];
             /** @description Importe de IVA = total − baseImponible (por resta, no por doble redondeo), de modo que `baseImponible + ivaImporte = total` exactamente (design.md §D-2). */
             ivaImporte: components["schemas"]["Importe"];
-            /** @description Total con IVA. Para `senal` = `RESERVA.importeSenal` (40 % MVP, US-021); para `liquidacion` = `importeLiquidacion + Σ(RESERVA_EXTRA.subtotal WHERE factura_id IS NULL)` (US-027); para `fianza` = `TENANT_SETTINGS.fianza_default_eur` (US-027). Todos congelados; no se recalcula tarifa ni porcentaje. */
+            /** @description Total con IVA. Para `senal` = `RESERVA.importeSenal` (40 % MVP, US-021); para `liquidacion` = `importeLiquidacion + Σ(RESERVA_EXTRA.subtotal WHERE factura_id IS NULL)` (US-027). Congelados; no se recalcula tarifa ni porcentaje. */
             total: components["schemas"]["Importe"];
             /** @description Concepto de la factura (p. ej. "Señal 40 % reserva SLO-2026-0001"). */
             concepto?: string | null;
@@ -4383,22 +4345,20 @@ export interface components {
              */
             motivo: string;
         };
-        AprobarEnviarLiquidacionRequest: Record<string, never>;
-        AprobarEnviarLiquidacionResponse: {
+        EnviarFacturaLiquidacionRequest: Record<string, never>;
+        EnviarFacturaLiquidacionResponse: {
             /** @description Factura de liquidación emitida (`estado=enviada`, `numeroFactura`, `fechaEmision`). */
             liquidacion: components["schemas"]["Factura"];
-            /** @description Factura de fianza emitida en la misma operación (`estado=enviada`), o `null` si la fianza no se emitió aquí (fianza_default_eur=0 o ya enviada por separado, D-3). */
-            fianza: components["schemas"]["Factura"] | null;
             /** @description Sub-proceso de liquidación de la RESERVA tras la emisión (`facturada`). */
             liquidacionStatus: components["schemas"]["LiquidacionStatus"];
-            /** @description Sub-proceso de fianza de la RESERVA tras la emisión (`recibo_enviado` si se emitió aquí). */
-            fianzaStatus: components["schemas"]["FianzaStatus"];
         };
-        EnviarReciboFianzaResponse: {
-            /** @description Recibo de fianza emitido (`estado=enviada`, `numeroFactura` propio, `fechaEmision`). */
-            fianza: components["schemas"]["Factura"];
-            /** @description Sub-proceso de fianza de la RESERVA tras el envío separado (`recibo_enviado`). */
-            fianzaStatus: components["schemas"]["FianzaStatus"];
+        /**
+         * @description Factura de liquidación (`tipo='liquidacion'`) de una reserva. Misma forma que `FacturaDto`;
+         *     nombre estable de los endpoints de liquidación (obtener/enviar/reenviar).
+         */
+        FacturaLiquidacionDto: components["schemas"]["FacturaDto"] & {
+            /** @description Flag DERIVADO. `true` cuando existe una COMUNICACION E4 con `estado='enviado'` y `es_reenvio=false` para la reserva (la liquidación ya se emitió/envió). La UI lo usa para mostrar el banner permanente "Liquidación enviada el {fecha/hora}" (derivado de `fechaEmision`) y solo "Reenviar" tras el primer envío. */
+            e4Enviado: boolean;
         };
         ReenviarLiquidacionResponse: {
             /** @description Factura de liquidación YA emitida (sin cambios de estado, número ni desglose). */
@@ -4415,11 +4375,11 @@ export interface components {
         };
         LiquidacionError: components["schemas"]["ErrorResponse"] & {
             /**
-             * @description Código de error de dominio: `FACTURA_LIQUIDACION_NO_ENCONTRADA`/ `FACTURA_FIANZA_NO_ENCONTRADA` (404), `FACTURA_NO_BORRADOR`/`FACTURA_NO_ENVIADA` (409), `DESCUENTO_INVALIDO` (422), `EMISION_ENVIO_FALLIDO` (502/503).
+             * @description Código de error de dominio: `FACTURA_LIQUIDACION_NO_ENCONTRADA` (404), `FACTURA_NO_BORRADOR` (409, enviar) / `FACTURA_NO_ENVIADA` (409, reenviar), `EMISION_ENVIO_FALLIDO` (502/503).
              * @enum {string}
              */
-            codigo: "FACTURA_LIQUIDACION_NO_ENCONTRADA" | "FACTURA_FIANZA_NO_ENCONTRADA" | "FACTURA_NO_BORRADOR" | "FACTURA_NO_ENVIADA" | "DESCUENTO_INVALIDO" | "EMISION_ENVIO_FALLIDO";
-            /** @description Mensaje legible para la UI (presente en 409/422). */
+            codigo: "FACTURA_LIQUIDACION_NO_ENCONTRADA" | "FACTURA_NO_BORRADOR" | "FACTURA_NO_ENVIADA" | "EMISION_ENVIO_FALLIDO";
+            /** @description Mensaje legible para la UI (presente en 409). */
             motivo?: string;
         };
         EnviarFacturaSenalRequest: Record<string, never>;
@@ -4534,114 +4494,38 @@ export interface components {
             /** @description Mensaje legible para la UI ("La liquidación ya está marcada como cobrada", "La factura de liquidación debe estar enviada antes de registrar su cobro"). */
             motivo?: string;
         };
-        RegistrarCobroFianzaRequest: {
-            /** @description Importe REAL cobrado (Importe string Decimal(10,2), p. ej. `"1000.00"`). DEBE ser `> 0` (`0`/negativo → 400 `COBRO_INVALIDO`). Se registra como `RESERVA.fianzaEur`. */
-            importe: components["schemas"]["Importe"];
-            /**
-             * Format: date
-             * @description Fecha del cobro (DATE). DEBE ser una fecha válida `<= RESERVA.fechaEvento` (relativo al evento, NO a hoy; posterior al evento o mal formada → 400 `COBRO_INVALIDO`). `fechaCobro = fechaEvento` (cobro en T-0) es válida y se procesa como el happy path.
-             * @example 2026-07-10
-             */
-            fechaCobro: string;
-            /**
-             * Format: uuid
-             * @description OPCIONAL. Referencia a un DOCUMENTO (`tipo='justificante_pago'`) YA subido en el tenant. Si se omite o es `null`, el cobro se registra sin justificante (`PAGO.justificanteDocId=null`) y avanza igualmente a `cobrada`. Un id inexistente en el tenant → 404 `JUSTIFICANTE_NO_ENCONTRADO`.
-             */
-            justificanteDocId?: string | null;
-            /**
-             * @description Política "Negociable" (design.md §D-2). Solo relevante si `fianzaStatus='pendiente'` (el recibo de fianza nunca se envió). Ausente o `false` sobre `pendiente` → respuesta 200 `confirmacion_requerida` (aviso, NO crea PAGO). `true` → el Gestor confirma el cobro sin recibo enviado: se registra igualmente (FACTURA(fianza) `borrador → cobrada` o creada al vuelo `cobrada`) y se traza el flujo excepcional en `AUDIT_LOG`. Irrelevante sobre `recibo_enviado`.
-             * @default false
-             */
-            confirmarSinRecibo: boolean;
+        DevolverFianzaRequest: Record<string, never>;
+        DevolverFianzaResponse: {
+            /** @description La RESERVA actualizada: `fianzaStatus='devuelta'` y `fianzaDevueltaFecha` (timestamp del registro). La devolución es siempre por el importe completo `fianzaEur`. `estado` no cambia. */
+            reserva: components["schemas"]["Reserva"];
+            /** @description Aviso best-effort: nulo cuando el email E10 "fianza devuelta" se envió correctamente; presente cuando la devolución quedó registrada pero E10 falló (COMUNICACION.estado='fallido', reintentable desde la ficha), señalando el fallo sin revertir la devolución. */
+            avisoEmail: components["schemas"]["DevolverFianzaAvisoEmail"] | null;
         };
-        RegistrarCobroFianzaResponse: components["schemas"]["RegistrarCobroFianzaCobrado"] | components["schemas"]["RegistrarCobroFianzaConfirmacionRequerida"];
-        RegistrarCobroFianzaCobrado: {
+        DevolverFianzaAvisoEmail: {
             /**
-             * @description Discriminador: el cobro se registró correctamente. (enum property replaced by openapi-typescript)
+             * @description Discriminador del aviso: el envío de E10 falló en el proveedor (devolución sí registrada).
+             * @example e10_fallido
              * @enum {string}
              */
-            resultado: "cobrado";
-            /** @description El PAGO creado (con el importe real y, si se adjuntó, `justificanteDocId`). Misma forma de lectura del PAGO que en US-029 (`facturaId` = recibo de fianza). */
-            pago: components["schemas"]["PagoLiquidacion"];
-            /** @description Recibo de fianza actualizado (`estado=cobrada`); creado al vuelo si no existía (D-2b). */
-            facturaFianza: components["schemas"]["Factura"];
-            /** @description Sub-proceso de fianza de la RESERVA tras el cobro (`cobrada`). */
-            fianzaStatus: components["schemas"]["FianzaStatus"];
-            /** @description Importe cobrado registrado en `RESERVA.fianzaEur` (Decimal(10,2) como string). */
-            fianzaEur: components["schemas"]["Importe"];
+            codigo: "e10_fallido";
             /**
-             * Format: date
-             * @description Fecha del cobro registrada en `RESERVA.fianzaCobradaFecha` (= `fechaCobro`).
-             * @example 2026-07-10
-             */
-            fianzaCobradaFecha: string;
-        };
-        RegistrarCobroFianzaConfirmacionRequerida: {
-            /**
-             * @description Discriminador: aviso no bloqueante; NO se registró el cobro. (enum property replaced by openapi-typescript)
-             * @enum {string}
-             */
-            resultado: "confirmacion_requerida";
-            /**
-             * @description Código del aviso Negociable (recibo de fianza nunca enviado, `fianzaStatus=pendiente`).
-             * @enum {string}
-             */
-            codigo: "RECIBO_FIANZA_NO_ENVIADO";
-            /**
-             * @description Texto del diálogo de confirmación que muestra el frontend.
-             * @example El recibo de fianza no ha sido enviado al cliente. ¿Desea registrar el cobro igualmente?
+             * @description Mensaje para mostrar al gestor.
+             * @example Fianza marcada como devuelta, pero el email de confirmación no pudo enviarse. Puedes reenviarlo desde la ficha.
              */
             mensaje: string;
-            /** @description Indica al frontend cómo reintentar para forzar el cobro tras la confirmación del Gestor. */
-            reintentarCon: {
-                /**
-                 * @description Reenviar la misma petición con `confirmarSinRecibo: true` para registrar el cobro.
-                 * @enum {boolean}
-                 */
-                confirmarSinRecibo: true;
-            };
-        };
-        CobroFianzaError: components["schemas"]["ErrorResponse"] & {
-            /**
-             * @description Código de error de dominio: `COBRO_INVALIDO` (400: `importe <= 0` o `fechaCobro` posterior a `fechaEvento`/inválida), `FACTURA_FIANZA_NO_ENCONTRADA`/`JUSTIFICANTE_NO_ENCONTRADO` (404), `FIANZA_YA_COBRADA` (409, doble cobro).
-             * @enum {string}
-             */
-            codigo: "COBRO_INVALIDO" | "FACTURA_FIANZA_NO_ENCONTRADA" | "JUSTIFICANTE_NO_ENCONTRADO" | "FIANZA_YA_COBRADA";
-            /** @description Mensaje legible para la UI ("La fianza ya está marcada como cobrada"). */
-            motivo?: string;
-        };
-        RegistrarDevolucionFianzaRequest: {
-            /** @description Importe devuelto (Importe string Decimal(10,2), p. ej. `"1000.00"`). DEBE ser `0.00 ≤ x ≤ RESERVA.fianzaEur`. `"0.00"` es válido (retención total). `x > fianzaEur` → 400 `IMPORTE_SUPERA_FIANZA` (FA-02). `== fianzaEur` ⇒ `devuelta`; `< fianzaEur` ⇒ `retenida_parcial`. */
-            importeDevuelto: components["schemas"]["Importe"];
-            /**
-             * Format: date
-             * @description Fecha real del abono de la devolución (DATE). DEBE ser `>= RESERVA.fianzaCobradaFecha` (anterior o mal formada → 400 `FECHA_DEVOLUCION_INVALIDA`, FA-03). Naming `fechaCobro` por coherencia con US-030.
-             * @example 2026-07-10
-             */
-            fechaCobro: string;
-            /** @description Motivo de la retención. OBLIGATORIO solo en devolución parcial (`importeDevuelto < fianzaEur` ⇒ `retenida_parcial`); si falta en ese caso → 400 `MOTIVO_RETENCION_REQUERIDO`. En devolución completa (`devuelta`) se ignora / `null`. Se persiste en `RESERVA.motivoRetencion` (campo dedicado, G1-1). */
-            motivoRetencion?: string | null;
             /**
              * Format: uuid
-             * @description OPCIONAL. Referencia a un DOCUMENTO (`tipo='justificante_pago'`) YA subido en el tenant (vía `POST /documentos`, NO multipart aquí — G1-3). Omitido o `null` → la devolución se registra sin justificante (FA-04) con `avisoSinJustificante=true`. Un id inexistente en el tenant → 404 `JUSTIFICANTE_NO_ENCONTRADO` (misma semántica que US-030).
+             * @description ID de la COMUNICACION E10 en `estado='fallido'`, para el reenvío desde la ficha.
              */
-            justificanteDocId?: string | null;
-        };
-        RegistrarDevolucionFianzaResponse: {
-            /** @description La RESERVA actualizada: `fianzaStatus` derivado (`devuelta`|`retenida_parcial`), `fianzaDevueltaEur`, `fianzaDevueltaFecha` y `motivoRetencion` (si parcial). */
-            reserva: components["schemas"]["Reserva"];
-            /** @description El DOCUMENTO justificante vinculado (`tipo='justificante_pago'`), o `null`/ausente si no se referenció (FA-04). */
-            documentoJustificante?: components["schemas"]["Documento"] | null;
-            /** @description `true` si la devolución se registró sin justificante (FA-04); el frontend muestra el aviso "Devolución registrada sin justificante. Puedes adjuntarlo más tarde.". */
-            avisoSinJustificante: boolean;
+            comunicacionId?: string | null;
         };
         DevolucionFianzaError: components["schemas"]["ErrorResponse"] & {
             /**
-             * @description Código de error de dominio: `IMPORTE_SUPERA_FIANZA` (400, FA-02: importe > fianzaEur o negativo), `FECHA_DEVOLUCION_INVALIDA` (400, FA-03: fecha < fianzaCobradaFecha), `MOTIVO_RETENCION_REQUERIDO` (400, parcial sin motivo), `JUSTIFICANTE_NO_ENCONTRADO` (404, reutilizado de US-030), `PRECONDICION_NO_CUMPLIDA` (409, estado≠post_evento / fianzaStatus≠cobrada / iban_devolucion null), `DEVOLUCION_YA_REGISTRADA` (409, doble registro sobre estado final irreversible).
+             * @description Código de error de dominio: `PRECONDICION_NO_CUMPLIDA` (409, estado≠post_evento o fianzaStatus≠cobrada), `DEVOLUCION_YA_REGISTRADA` (409, doble registro sobre estado final irreversible).
              * @enum {string}
              */
-            codigo: "IMPORTE_SUPERA_FIANZA" | "FECHA_DEVOLUCION_INVALIDA" | "MOTIVO_RETENCION_REQUERIDO" | "JUSTIFICANTE_NO_ENCONTRADO" | "PRECONDICION_NO_CUMPLIDA" | "DEVOLUCION_YA_REGISTRADA";
-            /** @description Mensaje legible para la UI ("El importe a devolver no puede superar la fianza cobrada"). */
+            codigo: "PRECONDICION_NO_CUMPLIDA" | "DEVOLUCION_YA_REGISTRADA";
+            /** @description Mensaje legible para la UI ("La devolución de la fianza ya está registrada"). */
             motivo?: string;
         };
         Cliente: {
@@ -4657,7 +4541,6 @@ export interface components {
             codigoPostal?: string | null;
             poblacion?: string | null;
             provincia?: string | null;
-            ibanDevolucion?: string | null;
         };
         CreateClienteRequest: {
             /** @description Obligatorio, no vacío, máx 100. */
@@ -4688,7 +4571,6 @@ export interface components {
             codigoPostal?: string;
             poblacion?: string;
             provincia?: string;
-            ibanDevolucion?: string;
         };
         Extra: {
             /** Format: uuid */
@@ -5231,7 +5113,7 @@ export interface components {
         ArchivarReservaManualRequest: Record<string, never>;
         ArchivarFianzaNoResueltaError: components["schemas"]["ErrorResponse"] & {
             /**
-             * @description Discriminador del 422: la RESERVA está en `post_evento` pero la fianza sigue sin resolver (`fianzaEur > 0` y `fianzaStatus ∉ {devuelta, retenida_parcial}`). El archivado se bloquea hasta que se registre la devolución o retención de la fianza.
+             * @description Discriminador del 422: la RESERVA está en `post_evento` pero la fianza sigue sin resolver (`fianzaEur > 0` y `fianzaStatus ∉ {devuelta}`). El archivado se bloquea hasta que se registre la devolución o retención de la fianza.
              * @example fianza_no_resuelta
              * @enum {string}
              */
@@ -5266,48 +5148,6 @@ export interface components {
             code: "origen_invalido";
             /** @example Esta reserva no puede descartarse desde su estado actual. */
             message?: unknown;
-        };
-        RegistrarIbanDevolucionRequest: {
-            /**
-             * @description IBAN a registrar (se normaliza en servidor: mayúsculas, sin espacios). Se valida por checksum módulo 97 antes de persistir; un IBAN que no supere mod-97 devuelve 422 (FA-01).
-             * @example ES9121000418450200051332
-             */
-            iban: string;
-        };
-        RegistrarIbanDevolucionAvisoEmail: {
-            /**
-             * @description Discriminador del aviso: el envío de E8 falló en el proveedor (IBAN sí guardado).
-             * @example e8_fallido
-             * @enum {string}
-             */
-            codigo: "e8_fallido";
-            /**
-             * @description Mensaje para mostrar al gestor.
-             * @example IBAN guardado, pero E8 no pudo enviarse. Puedes reenviarlo desde la ficha.
-             */
-            mensaje: string;
-            /**
-             * Format: uuid
-             * @description ID de la COMUNICACION E8 en `estado='fallido'`, para el reenvío desde la ficha.
-             */
-            comunicacionId?: string | null;
-        };
-        RegistrarIbanDevolucionResponse: {
-            /**
-             * @description IBAN normalizado (mayúsculas, sin espacios) persistido en `CLIENTE.iban_devolucion`.
-             * @example ES9121000418450200051332
-             */
-            iban: string;
-            /** @description Aviso de FA-03: nulo cuando E8 se envió correctamente; presente cuando el IBAN quedó guardado pero E8 falló (COMUNICACION.estado='fallido'). */
-            avisoEmail: components["schemas"]["RegistrarIbanDevolucionAvisoEmail"] | null;
-        };
-        RegistrarIbanDevolucionConflictError: components["schemas"]["ErrorResponse"] & {
-            /**
-             * @description Discriminador del 409: `estado_no_post_evento` = la RESERVA no está en `post_evento`; `sin_fianza` = `fianzaEur <= 0` o `null` (no hay fianza que devolver, FA-04).
-             * @example sin_fianza
-             * @enum {string}
-             */
-            code: "estado_no_post_evento" | "sin_fianza";
         };
         /** @description Al menos un campo fiscal a actualizar. Los cinco son opcionales; solo los presentes se persisten (los ausentes conservan su valor previo, no se ponen a null). */
         ActualizarDatosFiscalesClienteRequest: {
@@ -5612,7 +5452,7 @@ export interface components {
              */
             archivadas: number;
             /**
-             * @description Nº de candidatas que NO se archivaron por tener la fianza sin resolver (`fianza_status ∉ {devuelta, retenida_parcial}` y `fianza_eur > 0`); por cada una se emite una **alerta interna** al gestor (FA-01) con anti-duplicación (no se re-emite en pases sucesivos mientras la fianza siga pendiente). La resolución de la fianza es US-036; su materialización visual, US-044.
+             * @description Nº de candidatas que NO se archivaron por tener la fianza sin resolver (`fianza_status ∉ {devuelta}` y `fianza_eur > 0`); por cada una se emite una **alerta interna** al gestor (FA-01) con anti-duplicación (no se re-emite en pases sucesivos mientras la fianza siga pendiente). La resolución de la fianza es US-036; su materialización visual, US-044.
              * @example 1
              */
             fianzaPendiente: number;
@@ -6883,7 +6723,7 @@ export interface operations {
             };
         };
     };
-    aprobarEnviarLiquidacion: {
+    enviarFacturaLiquidacion: {
         parameters: {
             query?: never;
             header?: never;
@@ -6895,22 +6735,21 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["AprobarEnviarLiquidacionRequest"];
+                "application/json": components["schemas"]["EnviarFacturaLiquidacionRequest"];
             };
         };
         responses: {
             /**
-             * @description Liquidación (y, si procede, fianza) emitida y enviada por E4. Devuelve ambas facturas con
-             *     `estado='enviada'`, `numeroFactura` asignado y `fechaEmision`, más los `liquidacionStatus`/
-             *     `fianzaStatus` resultantes de la RESERVA. `fianza=null` si la fianza no se emitió en esta
-             *     operación (fianza_default_eur=0 o ya enviada por separado).
+             * @description Liquidación emitida y enviada por E4 (solo liquidación). Devuelve la factura de liquidación
+             *     con `estado='enviada'`, `numeroFactura` asignado y `fechaEmision`, más el
+             *     `liquidacionStatus` resultante de la RESERVA (`facturada`). `fianzaStatus` NO cambia.
              */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AprobarEnviarLiquidacionResponse"];
+                    "application/json": components["schemas"]["EnviarFacturaLiquidacionResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -6942,8 +6781,9 @@ export interface operations {
             };
             /**
              * @description **Fallo recuperable de emisión/envío** (`EMISION_ENVIO_FALLIDO`): el proveedor de email o el
-             *     servicio de PDF falló al enviar E4. La transacción REVIERTE por completo (la liquidación
-             *     sigue en `borrador`, sin número ni cambios de status). El Gestor puede reintentar la acción.
+             *     servicio de PDF falló al enviar E4 (incluye `pdf_url` de la liquidación ausente). La
+             *     transacción REVIERTE por completo (la liquidación sigue en `borrador`, sin número ni cambios
+             *     de status). El Gestor puede reintentar la acción.
              */
             502: {
                 headers: {
@@ -6967,7 +6807,7 @@ export interface operations {
             };
         };
     };
-    enviarReciboFianza: {
+    obtenerFacturaLiquidacion: {
         parameters: {
             query?: never;
             header?: never;
@@ -6980,74 +6820,31 @@ export interface operations {
         requestBody?: never;
         responses: {
             /**
-             * @description Recibo de fianza emitido y enviado. Devuelve la fianza con `estado='enviada'`, `numeroFactura`
-             *     asignado y `fechaEmision`, más `fianzaStatus='recibo_enviado'`.
+             * @description Factura de liquidación de la reserva (`FacturaLiquidacionDto`). Incluye desglose fiscal,
+             *     `estado`, `numeroFactura` (`null` mientras esté en `borrador`), `pdfUrl` (`null` si aún no
+             *     generado), `fechaEmision` y los flags `esBorradorInvalido`/`pdfPendiente`/`e4Enviado`.
              */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EnviarReciboFianzaResponse"];
+                    "application/json": components["schemas"]["FacturaLiquidacionDto"];
                 };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /**
-             * @description La RESERVA no existe en el tenant (RLS) o **no tiene** recibo de fianza en `borrador`
-             *     (`FACTURA_FIANZA_NO_ENCONTRADA`). El cuerpo añade `codigo` al envelope estándar.
+             * @description La RESERVA no existe en el tenant (RLS) o **aún no tiene** factura de liquidación (el
+             *     disparo post-commit de US-021/US-027 todavía no la materializó). El cuerpo es el envelope
+             *     estándar `ErrorResponse`.
              */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LiquidacionError"];
-                };
-            };
-            /**
-             * @description Conflicto de estado (F5-02: 409). El recibo de fianza **no está en `borrador`** (ya
-             *     `enviada`): `FACTURA_NO_BORRADOR`. No se muta nada. El cuerpo añade `codigo` y `motivo`.
-             */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LiquidacionError"];
-                };
-            };
-            /** @description Validación de negocio sin efectos (F5-02: 422). Cuerpo del envelope estándar con `codigo`. */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LiquidacionError"];
-                };
-            };
-            /**
-             * @description **Fallo recuperable de emisión/envío** (`EMISION_ENVIO_FALLIDO`): el proveedor de email o el
-             *     servicio de PDF falló. La transacción REVIERTE (la fianza sigue en `borrador`). Reintentar.
-             */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LiquidacionError"];
-                };
-            };
-            /**
-             * @description **Fallo recuperable de emisión/envío** (`EMISION_ENVIO_FALLIDO`): servicio no disponible
-             *     temporalmente. La transacción REVIERTE por completo; reintentar la acción.
-             */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LiquidacionError"];
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -7371,7 +7168,7 @@ export interface operations {
             };
         };
     };
-    registrarCobroFianza: {
+    subirComprobanteFianza: {
         parameters: {
             query?: never;
             header?: never;
@@ -7383,74 +7180,50 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RegistrarCobroFianzaRequest"];
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Comprobante de la transferencia de fianza recibida. Formatos permitidos: `image/jpeg`, `image/png`, `application/pdf`. Tamaño máximo 10 MB. Obligatorio.
+                     */
+                    comprobanteFianza: string;
+                };
             };
         };
         responses: {
             /**
-             * @description Resultado del registro. **Dos formas discriminadas por el campo `resultado`**:
-             *     - `resultado='cobrado'` (`RegistrarCobroFianzaCobrado`): el cobro se registró. La fianza queda
-             *       en `estado='cobrada'` y `fianzaStatus='cobrada'`. Devuelve el `PAGO` creado, la
-             *       `FACTURA (fianza)` actualizada, el `fianzaStatus`, `fianzaEur` y `fianzaCobradaFecha`.
-             *     - `resultado='confirmacion_requerida'` (`RegistrarCobroFianzaConfirmacionRequerida`): política
-             *       "Negociable" — `fianzaStatus='pendiente'` sin `confirmarSinRecibo=true`. **NO se creó PAGO
-             *       ni FACTURA** ni se cambió el estado. Devuelve `codigo=RECIBO_FIANZA_NO_ENVIADO`, un `mensaje`
-             *       para el diálogo y `reintentarCon` indicando el flag a enviar. El frontend confirma y reintenta.
+             * @description Comprobante registrado. Devuelve la RESERVA con `fianzaStatus='cobrada'`,
+             *     `fianzaCobradaFecha` y `fianzaComprobanteFecha` (timestamp del registro) y el DOCUMENTO
+             *     comprobante creado. El `estado` de la reserva y los demás sub-procesos no cambian.
              */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegistrarCobroFianzaResponse"];
+                    "application/json": components["schemas"]["SubirComprobanteFianzaResponse"];
                 };
             };
-            /**
-             * @description Validación de entrada. El `importe` no es Decimal(10,2) positivo (`> 0`) o `fechaCobro` no es
-             *     una fecha válida `<= RESERVA.fechaEvento` (posterior al evento o mal formada): `COBRO_INVALIDO`.
-             *     No se crea `PAGO` ni cambia el estado. Cuerpo = envelope estándar + `codigo` y `motivo`.
-             */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CobroFianzaError"];
-                };
-            };
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             /**
-             * @description La RESERVA no existe en el tenant (RLS), no tiene recibo de fianza cuando se esperaba
-             *     (`FACTURA_FIANZA_NO_ENCONTRADA`), o el `justificanteDocId` indicado no existe en el tenant
-             *     (`JUSTIFICANTE_NO_ENCONTRADO`). No se muta nada. Cuerpo + `codigo`.
+             * @description Validación de negocio sin efectos (guarda de estado o validación de fichero). No se crea
+             *     DOCUMENTO, no se muta `RESERVA` ni se registra AUDIT_LOG. Un `codigo` de dominio discrimina
+             *     el caso (`ESTADO_INVALIDO`, `COMPROBANTE_REQUERIDO`, `FORMATO_NO_PERMITIDO`,
+             *     `TAMANO_EXCEDIDO`).
              */
-            404: {
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CobroFianzaError"];
-                };
-            };
-            /**
-             * @description Conflicto de precondición de estado (doble cobro), sin efectos, releído bajo
-             *     `SELECT ... FOR UPDATE`:
-             *     - `FIANZA_YA_COBRADA` — la fianza ya está `cobrada` (**doble cobro**, incl. dos peticiones
-             *       concurrentes: solo la primera registra el PAGO). "La fianza ya está marcada como cobrada".
-             *     Cuerpo = envelope estándar + `codigo` y `motivo`.
-             */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CobroFianzaError"];
+                    "application/json": components["schemas"]["SubirComprobanteFianzaValidacionError"];
                 };
             };
         };
     };
-    registrarDevolucionFianza: {
+    devolverFianza: {
         parameters: {
             query?: never;
             header?: never;
@@ -7460,47 +7233,31 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
-                "application/json": components["schemas"]["RegistrarDevolucionFianzaRequest"];
+                "application/json": components["schemas"]["DevolverFianzaRequest"];
             };
         };
         responses: {
             /**
-             * @description Devolución registrada. Devuelve la RESERVA actualizada (`fianzaStatus` derivado a
-             *     `devuelta`|`retenida_parcial`, `fianzaDevueltaEur`, `fianzaDevueltaFecha`,
-             *     `motivoRetencion` si parcial); el DOCUMENTO justificante si se referenció; y
-             *     `avisoSinJustificante=true` si se registró sin justificante (FA-04).
+             * @description Devolución registrada. Devuelve la RESERVA actualizada (`fianzaStatus='devuelta'`,
+             *     `fianzaDevueltaFecha`) y `avisoEmail`: nulo cuando E10 se envió correctamente; presente
+             *     cuando la devolución quedó registrada pero E10 no pudo enviarse (best-effort), señalando el
+             *     fallo sin revertir la devolución.
              */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegistrarDevolucionFianzaResponse"];
-                };
-            };
-            /**
-             * @description Validación de entrada / dominio, sin efectos: `IMPORTE_SUPERA_FIANZA` (FA-02:
-             *     `importeDevuelto > RESERVA.fianzaEur`; también importe negativo o no Decimal(10,2)) o
-             *     `FECHA_DEVOLUCION_INVALIDA` (FA-03: `fechaCobro < RESERVA.fianzaCobradaFecha` o mal
-             *     formada), o `MOTIVO_RETENCION_REQUERIDO` (resultado parcial sin `motivoRetencion`).
-             *     Cuerpo = envelope estándar + `codigo` y `motivo`.
-             */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DevolucionFianzaError"];
+                    "application/json": components["schemas"]["DevolverFianzaResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /**
-             * @description La RESERVA no existe en el tenant (RLS) o el `justificanteDocId` indicado no existe en el
-             *     tenant (`JUSTIFICANTE_NO_ENCONTRADO`, misma semántica que US-030). No se muta nada.
-             *     Cuerpo + `codigo`.
+             * @description La RESERVA no existe en el tenant (RLS). No se muta nada. Cuerpo = envelope estándar
+             *     `ErrorResponse` + `codigo`.
              */
             404: {
                 headers: {
@@ -7512,12 +7269,11 @@ export interface operations {
             };
             /**
              * @description Conflicto de precondición / estado, sin efectos, releído bajo `SELECT ... FOR UPDATE`:
-             *     - `PRECONDICION_NO_CUMPLIDA` — la precondición triple no se cumple
-             *       (`RESERVA.estado ≠ post_evento`, `RESERVA.fianzaStatus ≠ cobrada`, o
-             *       `CLIENTE.iban_devolucion` ausente).
-             *     - `DEVOLUCION_YA_REGISTRADA` — la fianza ya está `devuelta`/`retenida_parcial` (**doble
-             *       registro**, incl. dos peticiones concurrentes: solo la primera aplica; estado
-             *       irreversible). Cuerpo = envelope estándar + `codigo` y `motivo`.
+             *     - `PRECONDICION_NO_CUMPLIDA` — la precondición no se cumple (`RESERVA.estado ≠ post_evento`
+             *       o `RESERVA.fianzaStatus ≠ cobrada`).
+             *     - `DEVOLUCION_YA_REGISTRADA` — la fianza ya está `devuelta` (**doble registro**, incl. dos
+             *       peticiones concurrentes: solo la primera aplica; estado irreversible). Cuerpo = envelope
+             *       estándar + `codigo` y `motivo`.
              */
             409: {
                 headers: {
@@ -7799,7 +7555,7 @@ export interface operations {
             };
             /**
              * @description Fianza no resuelta (FA-01/FA-02, design.md §D-3=3.B): la RESERVA está en `post_evento`
-             *     (origen válido) pero la fianza NO está resuelta (`fianzaStatus ∈ {cobrada, recibo_enviado,
+             *     (origen válido) pero la fianza NO está resuelta (`fianzaStatus ∈ {cobrada,
              *     pendiente}` con `fianzaEur > 0`). Precondición de negocio incumplida, distinta del
              *     conflicto de estado 409. La RESERVA permanece en `post_evento` sin auditoría.
              */
@@ -7809,67 +7565,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ArchivarFianzaNoResueltaError"];
-                };
-            };
-        };
-    };
-    registrarIbanDevolucion: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description ID de la reserva */
-                id: components["parameters"]["IdReserva"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegistrarIbanDevolucionRequest"];
-            };
-        };
-        responses: {
-            /**
-             * @description IBAN válido registrado en `CLIENTE.iban_devolucion`. Devuelve el IBAN guardado
-             *     (normalizado) más `avisoEmail`: nulo cuando E8 se envió correctamente; presente cuando
-             *     el IBAN quedó guardado pero E8 no pudo enviarse (FA-03), señalando el fallo sin revertir
-             *     el IBAN. Respuesta con cuerpo (no 204) precisamente para poder transmitir ese aviso.
-             */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegistrarIbanDevolucionResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            /**
-             * @description Conflicto de estado/precondición (FA-04): la RESERVA `{id}` no está en `post_evento`
-             *     o no tiene fianza que devolver (`fianzaEur <= 0` o `null`). Sin efectos: no se actualiza
-             *     `CLIENTE.iban_devolucion` ni se envía E8.
-             */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegistrarIbanDevolucionConflictError"];
-                };
-            };
-            /**
-             * @description IBAN inválido (FA-01): no supera la validación de checksum módulo 97 (longitud por país,
-             *     prefijo de país o dígitos de control incorrectos). Sin efectos: no se actualiza
-             *     `CLIENTE.iban_devolucion` ni se envía E8.
-             */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

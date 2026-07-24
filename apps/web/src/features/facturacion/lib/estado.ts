@@ -57,11 +57,10 @@ export const ETIQUETA_ESTADO_FACTURA: Record<EstadoFactura, string> = {
   cobrada: 'Cobrada',
 };
 
-/** Etiqueta legible del tipo de factura (US-022 señal, US-027 liquidación/fianza). */
+/** Etiqueta legible del tipo de factura (US-022 señal, US-027 liquidación). */
 export const ETIQUETA_TIPO_FACTURA: Record<TipoFactura, string> = {
   senal: 'Factura de señal',
   liquidacion: 'Factura de liquidación',
-  fianza: 'Recibo de fianza',
   complementaria: 'Factura complementaria',
 };
 

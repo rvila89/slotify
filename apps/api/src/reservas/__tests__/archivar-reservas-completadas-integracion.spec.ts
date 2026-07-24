@@ -77,7 +77,7 @@ const sembrar = async (params: {
   estado?: EstadoReserva;
   fianzaStatus?: FianzaStatus;
   fianzaEur?: number | null;
-  fianzaDevueltaEur?: number | null;
+  fianzaComprobanteFecha?: Date | null;
   tenantId?: string;
 }): Promise<{ reservaId: string }> => {
   const tenantId = params.tenantId ?? TENANT;
@@ -95,7 +95,7 @@ const sembrar = async (params: {
       fechaPostEvento: params.fechaPostEvento,
       fianzaStatus: params.fianzaStatus ?? FianzaStatus.devuelta,
       fianzaEur: params.fianzaEur ?? 300,
-      fianzaDevueltaEur: params.fianzaDevueltaEur ?? null,
+      fianzaComprobanteFecha: null,
     },
   });
   return { reservaId: reserva.idReserva };
@@ -181,11 +181,12 @@ describe('Barrido US-037 — happy path: archiva y audita origen Sistema (4.3)',
 });
 
 // ===========================================================================
-// 4.4/4.5 — Sin fianza (eur=0/null) y retención total (retenida_parcial, devuelta_eur=0)
-//        archivan por la guarda de fianza satisfecha.
+// 4.4/4.5 — Sin fianza (eur=0/null) y fianza devuelta (completa) archivan por la guarda de
+//        fianza satisfecha. (fix-liquidacion-fianza-independientes: la devolución es siempre
+//        completa; `retenida_parcial` ya no existe.)
 // ===========================================================================
 
-describe('Barrido US-037 — sin fianza y retención total archivan (4.4/4.5)', () => {
+describe('Barrido US-037 — sin fianza y fianza devuelta archivan (4.4/4.5)', () => {
   it('debe_archivar_sin_fianza_eur_0_aunque_el_status_sea_cobrada', async () => {
     const { reservaId } = await sembrar({
       fechaPostEvento: HACE_8_DIAS,
@@ -198,12 +199,14 @@ describe('Barrido US-037 — sin fianza y retención total archivan (4.4/4.5)', 
     expect((await leerReserva(reservaId))?.estado).toBe(EstadoReserva.reserva_completada);
   });
 
-  it('debe_archivar_retenida_parcial_con_devuelta_eur_0_retencion_100', async () => {
+  it('debe_archivar_cuando_la_fianza_esta_devuelta_con_importe', async () => {
+    // fix-liquidacion-fianza-independientes: `devuelta` (siempre completa) es un estado
+    // resuelto con cualquier importe.
     const { reservaId } = await sembrar({
       fechaPostEvento: HACE_8_DIAS,
-      fianzaStatus: FianzaStatus.retenida_parcial,
+      fianzaStatus: FianzaStatus.devuelta,
       fianzaEur: 500,
-      fianzaDevueltaEur: 0,
+      fianzaComprobanteFecha: null,
     });
 
     await servicio.ejecutar();

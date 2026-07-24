@@ -1,29 +1,23 @@
 /**
- * TESTS del caso de uso `GenerarBorradoresLiquidacionFianzaUseCase` (US-027 / UC-21, UC-22)
- * — fase TDD RED. tasks.md Fase 3: 3.3 (liquidación), 3.4 (fianza), 3.5 (fianza=0),
- * 3.6 (sin extras), 3.7 (idempotencia — vertiente de orquestación), 3.8 (no marcar
- * RESERVA_EXTRA), y AUDIT_LOG `crear` + alerta al Gestor.
+ * TESTS del caso de uso `GenerarBorradoresLiquidacionFianzaUseCase`
+ * (fix-liquidacion-fianza-independientes / UC-21) — comportamiento NUEVO.
  *
- * Trazabilidad: US-027; spec-delta `facturacion` (Requirements de generación automática de la
- * factura de liquidación y del recibo de fianza en borrador, desglose fiscal reutilizado,
- * numeración diferida a la emisión = `numero_factura` NULL, idempotencia por `(reserva_id,
- * tipo)`, omisión de fianza si `fianza_default_eur = 0`, alerta al Gestor, auditoría de la
- * creación); spec-delta `confirmacion` (disparo post-commit). design.md §D-1/§D-2/§D-3/§D-4/
- * §D-6. Contrato previsto §D-5: `GET /reservas/{id}/facturas` (colección con tipo, estado,
- * desglose, total, numero_factura nullable, flag de alerta).
+ * La fianza deja de ser una FACTURA que se emite: al activar los sub-procesos SOLO se genera
+ * el borrador de LIQUIDACIÓN (spec-delta `facturacion` MODIFIED "Generación automática de la
+ * factura de liquidación en borrador…", scenario "La activación de los sub-procesos no genera
+ * ningún borrador de fianza"; REMOVED "Generación automática del recibo de fianza en borrador").
+ * design.md §D-1 / §D-2.
+ *
+ * El resultado conserva la firma `{ liquidacion, fianza, fianzaOmitida }` por compatibilidad,
+ * pero `fianza` es SIEMPRE `null` y `fianzaOmitida` es SIEMPRE `true` (nunca se crea recibo de
+ * fianza).
  *
  * Ejercita la APLICACIÓN contra DOBLES DE LOS PUERTOS (in-memory), sin tocar Prisma
- * (hexagonal, hook `no-infra-in-domain`). La idempotencia REAL con transacciones y el doble
- * disparo concurrente viven en `generar-borradores-idempotencia.spec.ts`; aquí se fija la
- * ORQUESTACIÓN: guarda de origen (reserva_confirmada + liquidacion_status pendiente), cálculo
- * del total de liquidación (60 % + extras factura_id IS NULL), desglose fiscal reutilizado,
- * creación de AMBOS borradores con numero_factura NULL, omisión de fianza si el importe es 0,
- * NO marcar RESERVA_EXTRA con factura_id en borrador, AUDIT_LOG `crear` por documento y la
- * señal de alerta al Gestor (con/ sin fianza).
- *
- * RED: aún NO existe `facturacion/application/generar-borradores-liquidacion-fianza.use-case.ts`.
- * El import falla y la batería está en ROJO por AUSENCIA DE IMPLEMENTACIÓN. GREEN es de
- * `backend-developer`.
+ * (hexagonal, hook `no-infra-in-domain`). Fija la ORQUESTACIÓN: guarda de origen
+ * (reserva_confirmada), cálculo del total de liquidación (60 % + extras factura_id IS NULL),
+ * desglose fiscal reutilizado, creación de UN ÚNICO borrador (liquidación) con numero_factura
+ * NULL, NO crear NINGÚN documento de fianza, NO marcar RESERVA_EXTRA en borrador, AUDIT_LOG
+ * `crear` solo para la liquidación e idempotencia por (reserva_id, tipo).
  */
 import {
   GenerarBorradoresLiquidacionFianzaUseCase,
@@ -42,7 +36,6 @@ const TENANT = '00000000-0000-0000-0000-000000000001';
 const OTRO_TENANT = '00000000-0000-0000-0000-0000000000ff';
 const RESERVA_ID = 'res-conf-1';
 const FAC_LIQ_ID = 'fac-liq-1';
-const FAC_FIANZA_ID = 'fac-fianza-1';
 
 // ---------------------------------------------------------------------------
 // Dobles de datos: RESERVA reserva_confirmada con importe_liquidacion congelado
@@ -67,7 +60,7 @@ const extra = (subtotal: string): ExtraPendiente => ({ subtotal });
 
 // ---------------------------------------------------------------------------
 // Repositorios + UoW fake. El use-case orquesta UNA transacción de facturación
-// que crea AMBOS borradores (atómica entre sí) + sus AUDIT_LOG.
+// que crea SOLO el borrador de liquidación + su AUDIT_LOG.
 // ---------------------------------------------------------------------------
 
 interface ReposFake extends RepositoriosBorradores {
@@ -82,19 +75,16 @@ type PuntoDeFallo = 'crear' | 'auditoria';
 
 const crearReposFake = (opciones: {
   liquidacionExistente?: BorradorFactura | null;
-  fianzaExistente?: BorradorFactura | null;
   fallarEn?: PuntoDeFallo;
 } = {}): ReposFake => ({
   facturas: {
     buscarPorReservaYTipo: jest.fn(async (_reservaId: string, tipo: string) => {
       if (tipo === 'liquidacion') return opciones.liquidacionExistente ?? null;
-      if (tipo === 'fianza') return opciones.fianzaExistente ?? null;
       return null;
     }),
     crear: jest.fn(async (f: Record<string, unknown>) => {
       if (opciones.fallarEn === 'crear') throw new Error('FALLO_CREAR');
-      const idFactura = f.tipo === 'liquidacion' ? FAC_LIQ_ID : FAC_FIANZA_ID;
-      return { idFactura, numeroFactura: null, pdfUrl: null, fechaEmision: null, ...f };
+      return { idFactura: FAC_LIQ_ID, numeroFactura: null, pdfUrl: null, fechaEmision: null, ...f };
     }),
   },
   auditoria: {
@@ -119,26 +109,21 @@ const crearUowFake = (
 const montar = (opciones: {
   reserva?: ReservaLiquidable | null;
   extrasPendientes?: ReadonlyArray<ExtraPendiente>;
-  fianzaDefaultEur?: string;
   liquidacionExistente?: BorradorFactura | null;
-  fianzaExistente?: BorradorFactura | null;
   fallarEn?: PuntoDeFallo;
 } = {}) => {
   const reserva = 'reserva' in opciones ? opciones.reserva : reservaLiquidable();
   const repos = crearReposFake({
     liquidacionExistente: opciones.liquidacionExistente,
-    fianzaExistente: opciones.fianzaExistente,
     fallarEn: opciones.fallarEn,
   });
   const uow = crearUowFake(repos);
   const cargarReserva = jest.fn(async () => reserva);
   const cargarExtrasPendientes = jest.fn(async () => opciones.extrasPendientes ?? []);
-  const cargarFianzaDefault = jest.fn(async () => opciones.fianzaDefaultEur ?? '1000.00');
   const deps: GenerarBorradoresLiquidacionFianzaDeps = {
     unidadDeTrabajo: uow,
     cargarReserva,
     cargarExtrasPendientes,
-    cargarFianzaDefault,
   };
   return {
     useCase: new GenerarBorradoresLiquidacionFianzaUseCase(deps),
@@ -146,7 +131,6 @@ const montar = (opciones: {
     uow,
     cargarReserva,
     cargarExtrasPendientes,
-    cargarFianzaDefault,
     deps,
   };
 };
@@ -164,12 +148,12 @@ const crearArgsDe = (repos: ReposFake, tipo: string): Record<string, unknown> | 
   repos.facturas.crear.mock.calls.map((c) => c[0]).find((f) => f.tipo === tipo);
 
 // ===========================================================================
-// 3.3 — Factura de LIQUIDACIÓN en borrador: tipo='liquidacion', estado='borrador',
-//        numero_factura=NULL, total = importe_liquidacion + Σ extras pendientes,
-//        reserva_id/tenant_id correctos + desglose fiscal + AUDIT_LOG crear.
+// Factura de LIQUIDACIÓN en borrador: tipo='liquidacion', estado='borrador',
+// numero_factura=NULL, total = importe_liquidacion + Σ extras pendientes,
+// reserva_id/tenant_id correctos + desglose fiscal + AUDIT_LOG crear.
 // ===========================================================================
 
-describe('GenerarBorradores — factura de liquidación en borrador (3.3)', () => {
+describe('GenerarBorradores — factura de liquidación en borrador', () => {
   it('debe_crear_una_factura_tipo_liquidacion_en_borrador_con_total_4100_incluyendo_extras', async () => {
     const { useCase, repos } = montar({
       reserva: reservaLiquidable({ importeLiquidacion: '3600.00' }),
@@ -244,112 +228,76 @@ describe('GenerarBorradores — factura de liquidación en borrador (3.3)', () =
 });
 
 // ===========================================================================
-// 3.4 — Recibo de FIANZA en borrador: tipo='fianza', estado='borrador',
-//        numero_factura=NULL, total = TENANT_SETTINGS.fianza_default_eur,
-//        reserva_id/tenant_id correctos + AUDIT_LOG crear.
+// NUEVO (fix-liquidacion-fianza-independientes): la activación de los sub-procesos
+// NO genera NINGÚN borrador de fianza. La fianza deja de ser una FACTURA.
+// spec-delta `facturacion`: MODIFIED "…no genera ningún borrador de fianza";
+// REMOVED "Generación automática del recibo de fianza en borrador".
 // ===========================================================================
 
-describe('GenerarBorradores — recibo de fianza en borrador (3.4)', () => {
-  it('debe_crear_una_factura_tipo_fianza_en_borrador_con_total_igual_a_la_fianza_por_defecto', async () => {
-    const { useCase, repos } = montar({ fianzaDefaultEur: '1000.00' });
-
-    await useCase.ejecutar(comando());
-
-    const fianza = crearArgsDe(repos, 'fianza');
-    expect(fianza).toBeDefined();
-    expect(fianza!.estado).toBe('borrador');
-    expect(fianza!.total).toBe('1000.00');
-    expect(fianza!.reservaId).toBe(RESERVA_ID);
-    expect(fianza!.tenantId).toBe(TENANT);
-  });
-
-  it('debe_crear_la_fianza_con_numero_factura_NULL_diferido_a_la_emision', async () => {
-    const { useCase, repos } = montar({ fianzaDefaultEur: '1000.00' });
-
-    await useCase.ejecutar(comando());
-
-    const fianza = crearArgsDe(repos, 'fianza');
-    expect(fianza!.numeroFactura ?? null).toBeNull();
-  });
-
-  it('debe_registrar_AUDIT_LOG_accion_crear_entidad_FACTURA_para_la_fianza', async () => {
-    const { useCase, repos } = montar({ fianzaDefaultEur: '1000.00' });
-
-    await useCase.ejecutar(comando());
-
-    const crearFianza = repos.auditoria.registrar.mock.calls
-      .map((c) => c[0])
-      .find((a) => a.accion === 'crear' && a.entidadId === FAC_FIANZA_ID);
-    expect(crearFianza).toBeDefined();
-    expect(crearFianza.entidad).toBe('FACTURA');
-  });
-
-  it('debe_crear_ambos_borradores_liquidacion_y_fianza_en_el_happy_path', async () => {
+describe('GenerarBorradores — la fianza NO se genera como FACTURA (fix-liquidacion-fianza-independientes)', () => {
+  it('no_debe_crear_ninguna_factura_de_tipo_fianza', async () => {
     const { useCase, repos } = montar({
       extrasPendientes: [extra('300.00'), extra('200.00')],
-      fianzaDefaultEur: '1000.00',
     });
-
-    await useCase.ejecutar(comando());
-
-    expect(crearArgsDe(repos, 'liquidacion')).toBeDefined();
-    expect(crearArgsDe(repos, 'fianza')).toBeDefined();
-    expect(repos.facturas.crear).toHaveBeenCalledTimes(2);
-  });
-});
-
-// ===========================================================================
-// 3.5 — Edge case fianza_default_eur = 0: NO se crea la FACTURA de fianza;
-//        fianza_status permanece pendiente; la liquidación SÍ se crea; la alerta
-//        al Gestor menciona SOLO la liquidación.
-// ===========================================================================
-
-describe('GenerarBorradores — omisión de la fianza cuando fianza_default_eur = 0 (3.5)', () => {
-  it('no_debe_crear_la_factura_de_fianza_cuando_el_importe_por_defecto_es_cero', async () => {
-    const { useCase, repos } = montar({ fianzaDefaultEur: '0.00' });
 
     await useCase.ejecutar(comando());
 
     expect(crearArgsDe(repos, 'fianza')).toBeUndefined();
   });
 
-  it('debe_crear_igualmente_la_liquidacion_aunque_la_fianza_se_omita', async () => {
-    const { useCase, repos } = montar({ fianzaDefaultEur: '0.00' });
+  it('debe_crear_UNA_SOLA_factura_en_el_happy_path_solo_la_liquidacion', async () => {
+    const { useCase, repos } = montar({
+      extrasPendientes: [extra('300.00'), extra('200.00')],
+    });
 
     await useCase.ejecutar(comando());
 
+    expect(repos.facturas.crear).toHaveBeenCalledTimes(1);
     expect(crearArgsDe(repos, 'liquidacion')).toBeDefined();
   });
 
-  it('debe_indicar_en_el_resultado_que_la_fianza_fue_omitida_y_la_alerta_solo_cita_liquidacion', async () => {
-    const { useCase } = montar({ fianzaDefaultEur: '0.00' });
+  it('debe_devolver_fianza_null_y_fianzaOmitida_true_conservando_la_firma', async () => {
+    const { useCase } = montar({
+      extrasPendientes: [extra('300.00'), extra('200.00')],
+    });
 
     const resultado = await useCase.ejecutar(comando());
 
-    // El resultado refleja que NO se generó fianza (para la alerta de UI, §D-6).
-    expect(resultado.fianzaOmitida).toBe(true);
-    expect(resultado.fianza).toBeNull();
     expect(resultado.liquidacion).not.toBeNull();
+    // La fianza NUNCA se genera como FACTURA: la firma se conserva pero es null/true.
+    expect(resultado.fianza).toBeNull();
+    expect(resultado.fianzaOmitida).toBe(true);
   });
 
-  it('no_debe_registrar_AUDIT_LOG_de_creacion_de_fianza_cuando_se_omite', async () => {
-    const { useCase, repos } = montar({ fianzaDefaultEur: '0.00' });
+  it('no_debe_registrar_ningun_AUDIT_LOG_de_creacion_de_fianza', async () => {
+    const { useCase, repos } = montar();
 
     await useCase.ejecutar(comando());
 
     const crearFianza = repos.auditoria.registrar.mock.calls
       .map((c) => c[0])
-      .find((a) => a.accion === 'crear' && a.entidadId === FAC_FIANZA_ID);
+      .find(
+        (a) => a.accion === 'crear' && (a.datosNuevos as { tipo?: string } | null)?.tipo === 'fianza',
+      );
     expect(crearFianza).toBeUndefined();
+  });
+
+  it('no_debe_exponer_ni_usar_un_puerto_de_fianza_por_defecto_en_sus_deps', async () => {
+    const { deps } = montar();
+
+    const registro = deps as unknown as Record<string, unknown>;
+    // El use-case ya no depende de ningún puerto de importe de fianza por defecto.
+    expect(registro.cargarFianzaDefault).toBeUndefined();
+    expect(registro.fianzaDefaultEur).toBeUndefined();
   });
 });
 
 // ===========================================================================
-// 3.6 — Edge case sin RESERVA_EXTRA pendientes: la liquidación es solo el 60 %
-//        (total = importe_liquidacion); la fianza se genera igualmente.
+// Edge case sin RESERVA_EXTRA pendientes: la liquidación es solo el 60 %
+// (total = importe_liquidacion).
 // ===========================================================================
 
-describe('GenerarBorradores — liquidación sin extras pendientes es solo el 60 % (3.6)', () => {
+describe('GenerarBorradores — liquidación sin extras pendientes es solo el 60 %', () => {
   it('debe_dar_total_3600_en_la_liquidacion_cuando_no_hay_extras_con_factura_id_null', async () => {
     const { useCase, repos } = montar({
       reserva: reservaLiquidable({ importeLiquidacion: '3600.00' }),
@@ -360,22 +308,11 @@ describe('GenerarBorradores — liquidación sin extras pendientes es solo el 60
 
     expect(crearArgsDe(repos, 'liquidacion')!.total).toBe('3600.00');
   });
-
-  it('debe_generar_igualmente_el_recibo_de_fianza_sin_extras_pendientes', async () => {
-    const { useCase, repos } = montar({
-      extrasPendientes: [],
-      fianzaDefaultEur: '1000.00',
-    });
-
-    await useCase.ejecutar(comando());
-
-    expect(crearArgsDe(repos, 'fianza')).toBeDefined();
-  });
 });
 
 // ===========================================================================
 // Guarda de origen: solo se generan borradores cuando la RESERVA está en
-// reserva_confirmada Y liquidacion_status = pendiente.
+// reserva_confirmada.
 // ===========================================================================
 
 describe('GenerarBorradores — guarda de estado de la reserva', () => {
@@ -408,128 +345,88 @@ describe('GenerarBorradores — guarda de estado de la reserva', () => {
 });
 
 // ===========================================================================
-// 3.7 — Idempotencia (vertiente de orquestación): si YA existen los borradores
-//        (borrador o enviada), el use-case NO los duplica. Guarda por
-//        (reserva_id, tipo) antes de crear cada documento.
+// Idempotencia (vertiente de orquestación): si YA existe el borrador de
+// liquidación (borrador o enviada), el use-case NO lo duplica. Guarda por
+// (reserva_id, tipo) antes de crear.
 // ===========================================================================
 
-describe('GenerarBorradores — idempotencia guarda por (reserva_id, tipo) (3.7)', () => {
-  const borradorPrevio = (tipo: 'liquidacion' | 'fianza', id: string): BorradorFactura => ({
+describe('GenerarBorradores — idempotencia guarda por (reserva_id, tipo)', () => {
+  const borradorPrevio = (id: string, estado: BorradorFactura['estado'] = 'borrador'): BorradorFactura => ({
     idFactura: id,
     tenantId: TENANT,
     reservaId: RESERVA_ID,
-    numeroFactura: null,
-    tipo,
-    estado: 'borrador',
-    total: tipo === 'liquidacion' ? '4100.00' : '1000.00',
-    baseImponible: '0.00',
+    numeroFactura: estado === 'enviada' ? 'F-2026-0042' : null,
+    tipo: 'liquidacion',
+    estado,
+    total: '4100.00',
+    baseImponible: '3388.43',
     ivaPorcentaje: '21.00',
-    ivaImporte: '0.00',
+    ivaImporte: '711.57',
   });
 
   it('no_debe_duplicar_la_liquidacion_cuando_ya_existe_un_borrador_para_la_reserva', async () => {
     const { useCase, repos } = montar({
-      liquidacionExistente: borradorPrevio('liquidacion', 'fac-liq-prev'),
+      liquidacionExistente: borradorPrevio('fac-liq-prev'),
     });
 
     await useCase.ejecutar(comando());
 
     expect(repos.facturas.buscarPorReservaYTipo).toHaveBeenCalledWith(RESERVA_ID, 'liquidacion');
     expect(crearArgsDe(repos, 'liquidacion')).toBeUndefined();
-  });
-
-  it('no_debe_duplicar_ninguno_cuando_ambos_borradores_ya_existen', async () => {
-    const { useCase, repos } = montar({
-      liquidacionExistente: borradorPrevio('liquidacion', 'fac-liq-prev'),
-      fianzaExistente: borradorPrevio('fianza', 'fac-fianza-prev'),
-    });
-
-    await useCase.ejecutar(comando());
-
     expect(repos.facturas.crear).not.toHaveBeenCalled();
   });
 
   it('debe_considerar_tambien_el_estado_enviada_como_existente_para_no_recrear', async () => {
-    const enviada: BorradorFactura = {
-      ...borradorPrevio('liquidacion', 'fac-liq-enviada'),
-      estado: 'enviada',
-      numeroFactura: 'F-2026-0042',
-    };
-    const { useCase, repos } = montar({ liquidacionExistente: enviada });
-
-    await useCase.ejecutar(comando());
-
-    expect(crearArgsDe(repos, 'liquidacion')).toBeUndefined();
-  });
-
-  it('debe_crear_solo_la_fianza_cuando_la_liquidacion_ya_existia', async () => {
     const { useCase, repos } = montar({
-      liquidacionExistente: borradorPrevio('liquidacion', 'fac-liq-prev'),
-      fianzaDefaultEur: '1000.00',
+      liquidacionExistente: borradorPrevio('fac-liq-enviada', 'enviada'),
     });
 
     await useCase.ejecutar(comando());
 
     expect(crearArgsDe(repos, 'liquidacion')).toBeUndefined();
-    expect(crearArgsDe(repos, 'fianza')).toBeDefined();
+  });
+
+  it('debe_devolver_la_liquidacion_existente_sin_efectos', async () => {
+    const previa = borradorPrevio('fac-liq-prev');
+    const { useCase } = montar({ liquidacionExistente: previa });
+
+    const resultado = await useCase.ejecutar(comando());
+
+    expect(resultado.liquidacion.idFactura).toBe('fac-liq-prev');
+    expect(resultado.fianza).toBeNull();
+    expect(resultado.fianzaOmitida).toBe(true);
   });
 });
 
 // ===========================================================================
-// 3.8 — NO se marcan los RESERVA_EXTRA con factura_id en la fase de borrador
-//        (el vínculo se difiere a la emisión, US-028). El use-case NO recibe ni
-//        invoca ningún puerto de marcado de extras.
+// NO se marcan los RESERVA_EXTRA con factura_id en la fase de borrador (el
+// vínculo se difiere a la emisión). El use-case NO recibe ni invoca ningún
+// puerto de marcado de extras.
 // ===========================================================================
 
-describe('GenerarBorradores — no marca RESERVA_EXTRA en borrador (3.8)', () => {
+describe('GenerarBorradores — no marca RESERVA_EXTRA en borrador', () => {
   it('no_debe_exponer_ni_invocar_ningun_puerto_de_marcado_de_extras_con_factura_id', async () => {
-    const marcarExtras = jest.fn(async () => undefined);
     const { useCase, deps } = montar({
       extrasPendientes: [extra('300.00'), extra('200.00')],
     });
 
-    // El use-case NO debe declarar ningún puerto de marcado en sus deps (§D-2).
     expect(
       (deps as unknown as Record<string, unknown>).marcarExtrasConFactura,
     ).toBeUndefined();
 
-    await useCase.ejecutar(comando());
-
-    // Aunque inyectáramos el doble, jamás se invocaría en la fase de borrador.
-    expect(marcarExtras).not.toHaveBeenCalled();
+    await expect(useCase.ejecutar(comando())).resolves.toBeDefined();
   });
 });
 
 // ===========================================================================
-// D-6 — Alerta al Gestor: con liquidación + fianza generadas el resultado permite
-//        la alerta "Documentos de liquidación y fianza pendientes de revisión".
+// Orquestación transaccional: el borrador se crea en UNA unidad de trabajo; un
+// fallo propaga para que la tx revierta.
 // ===========================================================================
 
-describe('GenerarBorradores — señal de alerta al Gestor (D-6)', () => {
-  it('debe_reflejar_ambos_borradores_en_el_resultado_para_la_alerta_de_ambos', async () => {
-    const { useCase } = montar({
-      extrasPendientes: [extra('300.00'), extra('200.00')],
-      fianzaDefaultEur: '1000.00',
-    });
-
-    const resultado = await useCase.ejecutar(comando());
-
-    expect(resultado.liquidacion).not.toBeNull();
-    expect(resultado.fianza).not.toBeNull();
-    expect(resultado.fianzaOmitida).toBe(false);
-  });
-});
-
-// ===========================================================================
-// Orquestación transaccional: ambos borradores se crean en UNA unidad de trabajo
-// (atómica entre sí, §D-1); un fallo propaga para que la tx revierta.
-// ===========================================================================
-
-describe('GenerarBorradores — orquestación transaccional atómica entre documentos (D-1)', () => {
-  it('debe_crear_ambos_borradores_dentro_de_una_unica_unidad_de_trabajo', async () => {
+describe('GenerarBorradores — orquestación transaccional', () => {
+  it('debe_crear_el_borrador_dentro_de_una_unica_unidad_de_trabajo', async () => {
     const { useCase, uow } = montar({
       extrasPendientes: [extra('300.00')],
-      fianzaDefaultEur: '1000.00',
     });
 
     await useCase.ejecutar(comando());

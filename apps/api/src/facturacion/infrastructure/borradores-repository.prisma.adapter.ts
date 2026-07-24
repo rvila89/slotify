@@ -40,7 +40,7 @@ const aBorradorFactura = (fila: {
   tenantId: fila.tenantId,
   reservaId: fila.reservaId,
   numeroFactura: fila.numeroFactura,
-  tipo: fila.tipo as 'liquidacion' | 'fianza',
+  tipo: fila.tipo as 'liquidacion',
   estado: fila.estado as 'borrador' | 'enviada' | 'cobrada',
   total: fila.total.toFixed(2),
   baseImponible: fila.baseImponible.toFixed(2),
@@ -54,7 +54,7 @@ export class FacturaBorradorPrismaRepository implements FacturaBorradorRepositor
 
   async buscarPorReservaYTipo(
     reservaId: string,
-    tipo: 'liquidacion' | 'fianza',
+    tipo: 'liquidacion',
   ): Promise<BorradorFactura | null> {
     const fila = await this.tx.factura.findFirst({
       where: { reservaId, tipo: TipoFacturaPrisma[tipo] },

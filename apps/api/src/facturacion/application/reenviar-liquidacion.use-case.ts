@@ -19,12 +19,8 @@ export interface ClockPort {
 
 /** Sub-estados de la RESERVA (solo para la proyección; no se mutan en el reenvío). */
 export type LiquidacionStatus = 'pendiente' | 'facturada' | 'cobrada';
-export type FianzaStatus =
-  | 'pendiente'
-  | 'recibo_enviado'
-  | 'cobrada'
-  | 'devuelta'
-  | 'retenida_parcial';
+/** fix-liquidacion-fianza-independientes: FianzaStatus reducido a 3 valores. */
+export type FianzaStatus = 'pendiente' | 'cobrada' | 'devuelta';
 
 /** Comando del reenvío. */
 export interface ReenviarLiquidacionComando {
@@ -55,10 +51,14 @@ export interface ReservaReenvio {
   liquidacionStatus: LiquidacionStatus;
   fianzaStatus: FianzaStatus;
   clienteEmail: string;
+  /** Idioma de la reserva (`'ca'`/`'es'`); elige la plantilla E4 del catálogo. */
+  idioma?: string;
   /** Nombre de pila del cliente (para el nombre del adjunto PDF del email E4). */
   clienteNombre?: string;
   /** Apellidos del cliente (para el nombre del adjunto PDF del email E4). */
   clienteApellidos?: string;
+  /** Importe de la fianza (Decimal string) para el recordatorio del email E4. */
+  fianzaEur?: string | null;
 }
 
 /** Adjunto de E4 por referencia a `pdf_url`. */
@@ -82,6 +82,12 @@ export interface ReenviarE4Params {
   destinatario: string;
   codigoReserva: string;
   numeroFactura: string | null;
+  /** Idioma de la reserva (`'ca'`/`'es'`); el adapter selecciona la plantilla E4. */
+  idioma?: string;
+  /** Nombre de pila del cliente para el saludo de la plantilla. */
+  nombre?: string;
+  /** Importe de la fianza (Decimal string) para el recordatorio del email. */
+  fianzaEur?: string | null;
   adjuntos: AdjuntoReenvio[];
   /** Índice laxo: permite que el doble de test tipe los params como `Record`. */
   [extra: string]: unknown;
@@ -221,6 +227,9 @@ export class ReenviarLiquidacionUseCase {
       destinatario: reserva.clienteEmail,
       codigoReserva: reserva.codigo,
       numeroFactura: liquidacion.numeroFactura,
+      idioma: reserva.idioma,
+      nombre: reserva.clienteNombre,
+      fianzaEur: reserva.fianzaEur,
       adjuntos: [
         {
           clave: 'liquidacion',

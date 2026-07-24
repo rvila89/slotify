@@ -60,7 +60,7 @@ const reservaReenvio = (over: Partial<ReservaReenvio> = {}): ReservaReenvio => (
   clienteId: CLIENTE_ID,
   codigo: 'SLO-2026-0028',
   liquidacionStatus: 'facturada',
-  fianzaStatus: 'recibo_enviado',
+  fianzaStatus: 'cobrada',
   clienteEmail: 'marta.soler@example.com',
   ...over,
 });

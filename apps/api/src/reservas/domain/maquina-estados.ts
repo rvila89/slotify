@@ -1046,12 +1046,9 @@ export type PreEventoStatusDominio = 'pendiente' | 'en_curso' | 'cerrado';
 export type LiquidacionStatusDominio = 'pendiente' | 'facturada' | 'cobrada';
 
 /** Estado de cobro de la fianza (valor de dominio; espejo del enum Prisma). */
-export type FianzaStatusDominio =
-  | 'pendiente'
-  | 'recibo_enviado'
-  | 'cobrada'
-  | 'devuelta'
-  | 'retenida_parcial';
+// fix-liquidacion-fianza-independientes: FianzaStatus se reduce a pendiente|cobrada|devuelta
+// (se retiran `recibo_enviado` y `retenida_parcial`; ver schema.prisma enum FianzaStatus).
+export type FianzaStatusDominio = 'pendiente' | 'cobrada' | 'devuelta';
 
 /**
  * Lectura ÚNICA de los tres `*_status` de una RESERVA candidata (D-3): la guarda las
@@ -1086,7 +1083,8 @@ const PRECONDICIONES_INICIO_EVENTO: ReadonlyArray<{
 }> = [
   { nombre: 'pre_evento_status', cumplida: (p) => p.preEventoStatus === 'cerrado' },
   { nombre: 'liquidacion_status', cumplida: (p) => p.liquidacionStatus === 'cobrada' },
-  { nombre: 'fianza_status', cumplida: (p) => p.fianzaStatus === 'cobrada' },
+  // fix-liquidacion-fianza-independientes (§D-4): la fianza deja de ser precondición del
+  // inicio del evento. La transición depende solo de pre-evento cerrado + liquidación cobrada.
 ];
 
 /**
@@ -1438,8 +1436,9 @@ export const fianzaResuelta = (
   entrada: EntradaFianzaResuelta,
 ): ResultadoFianzaResuelta => {
   const sinFianza = entrada.fianzaEur === null || entrada.fianzaEur <= 0;
-  const statusResolutivo =
-    entrada.fianzaStatus === 'devuelta' || entrada.fianzaStatus === 'retenida_parcial';
+  // fix-liquidacion-fianza-independientes: `devuelta` es el único status resolutivo
+  // (desaparece `retenida_parcial`; la devolución es siempre completa).
+  const statusResolutivo = entrada.fianzaStatus === 'devuelta';
   const resuelta = sinFianza || statusResolutivo;
   return { resuelta, pendiente: !resuelta };
 };

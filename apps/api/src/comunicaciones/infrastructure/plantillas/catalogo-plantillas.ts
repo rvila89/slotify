@@ -246,6 +246,102 @@ const renderE3Ca = (variables: Record<string, unknown>): RenderPlantilla => {
 };
 
 /** Formatea un importe (Decimal string/número) como euros con 2 decimales: `500` → `500,00 €`. */
+const formatarImporteEsLiq = (valor: unknown): string => {
+  const numero = Number(valor);
+  if (Number.isNaN(numero)) {
+    return texto(valor);
+  }
+  return `${numero.toFixed(2).replace('.', ',')} €`;
+};
+
+/**
+ * Render real de la plantilla E4 en castellano (factura de liquidación, 60% restante). Texto de
+ * marca aprobado (fix-liquidacion-fianza-independientes §Email copy): E4 = SOLO liquidación
+ * (sin recibo de fianza). Recuerda abonar la fianza de `{fianzaEur}` € antes o el día del
+ * evento. Adjunto REQUERIDO: el PDF de la liquidación. `{nombre}`, `{fianzaEur}`.
+ */
+const renderE4 = (variables: Record<string, unknown>): RenderPlantilla => {
+  const nombre = texto(variables.nombre);
+  const fianzaEur = formatarImporteEsLiq(variables.fianzaEur);
+  const asunto = 'Factura de liquidación de tu reserva';
+  const parrafos = [
+    `Hola ${nombre},`,
+    "¡Muchas gracias por confiar en la Masia l'Encís!",
+    'Te adjuntamos la factura correspondiente al segundo pago, equivalente al 60% restante del importe total de la reserva.',
+    `Te recordamos que, antes de la fecha del evento o el mismo día, deberás abonar la fianza de ${fianzaEur}.`,
+    'Si tienes cualquier duda o necesitas ayuda con cualquier detalle de la organización, estaremos encantados de atenderte.',
+    "¡Muchas gracias!\nUn abrazo,\nAri — Masia l'Encís",
+  ];
+  const cuerpoTexto = parrafos.join('\n\n');
+  const cuerpoHtml = parrafos
+    .map((p) => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  return { asunto, cuerpoHtml, cuerpoTexto };
+};
+
+/** Render real de la plantilla E4 en catalán (factura de liquidació, 60% restant). */
+const renderE4Ca = (variables: Record<string, unknown>): RenderPlantilla => {
+  const nombre = texto(variables.nombre);
+  const fianzaEur = formatarImporteEsLiq(variables.fianzaEur);
+  const asunto = 'Factura de liquidació de la teva reserva';
+  const parrafos = [
+    `Hola ${nombre},`,
+    "Moltes gràcies per confiar en la Masia l'Encís!",
+    "T'adjuntem la factura corresponent al segon pagament, equivalent al 60% restant de l'import total de la reserva.",
+    `Et recordem que, abans de la data de l'esdeveniment o el mateix dia, caldrà abonar la fiança de ${fianzaEur}.`,
+    "Si tens qualsevol dubte o necessites ajuda amb qualsevol detall de l'organització, estarem encantats d'atendre't.",
+    "Moltes gràcies!\nUna abraçada,\nAri — Masia l'Encís",
+  ];
+  const cuerpoTexto = parrafos.join('\n\n');
+  const cuerpoHtml = parrafos
+    .map((p) => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  return { asunto, cuerpoHtml, cuerpoTexto };
+};
+
+/**
+ * Render real de la plantilla E10 en castellano (fianza devuelta, confirmación). Texto de marca
+ * aprobado (fix-liquidacion-fianza-independientes §Email copy). Sin adjuntos. `{nombre}`,
+ * `{fianzaEur}`.
+ */
+const renderE10 = (variables: Record<string, unknown>): RenderPlantilla => {
+  const nombre = texto(variables.nombre);
+  const fianzaEur = formatarImporteEsLiq(variables.fianzaEur);
+  const asunto = 'Te hemos devuelto la fianza';
+  const parrafos = [
+    `Hola ${nombre},`,
+    "¡Esperamos que hayas disfrutado mucho de tu evento en la Masia l'Encís!",
+    `Te confirmamos que te hemos devuelto la fianza de ${fianzaEur} mediante transferencia bancaria.`,
+    'Si tienes cualquier duda, estaremos encantados de atenderte.',
+    "¡Muchas gracias por confiar en nosotros!\nUn abrazo,\nAri — Masia l'Encís",
+  ];
+  const cuerpoTexto = parrafos.join('\n\n');
+  const cuerpoHtml = parrafos
+    .map((p) => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  return { asunto, cuerpoHtml, cuerpoTexto };
+};
+
+/** Render real de la plantilla E10 en catalán (fiança retornada, confirmació). */
+const renderE10Ca = (variables: Record<string, unknown>): RenderPlantilla => {
+  const nombre = texto(variables.nombre);
+  const fianzaEur = formatarImporteEsLiq(variables.fianzaEur);
+  const asunto = "T'hem retornat la fiança";
+  const parrafos = [
+    `Hola ${nombre},`,
+    "Esperem que hagis gaudit molt del teu esdeveniment a la Masia l'Encís!",
+    `Et confirmem que t'hem retornat la fiança de ${fianzaEur} mitjançant transferència bancària.`,
+    "Si tens qualsevol dubte, estarem encantats d'atendre't.",
+    "Moltes gràcies per confiar en nosaltres!\nUna abraçada,\nAri — Masia l'Encís",
+  ];
+  const cuerpoTexto = parrafos.join('\n\n');
+  const cuerpoHtml = parrafos
+    .map((p) => `<p>${htmlEscape(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  return { asunto, cuerpoHtml, cuerpoTexto };
+};
+
+/** Formatea un importe (Decimal string/número) como euros con 2 decimales: `500` → `500,00 €`. */
 const formatarImporteEs = (valor: unknown): string => {
   const numero = Number(valor);
   if (Number.isNaN(numero)) {
@@ -427,11 +523,59 @@ const PLANTILLA_E9_CA: Plantilla = {
 };
 
 /**
- * Códigos diferidos: declarados como diseñados/inactivos (sin trigger). E2 SALE de la lista al
- * activarse en el workstream C (queda E4–E8). E9 está ACTIVA (no diferida).
+ * Plantilla E4 ACTIVA en `es` (factura de liquidación, solo liquidación). El PDF de la
+ * liquidación es el adjunto REQUERIDO. Requiere `nombre` y `fianzaEur` (recuerda abonar la
+ * fianza antes o el día del evento). fix-liquidacion-fianza-independientes.
+ */
+const PLANTILLA_E4_ES: Plantilla = {
+  codigoEmail: 'E4',
+  idioma: 'es',
+  activa: true,
+  variablesRequeridas: ['nombre', 'fianzaEur'],
+  adjuntosRequeridos: ['liquidacion'],
+  render: renderE4,
+};
+
+/** Plantilla E4 ACTIVA en `ca` (factura de liquidació). Mismo contrato que la variante `es`. */
+const PLANTILLA_E4_CA: Plantilla = {
+  codigoEmail: 'E4',
+  idioma: 'ca',
+  activa: true,
+  variablesRequeridas: ['nombre', 'fianzaEur'],
+  adjuntosRequeridos: ['liquidacion'],
+  render: renderE4Ca,
+};
+
+/**
+ * Plantilla E10 ACTIVA en `es` (fianza devuelta, confirmación). Sin adjuntos. Requiere `nombre`
+ * y `fianzaEur`. Disparada post-commit best-effort al registrar la devolución completa de la
+ * fianza. fix-liquidacion-fianza-independientes §Email copy.
+ */
+const PLANTILLA_E10_ES: Plantilla = {
+  codigoEmail: 'E10',
+  idioma: 'es',
+  activa: true,
+  variablesRequeridas: ['nombre', 'fianzaEur'],
+  adjuntosRequeridos: [],
+  render: renderE10,
+};
+
+/** Plantilla E10 ACTIVA en `ca` (fiança retornada). Mismo contrato que la variante `es`. */
+const PLANTILLA_E10_CA: Plantilla = {
+  codigoEmail: 'E10',
+  idioma: 'ca',
+  activa: true,
+  variablesRequeridas: ['nombre', 'fianzaEur'],
+  adjuntosRequeridos: [],
+  render: renderE10Ca,
+};
+
+/**
+ * Códigos diferidos: declarados como diseñados/inactivos (sin trigger). E4 se ACTIVA
+ * (fix-liquidacion-fianza-independientes: liquidación standalone). E5/E8 quedan INACTIVOS
+ * (se retiran sus flujos: captura de IBAN eliminada). E9/E10 están ACTIVOS (no diferidos).
  */
 const CODIGOS_DIFERIDOS: ReadonlyArray<CodigoEmail> = [
-  'E4',
   'E5',
   'E6',
   'E7',
@@ -468,7 +612,9 @@ export class CatalogoPlantillasEnCodigo implements CatalogoPlantillasPort {
     ['E1', PLANTILLA_E1_ES],
     ['E2', PLANTILLA_E2_ES],
     ['E3', PLANTILLA_E3_ES],
+    ['E4', PLANTILLA_E4_ES],
     ['E9', PLANTILLA_E9_ES],
+    ['E10', PLANTILLA_E10_ES],
     ...CODIGOS_DIFERIDOS.map(
       (codigo): [CodigoEmail, Plantilla] => [codigo, plantillaInactivaEs(codigo)],
     ),
@@ -482,7 +628,9 @@ export class CatalogoPlantillasEnCodigo implements CatalogoPlantillasPort {
     ['E1', PLANTILLA_E1_CA],
     ['E2', PLANTILLA_E2_CA],
     ['E3', PLANTILLA_E3_CA],
+    ['E4', PLANTILLA_E4_CA],
     ['E9', PLANTILLA_E9_CA],
+    ['E10', PLANTILLA_E10_CA],
     ...CODIGOS_DIFERIDOS.map(
       (codigo): [CodigoEmail, Plantilla] => [codigo, plantillaInactivaCa(codigo)],
     ),

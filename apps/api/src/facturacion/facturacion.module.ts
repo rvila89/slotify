@@ -35,6 +35,11 @@ import {
   type VerificarE3EnviadoPort,
 } from './application/obtener-factura-senal.use-case';
 import {
+  ObtenerFacturaLiquidacionUseCase,
+  type CargarFacturaLiquidacionPort,
+  type VerificarE4EnviadoPort,
+} from './application/obtener-factura-liquidacion.use-case';
+import {
   AprobarFacturaUseCase,
   type AprobarFacturaParams,
   type RegistroAuditoriaAprobacion,
@@ -50,7 +55,6 @@ import {
 import {
   GenerarBorradoresLiquidacionFianzaUseCase,
   type CargarExtrasPendientesPort,
-  type CargarFianzaDefaultPort,
   type CargarReservaLiquidablePort,
   type UnidadDeTrabajoBorradoresPort,
 } from './application/generar-borradores-liquidacion-fianza.use-case';
@@ -59,17 +63,11 @@ import {
   type ListarFacturasReservaPort,
 } from './application/listar-facturas-reserva.use-case';
 import {
-  AprobarYEnviarLiquidacionUseCase,
-  type CargarReservaEmisionPort,
+  EnviarFacturaLiquidacionUseCase,
+  type CargarReservaLiquidacionEmisionPort,
   type EnviarE4EmisionPort,
-  type UnidadDeTrabajoEmisionPort,
-} from './application/aprobar-y-enviar-liquidacion.use-case';
-import {
-  EnviarReciboFianzaSeparadoUseCase,
-  type CargarReservaFianzaPort,
-  type EnviarReciboFianzaPort,
-  type UnidadDeTrabajoFianzaPort,
-} from './application/enviar-recibo-fianza-separado.use-case';
+  type UnidadDeTrabajoLiquidacionEmisionPort,
+} from './application/enviar-factura-liquidacion.use-case';
 import {
   EnviarFacturaSenalUseCase,
   type CargarReservaSenalEmisionPort,
@@ -102,20 +100,32 @@ import {
 } from './application/registrar-cobro-liquidacion.use-case';
 import { CobroLiquidacionUoWPrismaAdapter } from './infrastructure/cobro-liquidacion-uow.prisma.adapter';
 import {
-  RegistrarCobroFianzaUseCase,
-  type UnidadDeTrabajoCobroFianzaPort,
-} from './application/registrar-cobro-fianza.use-case';
-import { CobroFianzaUoWPrismaAdapter } from './infrastructure/cobro-fianza-uow.prisma.adapter';
+  SubirComprobanteFianzaUseCase,
+  type AlmacenarComprobanteFianzaPort,
+  type CargarReservaComprobanteFianzaPort,
+  type UnidadDeTrabajoComprobanteFianzaPort,
+} from './application/subir-comprobante-fianza.use-case';
 import {
-  RegistrarDevolucionFianzaUseCase,
-  type UnidadDeTrabajoDevolucionFianzaPort,
-} from './application/registrar-devolucion-fianza.use-case';
-import { DevolucionFianzaUoWPrismaAdapter } from './infrastructure/devolucion-fianza-uow.prisma.adapter';
-import { RegistrarDevolucionFianzaController } from './interface/registrar-devolucion-fianza.controller';
+  DevolverFianzaUseCase,
+  type DispararE10Port,
+  type UnidadDeTrabajoDevolverFianzaPort,
+} from './application/devolver-fianza.use-case';
+import {
+  ComprobanteFianzaUoWPrismaAdapter,
+  CargarReservaComprobanteFianzaAdapter,
+  AlmacenarComprobanteFianzaAdapter,
+} from './infrastructure/comprobante-fianza.prisma.adapter';
+import {
+  DevolverFianzaUoWPrismaAdapter,
+  DispararE10Adapter,
+} from './infrastructure/devolver-fianza.prisma.adapter';
+import { FianzaController } from './interface/fianza.controller';
+import { ObtenerReservaUseCase } from '../reservas/application/obtener-reserva.query';
+import { ReservaDetalleQueryPrismaAdapter } from '../reservas/infrastructure/reserva-detalle-query.prisma.adapter';
+import { DespacharEmailService } from '../comunicaciones/application/despachar-email.service';
 import type { FacturaSenal } from './application/generar-factura-senal.use-case';
 import {
   EmisionUoWPrismaAdapter,
-  FianzaSeparadaUoWPrismaAdapter,
   SenalEmisionUoWPrismaAdapter,
 } from './infrastructure/emision-uow.prisma.adapter';
 import {
@@ -123,17 +133,17 @@ import {
   BuscarE3PreviaPrismaAdapter,
   CargarFacturaSenalReenvioPrismaAdapter,
   CargarLiquidacionReenvioPrismaAdapter,
+  CargarFacturaLiquidacionPrismaAdapter,
   CargarReservaEmisionPrismaAdapter,
-  CargarReservaFianzaPrismaAdapter,
   CargarReservaReenvioPrismaAdapter,
   CargarReservaReenvioE3PrismaAdapter,
   CargarReservaSenalEmisionPrismaAdapter,
   VerificarE3EnviadoPrismaAdapter,
+  VerificarE4EnviadoPrismaAdapter,
 } from './infrastructure/lecturas-emision.prisma.adapter';
 import {
   EnviarE3EmisionAdapter,
   EnviarE4EmisionAdapter,
-  EnviarReciboFianzaAdapter,
   ReenviarE3Adapter,
   ReenviarE4Adapter,
 } from './infrastructure/emision-email.adapter';
@@ -148,7 +158,6 @@ import { FacturacionUoWPrismaAdapter } from './infrastructure/facturacion-uow.pr
 import { BorradoresUoWPrismaAdapter } from './infrastructure/borradores-uow.prisma.adapter';
 import {
   CargarExtrasPendientesPrismaAdapter,
-  CargarFianzaDefaultPrismaAdapter,
   CargarReservaLiquidablePrismaAdapter,
 } from './infrastructure/lecturas-borradores.prisma.adapter';
 import { ListarFacturasReservaPrismaAdapter } from './infrastructure/listar-facturas-reserva.prisma.adapter';
@@ -177,7 +186,6 @@ import {
   CARGAR_EXTRAS_PENDIENTES_PORT,
   CARGAR_FACTURA_PARA_PDF_PORT,
   CARGAR_FACTURA_PORT,
-  CARGAR_FIANZA_DEFAULT_PORT,
   CARGAR_RESERVA_FACTURABLE_PORT,
   CARGAR_RESERVA_LIQUIDABLE_PORT,
   CARGAR_TENANT_FISCAL_PORT,
@@ -190,17 +198,19 @@ import {
   UNIDAD_DE_TRABAJO_EMISION_PORT,
   CARGAR_RESERVA_EMISION_PORT,
   ENVIAR_E4_EMISION_PORT,
-  UNIDAD_DE_TRABAJO_FIANZA_PORT,
-  CARGAR_RESERVA_FIANZA_PORT,
-  ENVIAR_RECIBO_FIANZA_PORT,
+  CARGAR_FACTURA_LIQUIDACION_PORT,
+  VERIFICAR_E4_ENVIADO_PORT,
   CARGAR_RESERVA_REENVIO_PORT,
   CARGAR_LIQUIDACION_REENVIO_PORT,
   REENVIAR_E4_PORT,
   REGISTRAR_COMUNICACION_REENVIO_PORT,
   REGISTRAR_AUDITORIA_REENVIO_PORT,
   UNIDAD_DE_TRABAJO_COBRO_PORT,
-  UNIDAD_DE_TRABAJO_COBRO_FIANZA_PORT,
-  UNIDAD_DE_TRABAJO_DEVOLUCION_FIANZA_PORT,
+  UNIDAD_DE_TRABAJO_COMPROBANTE_FIANZA_PORT,
+  CARGAR_RESERVA_COMPROBANTE_FIANZA_PORT,
+  ALMACENAR_COMPROBANTE_FIANZA_PORT,
+  UNIDAD_DE_TRABAJO_DEVOLVER_FIANZA_PORT,
+  DISPARAR_E10_PORT,
   UNIDAD_DE_TRABAJO_SENAL_EMISION_PORT,
   CARGAR_RESERVA_SENAL_EMISION_PORT,
   ENVIAR_E3_EMISION_PORT,
@@ -234,7 +244,7 @@ type CargarFacturaFn = (params: {
 
 @Module({
   imports: [PrismaModule, ComunicacionesModule, DocumentosModule],
-  controllers: [FacturaController, RegistrarDevolucionFianzaController],
+  controllers: [FacturaController, FianzaController],
   providers: [
     // --- Adaptadores por token (Symbol) ---
     {
@@ -333,12 +343,6 @@ type CargarFacturaFn = (params: {
         new CargarExtrasPendientesPrismaAdapter(prisma).cargar,
     },
     {
-      provide: CARGAR_FIANZA_DEFAULT_PORT,
-      inject: [PrismaService],
-      useFactory: (prisma: PrismaService): CargarFianzaDefaultPort =>
-        new CargarFianzaDefaultPrismaAdapter(prisma).cargar,
-    },
-    {
       provide: LISTAR_FACTURAS_RESERVA_PORT,
       inject: [PrismaService],
       useFactory: (prisma: PrismaService): ListarFacturasReservaPort =>
@@ -354,31 +358,28 @@ type CargarFacturaFn = (params: {
     {
       provide: CARGAR_RESERVA_EMISION_PORT,
       inject: [PrismaService],
-      useFactory: (prisma: PrismaService): CargarReservaEmisionPort =>
+      useFactory: (prisma: PrismaService): CargarReservaLiquidacionEmisionPort =>
         new CargarReservaEmisionPrismaAdapter(prisma).cargar,
     },
     {
       provide: ENVIAR_E4_EMISION_PORT,
-      inject: [ENVIAR_EMAIL_PORT],
-      useFactory: (enviarEmail: EnviarEmailPort): EnviarE4EmisionPort =>
-        new EnviarE4EmisionAdapter(enviarEmail).enviar,
+      inject: [ENVIAR_EMAIL_PORT, CATALOGO_PLANTILLAS_PORT],
+      useFactory: (
+        enviarEmail: EnviarEmailPort,
+        catalogo: CatalogoPlantillasPort,
+      ): EnviarE4EmisionPort => new EnviarE4EmisionAdapter(enviarEmail, catalogo).enviar,
     },
     {
-      provide: UNIDAD_DE_TRABAJO_FIANZA_PORT,
+      provide: CARGAR_FACTURA_LIQUIDACION_PORT,
       inject: [PrismaService],
-      useFactory: (prisma: PrismaService) => new FianzaSeparadaUoWPrismaAdapter(prisma),
+      useFactory: (prisma: PrismaService): CargarFacturaLiquidacionPort =>
+        new CargarFacturaLiquidacionPrismaAdapter(prisma).cargar,
     },
     {
-      provide: CARGAR_RESERVA_FIANZA_PORT,
+      provide: VERIFICAR_E4_ENVIADO_PORT,
       inject: [PrismaService],
-      useFactory: (prisma: PrismaService): CargarReservaFianzaPort =>
-        new CargarReservaFianzaPrismaAdapter(prisma).cargar,
-    },
-    {
-      provide: ENVIAR_RECIBO_FIANZA_PORT,
-      inject: [ENVIAR_EMAIL_PORT],
-      useFactory: (enviarEmail: EnviarEmailPort): EnviarReciboFianzaPort =>
-        new EnviarReciboFianzaAdapter(enviarEmail).enviar,
+      useFactory: (prisma: PrismaService): VerificarE4EnviadoPort =>
+        new VerificarE4EnviadoPrismaAdapter(prisma).verificar,
     },
     {
       provide: CARGAR_RESERVA_REENVIO_PORT,
@@ -394,9 +395,11 @@ type CargarFacturaFn = (params: {
     },
     {
       provide: REENVIAR_E4_PORT,
-      inject: [ENVIAR_EMAIL_PORT],
-      useFactory: (enviarEmail: EnviarEmailPort): ReenviarE4Port =>
-        new ReenviarE4Adapter(enviarEmail).reenviar,
+      inject: [ENVIAR_EMAIL_PORT, CATALOGO_PLANTILLAS_PORT],
+      useFactory: (
+        enviarEmail: EnviarEmailPort,
+        catalogo: CatalogoPlantillasPort,
+      ): ReenviarE4Port => new ReenviarE4Adapter(enviarEmail, catalogo).reenviar,
     },
     {
       provide: REGISTRAR_COMUNICACION_REENVIO_PORT,
@@ -499,18 +502,46 @@ type CargarFacturaFn = (params: {
       useFactory: (prisma: PrismaService) => new CobroLiquidacionUoWPrismaAdapter(prisma),
     },
 
-    // --- US-030: unidad de trabajo del cobro de la fianza (FOR UPDATE sobre RESERVA) ---
+    // --- fix-liquidacion-fianza-independientes: fianza pasiva (comprobante) ---
     {
-      provide: UNIDAD_DE_TRABAJO_COBRO_FIANZA_PORT,
+      provide: UNIDAD_DE_TRABAJO_COMPROBANTE_FIANZA_PORT,
       inject: [PrismaService],
-      useFactory: (prisma: PrismaService) => new CobroFianzaUoWPrismaAdapter(prisma),
+      useFactory: (prisma: PrismaService) => new ComprobanteFianzaUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: CARGAR_RESERVA_COMPROBANTE_FIANZA_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService): CargarReservaComprobanteFianzaPort =>
+        new CargarReservaComprobanteFianzaAdapter(prisma).cargar,
+    },
+    {
+      provide: ALMACENAR_COMPROBANTE_FIANZA_PORT,
+      inject: [ALMACEN_DOCUMENTOS_PORT],
+      useFactory: (almacen: AlmacenDocumentosPort): AlmacenarComprobanteFianzaPort =>
+        new AlmacenarComprobanteFianzaAdapter(almacen).almacenar,
     },
 
-    // --- US-036: unidad de trabajo de la devolución de la fianza (FOR UPDATE sobre RESERVA) ---
+    // --- fix-liquidacion-fianza-independientes: devolución completa de la fianza + E10 ---
     {
-      provide: UNIDAD_DE_TRABAJO_DEVOLUCION_FIANZA_PORT,
+      provide: UNIDAD_DE_TRABAJO_DEVOLVER_FIANZA_PORT,
       inject: [PrismaService],
-      useFactory: (prisma: PrismaService) => new DevolucionFianzaUoWPrismaAdapter(prisma),
+      useFactory: (prisma: PrismaService) => new DevolverFianzaUoWPrismaAdapter(prisma),
+    },
+    {
+      provide: DISPARAR_E10_PORT,
+      inject: [DespacharEmailService, PrismaService],
+      useFactory: (motor: DespacharEmailService, prisma: PrismaService): DispararE10Port =>
+        new DispararE10Adapter(motor, prisma),
+    },
+
+    // --- Lectura del detalle de la RESERVA para las respuestas de fianza (read-DTO) ---
+    {
+      provide: ObtenerReservaUseCase,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new ObtenerReservaUseCase({
+          reservaDetalle: new ReservaDetalleQueryPrismaAdapter(prisma),
+        }),
     },
 
     // --- Casos de uso ---
@@ -633,19 +664,16 @@ type CargarFacturaFn = (params: {
         UNIDAD_DE_TRABAJO_BORRADORES_PORT,
         CARGAR_RESERVA_LIQUIDABLE_PORT,
         CARGAR_EXTRAS_PENDIENTES_PORT,
-        CARGAR_FIANZA_DEFAULT_PORT,
       ],
       useFactory: (
         unidadDeTrabajo: UnidadDeTrabajoBorradoresPort,
         cargarReserva: CargarReservaLiquidablePort,
         cargarExtrasPendientes: CargarExtrasPendientesPort,
-        cargarFianzaDefault: CargarFianzaDefaultPort,
       ) =>
         new GenerarBorradoresLiquidacionFianzaUseCase({
           unidadDeTrabajo,
           cargarReserva,
           cargarExtrasPendientes,
-          cargarFianzaDefault,
         }),
     },
     {
@@ -655,7 +683,7 @@ type CargarFacturaFn = (params: {
         new ListarFacturasReservaUseCase({ listarFacturas }),
     },
     {
-      provide: AprobarYEnviarLiquidacionUseCase,
+      provide: EnviarFacturaLiquidacionUseCase,
       inject: [
         UNIDAD_DE_TRABAJO_EMISION_PORT,
         CARGAR_RESERVA_EMISION_PORT,
@@ -663,12 +691,12 @@ type CargarFacturaFn = (params: {
         FACTURACION_CLOCK_PORT,
       ],
       useFactory: (
-        unidadDeTrabajo: UnidadDeTrabajoEmisionPort,
-        cargarReserva: CargarReservaEmisionPort,
+        unidadDeTrabajo: UnidadDeTrabajoLiquidacionEmisionPort,
+        cargarReserva: CargarReservaLiquidacionEmisionPort,
         enviarE4: EnviarE4EmisionPort,
         clock: ClockPort,
       ) =>
-        new AprobarYEnviarLiquidacionUseCase({
+        new EnviarFacturaLiquidacionUseCase({
           unidadDeTrabajo,
           cargarReserva,
           enviarE4,
@@ -676,24 +704,24 @@ type CargarFacturaFn = (params: {
         }),
     },
     {
-      provide: EnviarReciboFianzaSeparadoUseCase,
+      provide: ObtenerFacturaLiquidacionUseCase,
       inject: [
-        UNIDAD_DE_TRABAJO_FIANZA_PORT,
-        CARGAR_RESERVA_FIANZA_PORT,
-        ENVIAR_RECIBO_FIANZA_PORT,
-        FACTURACION_CLOCK_PORT,
+        CARGAR_RESERVA_FACTURABLE_PORT,
+        CARGAR_FACTURA_LIQUIDACION_PORT,
+        CARGAR_CLIENTE_FISCAL_PORT,
+        VERIFICAR_E4_ENVIADO_PORT,
       ],
       useFactory: (
-        unidadDeTrabajo: UnidadDeTrabajoFianzaPort,
-        cargarReserva: CargarReservaFianzaPort,
-        enviarRecibo: EnviarReciboFianzaPort,
-        clock: ClockPort,
+        cargarReserva: CargarReservaFacturablePort,
+        cargarLiquidacion: CargarFacturaLiquidacionPort,
+        cargarCliente: CargarClienteFiscalPort,
+        verificarE4Enviado: VerificarE4EnviadoPort,
       ) =>
-        new EnviarReciboFianzaSeparadoUseCase({
-          unidadDeTrabajo,
+        new ObtenerFacturaLiquidacionUseCase({
           cargarReserva,
-          enviarRecibo,
-          clock,
+          cargarLiquidacion,
+          cargarCliente,
+          verificarE4Enviado,
         }),
     },
     {
@@ -789,29 +817,52 @@ type CargarFacturaFn = (params: {
         new RegistrarCobroLiquidacionUseCase({ unidadDeTrabajo, clock }),
     },
     {
-      provide: RegistrarCobroFianzaUseCase,
-      inject: [UNIDAD_DE_TRABAJO_COBRO_FIANZA_PORT],
-      useFactory: (unidadDeTrabajo: UnidadDeTrabajoCobroFianzaPort) =>
-        new RegistrarCobroFianzaUseCase({ unidadDeTrabajo }),
+      provide: SubirComprobanteFianzaUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_COMPROBANTE_FIANZA_PORT,
+        CARGAR_RESERVA_COMPROBANTE_FIANZA_PORT,
+        ALMACENAR_COMPROBANTE_FIANZA_PORT,
+        FACTURACION_CLOCK_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoComprobanteFianzaPort,
+        cargarReserva: CargarReservaComprobanteFianzaPort,
+        almacenarComprobante: AlmacenarComprobanteFianzaPort,
+        clock: ClockPort,
+      ) =>
+        new SubirComprobanteFianzaUseCase({
+          unidadDeTrabajo,
+          cargarReserva,
+          almacenarComprobante,
+          clock,
+        }),
     },
     {
-      provide: RegistrarDevolucionFianzaUseCase,
-      inject: [UNIDAD_DE_TRABAJO_DEVOLUCION_FIANZA_PORT],
-      useFactory: (unidadDeTrabajo: UnidadDeTrabajoDevolucionFianzaPort) =>
-        new RegistrarDevolucionFianzaUseCase({ unidadDeTrabajo }),
+      provide: DevolverFianzaUseCase,
+      inject: [
+        UNIDAD_DE_TRABAJO_DEVOLVER_FIANZA_PORT,
+        DISPARAR_E10_PORT,
+        FACTURACION_CLOCK_PORT,
+      ],
+      useFactory: (
+        unidadDeTrabajo: UnidadDeTrabajoDevolverFianzaPort,
+        dispararE10: DispararE10Port,
+        clock: ClockPort,
+      ) =>
+        new DevolverFianzaUseCase({ unidadDeTrabajo, dispararE10, clock }),
     },
   ],
   exports: [
     GenerarFacturaSenalUseCase,
     GenerarBorradoresLiquidacionFianzaUseCase,
-    AprobarYEnviarLiquidacionUseCase,
-    EnviarReciboFianzaSeparadoUseCase,
+    EnviarFacturaLiquidacionUseCase,
+    ObtenerFacturaLiquidacionUseCase,
     EnviarFacturaSenalUseCase,
     ReenviarLiquidacionUseCase,
     ReenviarE3UseCase,
     RegistrarCobroLiquidacionUseCase,
-    RegistrarCobroFianzaUseCase,
-    RegistrarDevolucionFianzaUseCase,
+    SubirComprobanteFianzaUseCase,
+    DevolverFianzaUseCase,
   ],
 })
 export class FacturacionModule {}

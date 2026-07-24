@@ -7,9 +7,11 @@
  *
  * Además reproduce en cliente la **guarda de fianza resuelta** de US-037/US-036
  * (defensa en UI, el backend valida igualmente — 422 `fianza_no_resuelta`): la
- * fianza está resuelta si `fianzaStatus ∈ {devuelta, retenida_parcial}` O
- * `fianzaEur ≤ 0` O `fianzaEur == null`. Si NO está resuelta, la acción se ofrece
- * **deshabilitada** con el motivo específico (FA-01/FA-02).
+ * fianza está resuelta si `fianzaStatus === 'devuelta'` O `fianzaEur ≤ 0` O
+ * `fianzaEur == null`. Si NO está resuelta, la acción se ofrece **deshabilitada**
+ * con el motivo específico (FA-01/FA-02). Tras
+ * fix-liquidacion-fianza-independientes la devolución es siempre completa (no hay
+ * `retenida_parcial`).
  */
 import type { components } from '@/api-client';
 
@@ -28,8 +30,8 @@ export const puedeArchivarReserva = (estado: EstadoReserva | undefined): boolean
 /**
  * Guarda de fianza resuelta (espejo de `fianzaResuelta` de US-037). Resuelta si el
  * importe es nulo/≤0 (sin fianza que resolver, no se evalúa el status) o si el
- * status es `devuelta`/`retenida_parcial` (incluida la retención total con importe
- * devuelto 0).
+ * status es `devuelta`. Tras fix-liquidacion-fianza-independientes la devolución es
+ * siempre completa (no existe `retenida_parcial`).
  */
 export const fianzaResueltaCliente = (
   fianzaStatus: FianzaStatus | undefined,
@@ -37,7 +39,7 @@ export const fianzaResueltaCliente = (
 ): boolean => {
   const importe = fianzaEur == null ? 0 : Number(fianzaEur);
   if (Number.isNaN(importe) || importe <= 0) return true;
-  return fianzaStatus === 'devuelta' || fianzaStatus === 'retenida_parcial';
+  return fianzaStatus === 'devuelta';
 };
 
 /**

@@ -138,7 +138,7 @@ const reservaHidratada = (
   fianzaEur: '1000.00',
   fianzaCobradaFecha: null,
   fianzaDevueltaFecha: null,
-  fianzaDevueltaEur: null,
+  fianzaComprobanteFecha: null,
   condPartFirmadas: null,
   condPartFechaEnvio: null,
   condPartFechaFirma: null,
@@ -161,7 +161,6 @@ const reservaHidratada = (
     codigoPostal: null,
     poblacion: null,
     provincia: null,
-    ibanDevolucion: null,
   },
   ...over,
 });
@@ -296,7 +295,9 @@ describe('ForzarInicioEvento — happy path forzado con una precondición incump
 // ===========================================================================
 
 describe('ForzarInicioEvento — número variable de precondiciones incumplidas (3.4)', () => {
-  it('debe_transicionar_y_listar_las_tres_precondiciones_cuando_las_tres_incumplen', async () => {
+  it('debe_transicionar_y_listar_las_precondiciones_incumplidas', async () => {
+    // fix-liquidacion-fianza-independientes (§D-4): la fianza deja de ser precondición del
+    // inicio del evento. Solo quedan pre_evento_status y liquidacion_status.
     const { deps, repos } = construir({
       reserva: reservaConfirmada({
         preEventoStatus: 'pendiente',
@@ -313,17 +314,12 @@ describe('ForzarInicioEvento — número variable de precondiciones incumplidas 
     expect(resultado.precondicionesIncumplidas).toEqual([
       'pre_evento_status',
       'liquidacion_status',
-      'fianza_status',
     ]);
     expect(repos.auditoria.registrar).toHaveBeenCalledWith(
       expect.objectContaining({
         datosNuevos: expect.objectContaining({
           forzado_por_gestor: true,
-          precondiciones_incumplidas: [
-            'pre_evento_status',
-            'liquidacion_status',
-            'fianza_status',
-          ],
+          precondiciones_incumplidas: ['pre_evento_status', 'liquidacion_status'],
         }),
       }),
     );

@@ -144,12 +144,14 @@ beforeEach(async () => {
 });
 
 // ===========================================================================
-// 3.3 — Happy path con fianza: estado → post_evento; COMUNICACION E5 estado=enviado;
-//        AUDIT_LOG transicion origen Usuario con datos_anteriores/datos_nuevos correctos.
+// 3.3 — Happy path con fianza: estado → post_evento; SIN COMUNICACION E5 (el flujo de
+//        solicitud de IBAN E5 se eliminó en fix-liquidacion-fianza-independientes);
+//        e5.resultado=no_aplica; AUDIT_LOG transicion origen Usuario con
+//        datos_anteriores/datos_nuevos correctos.
 // ===========================================================================
 
-describe('Finalizar evento — happy path con fianza (3.3)', () => {
-  it('debe_pasar_a_post_evento_crear_comunicacion_e5_enviada_y_auditar_como_usuario', async () => {
+describe('Finalizar evento — happy path con fianza sin E5 (3.3)', () => {
+  it('debe_pasar_a_post_evento_sin_crear_comunicacion_e5_y_auditar_como_usuario', async () => {
     const reservaId = await sembrarEnCurso({ fianzaEur: '1000.00' });
 
     const resultado = await useCase.ejecutar(comando(reservaId));
@@ -158,13 +160,10 @@ describe('Finalizar evento — happy path con fianza (3.3)', () => {
     expect((await leerReserva(reservaId))?.estado).toBe(EstadoReserva.post_evento);
     expect(resultado.estado).toBe('post_evento');
 
-    // COMUNICACION E5 creada, estado=enviado, con comunicacionId en la respuesta.
-    const coms = await comunicacionesE5(reservaId);
-    expect(coms).toHaveLength(1);
-    expect(coms[0].estado).toBe('enviado');
-    expect(coms[0].tenantId).toBe(TENANT);
-    expect(resultado.e5.resultado).toBe('enviado');
-    expect(resultado.e5.comunicacionId).toBe(coms[0].idComunicacion);
+    // NO se crea COMUNICACION E5 (flujo eliminado); e5.resultado=no_aplica.
+    expect(await comunicacionesE5(reservaId)).toHaveLength(0);
+    expect(resultado.e5.resultado).toBe('no_aplica');
+    expect(resultado.e5.comunicacionId).toBeNull();
 
     // AUDIT_LOG de transición: origen Usuario (usuario_id poblado), datos correctos.
     const transiciones = await transicionesDe(reservaId);
@@ -244,31 +243,31 @@ describe('Finalizar evento — dato anómalo fianza cobrada sin importe (3.5)', 
 });
 
 // ===========================================================================
-// 3.6 — Fallo de E5 (proveedor fake forzado a fallar) + fianza_eur>0: la transición a
-//        post_evento SE MANTIENE (no se revierte); COMUNICACION.estado=fallido;
-//        e5.resultado=fallido. Transición y envío SEPARADOS (design.md §D-2).
+// 3.6 — fix-liquidacion-fianza-independientes: el flujo de E5 (solicitud de IBAN) se
+//        eliminó, así que la finalización NO envía ningún email (no hay un E5 que pueda
+//        fallar). Se conserva un único caso que verifica que, aun con fianza_eur>0 y con
+//        el proveedor fake forzado a fallar, la finalización procede a post_evento SIN
+//        crear ninguna COMUNICACION E5 (el proveedor ni siquiera se invoca).
 // ===========================================================================
 
-describe('Finalizar evento — fallo de E5 no revierte la transición (3.6)', () => {
-  it('debe_mantener_post_evento_y_dejar_comunicacion_e5_fallida_cuando_el_proveedor_cae', async () => {
+describe('Finalizar evento — la finalización no envía ningún email (3.6)', () => {
+  it('debe_pasar_a_post_evento_sin_crear_comunicacion_e5_aunque_el_proveedor_este_caido', async () => {
     const reservaId = await sembrarEnCurso({ fianzaEur: '1000.00' });
-    // El proveedor de email cae en el siguiente envío (one-shot).
+    // Aunque el proveedor de email cayese, la finalización no dispara ningún envío.
     fakeEmail.forzarFallo(new Error('PROVEEDOR_EMAIL_CAIDO'));
 
     const resultado = await useCase.ejecutar(comando(reservaId));
 
-    // La transición NO se revierte: la reserva queda en post_evento.
+    // La reserva queda en post_evento.
     expect((await leerReserva(reservaId))?.estado).toBe(EstadoReserva.post_evento);
     expect(resultado.estado).toBe('post_evento');
 
-    // COMUNICACION E5 creada pero fallida (para el reenvío desde la ficha).
-    const coms = await comunicacionesE5(reservaId);
-    expect(coms).toHaveLength(1);
-    expect(coms[0].estado).toBe('fallido');
-    expect(resultado.e5.resultado).toBe('fallido');
-    expect(resultado.e5.comunicacionId).toBe(coms[0].idComunicacion);
+    // NO se crea COMUNICACION E5; e5.resultado=no_aplica.
+    expect(await comunicacionesE5(reservaId)).toHaveLength(0);
+    expect(resultado.e5.resultado).toBe('no_aplica');
+    expect(resultado.e5.comunicacionId).toBeNull();
 
-    // La transición se auditó igualmente (independiente del fallo de E5).
+    // La transición se auditó igualmente.
     expect(await transicionesDe(reservaId)).toHaveLength(1);
   });
 });

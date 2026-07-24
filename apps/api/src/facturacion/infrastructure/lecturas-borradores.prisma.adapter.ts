@@ -12,7 +12,6 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type {
   CargarExtrasPendientesPort,
-  CargarFianzaDefaultPort,
   CargarReservaLiquidablePort,
   ExtraPendiente,
   ReservaLiquidable,
@@ -84,19 +83,3 @@ export class CargarExtrasPendientesPrismaAdapter {
   };
 }
 
-/** Lectura del importe de fianza por defecto del tenant (TENANT_SETTINGS.fianza_default_eur). */
-@Injectable()
-export class CargarFianzaDefaultPrismaAdapter {
-  constructor(private readonly prisma: PrismaService) {}
-
-  readonly cargar: CargarFianzaDefaultPort = async (params) => {
-    const fila = await this.prisma.$transaction(async (tx) => {
-      await this.prisma.fijarTenant(tx, params.tenantId);
-      return tx.tenantSettings.findFirst({
-        where: { tenantId: params.tenantId },
-        select: { fianzaDefaultEur: true },
-      });
-    });
-    return fila === null ? '0.00' : fila.fianzaDefaultEur.toFixed(2);
-  };
-}

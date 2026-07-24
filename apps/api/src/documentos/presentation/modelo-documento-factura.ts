@@ -15,7 +15,7 @@
  *     interpolando `{nombreComercial}` (mismo helper que el presupuesto; NUNCA "lloguer").
  *   - `conceptoSubtitulo` (indentado, no negrita): el 40/60 con prefijo asterisco:
  *       señal      → "*40% de l'import total anticipat del pressupost núm. {n}"
- *       liquidación→ "*Saldo del 60% de l'import del pressupost núm. {n}"
+ *       liquidación→ "*60% de l'import restant del pressupost núm. {n}"
  * La FIANZA no cambia: su `concepto` sigue siendo "Fiança de garantia — {nombreComercial}"
  * (SIN nº de presupuesto: la fianza es del espacio) y su `conceptoSubtitulo` es `null`.
  * Cuando `numeroPresupuesto` es null en señal/liquidación, el subtítulo omite " núm. {n}".
@@ -135,12 +135,12 @@ const resolverConceptoSubtitulo = (
     if (tipo === 'senal') {
       return `*40% del importe total anticipado del presupuesto${referencia}`;
     }
-    return `*Saldo del 60% del importe del presupuesto${referencia}`;
+    return `*60% del importe restante del presupuesto${referencia}`;
   }
   if (tipo === 'senal') {
     return `*40% de l'import total anticipat del pressupost${referencia}`;
   }
-  return `*Saldo del 60% de l'import del pressupost${referencia}`;
+  return `*60% de l'import restant del pressupost${referencia}`;
 };
 
 /**

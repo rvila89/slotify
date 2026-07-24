@@ -16,10 +16,17 @@ import type { components } from '@/api-client';
 export type FacturaSenal = components['schemas']['FacturaSenalDto'];
 
 /**
+ * Factura de liquidación (US-028 · UC-21, standalone tras
+ * fix-liquidacion-fianza-independientes). Es `FacturaDto` extendida con el flag DERIVADO
+ * `e4Enviado: boolean` (true cuando ya existe una COMUNICACION E4 enviada, no reenvío): la
+ * UI lo usa para el banner permanente "Liquidación enviada el {fecha/hora}" y para mostrar
+ * solo "Reenviar" tras el primer envío. Flujo espejo de la factura de señal.
+ */
+export type FacturaLiquidacion = components['schemas']['FacturaLiquidacionDto'];
+
+/**
  * Item de la colección `GET /reservas/{id}/facturas` (US-027). Misma forma que la
- * factura de señal; el tipo distingue `senal` | `liquidacion` | `fianza` |
- * `complementaria`. La visualización de los borradores de liquidación y fianza
- * (US-027) y la alerta al Gestor se derivan de esta colección, sin endpoint propio.
+ * factura de señal; el tipo distingue `senal` | `liquidacion` | `complementaria`.
  */
 export type Factura = components['schemas']['FacturaDto'];
 export type TipoFactura = components['schemas']['TipoFactura'];
@@ -33,27 +40,38 @@ export type FacturaPdfPendienteError =
 export type ErrorResponse = components['schemas']['ErrorResponse'];
 
 /**
- * Sub-procesos de la RESERVA relevantes para las acciones de facturación de US-028
- * (aprobar/enviar liquidación, enviar recibo de fianza). Derivan de los enums del
- * contrato OpenAPI; la UI habilita/deshabilita acciones según su valor.
+ * Sub-procesos de la RESERVA relevantes para las acciones de facturación y fianza. Derivan
+ * de los enums del contrato OpenAPI; la UI habilita/deshabilita acciones según su valor.
+ * `FianzaStatus` = `pendiente | cobrada | devuelta` (tras
+ * fix-liquidacion-fianza-independientes): `cobrada` = comprobante recibido.
  */
 export type LiquidacionStatus = components['schemas']['LiquidacionStatus'];
 export type FianzaStatus = components['schemas']['FianzaStatus'];
 
 /**
- * Respuestas de las acciones dedicadas de US-028 (facturacion), sobre el SDK generado:
- *  - `AprobarEnviarLiquidacionResponse`: liquidación (+ fianza si se emitió aquí) + status.
- *  - `EnviarReciboFianzaResponse`: recibo de fianza emitido por separado + `fianzaStatus`.
+ * Respuestas de las acciones **standalone** de liquidación (espejo de la señal), sobre el
+ * SDK generado:
+ *  - `EnviarFacturaLiquidacionResponse`: liquidación emitida + `liquidacionStatus`.
  *  - `ReenviarLiquidacionResponse`: liquidación sin cambios + la nueva COMUNICACION de reenvío.
  */
-export type AprobarEnviarLiquidacionResponse =
-  components['schemas']['AprobarEnviarLiquidacionResponse'];
-export type EnviarReciboFianzaResponse =
-  components['schemas']['EnviarReciboFianzaResponse'];
+export type EnviarFacturaLiquidacionResponse =
+  components['schemas']['EnviarFacturaLiquidacionResponse'];
 export type ReenviarLiquidacionResponse =
   components['schemas']['ReenviarLiquidacionResponse'];
-export type AprobarEnviarLiquidacionRequest =
-  components['schemas']['AprobarEnviarLiquidacionRequest'];
+
+/**
+ * Tipos de la **fianza pasiva** (comprobante + devolución), sobre el SDK generado:
+ *  - `SubirComprobanteFianzaResponse`: RESERVA con `fianzaStatus='cobrada'` +
+ *    `fianzaComprobanteFecha` + el DOCUMENTO `comprobante_fianza` creado.
+ *  - `DevolverFianzaResponse`: RESERVA con `fianzaStatus='devuelta'` + `fianzaDevueltaFecha`
+ *    + `avisoEmail` (best-effort E10; presente si el email falló).
+ *  - `DevolverFianzaAvisoEmail`: aviso del fallo de E10 (post-commit, reintentable).
+ */
+export type SubirComprobanteFianzaResponse =
+  components['schemas']['SubirComprobanteFianzaResponse'];
+export type DevolverFianzaResponse = components['schemas']['DevolverFianzaResponse'];
+export type DevolverFianzaAvisoEmail = components['schemas']['DevolverFianzaAvisoEmail'];
+export type Documento = components['schemas']['Documento'];
 
 /**
  * Tipos del **envío de la factura de señal 40% por email** (rebanada 6.4b), sobre el SDK
@@ -117,89 +135,35 @@ export type EnvioSenalError = {
 };
 
 /**
- * Tipos del **cobro de fianza** (US-030 · UC-22), sobre el SDK generado:
- *  - `RegistrarCobroFianzaRequest`: body `{ importe, fechaCobro, justificanteDocId?, confirmarSinRecibo }`.
- *  - `RegistrarCobroFianzaResponse`: unión discriminada por `resultado`:
- *      - `RegistrarCobroFianzaCobrado` (`resultado='cobrado'`): PAGO creado, fianza `cobrada`,
- *        `fianzaEur`, `fianzaCobradaFecha`.
- *      - `RegistrarCobroFianzaConfirmacionRequerida` (`resultado='confirmacion_requerida'`): aviso
- *        Negociable (`RECIBO_FIANZA_NO_ENVIADO`) cuando `fianzaStatus='pendiente'` sin
- *        `confirmarSinRecibo`; NO crea PAGO. El frontend muestra el diálogo y reintenta con el flag.
+ * Error NORMALIZADO de la **subida del comprobante de fianza** (fix-liquidacion-fianza-
+ * independientes), espejo de `CondicionesFirmadasError`, para que la UI ramifique en español
+ * sin volver a mirar códigos HTTP. Cada `tipo` mapea 1:1 con un `codigo` del contrato
+ * (`SubirComprobanteFianzaValidacionError`, 422):
+ *  - `estado-invalido` → 422 `ESTADO_INVALIDO` (fuera de reserva_confirmada/evento_en_curso/post_evento).
+ *  - `comprobante-requerido` / `formato-no-permitido` / `tamano-excedido` → 422 (validación de fichero).
+ *  - `generico` → 400/401/403/404/red.
  */
-export type RegistrarCobroFianzaRequest =
-  components['schemas']['RegistrarCobroFianzaRequest'];
-export type RegistrarCobroFianzaResponse =
-  components['schemas']['RegistrarCobroFianzaResponse'];
-export type RegistrarCobroFianzaCobrado =
-  components['schemas']['RegistrarCobroFianzaCobrado'];
-export type RegistrarCobroFianzaConfirmacionRequerida =
-  components['schemas']['RegistrarCobroFianzaConfirmacionRequerida'];
-
-/** Envelope de error CRUDO del cobro de fianza (`ErrorResponse` + `codigo` + `motivo`). */
-export type CobroFianzaErrorResponse = components['schemas']['CobroFianzaError'];
-
-/**
- * Tipos de la **devolución de fianza** (US-036 · UC-27, acción simétrica inversa del cobro de
- * US-030), sobre el SDK generado:
- *  - `RegistrarDevolucionFianzaRequest`: body JSON
- *    `{ importeDevuelto, fechaCobro, motivoRetencion?, justificanteDocId? }` (G1-3: NO multipart;
- *    el justificante se sube antes por `POST /documentos` y aquí solo se referencia por id).
- *  - `RegistrarDevolucionFianzaResponse`: `{ reserva, documentoJustificante?, avisoSinJustificante }`
- *    con la RESERVA actualizada (`fianzaStatus` derivado `devuelta`|`retenida_parcial`,
- *    `fianzaDevueltaEur`, `fianzaDevueltaFecha`, `motivoRetencion` si parcial).
- *  - `Documento`: metadatos del DOCUMENTO `justificante_pago` subido (respuesta de `POST /documentos`).
- */
-export type RegistrarDevolucionFianzaRequest =
-  components['schemas']['RegistrarDevolucionFianzaRequest'];
-export type RegistrarDevolucionFianzaResponse =
-  components['schemas']['RegistrarDevolucionFianzaResponse'];
-export type Documento = components['schemas']['Documento'];
-
-/** Envelope de error CRUDO de la devolución de fianza (`ErrorResponse` + `codigo` + `motivo`). */
-export type DevolucionFianzaErrorResponse = components['schemas']['DevolucionFianzaError'];
-
-/**
- * Error NORMALIZADO de la devolución de fianza (US-036), para que la UI ramifique en español sin
- * volver a mirar códigos HTTP. Cada `tipo` mapea 1:1 con un `codigo` del contrato OpenAPI de US-036
- * (via `normalizarErrorDevolucionFianza`):
- *  - `importe-supera-fianza` (400 `IMPORTE_SUPERA_FIANZA`, FA-02): importe > fianzaEur o negativo.
- *  - `fecha-invalida` (400 `FECHA_DEVOLUCION_INVALIDA`, FA-03): fecha < fianzaCobradaFecha.
- *  - `motivo-requerido` (400 `MOTIVO_RETENCION_REQUERIDO`): devolución parcial sin motivo.
- *  - `justificante-no-encontrado` (404 `JUSTIFICANTE_NO_ENCONTRADO`).
- *  - `precondicion-no-cumplida` (409 `PRECONDICION_NO_CUMPLIDA`): estado≠post_evento /
- *    fianzaStatus≠cobrada / sin IBAN de devolución.
- *  - `ya-registrada` (409 `DEVOLUCION_YA_REGISTRADA`): doble registro sobre estado final irreversible.
- *  - `generico` (401/403/otros/red).
- */
-export type DevolucionFianzaError = {
+export type ComprobanteFianzaError = {
   tipo:
-    | 'importe-supera-fianza'
-    | 'fecha-invalida'
-    | 'motivo-requerido'
-    | 'justificante-no-encontrado'
-    | 'precondicion-no-cumplida'
-    | 'ya-registrada'
+    | 'estado-invalido'
+    | 'comprobante-requerido'
+    | 'formato-no-permitido'
+    | 'tamano-excedido'
     | 'generico';
   mensaje: string;
 };
 
 /**
- * Error NORMALIZADO del cobro de fianza (US-030), para que la UI ramifique en español sin
- * volver a mirar códigos HTTP. Cada `tipo` mapea a un caso del contrato OpenAPI de US-030
- * (via `normalizarErrorCobroFianza`):
- *  - `ya-cobrada` (409 `FIANZA_YA_COBRADA`): doble cobro; la fianza ya está `cobrada`.
- *  - `cobro-invalido` (400 `COBRO_INVALIDO`): `importe <= 0` o `fechaCobro` posterior al evento.
- *  - `factura-no-encontrada` (404 `FACTURA_FIANZA_NO_ENCONTRADA`).
- *  - `justificante-no-encontrado` (404 `JUSTIFICANTE_NO_ENCONTRADO`).
- *  - `generico` (401/403/otros/red).
+ * Error NORMALIZADO de la **devolución de fianza** (fix-liquidacion-fianza-independientes:
+ * devolución completa, sin IBAN ni retención). Cada `tipo` mapea 1:1 con un `codigo` del
+ * contrato (`DevolucionFianzaError`, 409):
+ *  - `precondicion-no-cumplida` (409 `PRECONDICION_NO_CUMPLIDA`): estado≠post_evento o
+ *    fianzaStatus≠cobrada.
+ *  - `ya-registrada` (409 `DEVOLUCION_YA_REGISTRADA`): doble registro sobre estado final irreversible.
+ *  - `generico` (401/403/404/red).
  */
-export type CobroFianzaError = {
-  tipo:
-    | 'ya-cobrada'
-    | 'cobro-invalido'
-    | 'factura-no-encontrada'
-    | 'justificante-no-encontrado'
-    | 'generico';
+export type DevolucionFianzaError = {
+  tipo: 'precondicion-no-cumplida' | 'ya-registrada' | 'generico';
   mensaje: string;
 };
 

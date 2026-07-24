@@ -635,57 +635,56 @@ modo sandbox`.)
 
 ### Requirement: Cableado de E4 con los PDFs de liquidación y fianza adjuntos
 
-El sistema SHALL (DEBE), al aprobar y enviar la factura de liquidación (US-028), disparar el
-envío del email **E4** al `CLIENTE.email` de la RESERVA, adjuntando **por referencia** el PDF de
-la **factura de liquidación** (`FACTURA(liquidacion).pdf_url`) **y** el PDF del **recibo de
-fianza** (`FACTURA(fianza).pdf_url`), reutilizando el **motor de email de US-045** y su
-**interfaz de adjuntos**. Antes de enviar, el motor DEBE verificar que ambos `pdf_url` requeridos
-existen; si algún adjunto requerido no está disponible, NO DEBE enviar E4 (coherente con la
-interfaz de adjuntos de US-045). El sistema DEBE registrar el resultado en `COMUNICACION` con
-`codigo_email = 'E4'`, `estado = 'enviado'`, `fecha_envio = now()`, `reserva_id` = la RESERVA,
-`cliente_id` = el CLIENTE de esa RESERVA y el `tenant_id` correspondiente, y registrar la
-operación en `AUDIT_LOG`. Si la fianza ya fue enviada por separado, E4 adjunta **solo** la
-factura de liquidación. (Fuente: `US-028 §Happy Path` E4 con ambos PDFs, `§Email relacionado
-E4`; US-045 §Catálogo de plantillas E4, §Interfaz de adjuntos.)
+El sistema SHALL (DEBE), al aprobar y enviar la factura de liquidación (flujo standalone espejo de la
+señal), disparar el envío del email **E4** al `CLIENTE.email` de la RESERVA, adjuntando **por
+referencia** el PDF de la **factura de liquidación** (`FACTURA(liquidacion).pdf_url`), reutilizando el
+**motor de email de US-045** y su **interfaz de adjuntos**. **E4 = solo liquidación**: no adjunta
+ningún recibo de fianza (la fianza deja de ser una FACTURA). El cuerpo de E4 es el **texto bilingüe
+CA/ES nuevo** aprobado en el plan (§Email copy — "E4 Liquidación"), seleccionado por el `idioma` de la
+RESERVA, con variables requeridas `['nombre', 'fianzaEur']` (recuerda al cliente abonar la fianza de
+`{fianzaEur}` € antes o el día del evento). Antes de enviar, el motor DEBE verificar que el `pdf_url`
+de la liquidación está disponible; si no lo está, NO DEBE enviar E4. El sistema DEBE registrar el
+resultado en `COMUNICACION` con `codigo_email = 'E4'`, `estado = 'enviado'`, `fecha_envio = now()`,
+`reserva_id` = la RESERVA, `cliente_id` = el CLIENTE de esa RESERVA y el `tenant_id` correspondiente,
+y registrar la operación en `AUDIT_LOG`. (Fuente: plan §Liquidación standalone, §Email copy; US-045
+§Catálogo de plantillas E4, §Interfaz de adjuntos.)
 
-#### Scenario: Aprobar y enviar dispara E4 con ambos PDFs y registra la comunicación
+#### Scenario: Aprobar y enviar dispara E4 con solo el PDF de la liquidación y registra la comunicación
 
-- **GIVEN** una emisión de liquidación cuya `FACTURA(liquidacion).pdf_url` y
-  `FACTURA(fianza).pdf_url` están disponibles y `CLIENTE.email` no es nulo
+- **GIVEN** una emisión de liquidación cuya `FACTURA(liquidacion).pdf_url` está disponible y
+  `CLIENTE.email` no es nulo
 - **WHEN** el sistema envía E4
-- **THEN** el motor adjunta ambos PDFs (factura de liquidación + recibo de fianza) al email al
-  `CLIENTE.email`
-- **AND** se crea `COMUNICACION` con `codigo_email = 'E4'`, `estado = 'enviado'`, `fecha_envio`
-  no nulo, `reserva_id`, `cliente_id` y `tenant_id` correctos
+- **THEN** el motor adjunta únicamente el PDF de la factura de liquidación al email al `CLIENTE.email`
+  (sin ningún recibo de fianza)
+- **AND** se crea `COMUNICACION` con `codigo_email = 'E4'`, `estado = 'enviado'`, `fecha_envio` no
+  nulo, `reserva_id`, `cliente_id` y `tenant_id` correctos
 - **AND** se registra la operación en `AUDIT_LOG`
 
-#### Scenario: Adjunto requerido de E4 no disponible bloquea el envío
+#### Scenario: El PDF de la liquidación ausente bloquea el envío de E4
 
-- **GIVEN** una emisión de liquidación en la que el `pdf_url` de la factura o del recibo de
-  fianza es nulo
+- **GIVEN** una emisión de liquidación en la que el `pdf_url` de la factura de liquidación es nulo
 - **WHEN** el motor intenta enviar E4
 - **THEN** no envía E4 y registra el error (interfaz de adjuntos de US-045)
-- **AND** la emisión no se consolida (los estados no cambian; ver delta `facturacion` §atomicidad)
+- **AND** la emisión no se consolida (los estados no cambian; ver delta `facturacion`)
 
 ### Requirement: E4 es un envío síncrono y confirmado cuya atomicidad condiciona la emisión
 
-El sistema SHALL (DEBE) disparar E4 de forma **síncrona y esperando la confirmación del
-proveedor**, de modo que la consolidación de la emisión de la factura de liquidación (asignación
-de `numero_factura`, `estado = 'enviada'`, `liquidacion_status = 'facturada'`, emisión de la
-fianza) ocurra **solo si E4 se confirma**. Este disparo **invierte deliberadamente** el patrón
-"post-commit, fallo no revierte" de E2/E6/E7 (US-045): en E4, un fallo del proveedor o de la
-generación del PDF **impide** consolidar los cambios de estado (rollback), y el resultado del
-envío queda **trazado en `COMUNICACION`** para el reintento del Gestor. En entornos `test`/CI el
-transporte DEBE operar en **modo fake** (confirmación simulada, sin llamadas de red reales).
-(Fuente: `US-028 §Reglas de negocio` atomicidad, `§Fallo en la generación del PDF o en el envío
-del email`; `design.md §D-1`; US-045 §Transporte real / modo sandbox.)
+El sistema SHALL (DEBE) disparar E4 de forma **síncrona y esperando la confirmación del proveedor**,
+de modo que la consolidación de la emisión de la factura de liquidación (asignación de
+`numero_factura`, `estado = 'enviada'`, `liquidacion_status = 'facturada'`) ocurra **solo si E4 se
+confirma**. E4 = solo liquidación: **no** emite ni toca la fianza. Este disparo **invierte
+deliberadamente** el patrón "post-commit, fallo no revierte" de E2/E6/E7 (US-045): en E4, un fallo del
+proveedor o de la generación del PDF **impide** consolidar los cambios de estado (rollback), y el
+resultado del envío queda **trazado en `COMUNICACION`** para el reintento del Gestor. En entornos
+`test`/CI el transporte DEBE operar en **modo fake** (confirmación simulada, sin llamadas de red
+reales). (Fuente: plan §Liquidación standalone; `US-028 §Reglas de negocio` atomicidad; US-045
+§Transporte real / modo sandbox.)
 
 #### Scenario: Un fallo de E4 no consolida la emisión y queda trazado
 
 - **GIVEN** una emisión de liquidación en curso cuyo envío de E4 falla en el proveedor
 - **WHEN** el motor procesa el resultado
-- **THEN** los cambios de estado de la emisión no se consolidan (rollback; ver delta
-  `facturacion`)
+- **THEN** los cambios de estado de la emisión no se consolidan (rollback; ver delta `facturacion`)
 - **AND** el resultado del envío queda trazado en `COMUNICACION` (con un `estado` distinto de
   `'enviado'`) para el reintento del Gestor
 
@@ -694,8 +693,8 @@ del email`; `design.md §D-1`; US-045 §Transporte real / modo sandbox.)
 - **GIVEN** el entorno de test o CI con el transporte de email en modo fake
 - **WHEN** una emisión de liquidación dispara E4
 - **THEN** no se realiza ninguna llamada de red al proveedor externo
-- **AND** el disparo de E4 y su registro en `COMUNICACION` quedan verificables para las
-  aserciones de los tests
+- **AND** el disparo de E4 y su registro en `COMUNICACION` quedan verificables para las aserciones de
+  los tests
 
 ### Requirement: Reenvío de E4 crea una nueva comunicación sin alterar la factura
 
@@ -718,104 +717,6 @@ RESERVA. (Fuente: `US-028 §Factura ya enviada (reenvío)`; `design.md §D-4`; U
   `fecha_envio`, reutilizando el PDF ya emitido
 - **AND** la FACTURA (número y estado) y los status de la RESERVA no se modifican
 
-### Requirement: Envío del recibo de fianza por separado como email manual sin código E
-
-El sistema SHALL (DEBE), cuando el Gestor envía el recibo de fianza por separado (US-028),
-registrar la comunicación como **email manual** con `codigo_email = 'manual'` (NO `E4`), con el
-PDF del recibo de fianza adjunto al `CLIENTE.email`. Al ser `manual`, este envío queda **fuera**
-del índice UNIQUE parcial de idempotencia `(reserva_id, codigo_email)` que aplica a E1–E8 (los
-emails `manual` están excluidos del constraint, US-045), de modo que no colisiona con un
-posterior E4 de la misma RESERVA. Los efectos sobre el estado de la fianza y de la RESERVA se
-especifican en el delta de la capability `facturacion`. (Fuente: `US-028 §Envío del recibo de
-fianza por separado`; `design.md §D-3`; US-045 §Registro en COMUNICACION `codigo_email` enum,
-§Idempotencia índice parcial.)
-
-#### Scenario: El envío separado del recibo se registra como manual, no como E4
-
-- **GIVEN** una RESERVA cuyo recibo de fianza el Gestor decide enviar por separado
-- **WHEN** el sistema envía el email con solo el recibo de fianza adjunto
-- **THEN** se crea `COMUNICACION` con `codigo_email = 'manual'`, `estado = 'enviado'` y
-  `fecha_envio` no nulo
-- **AND** no usa el código `E4` ni bloquea un posterior E4 de la misma RESERVA por idempotencia
-
-### Requirement: E5 (solicitud de IBAN) se dispara al finalizar el evento solo si fianza_eur > 0
-
-El sistema SHALL (DEBE), al finalizar el evento (transición `evento_en_curso → post_evento`,
-US-034), disparar el trigger de email **E5** (agradecimiento + solicitud de IBAN para la
-devolución de fianza + enlace NPS) a través del **motor de email** de `comunicaciones` (US-045)
-**únicamente cuando `RESERVA.fianza_eur > 0`**. El motor SHALL (DEBE) enviar E5 al
-`CLIENTE.email` (nunca al gestor) y crear una `COMUNICACION` con `codigo_email = 'E5'`,
-`reserva_id`, `cliente_id` y `tenant_id` correctos. Cuando `RESERVA.fianza_eur = 0`, el sistema
-NO DEBE enviar E5 **ni** crear `COMUNICACION` para E5 (no hay IBAN que solicitar); la transición
-de estado se ejecuta igualmente. E5 está **condicionado** a `fianza_eur > 0` mientras que la
-transición es **incondicional**. (Fuente: `US-034 §Historia`, `§Reglas de negocio`,
-`§Email relacionado` E5, `§Finalización sin fianza`, `§Reglas de Validación`; `comunicaciones`
-Requirement "Motor de email reutilizable".)
-
-#### Scenario: Finalización con fianza cobrada envía E5 al cliente
-
-- **GIVEN** una RESERVA en `evento_en_curso` con `fianza_eur = 1000.00` y un `CLIENTE.email`
-- **WHEN** el gestor finaliza el evento
-- **THEN** el motor envía E5 al `CLIENTE.email` (agradecimiento + solicitud de IBAN + enlace NPS)
-- **AND** crea `COMUNICACION` con `codigo_email = 'E5'`, `reserva_id`, `cliente_id`, `tenant_id`
-  y `estado = enviado` (si el envío tiene éxito)
-
-#### Scenario: Finalización sin fianza (fianza_eur = 0) no envía E5
-
-- **GIVEN** una RESERVA en `evento_en_curso` con `fianza_eur = 0`
-- **WHEN** el gestor finaliza el evento
-- **THEN** la RESERVA transiciona a `post_evento` igualmente
-- **AND** no se envía E5 ni se crea ninguna `COMUNICACION` con `codigo_email = 'E5'`
-
-### Requirement: fianza_eur IS NULL se trata como sin fianza y alerta de dato anómalo
-
-El sistema SHALL (DEBE) tratar `RESERVA.fianza_eur IS NULL` como **"sin fianza"** (equivalente a
-`0`) a efectos de E5: NO DEBE enviar E5 ni crear `COMUNICACION` para E5, **aunque**
-`RESERVA.fianza_status = 'cobrada'`. Cuando concurren `fianza_status = 'cobrada'` y `fianza_eur
-IS NULL` (dato inconsistente de integridad), el sistema DEBE registrar la inconsistencia en
-`AUDIT_LOG` como **alerta de dato anómalo**. `fianza_eur IS NULL` NUNCA DEBE provocar un envío
-de E5 con IBAN pendiente. (Fuente: `US-034 §fianza_status = cobrada pero fianza_eur IS NULL`,
-`§Finalización sin fianza`, `§Reglas de Validación`.)
-
-#### Scenario: fianza_status cobrada pero fianza_eur IS NULL — sin E5 y alerta
-
-- **GIVEN** una RESERVA en `evento_en_curso` con `fianza_status = 'cobrada'` pero `fianza_eur IS
-  NULL`
-- **WHEN** el gestor finaliza el evento
-- **THEN** la RESERVA transiciona a `post_evento`
-- **AND** el sistema trata la condición como "sin fianza": no envía E5 ni crea `COMUNICACION`
-  para E5
-- **AND** registra la inconsistencia en `AUDIT_LOG` como alerta de dato anómalo
-
-### Requirement: La transición no depende del éxito de E5 — fallo deja COMUNICACION fallido y reintento
-
-El sistema SHALL (DEBE) tratar la **transición de estado** y el **envío de E5** como operaciones
-**separadas**: si `fianza_eur > 0` y el envío de E5 falla (proveedor de email no disponible), la
-transición `evento_en_curso → post_evento` NO DEBE revertirse. En ese caso el sistema DEBE dejar
-`COMUNICACION.estado = 'fallido'` (la `COMUNICACION` para E5 se crea **tanto** en envío exitoso
-—`estado = enviado`— **como** fallido —`estado = fallido`) y presentar al gestor una alerta ("La
-reserva ha pasado a post-evento, pero el email E5 no pudo enviarse. Puedes reenviarlo desde la
-ficha."). El gestor SHALL (DEBE) poder **reintentar** el envío de E5 desde la ficha de la
-RESERVA. El `AUDIT_LOG` de la transición DEBE reflejar el fallo de E5. (Fuente: `US-034 §Fallo
-en el envío de E5`, `§Reglas de negocio`, `§Reglas de Validación`.)
-
-#### Scenario: E5 falla pero la reserva queda en post_evento y se puede reintentar
-
-- **GIVEN** una RESERVA en `evento_en_curso` con `fianza_eur > 0` y el proveedor de email no
-  disponible
-- **WHEN** el gestor finaliza el evento y el envío de E5 falla
-- **THEN** la transición `evento_en_curso → post_evento` se ejecuta igualmente (no se revierte)
-- **AND** `COMUNICACION.estado = 'fallido'` para E5
-- **AND** el gestor ve una alerta indicando que puede reenviar E5 desde la ficha
-- **AND** el `AUDIT_LOG` de la transición refleja el fallo de E5
-
-#### Scenario: El gestor reintenta el envío de E5 desde la ficha
-
-- **GIVEN** una RESERVA en `post_evento` con una `COMUNICACION` E5 en `estado = 'fallido'`
-- **WHEN** el gestor reintenta el envío de E5 desde la ficha
-- **THEN** el motor de `comunicaciones` reintenta el envío al `CLIENTE.email`
-- **AND** actualiza el resultado del reintento en la `COMUNICACION` E5
-
 ### Requirement: La NPS queda programada (T+3d) al finalizar el evento
 
 El sistema SHALL (DEBE), al finalizar el evento, dejar la **NPS marcada como programada** para
@@ -831,155 +732,6 @@ enviar automáticamente la NPS a T+3d en este alcance. (Fuente: `US-034 §Happy 
 - **WHEN** el gestor finaliza el evento
 - **THEN** la NPS queda marcada como programada (T+3d)
 - **AND** no se realiza ningún envío automático de la NPS en este alcance (fuera de MVP)
-
-### Requirement: El gestor registra el IBAN de devolución sobre CLIENTE con validación mod-97 previa
-
-El sistema SHALL (DEBE) permitir al **gestor** registrar el **IBAN de devolución de fianza** que el
-cliente le ha proporcionado, sobre una RESERVA concreta, y persistirlo en **`CLIENTE.iban_devolucion`**
-(atributo del `CLIENTE`, **no** de la RESERVA, disponible para futuras reservas del mismo cliente).
-La acción SHALL (DEBE) estar disponible **únicamente** cuando `RESERVA.estado = 'post_evento'` **Y**
-`RESERVA.fianza_eur > 0`. Antes de **cualquier** escritura, el sistema SHALL (DEBE) validar el IBAN
-con el algoritmo de **checksum módulo 97** (longitud según país, prefijo de país, dígitos de control);
-si el IBAN no supera la validación, el sistema NO DEBE actualizar `CLIENTE.iban_devolucion` ni enviar
-E8, y DEBE devolver un error de validación. Toda actualización de `CLIENTE.iban_devolucion` SHALL
-(DEBE) quedar registrada en `AUDIT_LOG` con `accion = 'actualizar'`, `entidad = 'CLIENTE'`,
-`datos_anteriores = {iban_devolucion: <previo o null>}` y `datos_nuevos = {iban_devolucion: <nuevo>}`.
-La acción se ejecuta bajo el contexto RLS del `tenant` del gestor autenticado (JWT), nunca
-cross-tenant. (Fuente: `US-035 §Historia`, `§Reglas de negocio`, `§Reglas de Validación`, `FA-01`;
-UC-26/UC-27; `CLAUDE.md §Multi-tenancy`.)
-
-#### Scenario: Registro de un IBAN válido persiste en CLIENTE y audita
-
-- **GIVEN** una RESERVA en `estado = 'post_evento'` con `fianza_eur = 1000.00` y `CLIENTE.iban_devolucion = null`
-- **WHEN** el gestor registra el IBAN válido `ES9121000418450200051332`
-- **THEN** el sistema valida el IBAN por checksum módulo 97 con éxito
-- **AND** actualiza `CLIENTE.iban_devolucion = 'ES9121000418450200051332'`
-- **AND** registra en `AUDIT_LOG` `accion = 'actualizar'`, `entidad = 'CLIENTE'`,
-  `datos_anteriores = {iban_devolucion: null}`, `datos_nuevos = {iban_devolucion: 'ES9121000418450200051332'}`
-
-#### Scenario: IBAN con formato inválido bloquea la escritura antes de persistir (FA-01)
-
-- **GIVEN** una RESERVA en `estado = 'post_evento'` con `fianza_eur > 0`
-- **WHEN** el gestor intenta registrar el valor `ES12345INVALIDO`
-- **THEN** la validación de checksum módulo 97 falla y el sistema devuelve un error de validación
-  ("El IBAN introducido no tiene un formato válido. Verifica los dígitos de control y la longitud.")
-- **AND** `CLIENTE.iban_devolucion` no se actualiza
-- **AND** no se envía E8 ni se crea `COMUNICACION` para E8
-
-#### Scenario: Corrección de un IBAN previo lo sobreescribe y audita el valor anterior (FA-02)
-
-- **GIVEN** un `CLIENTE.iban_devolucion = 'ES0000000000000000000001'` (registrado pero erróneo) sobre
-  una RESERVA en `post_evento` con `fianza_eur > 0`
-- **WHEN** el gestor registra el IBAN corregido `ES9121000418450200051332`
-- **THEN** `CLIENTE.iban_devolucion` se sobreescribe con `'ES9121000418450200051332'`
-- **AND** registra en `AUDIT_LOG` `datos_anteriores = {iban_devolucion: 'ES0000000000000000000001'}`,
-  `datos_nuevos = {iban_devolucion: 'ES9121000418450200051332'}`
-
-### Requirement: El registro de un IBAN válido dispara el email E8 al CLIENTE reutilizando el motor de comunicaciones
-
-El sistema SHALL (DEBE), tras persistir un IBAN válido en `CLIENTE.iban_devolucion`, disparar el
-envío del email **E8** (confirmación de recepción del IBAN + descripción de los próximos pasos para la
-devolución de la fianza) a través del **motor de email** de `comunicaciones` (US-045), enviándolo al
-**`CLIENTE.email`** — **nunca** al gestor. El motor SHALL (DEBE) crear una `COMUNICACION` con
-`codigo_email = 'E8'`, `reserva_id` = la RESERVA de la acción, `cliente_id` = el `CLIENTE`,
-`tenant_id` correcto y `estado = 'enviado'` con `fecha_envio` no nulo cuando el proveedor acepta el
-envío. US-035 **no reimplementa** el motor: lo **invoca** con el trigger E8; `E8` pertenece al
-catálogo E1–E8 declarado por US-045. (Fuente: `US-035 §Reglas de negocio`, `§Email relacionado` E8,
-`§Happy Path`, `§Reglas de Validación`; `comunicaciones` Requirement "Motor de email reutilizable".)
-
-#### Scenario: Guardar un IBAN válido envía E8 al cliente y crea la fila de COMUNICACION
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_eur = 1000.00` y un `CLIENTE.email` no nulo
-- **WHEN** el gestor registra el IBAN válido `ES9121000418450200051332` y el proveedor acepta el envío
-- **THEN** el motor envía E8 al `CLIENTE.email` con la confirmación de recepción y los próximos pasos
-- **AND** crea `COMUNICACION` con `codigo_email = 'E8'`, `estado = 'enviado'`, `fecha_envio` no nulo,
-  `reserva_id`, `cliente_id` y `tenant_id` correctos
-
-#### Scenario: E8 se envía al cliente, nunca al gestor
-
-- **GIVEN** un registro de IBAN válido realizado por el gestor autenticado
-- **WHEN** el motor despacha E8
-- **THEN** el destinatario del email es `CLIENTE.email`
-- **AND** el email E8 no se envía en ningún caso a la dirección del gestor
-
-### Requirement: El guardado del IBAN y el envío de E8 son operaciones separadas — un fallo de E8 no revierte el IBAN
-
-El sistema SHALL (DEBE) tratar el **guardado de `CLIENTE.iban_devolucion`** y el **envío de E8** como
-operaciones **separadas** (patrón "guardar-luego-enviar"): si el IBAN es válido pero el proveedor de
-email no está disponible al enviar E8, el IBAN SHALL (DEBE) quedar **guardado igualmente** (el fallo
-de email **NO** revierte la actualización del IBAN), la `COMUNICACION` SHALL (DEBE) quedar en
-`estado = 'fallido'` sin `fecha_envio`, y el sistema DEBE presentar al gestor una alerta ("⚠️ IBAN
-guardado, pero E8 no pudo enviarse. Puedes reenviarlo desde la ficha."). El gestor SHALL (DEBE) poder
-**reintentar** el envío de E8 desde la ficha de la RESERVA, apoyándose en el mecanismo de reintento
-del motor de `comunicaciones`. En entornos `test`/CI el transporte de email DEBE operar en **modo
-fake** (sin envíos reales por red). (Fuente: `US-035 §Reglas de negocio`, `FA-03`; `US-045
-§Transporte real / modo sandbox`, `§Fallo del proveedor sin reintento automático`.)
-
-#### Scenario: Fallo de E8 deja el IBAN guardado y la comunicación en fallido (FA-03)
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_eur > 0` y el proveedor de email no disponible
-- **WHEN** el gestor registra un IBAN válido y el envío posterior de E8 falla
-- **THEN** `CLIENTE.iban_devolucion` queda guardado con el nuevo IBAN (no se revierte)
-- **AND** `COMUNICACION.estado = 'fallido'` sin `fecha_envio` para E8
-- **AND** el gestor ve la alerta indicando que puede reenviar E8 desde la ficha
-
-#### Scenario: En test/CI E8 no envía correos reales
-
-- **GIVEN** el entorno de test o CI con el transporte de email en modo fake
-- **WHEN** un registro de IBAN válido dispara E8
-- **THEN** no se realiza ninguna llamada de red al proveedor externo
-- **AND** el disparo de E8 y su registro en `COMUNICACION` quedan verificables para las aserciones
-
-### Requirement: El registro de IBAN se rechaza sin fianza cobrada o fuera de post_evento
-
-El sistema SHALL (DEBE) **rechazar** el registro de IBAN cuando `RESERVA.fianza_eur = 0` **o
-`fianza_eur IS NULL`** (no hay fianza que devolver) o cuando `RESERVA.estado ≠ 'post_evento'`. El
-backend NO DEBE confiar en que la UI oculte el campo: DEBE **validar la precondición** en el servidor
-y devolver un error de conflicto de estado / sin fianza cuando no se cumple, **sin** actualizar
-`CLIENTE.iban_devolucion` ni enviar E8. La UI DEBE, de forma complementaria, condicionar la
-**visibilidad/habilitación** del campo IBAN a `RESERVA.fianza_eur > 0`. (Fuente: `US-035 §Reglas de
-negocio`, `FA-04`, `§Reglas de Validación`.)
-
-#### Scenario: Sin fianza (fianza_eur = 0) el backend rechaza el registro (FA-04)
-
-- **GIVEN** una RESERVA en `estado = 'post_evento'` con `fianza_eur = 0` (o `IS NULL`)
-- **WHEN** se intenta registrar un IBAN sobre esa RESERVA
-- **THEN** el sistema rechaza la acción (no hay fianza que devolver)
-- **AND** `CLIENTE.iban_devolucion` no se actualiza y no se envía E8
-
-#### Scenario: La UI oculta o deshabilita el campo IBAN cuando no hay fianza
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_eur = 0` (o `IS NULL`)
-- **WHEN** el gestor accede a la ficha de post-evento
-- **THEN** el campo IBAN no es visible o está deshabilitado
-
-#### Scenario: Registro fuera de post_evento se rechaza como conflicto de estado
-
-- **GIVEN** una RESERVA cuyo `estado ≠ 'post_evento'` (p. ej. `reserva_confirmada`)
-- **WHEN** se intenta registrar un IBAN sobre esa RESERVA
-- **THEN** el sistema rechaza la acción como conflicto de estado
-- **AND** `CLIENTE.iban_devolucion` no se actualiza y no se envía E8
-
-### Requirement: Cada corrección del IBAN reenvía E8 como excepción auditada a la idempotencia
-
-El sistema SHALL (DEBE) disparar E8 en **cada** registro/corrección de un IBAN válido. El reenvío de
-E8 tras una corrección del IBAN (FA-02) es una **acción intencionada del gestor** y por tanto una
-**excepción explícita y auditada** a la idempotencia `(reserva_id, codigo_email)` del motor de US-045
-(que evita duplicados por **disparos automáticos** del mismo trigger, no por reenvíos manuales): el
-sistema DEBE crear una **nueva** `COMUNICACION` con `codigo_email = 'E8'`, `estado = 'enviado'` y
-`fecha_envio` por cada envío. El reenvío en corrección NO DEBE bloquearse por la idempotencia.
-(Fuente: `US-035 §Reglas de negocio` sobreescritura + reenvío, `FA-02`; `comunicaciones` Requirement
-"Reenvío de E4 crea una nueva comunicación", "Idempotencia de un email por reserva y código".)
-
-#### Scenario: Corregir el IBAN reenvía E8 con el valor actualizado como referencia (FA-02)
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_eur > 0` y una `COMUNICACION` E8 previa por un
-  IBAN erróneo ya registrado
-- **WHEN** el gestor corrige el IBAN a `ES9121000418450200051332` y guarda
-- **THEN** `CLIENTE.iban_devolucion` se sobreescribe con el IBAN corregido
-- **AND** se crea una nueva `COMUNICACION` `codigo_email = 'E8'`, `estado = 'enviado'` enviada al
-  cliente con el IBAN actualizado como referencia
-- **AND** el reenvío no queda bloqueado por la idempotencia `(reserva_id, codigo_email)` de US-045
 
 ### Requirement: Activación de la plantilla E3 en el catálogo
 
@@ -1598,4 +1350,37 @@ con estado y fecha de envío coherentes".)
 - **WHEN** el gestor invoca el endpoint de solicitud de datos
 - **THEN** el sistema responde `404`
 - **AND** NO se crea ninguna `COMUNICACION`
+
+### Requirement: Plantilla y disparo del email de fianza devuelta (CA/ES, activa)
+
+El sistema SHALL (DEBE) registrar en el catálogo de plantillas una plantilla **nueva "fianza
+devuelta"**, **activa** (con render real) y **bilingüe** (CA/ES), seleccionada por el `idioma` de la
+RESERVA, con variables requeridas `['nombre', 'fianzaEur']`. Al registrar la devolución completa de
+la fianza (capability `facturacion`), el sistema DEBE disparar este email al `CLIENTE.email` como
+efecto **posterior al commit** y **best-effort** (patrón `disparar-e8.adapter.ts`, invertido respecto
+a la atomicidad de E4): un fallo del proveedor **no revierte** el registro de la devolución. El
+sistema DEBE registrar el resultado en `COMUNICACION` con `codigo_email` del email de fianza devuelta,
+`reserva_id`, `cliente_id`, `tenant_id`, `estado ∈ {enviado, fallido}` y `fecha_envio`. El Gestor DEBE
+poder **reintentar** el envío desde la ficha si quedó `fallido`. El cuerpo CA/ES es el aprobado en el
+plan (§Email copy — "fianza devuelta"), con `{nombre}` y `{fianzaEur}` como variables. (Fuente: plan
+§Devolución simplificada, §Email copy; patrón post-commit best-effort `US-035 disparar-e8`; US-045
+§Catálogo de plantillas.)
+
+#### Scenario: Registrar la devolución dispara el email de fianza devuelta en el idioma de la reserva
+
+- **GIVEN** una RESERVA con `idioma = 'ca'` cuya devolución de fianza se acaba de registrar
+  (`fianza_status = 'devuelta'`, commit realizado) con `fianza_eur = 500.00`
+- **WHEN** el sistema dispara el email de fianza devuelta
+- **THEN** se renderiza la plantilla CA con `{nombre}` y `{fianzaEur}` sustituidos
+- **AND** se crea `COMUNICACION` con el `codigo_email` del email de fianza devuelta, `estado =
+  'enviado'`, `fecha_envio` no nulo, `reserva_id`, `cliente_id` y `tenant_id` correctos
+
+#### Scenario: El fallo del proveedor deja la comunicación en fallido sin revertir la devolución
+
+- **GIVEN** una devolución de fianza ya registrada (`fianza_status = 'devuelta'`) cuyo email de
+  confirmación falla en el proveedor
+- **WHEN** el motor procesa el resultado del envío
+- **THEN** la `COMUNICACION` queda en `estado = 'fallido'` y la RESERVA permanece en `fianza_status =
+  'devuelta'`
+- **AND** el Gestor puede reintentar el envío desde la ficha
 

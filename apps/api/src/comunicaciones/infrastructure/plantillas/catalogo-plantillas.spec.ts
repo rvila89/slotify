@@ -24,7 +24,9 @@ import type { CodigoEmail } from '../../domain/codigo-email';
 // E3 pasa a ACTIVA en la rebanada 6.4b (documentos-enviar-factura-senal-e3) y E2 en el change
 // `presupuesto-prereserva-cta-descarte-y-e2` (workstream C; su activación se verifica en
 // `catalogo-plantillas-e2.spec.ts`); ya no son diferidas. El resto sigue diseñado/inactivo.
-const E_DIFERIDOS: ReadonlyArray<CodigoEmail> = ['E4', 'E5', 'E6', 'E7', 'E8'];
+// fix-liquidacion-fianza-independientes: E4 se ACTIVA (liquidación standalone). E5/E8 quedan
+// inactivas (captura de IBAN retirada); E6/E7 siguen diferidas.
+const E_DIFERIDOS: ReadonlyArray<CodigoEmail> = ['E5', 'E6', 'E7', 'E8'];
 
 describe('CatalogoPlantillasEnCodigo — E1 activa y E2–E8 diseñadas/inactivas (2.7)', () => {
   it('debe_seleccionar_la_plantilla_E1_en_es_y_marcarla_como_activa', () => {
@@ -142,5 +144,135 @@ describe('CatalogoPlantillasEnCodigo — E3 activa con render real (3.8)', () =>
     expect(plantilla?.adjuntosRequeridos).toEqual(expect.arrayContaining(['senal']));
     // Las condiciones NO son un adjunto requerido (degradan sin tumbar el envío).
     expect(plantilla?.adjuntosRequeridos).not.toContain('condiciones');
+  });
+});
+
+// ===========================================================================
+// E4 — Liquidación standalone (fix-liquidacion-fianza-independientes §Email copy).
+//   E4 pasa a ACTIVA en CA y ES: SOLO liquidación (sin recibo de fianza). El PDF de
+//   la liquidación es el adjunto REQUERIDO (clave `liquidacion`). El cuerpo recuerda
+//   abonar la fianza de `{fianzaEur}` €; requiere las variables `nombre` y `fianzaEur`.
+// ===========================================================================
+
+describe('CatalogoPlantillasEnCodigo — E4 liquidación standalone activa (fix-liquidacion-fianza-independientes)', () => {
+  it.each(['es', 'ca'] as const)(
+    'debe_marcar_la_plantilla_E4_en_%s_como_activa',
+    (idioma) => {
+      const catalogo = new CatalogoPlantillasEnCodigo();
+
+      const plantilla = catalogo.seleccionar('E4', idioma);
+
+      expect(plantilla).not.toBeNull();
+      expect(plantilla?.codigoEmail).toBe('E4');
+      expect(plantilla?.idioma).toBe(idioma);
+      expect(plantilla?.activa).toBe(true);
+    },
+  );
+
+  it('debe_declarar_nombre_y_fianzaEur_como_variables_requeridas_de_E4', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const plantilla = catalogo.seleccionar('E4', 'es');
+
+    expect(plantilla?.variablesRequeridas).toEqual(
+      expect.arrayContaining(['nombre', 'fianzaEur']),
+    );
+  });
+
+  it('debe_requerir_SOLO_el_adjunto_de_liquidacion_y_nunca_el_de_fianza', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const plantilla = catalogo.seleccionar('E4', 'es');
+
+    // E4 = solo liquidación: el PDF de la liquidación es el adjunto requerido.
+    expect(plantilla?.adjuntosRequeridos).toEqual(['liquidacion']);
+    expect(plantilla?.adjuntosRequeridos).not.toContain('fianza');
+  });
+
+  it('debe_renderizar_E4_en_es_con_el_60_restante_y_el_recordatorio_de_la_fianza', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const plantilla = catalogo.seleccionar('E4', 'es');
+    const render = plantilla?.render({ nombre: 'Marta', fianzaEur: '500.00' });
+
+    expect(render?.asunto.length).toBeGreaterThan(0);
+    expect(render?.cuerpoTexto).toContain('Marta');
+    expect(render?.cuerpoTexto).toContain('60%');
+    // El importe de la fianza aparece formateado (500,00 €).
+    expect(render?.cuerpoTexto).toContain('500,00 €');
+    // No es el placeholder de una plantilla inactiva.
+    expect(render?.asunto).not.toContain('pendiente de cableado');
+  });
+
+  it('debe_renderizar_E4_en_ca_con_el_60_restant_y_el_recordatori_de_la_fiança', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const plantilla = catalogo.seleccionar('E4', 'ca');
+    const render = plantilla?.render({ nombre: 'Marta', fianzaEur: '500.00' });
+
+    expect(render?.cuerpoTexto).toContain('Marta');
+    expect(render?.cuerpoTexto).toContain('60%');
+    expect(render?.cuerpoTexto).toContain('fiança');
+    expect(render?.cuerpoTexto).toContain('500,00 €');
+    expect(render?.asunto).not.toContain('pendiente de cableado');
+  });
+});
+
+// ===========================================================================
+// E10 — Fianza devuelta (fix-liquidacion-fianza-independientes §Email copy).
+//   Nueva plantilla ACTIVA en CA y ES, disparada post-commit best-effort al
+//   registrar la devolución completa. Sin adjuntos. Requiere `nombre` y `fianzaEur`;
+//   el cuerpo confirma la devolución de `{fianzaEur}` € por transferencia.
+// ===========================================================================
+
+describe('CatalogoPlantillasEnCodigo — E10 fianza devuelta activa (fix-liquidacion-fianza-independientes)', () => {
+  it.each(['es', 'ca'] as const)(
+    'debe_marcar_la_plantilla_E10_en_%s_como_activa',
+    (idioma) => {
+      const catalogo = new CatalogoPlantillasEnCodigo();
+
+      const plantilla = catalogo.seleccionar('E10', idioma);
+
+      expect(plantilla).not.toBeNull();
+      expect(plantilla?.codigoEmail).toBe('E10');
+      expect(plantilla?.idioma).toBe(idioma);
+      expect(plantilla?.activa).toBe(true);
+    },
+  );
+
+  it('debe_declarar_nombre_y_fianzaEur_como_variables_requeridas_de_E10_sin_adjuntos', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const plantilla = catalogo.seleccionar('E10', 'es');
+
+    expect(plantilla?.variablesRequeridas).toEqual(
+      expect.arrayContaining(['nombre', 'fianzaEur']),
+    );
+    expect(plantilla?.adjuntosRequeridos).toEqual([]);
+  });
+
+  it('debe_renderizar_E10_en_es_confirmando_la_devolucion_de_la_fianza', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const plantilla = catalogo.seleccionar('E10', 'es');
+    const render = plantilla?.render({ nombre: 'Marta', fianzaEur: '500.00' });
+
+    expect(render?.asunto.length).toBeGreaterThan(0);
+    expect(render?.cuerpoTexto).toContain('Marta');
+    expect(render?.cuerpoTexto).toContain('devuelto la fianza');
+    expect(render?.cuerpoTexto).toContain('500,00 €');
+    expect(render?.asunto).not.toContain('pendiente de cableado');
+  });
+
+  it('debe_renderizar_E10_en_ca_confirmant_el_retorn_de_la_fiança', () => {
+    const catalogo = new CatalogoPlantillasEnCodigo();
+
+    const plantilla = catalogo.seleccionar('E10', 'ca');
+    const render = plantilla?.render({ nombre: 'Marta', fianzaEur: '500.00' });
+
+    expect(render?.cuerpoTexto).toContain('Marta');
+    expect(render?.cuerpoTexto).toContain('retornat la fiança');
+    expect(render?.cuerpoTexto).toContain('500,00 €');
+    expect(render?.asunto).not.toContain('pendiente de cableado');
   });
 });

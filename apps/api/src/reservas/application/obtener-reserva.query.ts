@@ -25,7 +25,6 @@ export interface ClienteLectura {
   codigoPostal: string | null;
   poblacion: string | null;
   provincia: string | null;
-  ibanDevolucion: string | null;
 }
 
 /**
@@ -60,7 +59,9 @@ export interface ReservaDetalleLectura {
   fianzaEur: string | null;
   fianzaCobradaFecha: Date | null;
   fianzaDevueltaFecha: Date | null;
-  fianzaDevueltaEur: string | null;
+  // fix-liquidacion-fianza-independientes: marca de subida del comprobante (fianza pasiva);
+  // se retiran `fianzaDevueltaEur` (devolución completa) e `ibanDevolucion` (captura de IBAN).
+  fianzaComprobanteFecha: Date | null;
   condPartFirmadas: boolean | null;
   condPartFechaEnvio: Date | null;
   condPartFechaFirma: Date | null;

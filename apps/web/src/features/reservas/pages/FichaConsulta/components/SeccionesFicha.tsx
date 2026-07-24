@@ -1,14 +1,12 @@
 import {
   FacturaSenalCard,
-  DocumentosLiquidacionFianza,
-  DevolucionFianzaCard,
+  FacturaLiquidacionCard,
+  FianzaComprobanteCard,
 } from '@/features/facturacion';
 import { FichaOperativaCard } from '@/features/ficha-operativa';
 import { ComunicacionesCard } from '@/features/comunicaciones';
 import { CondicionesFirmadasCard, debeMostrarSeccionCondiciones } from '@/features/condiciones-firmadas';
 import { DocumentacionEventoCard, debeMostrarSeccionDocumentacion } from '@/features/documentacion-evento';
-import { IbanDevolucionCard } from '../../../components/IbanDevolucionCard';
-import { puedeRegistrarIban } from '../../../lib/ibanDevolucion';
 import type { ReservaDetalle } from '../../../model/types';
 
 /**
@@ -16,6 +14,10 @@ import type { ReservaDetalle } from '../../../model/types';
  * `FichaConsultaPage` para mantener la página bajo el límite de líneas (regla dura
  * `max-lines`). Cada tarjeta se monta según el estado/sub-proceso y resuelve
  * internamente su propia UI. Componente de presentación puro: no tiene estado.
+ *
+ * Orden (fix-liquidacion-fianza-independientes): señal → liquidación (debajo) → ficha
+ * operativa → condiciones → fianza (comprobante + devolución) → comunicaciones →
+ * documentación del evento.
  */
 type Props = {
   reservaId: string;
@@ -27,6 +29,8 @@ type Props = {
   onFirmaRegistrada?: (tipo: 'registrada' | 'reregistrada') => void;
   /** Éxito de envío de la factura de señal (E3): la página muestra el banner arriba + scroll. */
   onFacturaSenalEnviada?: () => void;
+  /** Éxito de envío de la factura de liquidación (E4): la página muestra el banner arriba + scroll. */
+  onFacturaLiquidacionEnviada?: () => void;
 };
 
 export const SeccionesFicha = ({
@@ -35,12 +39,19 @@ export const SeccionesFicha = ({
   onEmailEnviado,
   onFirmaRegistrada,
   onFacturaSenalEnviada,
+  onFacturaLiquidacionEnviada,
 }: Props) => (
   <>
     {/* US-022: Factura de señal — primera sección en `reserva_confirmada`.
         Visible solo en ese estado; las fases posteriores no la repiten. */}
     {reserva.estado === 'reserva_confirmada' && (
       <FacturaSenalCard reservaId={reservaId} onEnviada={onFacturaSenalEnviada} />
+    )}
+
+    {/* US-028: Factura de liquidación — standalone, DEBAJO de la de señal, con la misma
+        regla de visibilidad (`reserva_confirmada`). Flujo espejo de la señal. */}
+    {reserva.estado === 'reserva_confirmada' && (
+      <FacturaLiquidacionCard reservaId={reservaId} onEnviada={onFacturaLiquidacionEnviada} />
     )}
 
     {/* Ficha operativa del evento (US-025): editable desde `reserva_confirmada`
@@ -52,9 +63,7 @@ export const SeccionesFicha = ({
 
     {/* US-024: registrar la firma de las condiciones particulares. Visible en los
         tres estados válidos del ciclo (`reserva_confirmada`, `evento_en_curso`,
-        `post_evento`). La tarjeta resuelve internamente los estados de la UI:
-        E3 no enviado (acción no disponible), pendiente de firma (alerta FA-01 +
-        acción), firmada (resumen) y re-firma. El backend revalida (409/422). */}
+        `post_evento`). El backend revalida (409/422). */}
     {debeMostrarSeccionCondiciones(reserva) && (
       <CondicionesFirmadasCard
         reservaId={reservaId}
@@ -65,57 +74,30 @@ export const SeccionesFicha = ({
       />
     )}
 
-    {reserva.estado === 'reserva_confirmada' && (
-      <DocumentosLiquidacionFianza
+    {/* Fianza pasiva (fix-liquidacion-fianza-independientes): subida del comprobante
+        (opcional, no bloqueante) y, en `post_evento`, la acción "Devolver fianza".
+        Montada de `reserva_confirmada` a `post_evento`. */}
+    {(reserva.estado === 'reserva_confirmada' ||
+      reserva.estado === 'evento_en_curso' ||
+      reserva.estado === 'post_evento') && (
+      <FianzaComprobanteCard
         reservaId={reservaId}
-        liquidacionStatus={reserva.liquidacionStatus}
+        estado={reserva.estado}
         fianzaStatus={reserva.fianzaStatus}
-        fechaEvento={reserva.fechaEvento}
         fianzaEur={reserva.fianzaEur}
-        fianzaCobradaFecha={reserva.fianzaCobradaFecha}
+        fianzaComprobanteFecha={reserva.fianzaComprobanteFecha}
+        fianzaDevueltaFecha={reserva.fianzaDevueltaFecha}
       />
     )}
 
-    {/* US-046 · UC-36: sección "Comunicaciones" de la ficha. Lista las COMUNICACION de
-        la reserva y permite revisar/editar/enviar o descartar un borrador y crear un
-        email manual. Visible en TODA RESERVA (self-contained: resuelve cargando/error/
-        vacío); no depende del estado. */}
+    {/* US-046 · UC-36: sección "Comunicaciones" de la ficha. Visible en TODA RESERVA. */}
     <ComunicacionesCard reservaId={reservaId} onEmailEnviado={onEmailEnviado} />
 
     {/* US-033: captura de la documentación obligatoria del evento (checklist en
-        tiempo real: DNI anverso/reverso + cláusula de responsabilidad firmada).
-        Visible en `evento_en_curso` (subida + checklist) y `post_evento`
-        (checklist en lectura, para mostrar pendientes tras finalizar — FA-01). La
-        tarjeta gobierna internamente si se puede subir (solo `evento_en_curso`) y
-        el aviso informativo no bloqueante de documentación pendiente. */}
+        tiempo real). Visible en `evento_en_curso` (subida + checklist) y
+        `post_evento` (checklist en lectura). */}
     {debeMostrarSeccionDocumentacion(reserva.estado) && (
       <DocumentacionEventoCard reservaId={reservaId} estado={reserva.estado} />
     )}
-
-    {/* US-035: registrar el IBAN de devolución. Solo visible en `post_evento` con
-        fianza cobrada (`fianzaEur > 0`) — FA-04; precarga el IBAN existente del
-        cliente en corrección — FA-02. El backend revalida la precondición (409). */}
-    {puedeRegistrarIban(reserva.estado, reserva.fianzaEur) && (
-      <IbanDevolucionCard reservaId={reservaId} ibanExistente={reserva.cliente?.ibanDevolucion} />
-    )}
-
-    {/* US-036: registrar la devolución de la fianza. Visible en `post_evento` con fianza cobrada
-        (`fianzaEur > 0`). La tarjeta habilita la acción solo cuando además hay IBAN de devolución
-        (precondición triple), muestra el resumen final si ya está devuelta/retenida_parcial y el
-        aviso de FA-04 si se registró sin justificante. El backend revalida (409). */}
-    {reserva.estado === 'post_evento' &&
-      puedeRegistrarIban(reserva.estado, reserva.fianzaEur) && (
-        <DevolucionFianzaCard
-          reservaId={reservaId}
-          estado={reserva.estado}
-          fianzaStatus={reserva.fianzaStatus}
-          fianzaEur={reserva.fianzaEur}
-          fianzaCobradaFecha={reserva.fianzaCobradaFecha}
-          fianzaDevueltaEur={reserva.fianzaDevueltaEur}
-          fianzaDevueltaFecha={reserva.fianzaDevueltaFecha}
-          motivoRetencion={reserva.motivoRetencion}
-          ibanDevolucion={reserva.cliente?.ibanDevolucion}
-        />
-      )}
   </>
 );

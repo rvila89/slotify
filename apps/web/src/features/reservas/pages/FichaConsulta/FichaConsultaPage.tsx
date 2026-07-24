@@ -17,6 +17,11 @@ import type { Reserva } from '../../model/types';
 const claseSeccion =
   'flex flex-col gap-6 rounded-[20px] border border-border-default/20 bg-surface-subtle/30 p-4 sm:p-6 lg:p-8';
 
+/** Lleva al usuario al inicio de la ficha para ver el banner/aviso recién mostrado. */
+const scrollAlInicio = () => {
+  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+
 /**
  * Ficha de consulta/reserva. Muestra el detalle de una RESERVA y, según su estado y
  * sub-estado, ofrece las acciones de transición del pipeline (US-005/007/008/006/
@@ -252,6 +257,8 @@ export const FichaConsultaPage = () => {
           onEmailEnviado={() => conScroll(avisos.mostrarEmailEnviado)}
           onFirmaRegistrada={(tipo) => conScroll(() => avisos.mostrarFirma(tipo))}
           onFacturaSenalEnviada={() => conScroll(avisos.mostrarFacturaSenalEnviada)}
+          // La card de liquidación muestra el banner permanente "enviada el {fecha/hora}".
+          onFacturaLiquidacionEnviada={scrollAlInicio}
         />
       )}
 
@@ -299,8 +306,7 @@ export const FichaConsultaPage = () => {
           onForzado={avisos.mostrarForzar}
           onFinalizado={avisos.mostrarFinalizar}
           // Desenlaces terminales (archivado US-038 / descarte US-013): el descarte
-          // muestra un aviso inline verde en la cabecera (en sustitución del toast de
-          // Sonner) y desplaza la vista al inicio para que el gestor lo vea.
+          // muestra un aviso inline verde en la cabecera y desplaza la vista al inicio.
           onArchivado={() => {}}
           onDescartado={(reserva) =>
             conScroll(() => avisos.mostrarDescarte({ reserva, tipo: 'consulta' }))

@@ -1,39 +1,33 @@
 /**
- * Adaptadores de las UNIDADES DE TRABAJO transaccionales de la EMISIÓN (US-028 / UC-21, UC-22).
+ * Adaptadores de las UNIDADES DE TRABAJO transaccionales de la EMISIÓN (UC-21 liquidación, UC-18
+ * señal).
  *
  * Abren UN `prisma.$transaction`, fijan el contexto RLS con `fijarTenant(tx, tenantId)`
  * (`SET LOCAL app.tenant_id`) como PRIMERA operación y exponen los repositorios tx-bound. El
- * envío de E4/recibo vive DENTRO del `trabajo` (síncrono y confirmado): si falla, el `trabajo`
- * propaga y la tx REVIERTE por completo (atomicidad estado↔email, design.md §D-1). El `P2002`
- * de la numeración sube al use-case para el reintento. Nada de Redis/locks distribuidos.
+ * envío de E3/E4 vive DENTRO del `trabajo` (síncrono y confirmado): si falla, el `trabajo`
+ * propaga y la tx REVIERTE por completo (atomicidad estado↔email). El `P2002` de la numeración
+ * sube al use-case para el reintento. Nada de Redis/locks distribuidos.
+ *
+ * fix-liquidacion-fianza-independientes: la emisión de liquidación pasa a ser standalone (E4 =
+ * solo liquidación); desaparece la UoW del envío separado del recibo de fianza.
  */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type {
-  RepositoriosEmision,
-  UnidadDeTrabajoEmisionPort,
-} from '../application/aprobar-y-enviar-liquidacion.use-case';
-import type {
-  RepositoriosFianzaSeparada,
-  UnidadDeTrabajoFianzaPort,
-} from '../application/enviar-recibo-fianza-separado.use-case';
+  RepositoriosLiquidacionEmision,
+  UnidadDeTrabajoLiquidacionEmisionPort,
+} from '../application/enviar-factura-liquidacion.use-case';
 import type {
   RepositoriosSenalEmision,
   UnidadDeTrabajoSenalEmisionPort,
 } from '../application/enviar-factura-senal.use-case';
 import {
-  AuditoriaEmisionPrismaRepository,
-  ComunicacionEmisionPrismaRepository,
-  ExtraEmisionPrismaRepository,
-  FacturaEmisionPrismaRepository,
-  ReservaEmisionPrismaRepository,
+  AuditoriaLiquidacionEmisionPrismaRepository,
+  ComunicacionLiquidacionEmisionPrismaRepository,
+  ExtraLiquidacionEmisionPrismaRepository,
+  FacturaLiquidacionEmisionPrismaRepository,
+  ReservaLiquidacionEmisionPrismaRepository,
 } from './emision-repository.prisma.adapter';
-import {
-  AuditoriaFianzaPrismaRepository,
-  ComunicacionFianzaPrismaRepository,
-  FacturaFianzaPrismaRepository,
-  ReservaFianzaPrismaRepository,
-} from './fianza-separada-repository.prisma.adapter';
 import {
   AuditoriaSenalEmisionPrismaRepository,
   ComunicacionSenalEmisionPrismaRepository,
@@ -41,21 +35,21 @@ import {
 } from './senal-emision-repository.prisma.adapter';
 
 @Injectable()
-export class EmisionUoWPrismaAdapter implements UnidadDeTrabajoEmisionPort {
+export class EmisionUoWPrismaAdapter implements UnidadDeTrabajoLiquidacionEmisionPort {
   constructor(private readonly prisma: PrismaService) {}
 
   async ejecutar(
     tenantId: string,
-    trabajo: (repos: RepositoriosEmision) => Promise<unknown>,
+    trabajo: (repos: RepositoriosLiquidacionEmision) => Promise<unknown>,
   ): Promise<unknown> {
     return this.prisma.$transaction(async (tx) => {
       await this.prisma.fijarTenant(tx, tenantId);
-      const repos: RepositoriosEmision = {
-        facturas: new FacturaEmisionPrismaRepository(tx),
-        reservas: new ReservaEmisionPrismaRepository(tx),
-        extras: new ExtraEmisionPrismaRepository(tx),
-        comunicaciones: new ComunicacionEmisionPrismaRepository(tx),
-        auditoria: new AuditoriaEmisionPrismaRepository(tx),
+      const repos: RepositoriosLiquidacionEmision = {
+        facturas: new FacturaLiquidacionEmisionPrismaRepository(tx),
+        reservas: new ReservaLiquidacionEmisionPrismaRepository(tx),
+        extras: new ExtraLiquidacionEmisionPrismaRepository(tx),
+        comunicaciones: new ComunicacionLiquidacionEmisionPrismaRepository(tx),
+        auditoria: new AuditoriaLiquidacionEmisionPrismaRepository(tx),
       };
       return trabajo(repos);
     });
@@ -76,27 +70,6 @@ export class SenalEmisionUoWPrismaAdapter implements UnidadDeTrabajoSenalEmision
         facturas: new FacturaSenalEmisionPrismaRepository(tx),
         comunicaciones: new ComunicacionSenalEmisionPrismaRepository(tx),
         auditoria: new AuditoriaSenalEmisionPrismaRepository(tx),
-      };
-      return trabajo(repos);
-    });
-  }
-}
-
-@Injectable()
-export class FianzaSeparadaUoWPrismaAdapter implements UnidadDeTrabajoFianzaPort {
-  constructor(private readonly prisma: PrismaService) {}
-
-  async ejecutar(
-    tenantId: string,
-    trabajo: (repos: RepositoriosFianzaSeparada) => Promise<unknown>,
-  ): Promise<unknown> {
-    return this.prisma.$transaction(async (tx) => {
-      await this.prisma.fijarTenant(tx, tenantId);
-      const repos: RepositoriosFianzaSeparada = {
-        facturas: new FacturaFianzaPrismaRepository(tx),
-        reservas: new ReservaFianzaPrismaRepository(tx),
-        comunicaciones: new ComunicacionFianzaPrismaRepository(tx),
-        auditoria: new AuditoriaFianzaPrismaRepository(tx),
       };
       return trabajo(repos);
     });

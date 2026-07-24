@@ -22,7 +22,7 @@
  *     propio de la fianza; el 40/60 se mueve a `conceptoSubtitulo` (change
  *     `factura-pdf-fiel-referencia`, §D1):
  *       señal      → subtítulo "*40% de l'import total anticipat del pressupost núm. {n}"
- *       liquidación→ subtítulo "*Saldo del 60% de l'import del pressupost núm. {n}"
+ *       liquidación→ subtítulo "*60% de l'import restant del pressupost núm. {n}"
  *       fianza     → concepto "Fiança de garantia — {nombreComercial}", subtítulo null
  *
  * ESTRATEGIA (idéntica a 6.1b/6.2): las aserciones de CONTENIDO recaen sobre la función
@@ -223,7 +223,7 @@ describe('construirModeloDocumentoFactura — liquidación CON IVA incluye conce
     });
 
     expect(modelo.conceptoSubtitulo).toBe(
-      "*Saldo del 60% de l'import del pressupost núm. 2026001",
+      "*60% de l'import restant del pressupost núm. 2026001",
     );
     // El número de presupuesto aparece en el subtítulo de la liquidación.
     expect(modelo.conceptoSubtitulo).toContain('2026001');
@@ -286,7 +286,7 @@ describe('construirModeloDocumentoFactura — IDIOMA ES (subtítulo 40/60 por id
     });
 
     expect(modelo.conceptoSubtitulo).toBe(
-      '*Saldo del 60% del importe del presupuesto núm. 2026001',
+      '*60% del importe restante del presupuesto núm. 2026001',
     );
   });
 
@@ -320,7 +320,7 @@ describe('construirModeloDocumentoFactura — IDIOMA CA (subtítulo 40/60 por id
     });
 
     expect(modelo.conceptoSubtitulo).toBe(
-      "*Saldo del 60% de l'import del pressupost núm. 2026001",
+      "*60% de l'import restant del pressupost núm. 2026001",
     );
   });
 

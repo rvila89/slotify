@@ -194,7 +194,7 @@ describe('ArchivarReservaManual — happy path fianza resuelta (4.2)', () => {
     // retenida_parcial (con importe devuelto 0, retención 100%) es un estado resuelto:
     // la guarda de fianza NO mira el importe devuelto.
     const { deps } = construir({
-      reserva: reservaPostEvento({ fianzaStatus: 'retenida_parcial', fianzaEur: '500.00' }),
+      reserva: reservaPostEvento({ fianzaStatus: 'devuelta', fianzaEur: '500.00' }),
     });
     const uc = new ArchivarReservaManualUseCase(deps);
 
@@ -238,7 +238,7 @@ describe('ArchivarReservaManual — sin filtro de antigüedad T+7d (4.3)', () =>
 // ===========================================================================
 
 describe('ArchivarReservaManual — fianza no resuelta bloquea (FA-01/FA-02) (4.4)', () => {
-  const noResueltas = ['cobrada', 'recibo_enviado', 'pendiente'] as const;
+  const noResueltas = ['cobrada', 'cobrada', 'pendiente'] as const;
 
   it.each(noResueltas)(
     'debe_bloquear_con_FianzaNoResueltaError_cuando_status_%s_y_eur_positivo',

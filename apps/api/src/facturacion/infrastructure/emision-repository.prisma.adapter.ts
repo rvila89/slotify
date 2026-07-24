@@ -1,18 +1,17 @@
 /**
- * Repositorios Prisma tx-bound de la EMISIÓN de la liquidación/fianza (US-028 / UC-21).
+ * Repositorios Prisma tx-bound de la EMISIÓN de la liquidación (fix-liquidacion-fianza-
+ * independientes / UC-21), flujo standalone espejo de la señal.
  *
- * Implementan los puertos de `AprobarYEnviarLiquidacionUseCase` y de
- * `EnviarReciboFianzaSeparadoUseCase` sobre el cliente transaccional
+ * Implementan los puertos de `EnviarFacturaLiquidacionUseCase` sobre el cliente transaccional
  * (`Prisma.TransactionClient`) que la unidad de trabajo abre bajo el contexto RLS. La
  * numeración se apoya en `UNIQUE(tenant_id, numero_factura)` (reintento ante `P2002` en el
- * use-case; nunca locks distribuidos). Toda consulta filtra por tenant vía RLS. Los Decimal
- * se mapean a string de 2 decimales.
+ * use-case; nunca locks distribuidos). Toda consulta filtra por tenant vía RLS. Los Decimal se
+ * mapean a string de 2 decimales. E4 = SOLO liquidación: NO toca la fianza.
  */
 import {
   AccionAudit,
   EstadoFactura as EstadoFacturaPrisma,
   Prisma,
-  FianzaStatus as FianzaStatusPrisma,
   LiquidacionStatus as LiquidacionStatusPrisma,
   TipoFactura as TipoFacturaPrisma,
   CodigoEmail as CodigoEmailPrisma,
@@ -20,15 +19,15 @@ import {
 } from '@prisma/client';
 import { prefijoNumeroFactura } from '../domain/numeracion-factura';
 import type {
-  AuditoriaEmisionPort,
-  ComunicacionesEmisionPort,
-  EmitirFacturaParams,
-  ExtrasEmisionPort,
-  FacturaEmitible,
-  FacturasEmisionPort,
-  RegistroAuditoriaEmision,
-  ReservasEmisionPort,
-} from '../application/aprobar-y-enviar-liquidacion.use-case';
+  AuditoriaLiquidacionEmisionPort,
+  ComunicacionesLiquidacionEmisionPort,
+  EmitirFacturaLiquidacionParams,
+  ExtrasLiquidacionEmisionPort,
+  FacturaLiquidacionEmitible,
+  FacturasLiquidacionEmisionPort,
+  RegistroAuditoriaLiquidacionEmision,
+  ReservasLiquidacionEmisionPort,
+} from '../application/enviar-factura-liquidacion.use-case';
 import type { EstadoFactura, TipoFactura } from '../domain/factura';
 
 /** Fila cruda del MAX(numero_factura) del tenant en el año. */
@@ -36,7 +35,7 @@ interface FilaUltimoNumero {
   numero_factura: string | null;
 }
 
-/** Mapea una fila FACTURA de Prisma a la proyección `FacturaEmitible`. */
+/** Mapea una fila FACTURA de Prisma a la proyección `FacturaLiquidacionEmitible`. */
 const aFacturaEmitible = (fila: {
   idFactura: string;
   tenantId: string;
@@ -50,7 +49,7 @@ const aFacturaEmitible = (fila: {
   ivaImporte: Prisma.Decimal;
   pdfUrl: string | null;
   fechaEmision: Date | null;
-}): FacturaEmitible => ({
+}): FacturaLiquidacionEmitible => ({
   idFactura: fila.idFactura,
   tenantId: fila.tenantId,
   reservaId: fila.reservaId,
@@ -66,13 +65,15 @@ const aFacturaEmitible = (fila: {
 });
 
 /** Repositorio tx-bound de FACTURA (emisión + numeración). */
-export class FacturaEmisionPrismaRepository implements FacturasEmisionPort {
+export class FacturaLiquidacionEmisionPrismaRepository
+  implements FacturasLiquidacionEmisionPort
+{
   constructor(private readonly tx: Prisma.TransactionClient) {}
 
   async buscarPorReservaYTipo(
     reservaId: string,
-    tipo: 'liquidacion' | 'fianza',
-  ): Promise<FacturaEmitible | null> {
+    tipo: 'liquidacion',
+  ): Promise<FacturaLiquidacionEmitible | null> {
     const fila = await this.tx.factura.findFirst({
       where: { reservaId, tipo: TipoFacturaPrisma[tipo] },
     });
@@ -93,7 +94,7 @@ export class FacturaEmisionPrismaRepository implements FacturasEmisionPort {
   }
 
   /** Transición borrador → enviada con numeración, fecha_emision y desglose. */
-  async emitir(params: EmitirFacturaParams): Promise<void> {
+  async emitir(params: EmitirFacturaLiquidacionParams): Promise<void> {
     await this.tx.factura.update({
       where: { idFactura: params.idFactura },
       data: {
@@ -109,8 +110,10 @@ export class FacturaEmisionPrismaRepository implements FacturasEmisionPort {
   }
 }
 
-/** Repositorio tx-bound de la RESERVA (avance de sub-procesos + importe). */
-export class ReservaEmisionPrismaRepository implements ReservasEmisionPort {
+/** Repositorio tx-bound de la RESERVA (avance del sub-proceso de liquidación). */
+export class ReservaLiquidacionEmisionPrismaRepository
+  implements ReservasLiquidacionEmisionPort
+{
   constructor(private readonly tx: Prisma.TransactionClient) {}
 
   async avanzarLiquidacionStatus(params: {
@@ -122,30 +125,12 @@ export class ReservaEmisionPrismaRepository implements ReservasEmisionPort {
       data: { liquidacionStatus: LiquidacionStatusPrisma.facturada },
     });
   }
-
-  async avanzarFianzaStatus(params: {
-    reservaId: string;
-    estado: 'recibo_enviado';
-  }): Promise<void> {
-    await this.tx.reserva.update({
-      where: { idReserva: params.reservaId },
-      data: { fianzaStatus: FianzaStatusPrisma.recibo_enviado },
-    });
-  }
-
-  async actualizarImporteLiquidacion(params: {
-    reservaId: string;
-    importeLiquidacion: string;
-  }): Promise<void> {
-    await this.tx.reserva.update({
-      where: { idReserva: params.reservaId },
-      data: { importeLiquidacion: new Prisma.Decimal(params.importeLiquidacion) },
-    });
-  }
 }
 
 /** Repositorio tx-bound de RESERVA_EXTRA (marcado con el factura_id de la liquidación). */
-export class ExtraEmisionPrismaRepository implements ExtrasEmisionPort {
+export class ExtraLiquidacionEmisionPrismaRepository
+  implements ExtrasLiquidacionEmisionPort
+{
   constructor(private readonly tx: Prisma.TransactionClient) {}
 
   async marcarConFactura(params: { reservaId: string; facturaId: string }): Promise<void> {
@@ -157,7 +142,9 @@ export class ExtraEmisionPrismaRepository implements ExtrasEmisionPort {
 }
 
 /** Repositorio tx-bound de COMUNICACION (E4). */
-export class ComunicacionEmisionPrismaRepository implements ComunicacionesEmisionPort {
+export class ComunicacionLiquidacionEmisionPrismaRepository
+  implements ComunicacionesLiquidacionEmisionPort
+{
   constructor(private readonly tx: Prisma.TransactionClient) {}
 
   async crear(params: {
@@ -175,7 +162,7 @@ export class ComunicacionEmisionPrismaRepository implements ComunicacionesEmisio
         reservaId: params.reservaId,
         clienteId: params.clienteId,
         codigoEmail: CodigoEmailPrisma.E4,
-        asunto: 'Factura de liquidación y recibo de fianza',
+        asunto: 'Factura de liquidación',
         cuerpo: null,
         destinatarioEmail: params.destinatarioEmail,
         estado: EstadoComunicacionPrisma.enviado,
@@ -183,20 +170,24 @@ export class ComunicacionEmisionPrismaRepository implements ComunicacionesEmisio
       },
       select: { idComunicacion: true, estado: true, fechaEnvio: true },
     });
-    return { idComunicacion: fila.idComunicacion, estado: fila.estado, fechaEnvio: fila.fechaEnvio };
+    return {
+      idComunicacion: fila.idComunicacion,
+      estado: fila.estado,
+      fechaEnvio: fila.fechaEnvio,
+    };
   }
 }
 
 /** Repositorio tx-bound de AUDIT_LOG de la emisión (`accion='actualizar'`/`'crear'`). */
-export class AuditoriaEmisionPrismaRepository implements AuditoriaEmisionPort {
+export class AuditoriaLiquidacionEmisionPrismaRepository
+  implements AuditoriaLiquidacionEmisionPort
+{
   constructor(private readonly tx: Prisma.TransactionClient) {}
 
-  async registrar(registro: RegistroAuditoriaEmision): Promise<void> {
+  async registrar(registro: RegistroAuditoriaLiquidacionEmision): Promise<void> {
     await this.tx.auditLog.create({
       data: {
         tenantId: registro.tenantId,
-        // El actor se conserva en `datos_nuevos.usuarioId` (no se fuerza el FK usuario_id,
-        // que no siempre resuelve en contextos de sistema/tests; patrón de US-022/US-027).
         entidad: registro.entidad,
         entidadId: registro.entidadId,
         accion:

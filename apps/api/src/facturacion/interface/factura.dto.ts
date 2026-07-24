@@ -8,14 +8,8 @@
  * Los importes viajan como string Decimal de 2 decimales (wrapper `Importe`/`Porcentaje`,
  * F2-01). Los flags `esBorradorInvalido`/`pdfPendiente` son DERIVADOS (design.md §D-9).
  */
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  ApiExtraModels,
-  ApiProperty,
-  ApiPropertyOptional,
-  getSchemaPath,
-} from '@nestjs/swagger';
-import {
-  IsBoolean,
   IsDateString,
   IsNotEmpty,
   IsOptional,
@@ -24,6 +18,7 @@ import {
   Matches,
   MaxLength,
 } from 'class-validator';
+import { ReservaDetalleResponseDto } from '../../reservas/interface/reserva-detalle.dto';
 
 /** Patrón de importe Decimal(10,2) serializado como string (contrato `Importe`, F2-01). */
 const IMPORTE_PATTERN = /^-?\d+\.\d{2}$/;
@@ -46,7 +41,7 @@ export class FacturaDto {
   @ApiProperty({ nullable: true, example: 'F-2026-0001' })
   numeroFactura!: string | null;
 
-  @ApiProperty({ enum: ['senal', 'liquidacion', 'fianza', 'complementaria'] })
+  @ApiProperty({ enum: ['senal', 'liquidacion', 'complementaria'] })
   tipo!: string;
 
   @ApiProperty({ example: '991.74' })
@@ -94,6 +89,17 @@ export class FacturaSenalDto extends FacturaDto {
   e3Enviado!: boolean;
 }
 
+/**
+ * Vista de lectura de la factura de liquidación (contrato `FacturaLiquidacionDto`,
+ * fix-liquidacion-fianza-independientes). Misma forma que `FacturaDto` + flag derivado
+ * `e4Enviado` para el banner permanente "Liquidación enviada el {fecha/hora}".
+ */
+export class FacturaLiquidacionDto extends FacturaDto {
+  /** Flag derivado: `true` cuando E4 (enviado, es_reenvio=false) existe para la reserva. */
+  @ApiProperty({ description: 'Flag e4Enviado: primera emisión E4 confirmada', type: Boolean })
+  e4Enviado!: boolean;
+}
+
 /** Cuerpo vacío de la aprobación (contrato `AprobarFacturaRequest`). */
 export class AprobarFacturaRequestDto {}
 
@@ -138,52 +144,24 @@ export class RegenerarPdfFacturaRequestDto {}
 export type LiquidacionStatusDto = 'pendiente' | 'facturada' | 'cobrada';
 
 /** Sub-estados de fianza de la RESERVA (contrato `FianzaStatus`). */
-export type FianzaStatusDto =
-  | 'pendiente'
-  | 'recibo_enviado'
-  | 'cobrada'
-  | 'devuelta'
-  | 'retenida_parcial';
+export type FianzaStatusDto = 'pendiente' | 'cobrada' | 'devuelta';
 
 /**
- * Cuerpo de "Aprobar y enviar" la liquidación (contrato `AprobarEnviarLiquidacionRequest`,
- * US-028 / UC-21). El endpoint no requiere parámetros; la liquidación se emite con el total
- * del borrador.
+ * Cuerpo VACÍO de "Aprobar y enviar" la liquidación (contrato `EnviarFacturaLiquidacionRequest`,
+ * fix-liquidacion-fianza-independientes / UC-21). El endpoint no requiere parámetros.
  */
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
-export class AprobarEnviarLiquidacionDto {}
+export class EnviarFacturaLiquidacionDto {}
 
 /**
- * Respuesta de "Aprobar y enviar" la liquidación (contrato `AprobarEnviarLiquidacionResponse`).
- * Devuelve ambas facturas emitidas (`fianza=null` si no se emitió aquí) + los status resultantes.
+ * Respuesta de "Aprobar y enviar" la liquidación (contrato `EnviarFacturaLiquidacionResponse`).
+ * E4 = solo liquidación: devuelve la factura de liquidación emitida + `liquidacionStatus`.
  */
-export class AprobarEnviarLiquidacionResponseDto {
+export class EnviarFacturaLiquidacionResponseDto {
   @ApiProperty({ type: FacturaDto })
   liquidacion!: FacturaDto;
 
-  @ApiProperty({ type: FacturaDto, nullable: true })
-  fianza!: FacturaDto | null;
-
   @ApiProperty({ enum: ['pendiente', 'facturada', 'cobrada'] })
   liquidacionStatus!: LiquidacionStatusDto;
-
-  @ApiProperty({
-    enum: ['pendiente', 'recibo_enviado', 'cobrada', 'devuelta', 'retenida_parcial'],
-  })
-  fianzaStatus!: FianzaStatusDto;
-}
-
-/**
- * Respuesta del envío separado del recibo de fianza (contrato `EnviarReciboFianzaResponse`).
- */
-export class EnviarReciboFianzaResponseDto {
-  @ApiProperty({ type: FacturaDto })
-  fianza!: FacturaDto;
-
-  @ApiProperty({
-    enum: ['pendiente', 'recibo_enviado', 'cobrada', 'devuelta', 'retenida_parcial'],
-  })
-  fianzaStatus!: FianzaStatusDto;
 }
 
 /** Proyección de la NUEVA COMUNICACION creada por el reenvío. */
@@ -331,124 +309,63 @@ export class RegistrarCobroLiquidacionResponseDto {
   alertaDiscrepancia?: AlertaDiscrepanciaCobroDto | null;
 }
 
-/**
- * Cuerpo de "Registrar el cobro de la fianza" (contrato `RegistrarCobroFianzaRequest`,
- * US-030 / UC-22 pasos 5-9). `importe` Decimal(10,2) como string `> 0`; `fechaCobro` DATE
- * `<= RESERVA.fechaEvento` (validación de negocio en dominio, relativa al evento, NO a hoy);
- * `justificanteDocId` OPCIONAL (referencia a un DOCUMENTO `tipo='justificante_pago'` ya subido;
- * `null` si no se adjunta); `confirmarSinRecibo` materializa la política "Negociable" (design.md
- * §D-2) para `fianzaStatus='pendiente'`. `tenant_id` viaja en el JWT.
- */
-export class RegistrarCobroFianzaDto {
-  @ApiProperty({ example: '1000.00', description: 'Importe real cobrado, Decimal(10,2) string > 0.' })
-  @IsString()
-  @Matches(IMPORTE_PATTERN, { message: 'importe debe ser Decimal(10,2) como string' })
-  importe!: string;
+// ---------------------------------------------------------------------------
+// fix-liquidacion-fianza-independientes: fianza pasiva (comprobante) + devolución completa
+// ---------------------------------------------------------------------------
 
-  @ApiProperty({
-    format: 'date',
-    example: '2026-07-10',
-    description: 'Fecha del cobro, <= RESERVA.fechaEvento (relativo al evento).',
-  })
-  @IsDateString()
-  fechaCobro!: string;
+/** DOCUMENTO comprobante de la fianza creado (contrato `Documento`). */
+export class DocumentoComprobanteFianzaDto {
+  @ApiProperty({ format: 'uuid' })
+  idDocumento!: string;
 
-  @ApiPropertyOptional({
-    format: 'uuid',
-    nullable: true,
-    description: 'DOCUMENTO justificante ya subido (tipo=justificante_pago). null si no se adjunta.',
-  })
-  @IsOptional()
-  @IsUUID()
-  justificanteDocId?: string | null;
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  reservaId?: string | null;
 
-  @ApiPropertyOptional({
-    default: false,
-    description:
-      'Política "Negociable": confirma el cobro sobre fianzaStatus=pendiente (recibo no enviado). ' +
-      'Ausente/false sobre pendiente => respuesta confirmacion_requerida sin crear PAGO.',
-  })
-  @IsOptional()
-  @IsBoolean()
-  confirmarSinRecibo?: boolean;
+  @ApiProperty({ example: 'comprobante_fianza' })
+  tipo!: string;
+
+  @ApiProperty()
+  url!: string;
+
+  @ApiProperty({ example: 'application/pdf' })
+  mimeType!: string;
 }
 
 /**
- * Forma "cobro registrado" de la respuesta discriminada de cobro de fianza (contrato
- * `RegistrarCobroFianzaCobrado`). `resultado='cobrado'`. Devuelve el PAGO creado, la FACTURA
- * (fianza) actualizada (`estado=cobrada`), el `fianzaStatus` resultante (`cobrada`), y
- * `fianzaEur`/`fianzaCobradaFecha` de la RESERVA.
+ * Respuesta de la subida del comprobante de la fianza (contrato `SubirComprobanteFianzaResponse`).
+ * Devuelve la RESERVA con `fianzaStatus='cobrada'` + `fianzaComprobanteFecha` y el DOCUMENTO creado.
  */
-export class RegistrarCobroFianzaCobradoDto {
-  @ApiProperty({ enum: ['cobrado'] })
-  resultado!: 'cobrado';
+export class SubirComprobanteFianzaResponseDto {
+  @ApiProperty({ type: ReservaDetalleResponseDto })
+  reserva!: ReservaDetalleResponseDto;
 
-  @ApiProperty({ type: PagoLiquidacionDto })
-  pago!: PagoLiquidacionDto;
-
-  @ApiProperty({ type: FacturaDto })
-  facturaFianza!: FacturaDto;
-
-  @ApiProperty({
-    enum: ['pendiente', 'recibo_enviado', 'cobrada', 'devuelta', 'retenida_parcial'],
-  })
-  fianzaStatus!: FianzaStatusDto;
-
-  @ApiProperty({ example: '1000.00', description: 'RESERVA.fianzaEur (Decimal(10,2) string).' })
-  fianzaEur!: string;
-
-  @ApiProperty({ format: 'date', example: '2026-07-10', description: 'RESERVA.fianzaCobradaFecha.' })
-  fianzaCobradaFecha!: string;
+  @ApiProperty({ type: DocumentoComprobanteFianzaDto })
+  comprobante!: DocumentoComprobanteFianzaDto;
 }
 
-/** Indica al frontend cómo reintentar el cobro tras confirmar la política "Negociable". */
-export class RegistrarCobroFianzaReintentarConDto {
-  @ApiProperty({ enum: [true], description: 'Reenviar con confirmarSinRecibo: true.' })
-  confirmarSinRecibo!: true;
-}
+/** Cuerpo VACÍO de "Devolver fianza" (contrato `DevolverFianzaRequest`). */
+export class DevolverFianzaRequestDto {}
 
-/**
- * Forma "confirmación requerida" de la respuesta discriminada (contrato
- * `RegistrarCobroFianzaConfirmacionRequerida`). Política "Negociable": `fianzaStatus='pendiente'`
- * sin `confirmarSinRecibo=true`. NO crea PAGO ni FACTURA ni cambia el estado; el frontend muestra
- * el aviso y reintenta con el flag. `resultado='confirmacion_requerida'`.
- */
-export class RegistrarCobroFianzaConfirmacionRequeridaDto {
-  @ApiProperty({ enum: ['confirmacion_requerida'] })
-  resultado!: 'confirmacion_requerida';
+/** Aviso best-effort cuando la devolución se registró pero E10 no pudo enviarse. */
+export class DevolverFianzaAvisoEmailDto {
+  @ApiProperty({ enum: ['e10_fallido'] })
+  codigo!: 'e10_fallido';
 
-  @ApiProperty({ enum: ['RECIBO_FIANZA_NO_ENVIADO'] })
-  codigo!: 'RECIBO_FIANZA_NO_ENVIADO';
-
-  @ApiProperty({
-    example: 'El recibo de fianza no ha sido enviado al cliente. ¿Desea registrar el cobro igualmente?',
-  })
+  @ApiProperty()
   mensaje!: string;
 
-  @ApiProperty({ type: RegistrarCobroFianzaReintentarConDto })
-  reintentarCon!: RegistrarCobroFianzaReintentarConDto;
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  comunicacionId?: string | null;
 }
 
 /**
- * Respuesta discriminada por `resultado` de "Registrar el cobro de la fianza" (contrato
- * `RegistrarCobroFianzaResponse`, oneOf). El frontend distingue el cobro efectivo
- * (`RegistrarCobroFianzaCobradoDto`) de la respuesta "confirmación requerida" de la política
- * "Negociable" (`RegistrarCobroFianzaConfirmacionRequeridaDto`) para mostrar el diálogo y reintentar.
+ * Respuesta de "Devolver fianza" (contrato `DevolverFianzaResponse`). Devuelve la RESERVA
+ * (`fianzaStatus='devuelta'`, `fianzaDevueltaFecha`) y `avisoEmail` (nulo si E10 se envió).
  */
-@ApiExtraModels(RegistrarCobroFianzaCobradoDto, RegistrarCobroFianzaConfirmacionRequeridaDto)
-export class RegistrarCobroFianzaResponseDto {
-  @ApiProperty({
-    oneOf: [
-      { $ref: getSchemaPath(RegistrarCobroFianzaCobradoDto) },
-      { $ref: getSchemaPath(RegistrarCobroFianzaConfirmacionRequeridaDto) },
-    ],
-    discriminator: {
-      propertyName: 'resultado',
-      mapping: {
-        cobrado: getSchemaPath(RegistrarCobroFianzaCobradoDto),
-        confirmacion_requerida: getSchemaPath(RegistrarCobroFianzaConfirmacionRequeridaDto),
-      },
-    },
-  })
-  value!: RegistrarCobroFianzaCobradoDto | RegistrarCobroFianzaConfirmacionRequeridaDto;
+export class DevolverFianzaResponseDto {
+  @ApiProperty({ type: ReservaDetalleResponseDto })
+  reserva!: ReservaDetalleResponseDto;
+
+  @ApiPropertyOptional({ type: DevolverFianzaAvisoEmailDto, nullable: true })
+  avisoEmail!: DevolverFianzaAvisoEmailDto | null;
 }

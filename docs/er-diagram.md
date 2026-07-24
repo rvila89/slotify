@@ -14,7 +14,7 @@
 - **Máquina de estados jerárquica**: La reserva recorre todo el ciclo de vida, desde los sub-estados de consulta (2.a–2.z) hasta los estados de reserva confirmada y sus sub-procesos paralelos.
 - **Bloqueo atómico de fechas**: Prevención de dobles reservas mediante una entidad de bloqueo con restricción de unicidad a nivel de base de datos.
 - **Cola de espera**: Gestión FIFO de leads para fechas bloqueadas, modelada como campos en la propia reserva.
-- **Facturación estructurada**: 40% señal + 60% liquidación + fianza.
+- **Facturación estructurada**: 40% señal + 60% liquidación; fianza como comprobante pasivo opcional.
 
 ### Entidades Principales
 
@@ -35,7 +35,7 @@
 | Pago | Cobro conciliado contra una factura | UC-17, UC-21, UC-22 |
 | FichaOperativa | Datos operativos del evento | UC-20, UC-24 |
 | Documento | Archivos adjuntos polimórficos | UC-19, UC-24 |
-| Comunicacion | Log de emails enviados (E1–E8 + manuales) | UC-35, UC-36 |
+| Comunicacion | Log de emails enviados (E1–E4, E6–E7, E9–E10 + manuales) | UC-35, UC-36 |
 | PlantillaDocumentoTenant | Configuración de documento por tenant: branding, identidad fiscal, banca y textos. Base del épico #6 (PDFs) | Épico #6 |
 | AuditLog | Registro de auditoría | Transversal |
 
@@ -57,7 +57,7 @@ Estas decisiones cierran las divergencias detectadas entre la especificación fu
 
 7. **Condiciones particulares.** Se modela su estado de firma como campos en la reserva (`cond_part_firmadas`, fechas) y el documento firmado como un registro en `DOCUMENTO` con `tipo = condiciones_particulares`. *Fundamento*: use-cases UC-19 (caso de uso dedicado) y precondición de UC-14.
 
-8. **Gestión de fianza completa.** Incluye cobro, recibo independiente, solicitud de IBAN y devolución (total o parcial). El enum `fianza_status` contempla `devuelta` y `retenida_parcial`. *Fundamento*: EspecificacionFuncional §4.8 (sub-proceso 6b) y edge case #28 (devolución parcial por desperfectos).
+8. **Fianza como flujo pasivo.** La fianza deja de ser una FACTURA emitida. El gestor sube el comprobante de la transferencia recibida (patrón espejo de `condiciones_particulares`); `fianza_status = 'cobrada'` significa "comprobante recibido". La devolución es siempre completa (`fianza_status = 'devuelta'`). Se eliminan `recibo_enviado`, `retenida_parcial`, la captura de IBAN y la retención parcial. *Fundamento*: change `fix-liquidacion-fianza-independientes`; UC-22, UC-26, UC-27.
 
 9. **Extras desacoplados del presupuesto: catálogo vs línea, con extras tardíos.** `EXTRA` es el catálogo del tenant (precio actual). `RESERVA_EXTRA` es la línea concreta de una reserva, con `precio_unitario` congelado **en el momento de añadir el extra** (no solo al aceptar el presupuesto). Un extra puede añadirse en cualquier punto del ciclo: en el presupuesto inicial (`origen = presupuesto`) o durante la fase pre-evento tras la confirmación (`origen = anadido_post_confirmacion`). El campo `factura_id` (nullable) indica en qué factura se cobró: los extras sin facturar se recogen en la factura de liquidación a T-1d; los pedidos después de emitida la liquidación o durante el evento se barren en una factura `complementaria`. Para extras no presentes en el catálogo (p. ej. un catering negociado), `extra_id` es nullable y se usa `concepto_libre` con precio manual. *Fundamento*: EspecificacionFuncional §4.8 (liquidación "60% + extras"), edge case #9 (factura complementaria por ajustes posteriores) y §7.4 (KPI de upsell). Cubre la casuística de extras solicitados durante la comunicación pre-evento, no contemplada explícitamente en la primera versión del ERD.
 
@@ -154,7 +154,6 @@ erDiagram
         string codigo_postal
         string poblacion
         string provincia
-        string iban_devolucion
         boolean activo
         timestamp fecha_creacion
         timestamp fecha_actualizacion
@@ -187,7 +186,7 @@ erDiagram
         timestamp ttl_expiracion
         enum pre_evento_status "pendiente | en_curso | cerrado"
         enum liquidacion_status "pendiente | facturada | cobrada"
-        enum fianza_status "pendiente | recibo_enviado | cobrada | devuelta | retenida_parcial"
+        enum fianza_status "pendiente | cobrada | devuelta"
         int posicion_cola "nullable, solo en 2.d"
         uuid consulta_bloqueante_id FK "nullable, auto-ref"
         date visita_programada_fecha
@@ -196,8 +195,7 @@ erDiagram
         decimal fianza_eur
         timestamp fianza_cobrada_fecha
         timestamp fianza_devuelta_fecha
-        decimal fianza_devuelta_eur
-        text motivo_retencion "nullable — motivo retención parcial/total (US-036)"
+        timestamp fianza_comprobante_fecha "nullable — fecha de subida del comprobante de fianza recibida"
         timestamp fecha_post_evento "nullable — momento de entrada a post_evento; usado por barrido T+7d (US-037)"
         boolean cond_part_firmadas
         timestamp cond_part_enviadas_fecha
@@ -312,7 +310,7 @@ erDiagram
         uuid tenant_id FK
         uuid reserva_id FK
         string numero_factura "nullable — UNIQUE(tenantId,numeroFactura) donde NOT NULL — F-YYYY-NNNN; NULL en borradores (US-027)"
-        enum tipo "senal | liquidacion | fianza | complementaria"
+        enum tipo "senal | liquidacion | complementaria"
         decimal base_imponible "round(total/1.21,2)"
         decimal iva_porcentaje "21.00 en MVP"
         decimal iva_importe "total − base_imponible"
@@ -331,7 +329,7 @@ erDiagram
         uuid tenant_id FK "US-029 D-1: multi-tenancy/RLS directo"
         uuid factura_id FK "FACTURA 1-N PAGO — sin UNIQUE(factura_id)"
         decimal importe "DECIMAL(10,2) — importe real cobrado"
-        date fecha_cobro "liquidación: ≤ hoy; fianza (US-030): ≤ fecha_evento"
+        date fecha_cobro "liquidación: ≤ hoy"
         uuid justificante_doc_id FK "nullable → DOCUMENTO(tipo=justificante_pago)"
         timestamp fecha_creacion
     }
@@ -367,7 +365,7 @@ erDiagram
         uuid id_documento PK
         uuid tenant_id FK
         uuid reserva_id FK "nullable"
-        enum tipo "dni_anverso | dni_reverso | clausula_responsabilidad | condiciones_particulares | justificante_pago | presupuesto | factura | otro"
+        enum tipo "dni_anverso | dni_reverso | clausula_responsabilidad | condiciones_particulares | justificante_pago | presupuesto | factura | comprobante_fianza | otro"
         string nombre_archivo
         string url
         string mime_type
@@ -384,8 +382,8 @@ erDiagram
         uuid tenant_id FK
         uuid reserva_id FK "nullable — solo NULL en emails manual creados fuera del contexto de una RESERVA; en US-046 los manual desde la ficha llevan reserva_id NOT NULL"
         uuid cliente_id FK
-        enum codigo_email "E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | E9 | manual"
-        enum subtipo "consulta_exploratoria | fecha_disponible | fecha_confirmada | cola_espera | cambio_fecha | solicitud_datos | NULL — nullable; NULL para E2-E8, manual y filas legadas"
+        enum codigo_email "E1 | E2 | E3 | E4 | E6 | E7 | E9 | E10 | manual"
+        enum subtipo "consulta_exploratoria | fecha_disponible | fecha_confirmada | cola_espera | cambio_fecha | solicitud_datos | NULL — nullable; NULL para E2-E4, E6-E7, E9-E10, manual y filas legadas"
         string asunto
         text cuerpo
         string destinatario_email
@@ -557,9 +555,7 @@ Datos de contacto y fiscales del cliente. Es un atributo de la reserva, no un pu
 | telefono | VARCHAR(20) | Teléfono de contacto |
 | dni_nif | VARCHAR(15) | Documento de identidad (facturación) |
 | direccion, codigo_postal, poblacion, provincia | VARCHAR | Datos fiscales |
-| iban_devolucion | VARCHAR(34) | IBAN de devolución de fianza registrado por el gestor (US-035). Validado con checksum módulo 97 antes de toda escritura. Nullable hasta que el gestor lo registre en `post_evento` con `fianza_eur > 0`. |
-
-**Registro del IBAN de devolución (US-035 / UC-26 FA-01 / UC-27 pasos 1–3 — sin migración):** el campo ya existía en el schema Prisma (`ibanDevolucion String? @map("iban_devolucion")`). Su escritura se realiza vía `PATCH /reservas/{id}/iban-devolucion` (body `{ iban }`, respuesta `200 { iban, avisoEmail }` / `409 estado_no_post_evento|sin_fianza` / `422`), disponible solo cuando `RESERVA.estado = post_evento` AND `RESERVA.fianza_eur > 0`. Ver `data-model.md §3.4` para el flujo completo (validación, transacción, patrón guardar-luego-enviar, excepción auditada D-3A a la idempotencia de E8).
+**Nota (change `fix-liquidacion-fianza-independientes`):** el campo `iban_devolucion` ha sido eliminado. La devolución de fianza ya no requiere capturar el IBAN del cliente: el Gestor registra la devolución completa con un único botón "Devolver fianza" (UC-27) sin introducir importe ni IBAN. Ver `data-model.md §3.4`.
 
 **Lectura en el pipeline (US-049 / UC-37-38 — sin migración):** el endpoint `GET /reservas` (`operationId: listarReservas`) hace join a `CLIENTE` para derivar `nombreEvento = {nombre} {apellidos}`. Si el `cliente_id` de la RESERVA no resuelve a un CLIENTE (nulo o inexistente), `nombreEvento` usa el `codigo` de la RESERVA como fallback. La lectura es de solo dos campos (`nombre`, `apellidos`); no se leen datos fiscales ni de contacto en esta operación.
 
@@ -588,7 +584,7 @@ Entidad central única. Recorre toda la máquina de estados, desde los sub-estad
 | ttl_expiracion | TIMESTAMP | Expiración del bloqueo blando vigente |
 | pre_evento_status | ENUM | pendiente, en_curso, cerrado |
 | liquidacion_status | ENUM | pendiente, facturada, cobrada |
-| fianza_status | ENUM | pendiente, recibo_enviado, cobrada, devuelta, retenida_parcial |
+| fianza_status | ENUM | pendiente, cobrada, devuelta. `cobrada` = comprobante de transferencia recibido y subido por el Gestor (change `fix-liquidacion-fianza-independientes`). Se eliminan `recibo_enviado` y `retenida_parcial`. |
 | posicion_cola | INT | Posición FIFO. No nulo solo en sub-estado 2.d |
 | consulta_bloqueante_id | UUID FK | Auto-referencia a la reserva que bloquea la fecha |
 | visita_programada_fecha | DATE | Fecha de visita (sub-estado 2.v). Nulo hasta programar visita |
@@ -596,9 +592,8 @@ Entidad central única. Recorre toda la máquina de estados, desde los sub-estad
 | visita_realizada | BOOLEAN | `false` hasta que el gestor registre el resultado (US-009/010/011); nunca cambia en la transición a `2.v` |
 | fianza_eur | DECIMAL(10,2) | Importe de fianza cobrada |
 | fianza_cobrada_fecha | TIMESTAMP | Fecha de cobro de fianza |
-| fianza_devuelta_fecha | TIMESTAMP | Fecha de devolución de fianza. Persiste la fecha registrada por el gestor en US-036 |
-| fianza_devuelta_eur | DECIMAL(10,2) | Importe devuelto (parcial por desperfectos). En devolución completa coincide con `fianza_eur`; en parcial o retención total puede ser menor (incluyendo 0) |
-| motivo_retencion | TEXT | Motivo de la retención parcial o total de la fianza. Obligatorio cuando `fianza_devuelta_eur < fianza_eur` o cuando es 0. `NULL` en devolución completa. Añadido en US-036 (migración `20260710120000_us036_reserva_motivo_retencion`). |
+| fianza_devuelta_fecha | TIMESTAMP | Fecha de devolución de fianza. Fijada a `now()` al registrar la devolución completa (UC-27). La devolución es siempre por `fianza_eur` completo; no se persiste importe parcial. |
+| fianza_comprobante_fecha | TIMESTAMP | Fecha de la última subida del comprobante de la transferencia de fianza recibida. Análogo a `cond_part_firmadas_fecha`. Nullable hasta que el Gestor suba el comprobante. Añadido en change `fix-liquidacion-fianza-independientes`. |
 | fecha_post_evento | TIMESTAMPTZ | Timestamp del momento exacto de entrada al estado `post_evento`. Poblado por US-034 en la transición `evento_en_curso → post_evento`. Inmutable. Usado por el barrido US-037 para calcular T+7d de forma fiable (inmune a `@updatedAt`). Nullable en RESERVA previas a la migración `20260710130000_us037_reserva_fecha_post_evento`. |
 | cond_part_firmadas | BOOLEAN | Si las condiciones particulares están firmadas. **Desde change `condiciones-idioma-e2-firma-banner`:** `false` al confirmar el presupuesto en E2 (UC-14, US-014); `true` al registrar la copia firmada (US-024). Anteriormente se fijaba a `false` al enviar E3 (US-023). Expuesto en el wire como `condPartFirmadas`. |
 | cond_part_enviadas_fecha | TIMESTAMP | Fecha en que las condicions particulars fueron enviadas al cliente. **Desde change `condiciones-idioma-e2-firma-banner`:** fijado al confirmar el presupuesto (UC-14, E2). Nulo hasta que se confirma el presupuesto. Precondición requerida por US-024: si es nulo, el registro de firma se rechaza con 409. Anteriormente se fijaba al enviar E3 (US-023). |
@@ -629,7 +624,7 @@ La derivación se implementa como función pura de dominio (mapa declarativo, no
 
 **Nota de persistencia — mapeo Prisma (US-003):** el enum Prisma `SubEstadoConsulta` no declara `@map`; los literales almacenados en BD llevan el prefijo `s` (`s2a`… `s2z`) porque los identificadores TypeScript no pueden empezar por dígito. El valor de dominio es siempre `'2a'`; la traducción a `'s2a'` (y su inversa) la realiza el helper `sub-estado-consulta.mapper.ts` en la capa infrastructure. Es un detalle de persistencia, no un cambio de modelo ni una migración.
 
-**Registro de la devolución de fianza (US-036 / UC-27 pasos 4–8 — migración `20260710120000_us036_reserva_motivo_retencion`):** disponible cuando `estado = post_evento` AND `fianza_status = cobrada`. Transiciona `fianza_status` a `devuelta` (devolución completa) o `retenida_parcial` (parcial o retención total). Persiste `fianza_devuelta_fecha`, `fianza_devuelta_eur` y `motivo_retencion` (obligatorio si `fianza_devuelta_eur < fianza_eur` o `= 0`). Guarda de concurrencia `SELECT … FOR UPDATE` sobre RESERVA; operación irreversible. Ver `data-model.md §3.5` para el flujo completo (codes de error, DOCUMENTO opcional, AUDIT_LOG).
+**Registro de la devolución de fianza (UC-27 / change `fix-liquidacion-fianza-independientes`):** disponible cuando `estado = post_evento` AND `fianza_status = cobrada`. La devolución es siempre **completa**: `fianza_status → 'devuelta'`, `fianza_devuelta_fecha = now()` (importe implícito = `fianza_eur`; no se persiste importe parcial). El estado `devuelta` es final e irreversible. Como efecto post-commit best-effort, el sistema dispara el email **E10** ("fianza devuelta") al `CLIENTE.email`; su fallo no revierte el registro. Se eliminan `motivo_retencion`, `fianza_devuelta_eur` y la retención parcial. Guarda de concurrencia `SELECT … FOR UPDATE` sobre RESERVA. Ver `data-model.md §3.5`.
 
 **Transición {2a,2b,2c} → 2.v (US-008 / UC-07 — sin migración):** el Gestor programa una visita sobre una RESERVA existente en `sub_estado ∈ {'2a','2b','2c'}`. La guarda de origen declarativa (`ORIGENES_TRANSICION_PROGRAMAR_VISITA` en `maquina-estados.ts`) rechaza `2d` con mensaje UC-12 y los terminales con 422. Para `2a` exige `fecha_evento IS NOT NULL`. La validación previa exige `fecha_visita ∈ [hoy+1, hoy+TENANT_SETTINGS.max_dias_programar_visita]` (nunca hardcodeado). En una única transacción all-or-nothing serializada por `SELECT … FOR UPDATE` sobre la fila bloqueante: UPDATE de RESERVA (`sub_estado='2v'`, `visita_programada_fecha`, `visita_programada_hora`, `visita_realizada=false`) + INSERT-o-UPDATE de `FECHA_BLOQUEADA` (ver §3.6 nota US-008) + `AUDIT_LOG accion='transicion'`. Post-commit: E6 vía motor US-045 → `COMUNICACION`. Sin migración (campos de visita + enum `s2v` + `max_dias_programar_visita` ya existentes desde US-000). Fuente: `design.md §D-1..D-9`.
 
@@ -847,7 +842,7 @@ El **reparto 40/60** se calcula sobre el `total` del régimen. La **fiança** (`
 - `rechazado` → cuando el cliente rechaza
 
 ### 3.13 FACTURA
-Facturas de señal (40%), liquidación (60% + extras), fianza y complementarias. El agregado raíz de la capability `facturacion` (US-022).
+Facturas de señal (40%), liquidación (60% + extras) y complementarias. El agregado raíz de la capability `facturacion` (US-022). **La fianza ya no es una FACTURA emitida** (change `fix-liquidacion-fianza-independientes`): pasa a un flujo pasivo de comprobante (ver §3.16 DOCUMENTO `tipo = comprobante_fianza`).
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
@@ -855,7 +850,7 @@ Facturas de señal (40%), liquidación (60% + extras), fianza y complementarias.
 | tenant_id | UUID FK | Tenant emisor de la factura |
 | reserva_id | UUID FK | Reserva asociada |
 | numero_factura | VARCHAR(20) nullable | Número secuencial `F-YYYY-NNNN`. **Nullable en borradores (US-027)**: los borradores de liquidación y fianza se crean con `numero_factura = NULL`; el número se asigna al emitir (US-028). Migración: `20260704130000_us027_numero_factura_nullable` (DROP NOT NULL). Unicidad: `@@unique([tenantId, numeroFactura])` solo aplica a valores no nulos — dos tenants distintos pueden tener el mismo número; un mismo tenant nunca repite el número dentro del mismo año. El año va embebido en el literal. |
-| tipo | ENUM | `senal` \| `liquidacion` \| `fianza` \| `complementaria` |
+| tipo | ENUM | `senal` \| `liquidacion` \| `complementaria`. El valor `fianza` ha sido eliminado (change `fix-liquidacion-fianza-independientes`). |
 | base_imponible | DECIMAL(10,2) | Base imponible. Derivada: `round(total / 1,21, 2)` |
 | iva_porcentaje | DECIMAL(4,2) | Porcentaje IVA (21,00 en MVP) |
 | iva_importe | DECIMAL(10,2) | Importe de IVA. Derivado por resta: `total − base_imponible` (sin segundo redondeo, garantiza `base + iva = total` exactamente) |
@@ -887,27 +882,26 @@ Facturas de señal (40%), liquidación (60% + extras), fianza y complementarias.
 
 **Concurrencia de la numeración (D-8):** dos reservas del mismo tenant confirmadas simultáneamente calculan el mismo `NNNN`; el constraint `UNIQUE(tenant_id, numero_factura)` hace que una inserción falle (`P2002`); la aplicación recalcula el siguiente número y reintenta (bucle acotado). Resultado: números consecutivos, sin duplicados ni facturas sin número. Nunca Redis ni locks distribuidos.
 
-**Ciclo de vida de los borradores de liquidación y fianza (US-027 / UC-21 pasos 1-2 / UC-22 pasos 1-2):**
+**Ciclo de vida del borrador de liquidación (change `fix-liquidacion-fianza-independientes` / UC-21 paso 1):**
 
-Tras el commit de la transición `pre_reserva → reserva_confirmada` (US-021), el mismo punto de activación que dispara la factura de señal (US-022) invoca `GenerarBorradoresLiquidacionFianzaUseCase`. Este use-case crea **dos documentos en borrador** en una transacción propia de facturación (atómica entre ambos documentos y sus AUDIT_LOG); su fallo **no revierte** la confirmación ya realizada y la operación es reintentable por idempotencia.
+Tras el commit de la transición `pre_reserva → reserva_confirmada` (US-021), el mismo punto de activación que dispara la factura de señal (US-022) genera el borrador de liquidación como efecto post-commit best-effort; su fallo **no revierte** la confirmación ya realizada y la operación es reintentable por idempotencia. **Ya no se genera ningún borrador ni recibo de fianza**: la fianza pasa a un flujo pasivo de comprobante (UC-22, §3.16).
 
-- **Factura de liquidación**: `tipo = 'liquidacion'`, `estado = 'borrador'`, `numero_factura = NULL`, `total = RESERVA.importe_liquidacion + Σ(RESERVA_EXTRA.subtotal WHERE factura_id IS NULL)`. El `importe_liquidacion` viene **congelado** de US-021 (60 % MVP); este use-case no recalcula porcentaje ni tarifa. Los `RESERVA_EXTRA.subtotal` ya congelados por línea se suman sin recalcular. **No se marca** `factura_id` en `RESERVA_EXTRA` durante el borrador (ese marcado ocurre al emitir, US-028). Desglose fiscal reutilizando la función de dominio puro de US-022: `base_imponible = round(total / 1,21, 2)`, `iva_importe = total − base_imponible` (garantiza `base + iva = total` exactamente).
-- **Recibo de fianza**: `tipo = 'fianza'`, `estado = 'borrador'`, `numero_factura = NULL`, `total = TENANT_SETTINGS.fianza_default_eur`. Si `fianza_default_eur = 0`, el recibo **no se genera**; `RESERVA.fianza_status` permanece `pendiente` y la alerta al Gestor menciona solo la liquidación.
-- **Idempotencia**: guarda de existencia por `(reserva_id, tipo)` + constraint `UNIQUE(reserva_id, tipo)` (ya migrado en US-022). Una reinvocación concurrente del trigger que sortee la guarda aborta por `P2002` y recupera el existente, sin duplicar.
-- **Alerta al Gestor**: señal de UI "Documentos de liquidación y fianza pendientes de revisión" (o solo la liquidación si la fianza se omitió por `fianza_default_eur = 0`). No es un email: E4 se dispara en US-028 tras la aprobación del Gestor.
-- **Auditoría**: `AUDIT_LOG` con `accion = 'crear'`, `entidad = 'FACTURA'` por cada documento creado.
+- **Factura de liquidación**: `tipo = 'liquidacion'`, `estado = 'borrador'`, `numero_factura = NULL`, `total = RESERVA.importe_liquidacion + Σ(RESERVA_EXTRA.subtotal WHERE factura_id IS NULL)`. El `importe_liquidacion` viene **congelado** de US-021 (60 % MVP); no se recalcula porcentaje ni tarifa. Los `RESERVA_EXTRA.subtotal` ya congelados por línea se suman sin recalcular. **No se marca** `factura_id` en `RESERVA_EXTRA` durante el borrador (ese marcado ocurre al emitir). Desglose fiscal: `base_imponible = round(total / 1,21, 2)`, `iva_importe = total − base_imponible` (garantiza `base + iva = total` exactamente).
+- **Idempotencia**: guarda de existencia por `(reserva_id, tipo)` + constraint `UNIQUE(reserva_id, tipo)` (US-022). El tipo `fianza` ha dejado de existir; la unicidad cubre `senal` y `liquidacion`.
+- **Alerta al Gestor**: señal de UI "Factura de liquidación pendiente de revisión". No es un email: E4 se dispara tras la aprobación del Gestor en el flujo standalone de liquidación.
+- **Auditoría**: `AUDIT_LOG` con `accion = 'crear'`, `entidad = 'FACTURA'` para la liquidación únicamente.
 - **Endpoint de consulta**: `GET /reservas/{id}/facturas` — devuelve la colección de facturas de la reserva filtrable por tipo; implementado en US-027.
 
 ### 3.14 PAGO
-Cobro conciliado contra una factura. El justificante es un `DOCUMENTO(tipo=justificante_pago)`. Materializado en US-029 (migración aditiva `20260704150000_us029_pago_tenant_id`). La entidad se reutiliza sin cambios de modelo para el cobro de la fianza (US-030).
+Cobro conciliado contra una factura. El justificante es un `DOCUMENTO(tipo=justificante_pago)`. Materializado en US-029 (migración aditiva `20260704150000_us029_pago_tenant_id`). **La fianza ya no usa PAGO** (change `fix-liquidacion-fianza-independientes`): su cobro queda registrado mediante comprobante de transferencia (`DOCUMENTO(tipo=comprobante_fianza)`), no como PAGO contra una FACTURA.
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
 | id_pago | UUID PK | Identificador único |
 | tenant_id | UUID FK | Tenant propietario. **US-029 D-1**: campo explícito en PAGO por regla dura de multi-tenancy/RLS del proyecto. Policy RLS filtra por `tenant_id` directo (sin join a FACTURA). FK → TENANT. Índice `@@index([tenantId])`. |
-| factura_id | UUID FK | Factura conciliada. Índice `@@index([facturaId])`. **Cardinalidad FACTURA 1-N PAGO** (`||--o{`): prevé cobros parciales futuros. **SIN `UNIQUE(factura_id)`**: la unicidad de cobro del MVP la garantiza la guarda de estado (`liquidacion_status` / `fianza_status` bajo `SELECT ... FOR UPDATE`), no un constraint de BD. |
-| importe | DECIMAL(10,2) | Importe real cobrado por el Gestor (`> 0`). Puede diferir del `FACTURA.total`; para la liquidación la discrepancia alerta pero no bloquea; para la fianza `RESERVA.fianza_eur` registra el importe real sin alerta de discrepancia. El PAGO no recalcula el desglose fiscal de la factura (inmutable desde la emisión). |
-| fecha_cobro | DATE | Fecha del cobro. La validación de dominio depende del tipo: para la **liquidación** (US-029), `fecha_cobro ≤ hoy` (no futura); para la **fianza** (US-030), `fecha_cobro ≤ RESERVA.fecha_evento` (relativo al evento, no a hoy; el cobro en T-0 es válido). |
+| factura_id | UUID FK | Factura conciliada. Índice `@@index([facturaId])`. **Cardinalidad FACTURA 1-N PAGO** (`||--o{`): prevé cobros parciales futuros. **SIN `UNIQUE(factura_id)`**: la unicidad de cobro del MVP la garantiza la guarda de estado (`liquidacion_status` bajo `SELECT ... FOR UPDATE`), no un constraint de BD. |
+| importe | DECIMAL(10,2) | Importe real cobrado por el Gestor (`> 0`). Puede diferir del `FACTURA.total`; para la liquidación la discrepancia alerta pero no bloquea. El PAGO no recalcula el desglose fiscal de la factura (inmutable desde la emisión). |
+| fecha_cobro | DATE | Fecha del cobro. Para la **liquidación** (US-029), `fecha_cobro ≤ hoy` (no futura). |
 | justificante_doc_id | UUID FK | FK nullable → `DOCUMENTO(tipo=justificante_pago)`. El justificante es **opcional**; si no se adjunta, `justificante_doc_id = NULL` y el cobro avanza igualmente a `cobrada`. |
 | fecha_creacion | TIMESTAMP | `DEFAULT now()` |
 
@@ -916,16 +910,9 @@ Cobro conciliado contra una factura. El justificante es un `DOCUMENTO(tipo=justi
 - `liquidacion_status = 'cobrada'` → aborta con error 409 "La liquidación ya está marcada como cobrada". Dos peticiones concurrentes se serializan: la segunda ve `cobrada` bajo lock y aborta. **Sin locks distribuidos** (regla dura del proyecto): es un lock de fila PostgreSQL, coherente con el patrón `bloquearFecha()`.
 - `liquidacion_status = 'pendiente'` → aborta con error 409 "La factura de liquidación debe estar enviada antes de registrar su cobro".
 
-**Guarda de doble cobro — fianza (US-030 / UC-22 pasos 5-9 — atomicidad):** el use-case `RegistrarCobroFianzaUseCase` abre una `$transaction`, relee `RESERVA.fianza_status` con `SELECT ... FOR UPDATE` sobre la fila de RESERVA y aplica la guarda:
-- `fianza_status = 'recibo_enviado'` → procede (happy path): crea el `DOCUMENTO` (si aplica) + el `PAGO` con `factura_id` del recibo de fianza, transiciona `FACTURA(fianza).estado = 'cobrada'` + `RESERVA.fianza_status = 'cobrada'`, actualiza `RESERVA.fianza_eur = importe` y `RESERVA.fianza_cobrada_fecha = fecha_cobro` + AUDIT_LOG, todo en el mismo commit.
-- `fianza_status = 'cobrada'` → aborta con error 409 `FIANZA_YA_COBRADA` ("La fianza ya está marcada como cobrada"). Dos peticiones concurrentes se serializan: la segunda ve `cobrada` bajo lock y aborta. **Sin locks distribuidos** (misma regla dura del proyecto, misma mecánica que la liquidación).
-- `fianza_status = 'pendiente'` → **política "Negociable"** (diverge del bloqueo duro de la liquidación): el sistema **no bloquea de forma dura**. Sin `confirmarSinRecibo = true` → respuesta 200 `confirmacion_requerida` (aviso, sin crear PAGO ni cambiar estados); con `confirmarSinRecibo = true` → el cobro se registra igualmente y el flujo excepcional queda trazado en AUDIT_LOG. Tratamiento de la FACTURA(fianza) en la confirmación (D-2b, gate SDD aprobado): si existe en `'borrador'` → salta directamente `borrador → cobrada` (salto documentado en AUDIT_LOG); si no existe → se crea al vuelo como `cobrada` (traza de `'crear'` en AUDIT_LOG).
+**Discrepancia de importe (US-029 / D-3):** aplica únicamente al cobro de la liquidación.
 
-**Discrepancia de importe (US-029 / D-3):** aplica únicamente al cobro de la liquidación. Para la fianza (US-030), `RESERVA.fianza_eur` registra el importe real cobrado; no se emite alerta de discrepancia.
-
-**`liquidacion_status = cobrada` como precondición de `evento_en_curso` (US-031):** al dejar `RESERVA.liquidacion_status = 'cobrada'`, se habilita una de las tres precondiciones de la futura transición `reserva_confirmada → evento_en_curso`. Las otras dos son `pre_evento_status = cerrado` y `fianza_status = cobrada`. La transición a `evento_en_curso` no se evalúa en US-029; es responsabilidad de US-031.
-
-**`fianza_status = cobrada` como tercera precondición de `evento_en_curso` (US-030 / US-031):** al registrar el cobro de la fianza, `RESERVA.fianza_status = 'cobrada'` habilita la **tercera** de las tres precondiciones de la transición `reserva_confirmada → evento_en_curso` (junto con `pre_evento_status = cerrado` y `liquidacion_status = cobrada`). `RESERVA.estado` permanece `reserva_confirmada` tras el cobro; la transición a `evento_en_curso` no se evalúa en US-030 y es responsabilidad de US-031. Alerta FA-01 no bloqueante: si en el día del evento `fianza_status ≠ 'cobrada'`, la política hardcoded "Negociable" genera una alerta crítica no bloqueante; el inicio del evento no se bloquea por fianza impagada.
+**`liquidacion_status = cobrada` como precondición de `evento_en_curso` (US-031):** al dejar `RESERVA.liquidacion_status = 'cobrada'`, se habilita una de las **dos** precondiciones de la transición `reserva_confirmada → evento_en_curso` (junto con `pre_evento_status = cerrado`). La fianza ya no es una precondición (change `fix-liquidacion-fianza-independientes`). La transición a `evento_en_curso` no se evalúa en US-029; es responsabilidad de US-031.
 
 ### 3.15 FICHA_OPERATIVA
 Datos operativos del evento, cumplimentados progresivamente. Relación 1:1 con la reserva. La entidad se crea vacía (todos los campos de contenido a `NULL`, `ficha_cerrada = false`) en la misma transacción de confirmación de señal (US-021). US-025 añade la lectura, el guardado parcial y el cierre.
@@ -983,8 +970,8 @@ Log de emails del ciclo de vida de la reserva (E1–E9) y emails manuales. El mo
 | tenant_id | UUID FK | Tenant propietario |
 | cliente_id | UUID FK | Destinatario |
 | reserva_id | UUID FK | Reserva relacionada (nullable — solo NULL cuando el email `manual` se crea fuera del contexto de una RESERVA; los emails `manual` creados desde la ficha de la reserva en US-046 llevan `reserva_id` NOT NULL) |
-| codigo_email | ENUM | E1–E9, manual |
-| subtipo | ENUM nullable | Enum `SubtipoEmail`. Distingue el evento del ciclo de vida que generó el email. Valores: `consulta_exploratoria`, `fecha_disponible`, `fecha_confirmada`, `cola_espera`, `cambio_fecha`, `solicitud_datos`. `NULL` para E2–E8, emails `manual` y filas legadas. Solo aplica a E1. Añadido en el change `historial-completo-comunicaciones`; `solicitud_datos` añadido en el change `solicitud-datos-presupuesto-borrador`. |
+| codigo_email | ENUM | E1–E4, E6–E7, E9–E10, manual (E5/E8 eliminados; E10 = "fianza devuelta") |
+| subtipo | ENUM nullable | Enum `SubtipoEmail`. Distingue el evento del ciclo de vida que generó el email. Valores: `consulta_exploratoria`, `fecha_disponible`, `fecha_confirmada`, `cola_espera`, `cambio_fecha`, `solicitud_datos`. `NULL` para E2–E4, E6–E7, E9–E10, emails `manual` y filas legadas. Solo aplica a E1. Añadido en el change `historial-completo-comunicaciones`; `solicitud_datos` añadido en el change `solicitud-datos-presupuesto-borrador`. |
 | asunto | VARCHAR(255) | Asunto del email |
 | cuerpo | TEXT | Cuerpo HTML del email (nullable) |
 | destinatario_email | VARCHAR(255) | Email del destinatario |
@@ -996,8 +983,8 @@ Log de emails del ciclo de vida de la reserva (E1–E9) y emails manuales. El mo
 **Idempotencia (US-045 / US-028 / US-046 / change `historial-completo-comunicaciones` — migración `20260628120000_us045_comunicacion_idempotencia_indice`, actualización D-4 US-028, actualización D-5 US-046, actualización D-indice-terna change `historial-completo-comunicaciones`):** índice UNIQUE parcial `uq_comunicacion_reserva_codigo` clavado sobre la **terna** `(reserva_id, codigo_email, subtipo)` con `NULLS NOT DISTINCT` y predicado `WHERE reserva_id IS NOT NULL AND es_reenvio = false AND codigo_email <> 'manual' AND estado = 'enviado'`. Semántica del nuevo índice:
 - **Historial completo de borradores:** la restricción se aplica únicamente a filas con `estado = 'enviado'`; los `borrador` de cualquier subtipo no están sujetos al constraint y pueden coexistir libremente para la misma terna.
 - **Subtipos distintos pueden ambos estar `enviado`:** dos filas E1 con `subtipo` diferente (p. ej. `consulta_exploratoria` y `cambio_fecha`) son emails legítimamente distintos, **no** reenvíos; el índice no colisiona.
-- **Solo un doble envío de la misma terna colisiona:** un segundo intento de poner `enviado` la misma terna `(reserva_id, codigo_email, subtipo)` genera `P2002` — ese sí es un reenvío genuino (`es_reenvio = true`, patrón E3/E4/E8), que queda fuera del predicado.
-- **`NULLS NOT DISTINCT`:** preserva la idempotencia de E2–E8 (cuyo `subtipo = NULL`): dos intentos de enviar el mismo E2 `enviado` siguen colisionando porque `NULL = NULL` en el índice.
+- **Solo un doble envío de la misma terna colisiona:** un segundo intento de poner `enviado` la misma terna `(reserva_id, codigo_email, subtipo)` genera `P2002` — ese sí es un reenvío genuino (`es_reenvio = true`, patrón E3/E4), que queda fuera del predicado.
+- **`NULLS NOT DISTINCT`:** preserva la idempotencia de E2–E4, E6–E7, E9–E10 (cuyo `subtipo = NULL`): dos intentos de enviar el mismo E2 `enviado` siguen colisionando porque `NULL = NULL` en el índice.
 - Reenvíos (`es_reenvio = true`) y emails `manual` siguen fuera del constraint por su predicado.
 
 **Convención de descarte (US-046):** el descarte intencional de un borrador por el Gestor se modela como `estado = 'fallido'` (no existe un estado "descartado" en el enum `EstadoComunicacion`) + registro en `AUDIT_LOG` con la causa "descartado por gestor". Esta causa distingue el descarte manual del fallo real del proveedor de email (que no lleva dicha causa).
@@ -1011,7 +998,7 @@ Log de emails del ciclo de vida de la reserva (E1–E9) y emails manuales. El mo
 
 **Borrador E1 en el cambio de fecha de una consulta 2.b (change `historial-completo-comunicaciones`):** cambiar la fecha de una consulta ya en sub-estado `2b` (rama no-cola de `cambiar-fecha.use-case.ts`) ahora **emite un borrador E1** (`subtipo = 'cambio_fecha'`) dentro de la misma transacción. Antes esta rama no producía ninguna `COMUNICACION` (solo bloqueaba F2 / actualizaba fecha / liberaba F1 / AUDIT_LOG). Con el historial completo, cada evento del ciclo de vida inserta su propio registro E1 etiquetado. La rama de cola (2d → 2b, `cambiarDesdeCola`) emite `subtipo = 'fecha_disponible'`. Ambos son siempre `borrador` (sin auto-envío); el gestor los revisa y envía desde US-046.
 
-**Cobertura de emails E1–E8:** E1 activa con **subtipo** por evento — cada evento del ciclo de vida inserta su propio registro E1 `borrador` etiquetado con `subtipo`:
+**Cobertura de emails E1–E10 (excl. E5/E8 eliminados):** E1 activa con **subtipo** por evento — cada evento del ciclo de vida inserta su propio registro E1 `borrador` etiquetado con `subtipo`:
 - Alta en US-003/004+US-045: `subtipo` derivado de `tipoE1` (`sin_fecha → consulta_exploratoria`; `fecha_disponible → fecha_disponible`; `fecha_confirmada → fecha_confirmada`; `fecha_cola → cola_espera`).
 - Transición `2a → 2b` (UC-04/US-005 change `email-transicion-fecha-borrador`): `subtipo = 'fecha_disponible'`.
 - Transición `2a → 2d` (UC-04/US-005): `subtipo = 'cola_espera'`.
@@ -1137,7 +1124,7 @@ Los tres sub-procesos (pre_evento, liquidacion, fianza) se modelan como atributo
 
 - El estado se inicializa a `pendiente` al confirmar la reserva (US-021).
 - La máquina de estados se modela como **estructura de datos con guardas** en el dominio puro (`ficha-evento/domain/`), no como condicionales dispersos. La guarda del cierre automático vive en `resolverCierreAutomatico(preEventoStatus)` en `maquina-estados-pre-evento.ts` (tabla declarativa `CIERRE_AUTOMATICO_A10`, mismo patrón que US-025).
-- `pre_evento_status = cerrado` es **una de las tres precondiciones** para la transición `reserva_confirmada → evento_en_curso` (US-031); las otras dos son `liquidacion_status = cobrada` y `fianza_status = cobrada`.
+- `pre_evento_status = cerrado` es **una de las dos precondiciones** para la transición `reserva_confirmada → evento_en_curso` (US-031); la otra es `liquidacion_status = cobrada` (change `fix-liquidacion-fianza-independientes`: la fianza ya no es precondición).
 - El cierre automático (US-026) garantiza que T-1d la ficha queda cerrada con los datos disponibles, permitiendo que US-031 pueda ejecutarse el día del evento. Sin email ni resumen al cliente en A10; sin migración de esquema (`ficha_cerrada`, `fecha_cierre` y `pre_evento_status` existían desde US-021/US-025).
 
 **Transición `evento_en_curso → post_evento` — finalización manual del evento (US-034 / UC-25):**
@@ -1147,14 +1134,14 @@ La transición `evento_en_curso → post_evento` es una acción **manual del ges
 A diferencia de la transición a `evento_en_curso` (US-031, actor Sistema con `usuario_id` nulo), la finalización es una acción **de Usuario**: `AUDIT_LOG.usuario_id` se puebla con el identificador del gestor autenticado. La autenticación es **JWT de usuario** (nunca `X-Cron-Token`).
 
 El flujo implementa dos operaciones separadas (D-2 de `design.md`):
-1. **Paso transaccional (crítico):** bajo `SELECT … FOR UPDATE` de la fila RESERVA, fija `RESERVA.estado = post_evento` + `AUDIT_LOG` (`accion='transicion'`, origen Usuario) + marca NPS programada (T+3d, marca derivada sin campo nuevo) + alerta de dato anómalo en `AUDIT_LOG` si `fianza_status='cobrada'` AND `fianza_eur IS NULL`.
-2. **Paso post-commit (best-effort):** si `debeEnviarseE5(fianza_eur)` (true cuando `fianza_eur != null && fianza_eur > 0`), dispara el trigger E5 vía el motor de email de `comunicaciones` (US-045); crea `COMUNICACION` con `codigo_email='E5'`, `reserva_id`, `cliente_id`, `tenant_id`, `estado='enviado'` (o `'fallido'` si el proveedor falla). Si `fianza_eur = 0` o `IS NULL`, no se envía E5 ni se crea `COMUNICACION` para E5.
+1. **Paso transaccional (crítico):** bajo `SELECT … FOR UPDATE` de la fila RESERVA, fija `RESERVA.estado = post_evento` + `AUDIT_LOG` (`accion='transicion'`, origen Usuario) + marca NPS programada (T+3d, marca derivada sin campo nuevo).
+2. **Paso post-commit:** no se envía E5 (eliminado en change `fix-liquidacion-fianza-independientes`).
 
-El fallo del envío de E5 **no revierte** la transición ya commiteada: la RESERVA queda en `post_evento` con `COMUNICACION(E5).estado='fallido'`; el gestor puede reintentar el envío desde la ficha. La doble finalización concurrente se gestiona por el `SELECT … FOR UPDATE`: la segunda petición observa `estado ≠ evento_en_curso` (0 filas afectadas) y termina como conflicto, sin doble transición, sin doble `AUDIT_LOG` y sin doble E5.
+La doble finalización concurrente se gestiona por el `SELECT … FOR UPDATE`: la segunda petición observa `estado ≠ evento_en_curso` (0 filas afectadas) y termina como conflicto, sin doble transición y sin doble `AUDIT_LOG`.
 
-Sin migración de esquema: `estado`, `fianza_eur`, `fianza_status`, `COMUNICACION` y `AUDIT_LOG` ya existían en el modelo.
+Sin migración de esquema: `estado`, `fianza_status`, `COMUNICACION` y `AUDIT_LOG` ya existían en el modelo.
 
-**Fuera de alcance MVP (📐):** envío real de la NPS a T+3d (recordatorios automáticos extendidos); A23 (T+3d recordatorio IBAN); A24 (T+7d segundo recordatorio IBAN); factura complementaria post-evento (RESERVA_EXTRA con `factura_id IS NULL` quedan pendientes); reenvío de E5 desde la ficha (→ US futura). Fuente: `design.md §D-1..D-9`; `specs/consultas/spec.md`; `specs/comunicaciones/spec.md`; UC-25; US-034.
+**Fuera de alcance MVP (📐):** envío real de la NPS a T+3d; factura complementaria post-evento (RESERVA_EXTRA con `factura_id IS NULL` quedan pendientes). Fuente: `design.md §D-1..D-9`; `specs/consultas/spec.md`; `specs/comunicaciones/spec.md`; UC-25; US-034.
 
 **Transición `post_evento → reserva_completada` — archivado automático en T+7d (US-037 / UC-28, actor Sistema):**
 
@@ -1162,7 +1149,7 @@ La transición `post_evento → reserva_completada` es **terminal e inmutable**:
 
 El mecanismo de disparo es el barrido periódico `POST /cron/barrido-completadas` (`X-Cron-Token` + `CronTokenGuard`, endpoint dedicado, actor Sistema). El cron (`@nestjs/schedule`) lo invoca una vez al día. El barrido selecciona candidatas con `RESERVA.estado = 'post_evento'` AND `date(fecha_post_evento) <= date(hoy) - 7` y, por cada una, evalúa la **guarda de fianza resuelta** en una transacción atómica bajo RLS del tenant:
 
-- **Fianza resuelta** (`fianza_status ∈ {devuelta, retenida_parcial}` OR `fianza_eur <= 0` OR `fianza_eur IS NULL`): transiciona a `reserva_completada` + registra en `AUDIT_LOG` (`accion='transicion'`, `datos_anteriores={estado:post_evento}`, `datos_nuevos={estado:reserva_completada, causa:'T+7d'}`, `usuario_id` nulo — origen Sistema).
+- **Fianza resuelta** (`fianza_status = 'devuelta'` OR `fianza_eur <= 0` OR `fianza_eur IS NULL`) (change `fix-liquidacion-fianza-independientes`: `retenida_parcial` eliminado): transiciona a `reserva_completada` + registra en `AUDIT_LOG` (`accion='transicion'`, `datos_anteriores={estado:post_evento}`, `datos_nuevos={estado:reserva_completada, causa:'T+7d'}`, `usuario_id` nulo — origen Sistema).
 - **Fianza no resuelta** (FA-01): no transiciona; registra alerta en `AUDIT_LOG` (`accion='actualizar'`, `datos_nuevos.tipo='fianza_pendiente_t7d'`) con anti-duplicación por idempotencia (Opción 4.2 aprobada en gate).
 
 La guarda de origen y la guarda de fianza se **re-evalúan bajo `SELECT … FOR UPDATE`** dentro de la transacción de cada RESERVA: garantiza idempotencia (N pases = 1 sola transición) y coordinación con el archivado manual US-038 (cron vs gestor: exactamente una UPDATE gana, la segunda observa 0 filas afectadas y termina como no-op sin error). El fallo de una transición no aborta ni revierte las demás (fallo aislado por RESERVA). Respuesta del barrido: `BarridoCompletadasResponse { candidatas, archivadas, fianzaPendiente, fallos }`.
@@ -1171,7 +1158,7 @@ La RESERVA en `reserva_completada` queda visible y filtrable en el módulo Hist�
 
 | Transición | Disparador | Actor | Guarda |
 |------------|-----------|-------|--------|
-| `post_evento → reserva_completada` (terminal) | Barrido automático T+7d (`POST /cron/barrido-completadas`) | Sistema | `date(fecha_post_evento) <= date(hoy) - 7` AND guarda fianza resuelta (`fianza_status ∈ {devuelta, retenida_parcial}` OR `fianza_eur <= 0` OR `fianza_eur IS NULL`); re-evaluado bajo `SELECT … FOR UPDATE` (idempotencia + coordinación con US-038) |
+| `post_evento → reserva_completada` (terminal) | Barrido automático T+7d (`POST /cron/barrido-completadas`) | Sistema | `date(fecha_post_evento) <= date(hoy) - 7` AND guarda fianza resuelta (`fianza_status = 'devuelta'` OR `fianza_eur <= 0` OR `fianza_eur IS NULL`) (change `fix-liquidacion-fianza-independientes`: `retenida_parcial` eliminado); re-evaluado bajo `SELECT … FOR UPDATE` (idempotencia + coordinación con US-038) |
 
 ### 5.5 Documentos polimórficos
 Una única tabla `DOCUMENTO` con discriminador `tipo` para DNI, cláusula de responsabilidad, condiciones particulares, justificantes de pago y PDFs de presupuestos/facturas. Los justificantes de pago se enlazan desde `PAGO.justificante_doc_id`. El estado de firma de las condiciones particulares vive como campos en la reserva; el documento firmado se almacena aquí con `tipo = condiciones_particulares`.

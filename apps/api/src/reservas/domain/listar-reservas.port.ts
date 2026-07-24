@@ -32,7 +32,6 @@ export interface PipelineClienteLectura {
   codigoPostal: string | null;
   poblacion: string | null;
   provincia: string | null;
-  ibanDevolucion: string | null;
 }
 
 /**
@@ -63,7 +62,7 @@ export interface PipelineReservaLectura {
   fianzaEur: string | null;
   fianzaCobradaFecha: Date | null;
   fianzaDevueltaFecha: Date | null;
-  fianzaDevueltaEur: string | null;
+  fianzaComprobanteFecha: Date | null;
   condPartFirmadas: boolean | null;
   condPartFechaEnvio: Date | null;
   condPartFechaFirma: Date | null;

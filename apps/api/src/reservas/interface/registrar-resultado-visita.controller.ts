@@ -153,7 +153,7 @@ export class RegistrarResultadoVisitaController {
       fianzaEur: r.fianzaEur,
       fianzaCobradaFecha: aFecha(r.fianzaCobradaFecha),
       fianzaDevueltaFecha: aFecha(r.fianzaDevueltaFecha),
-      fianzaDevueltaEur: r.fianzaDevueltaEur,
+      fianzaComprobanteFecha: aFechaHora(r.fianzaComprobanteFecha),
       condPartFirmadas: r.condPartFirmadas,
       condPartFechaEnvio: aFechaHora(r.condPartFechaEnvio),
       condPartFechaFirma: aFechaHora(r.condPartFechaFirma),
@@ -175,8 +175,7 @@ export class RegistrarResultadoVisitaController {
         direccion: r.cliente.direccion,
         codigoPostal: r.cliente.codigoPostal,
         poblacion: r.cliente.poblacion,
-        provincia: r.cliente.provincia,
-        ibanDevolucion: r.cliente.ibanDevolucion,
+        provincia: r.cliente.provincia,
       },
     };
   }

@@ -297,7 +297,7 @@ Esta sección registra las decisiones tomadas conscientemente como deuda en US-0
 | DT-AUTH-03 | **Throttler en memoria por proceso.** `LoginThrottleGuard` usa un `Map` en memoria del proceso: los contadores no se comparten entre instancias y se reinician al rearrancar el proceso. Aceptado para el MVP de instancia única (Railway). Antes de cualquier despliegue multi-instancia debe migrarse a una solución compartida (Redis, BD o `@nestjs/throttler` con store distribuido). | Decisión §3 del change US-001; nota de escalabilidad del code-review | Antes de despliegue multi-instancia |
 | DT-AUTH-04 | **SDK del frontend genera `.d.ts` en lugar de `.ts`.** La configuración actual de `resolve.extensions` incluye `.d.ts`, lo que hace que el cliente generado sea un archivo de tipos, no un módulo importable directamente. Requiere workaround en el build del frontend. La corrección pasa por ajustar la config de codegen del `contract-engineer`. | Nota de codegen del code-review | Próxima iteración de codegen del `contract-engineer` |
 | DT-EMAIL-01 | **Adaptador de email stub (no-op) — RESUELTA.** El `EnviarEmailStubAdapter` se sustituye en US-045 por `ResendEmailAdapter` (producción) y `FakeEmailAdapter` (test/CI/dev, forzado). El motor `DespacharEmailService` centraliza render + envío + actualización de estado. `AltaConsultaUseCase` delega el envío post-commit en `DespacharEmailService.finalizarEnvio`: la `COMUNICACION` E1 nace en `borrador` dentro de la `$transaction` del alta y el motor la promueve a `enviado`+`fecha_envio` (éxito) o a `fallido`+AUDIT_LOG (fallo del proveedor), sin reintento y sin tumbar el HTTP 201. Regresión cero sobre US-003/004 (contrato del puerto `EnviarEmailPort` intacto, campos nuevos solo opcionales). | US-045 (28/06/2026). Cierre: motor hexagonal + Resend + FakeEmailAdapter en test/CI + cableado real de E1. | RESUELTA — US-045 (28/06/2026) |
-| DT-EMAIL-02 | **Cableado de triggers E2–E8 diferido a sus US.** El catálogo de plantillas declara E2–E8 como entradas diseñadas/inactivas (variables, adjuntos y metadatos declarados, sin render activo) pero sin trigger cableado. Mapa de deuda actualizado: **E2 → RESUELTA — US-014** (trigger cableado en `POST /reservas/{id}/presupuesto`; activado post-commit de la transición `{2a,2b,2c,2v} → pre_reserva`; PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; idempotencia garantizada por índice UNIQUE parcial de US-045). **E6 → RESUELTA — US-008** (trigger cableado en `POST /reservas/{id}/visita`; activado post-commit de la transición `{2a,2b,2c} → 2v`). **E7 → RESUELTA — US-009** (trigger cableado en `PATCH /reservas/{id}/visita`; activado post-commit de la transición `2v → 2b` "cliente interesado"; confirmación de bloqueo post-visita con TTL fresco). **E3 → RESUELTA — US-023 (15/07/2026); actualizada en change `condiciones-idioma-e2-firma-banner`:** trigger cableado en `EnviarFacturaSenalUseCase` (`POST /reservas/{id}/facturas/senal/enviar`); modo síncrono confirmado (espejo literal de E4: rollback total si el proveedor falla); factura de señal adjunta por referencia a `FACTURA.pdf_url` (requerida); **condicions particulars ya no se adjuntan en E3** — desde el change `condiciones-idioma-e2-firma-banner` se adjuntan con el presupuesto en E2 (`GenerarPresupuestoUseCase.confirmar()`) y el guard `CONDICIONES_NO_CONFIGURADAS` se aplica en ese punto; `RESERVA.cond_part_enviadas_fecha` y `cond_part_firmadas` se fijan al confirmar el presupuesto (E2), no al enviar E3; COMUNICACION E3 `enviado`; idempotencia por COMUNICACION E3 `enviado` existente (409 `E3_YA_ENVIADO`). Plantilla E3 activada en catálogo; envío por `EnviarEmailPort` directo (no por `DespacharEmailService`). **E4 → RESUELTA — US-028 (04/07/2026):** trigger cableado en `AprobarYEnviarLiquidacionUseCase` (`POST /reservas/{id}/facturas/liquidacion/aprobar-enviar`); modo síncrono confirmado (D-1: excepción al post-commit; rollback total si E4 falla); PDFs de liquidación y fianza adjuntos por referencia a `pdf_url`; `COMUNICACION E4` con `es_reenvio = false` para envío original y `es_reenvio = true` para reenvíos manuales (`POST /reservas/{id}/facturas/liquidacion/reenviar`). Pendientes: E5→US-034 (`post_evento` con `fianza_eur > 0`), E8→US-035 (`iban_devolucion` registrado). Adjuntos PDF reales (factura/documento) y cron de recordatorios también diferidos. Envío manual de borradores: US-046. **E9 → RESUELTA — change `reserva-viva-edicion-recalculo-ficha` (22/07/2026):** trigger cableado en `RecalcularReservaVivaUseCase` (post-commit de la edición de aforo/duración dentro de la ventana viva); bilingüe es/ca; notificación de modificación al cliente con nuevo total y restante de liquidación; sin adjuntos; patrón post-commit (no síncrono). | Decisión de alcance del Gate SDD de US-045: el cableado de E2–E9 requiere triggers, PDFs y estados de US aún no implementadas; construirlos ahora sería spec especulativa. El motor ya está listo para recibirlos sin rediseño. | E2: RESUELTA — US-014 (03/07/2026). E6: RESUELTA — US-008 (30/06/2026). E7: RESUELTA — US-009 (03/07/2026). **E3: RESUELTA — US-023 (15/07/2026).** **E4: RESUELTA — US-028 (04/07/2026).** **E9: RESUELTA — change `reserva-viva-edicion-recalculo-ficha` (22/07/2026).** E5, E8: cada US de trigger listada + US-046 |
+| DT-EMAIL-02 | **Cableado de triggers E2–E10 diferido a sus US.** El catálogo de plantillas declara los emails activos. Mapa de deuda actualizado: **E2 → RESUELTA — US-014** (trigger cableado en `POST /reservas/{id}/presupuesto`; activado post-commit de la transición `{2a,2b,2c,2v} → pre_reserva`; PDF adjunto por referencia a `PRESUPUESTO.pdf_url`; idempotencia garantizada por índice UNIQUE parcial de US-045). **E6 → RESUELTA — US-008** (trigger cableado en `POST /reservas/{id}/visita`; activado post-commit de la transición `{2a,2b,2c} → 2v`). **E7 → RESUELTA — US-009** (trigger cableado en `PATCH /reservas/{id}/visita`; activado post-commit de la transición `2v → 2b` "cliente interesado"; confirmación de bloqueo post-visita con TTL fresco). **E3 → RESUELTA — US-023 (15/07/2026); actualizada en change `condiciones-idioma-e2-firma-banner`:** trigger cableado en `EnviarFacturaSenalUseCase` (`POST /reservas/{id}/facturas/senal/enviar`); modo síncrono confirmado (espejo literal de E4: rollback total si el proveedor falla); factura de señal adjunta por referencia a `FACTURA.pdf_url` (requerida); **condicions particulars ya no se adjuntan en E3** — desde el change `condiciones-idioma-e2-firma-banner` se adjuntan con el presupuesto en E2 (`GenerarPresupuestoUseCase.confirmar()`) y el guard `CONDICIONES_NO_CONFIGURADAS` se aplica en ese punto; `RESERVA.cond_part_enviadas_fecha` y `cond_part_firmadas` se fijan al confirmar el presupuesto (E2), no al enviar E3; COMUNICACION E3 `enviado`; idempotencia por COMUNICACION E3 `enviado` existente (409 `E3_YA_ENVIADO`). Plantilla E3 activada en catálogo; envío por `EnviarEmailPort` directo (no por `DespacharEmailService`). **E4 → RESUELTA — US-028 (04/07/2026); actualizada en change `fix-liquidacion-fianza-independientes`:** trigger cableado en `EnviarLiquidacionUseCase` (`POST /reservas/{id}/facturas/liquidacion/enviar`); modo síncrono confirmado (D-1: excepción al post-commit; rollback total si E4 falla); **E4 = solo liquidación** (la fianza deja de ser FACTURA); PDF de liquidación adjunto por referencia a `FACTURA.pdf_url`; texto bilingüe CA/ES (change `fix-liquidacion-fianza-independientes`); `COMUNICACION E4` con `es_reenvio = false` para envío original y `es_reenvio = true` para reenvíos manuales. **E9 → RESUELTA — change `reserva-viva-edicion-recalculo-ficha` (22/07/2026):** trigger cableado en `RecalcularReservaVivaUseCase` (post-commit de la edición de aforo/duración dentro de la ventana viva); bilingüe es/ca; sin adjuntos; patrón post-commit (no síncrono). **E10 → RESUELTA — change `fix-liquidacion-fianza-independientes` (24/07/2026):** plantilla "fianza devuelta", activa, bilingüe CA/ES; trigger cableado post-commit best-effort en `DevolverFianzaUseCase` (`POST /reservas/{id}/fianza/devolver`); variables `nombre`, `fianzaEur`; patrón igual que E2/E6/E7 (fallo no revierte la operación). **E5, E8 → ELIMINADAS (change `fix-liquidacion-fianza-independientes`, 24/07/2026):** se retiran definitivamente junto con la captura de `CLIENTE.iban_devolucion`. No son deuda pendiente: no se implementarán. Envío manual de borradores: US-046. | Decisión de alcance del Gate SDD de US-045: el cableado de E2–E10 requiere triggers, PDFs y estados de US aún no implementadas; construirlos ahora sería spec especulativa. El motor ya está listo para recibirlos sin rediseño. | E2: RESUELTA — US-014 (03/07/2026). E6: RESUELTA — US-008 (30/06/2026). E7: RESUELTA — US-009 (03/07/2026). **E3: RESUELTA — US-023 (15/07/2026).** **E4: RESUELTA — US-028 (04/07/2026); actualizada change `fix-liquidacion-fianza-independientes` (24/07/2026).** **E9: RESUELTA — change `reserva-viva-edicion-recalculo-ficha` (22/07/2026).** **E10: RESUELTA — change `fix-liquidacion-fianza-independientes` (24/07/2026).** **E5, E8: ELIMINADAS — change `fix-liquidacion-fianza-independientes` (24/07/2026).** |
 | Bj3 | **Default inseguro de `EMAIL_SANDBOX` — RESUELTA.** Antes, si `EMAIL_SANDBOX` no estaba seteada, el sistema podía enviar emails reales (unset → `false`). Ahora el default es SEGURO con doble barrera: (1) validación zod en `env.validation.ts` — unset → `undefined !== 'false'` → `true` (sandbox activo); (2) cableado en `comunicaciones.module.ts` — trata como envío real solo el `false`/`'false'` explícito. Con `sandbox=true`, `resend.email.adapter.ts` reescribe el destinatario a `delivered@resend.dev`. El opt-in al envío real exige `EMAIL_SANDBOX=false` explícito en el entorno; cualquier otro valor, incluido unset, mantiene el sandbox activo. Cobertura: 3 tests nuevos en `env.validation.spec.ts` (unset→true, 'true'→true, 'false'→false). | Code-review de US-045, segunda pasada (29/06/2026). Detectada como deuda operativa de seguridad (baja→operativa). | RESUELTA — US-045 fix Bj3 (29/06/2026) |
 | DT-CODIGO-01 | **Generación de `codigo` no atómica (count+1) — RESUELTA.** La implementación inicial generaba el correlativo `YY-NNNN` con `count(*)+1` dentro de la transacción: dos altas concurrentes podían leer el mismo recuento y colisionar en el índice `reserva_codigo_key`. Resuelto con **retry-on-conflict** en `UnidadDeTrabajoPrismaAdapter.ejecutar()` (hasta 3 reintentos): ante `P2002` sobre `reserva_codigo_key`, el adaptador reabre la `$transaction` y reintenta; el siguiente intento re-lee el `count` con el ganador ya confirmado. El índice UNIQUE permanece como red de seguridad final. Conexo: el controlador ya no enmascara errores como 500; cualquier `P2002` no capturado por el caso de uso se propaga al `HttpExceptionFilter` global → 409. | Code-review de US-003 (señalado como tolerable para MVP; corregido en los fixes finales de US-003) | RESUELTA — US-003 fixes finales (28/06/2026) |
 
@@ -319,7 +319,7 @@ apps/api/src/comunicaciones/
     resend.email.adapter.ts         Adaptador real (Resend SDK, solo producción)
     fake.email.adapter.ts           Adaptador en memoria (test/CI/dev — sin red)
     comunicacion.prisma.repository.ts  Repositorio con RLS (buscarPorReservaYCodigo, actualizarEstado)
-    plantillas/                     Catálogo tipado en código: E1, E3, E4, E9 activas; E2, E5–E8 diseñadas/inactivas
+    plantillas/                     Catálogo tipado en código: E1, E2, E3, E4, E6, E7, E9 activas; E10 añadida (fix-liquidacion-fianza-independientes); E5 y E8 eliminadas (fix-liquidacion-fianza-independientes)
   comunicaciones.module.ts          Re-binding ENVIAR_EMAIL_PORT por useFactory según EMAIL_TRANSPORT
 ```
 
@@ -364,8 +364,11 @@ El método `finalizarEnvio(comunicacionId)` / `enviarYFinalizar(trigger)` orques
 - **E1:** activa con render real en `es` (MVP). Variables: `CLIENTE.nombre`, `RESERVA.codigo`, `TENANT.nombre`, `RESERVA.fecha_evento`. Adjunto: dossier PDF según `RESERVA.idioma` (`Dossier-Masia-Encis-{idioma}.pdf`), por referencia de URL construida desde `dossierBaseUrl`; si la URL base no está configurada, se envía sin adjunto (degradación graceful, US-047).
 - **E3:** activa (6.4b/US-023). Render real en `es`. Envío por `EnviarEmailPort` directo (sin `DespacharEmailService`) para garantizar rollback atómico. `adjuntosRequeridos`: factura de señal (requerida). Las condicions particulars **ya no se adjuntan en E3** desde el change `condiciones-idioma-e2-firma-banner`: se adjuntan en E2 (con el presupuesto, al confirmar `POST /reservas/{id}/presupuesto`); el guard duro `CONDICIONES_NO_CONFIGURADAS` (409) se aplica ahora en la confirmación del presupuesto, no en el envío E3. Trigger: acción manual del Gestor "Enviar factura 40%" (`POST /reservas/{id}/facturas/senal/enviar`).
 - **E9:** activa — change `reserva-viva-edicion-recalculo-ficha`. Render real en `es` y `ca` (bilingüe desde el inicio). Variables: `CLIENTE.nombre`, `RESERVA.codigo`, `RESERVA.fecha_evento`, `nuevoTotal`, `pagoInicial` (importe_senal invariante), `liquidacionRestante`. Sin adjuntos requeridos. Trigger: post-commit del `RecalcularReservaVivaUseCase` (edición de aforo o duración dentro de la ventana viva). Patrón igual que E2 (post-commit, no bloquea rollback si falla el proveedor — a diferencia de E3/E4 que son síncronos). El catálogo registra la plantilla en `catalogo-plantillas-e9.spec.ts`.
-- **E2, E4–E8 (excl. E9):** E2 activa (ver arriba). E4 activa (ver arriba). E5, E6, E7, E8: diseñadas/inactivas (metadatos + variables requeridas + adjuntos documentados; sin render activo; sin trigger cableado en el catálogo del motor).
-- **i18n:** `RESERVA.idioma` determina el idioma de E1, E9 y el dossier adjunto (`es` o `ca`); fallback a `es` si el idioma no está disponible o es nulo; se registra en AUDIT_LOG (US-047).
+- **E4:** activa (ver §2.15 actualización). **E4 = solo liquidación** (change `fix-liquidacion-fianza-independientes`): adjunta únicamente el PDF de la factura de liquidación. El texto bilingüe CA/ES recuerda al cliente abonar la fianza antes o el día del evento. Modo síncrono (rollback si falla el proveedor).
+- **E6, E7:** activas (ver sus respectivas US).
+- **E10 (nuevo — change `fix-liquidacion-fianza-independientes`):** activa, bilingüe CA/ES. Plantilla "fianza devuelta". Variables requeridas: `['nombre', 'fianzaEur']`. Disparada post-commit best-effort al registrar la devolución completa de la fianza (`fianza_status → 'devuelta'`). Patrón igual que E2/E6/E7 (fallo no revierte la operación).
+- **E5, E8:** **eliminadas** (change `fix-liquidacion-fianza-independientes`). E5 = solicitud de IBAN al finalizar evento; E8 = confirmación de IBAN registrado. Ambas retiradas junto con la captura de `CLIENTE.iban_devolucion`.
+- **i18n:** `RESERVA.idioma` determina el idioma de E1, E4, E9, E10 y el dossier adjunto (`es` o `ca`); fallback a `es` si el idioma no está disponible o es nulo; se registra en AUDIT_LOG (US-047).
 
 #### Variables de entorno (validadas con zod en `config/env.validation.ts`)
 
@@ -720,68 +723,62 @@ El email E3 ha sido implementado en US-023 (change `documentos-enviar-factura-se
 
 ---
 
-### 2.15 Capability M12 Facturación — emisión atómica de liquidación y fianza (US-028 / UC-21 / UC-22)
+### 2.15 Capability M12 Facturación — liquidación standalone y fianza pasiva (change `fix-liquidacion-fianza-independientes` / UC-21 / UC-22)
 
-US-028 cierra la capability de facturación para los documentos de liquidación y fianza: toma los borradores creados por US-027 (con `numero_factura = NULL`) y los emite al cliente. Introduce **tres nuevos casos de uso de aplicación** y **un nuevo campo en el modelo `Comunicacion`**.
+> **Nota de evolución:** esta sección documentaba US-028 (emisión atómica liquidación+fianza). El change `fix-liquidacion-fianza-independientes` reescribe completamente el flujo: la liquidación pasa a un flujo standalone espejo de la señal y la fianza pasa a un flujo pasivo de comprobante.
 
-#### Nuevos casos de uso
+#### Liquidación standalone (UC-21)
 
 | Use case | Endpoint | Efecto principal |
 |---|---|---|
-| `AprobarYEnviarLiquidacionUseCase` | `POST /reservas/{id}/facturas/liquidacion/aprobar-enviar` | Emite liquidación (+ fianza si no se envió separada), envía E4, actualiza `liquidacion_status = 'facturada'` y `fianza_status = 'recibo_enviado'` |
-| `EnviarReciboFianzaUseCase` | `POST /reservas/{id}/facturas/fianza/enviar` | Emite solo el recibo de fianza, email `manual`, actualiza `fianza_status = 'recibo_enviado'` sin tocar `liquidacion_status` |
-| `ReenviarLiquidacionUseCase` | `POST /reservas/{id}/facturas/liquidacion/reenviar` | Reenvía el PDF ya emitido sin reasignar numeración ni cambiar estado; crea `COMUNICACION E4` con `es_reenvio = true` |
+| `EnviarLiquidacionUseCase` | `POST /reservas/{id}/facturas/liquidacion/enviar` | Emite la liquidación standalone; envía E4 = solo liquidación (modo síncrono con confirmación); actualiza `liquidacion_status = 'facturada'` |
+| `ReenviarLiquidacionUseCase` | `POST /reservas/{id}/facturas/liquidacion/reenviar` | Reenvía el PDF ya emitido sin reasignar numeración; crea `COMUNICACION E4` con `es_reenvio = true` |
 
-#### Patrón D-1: atomicidad estado↔E4 (excepción al post-commit)
+**E4 = solo liquidación:** adjunta únicamente el PDF de la factura de liquidación. El texto bilingüe CA/ES (seleccionado por `RESERVA.idioma`) recuerda al cliente abonar la fianza antes o el día del evento. La factura de fianza ya no existe: `EnviarReciboFianzaUseCase` y su endpoint `POST /reservas/{id}/facturas/fianza/enviar` han sido eliminados.
 
-US-045/US-014/US-008 establecieron que el email es **post-commit y su fallo no revierte el estado**. US-028 exige lo contrario para `AprobarYEnviarLiquidacionUseCase`: la transición de estado y el envío de E4 son **síncronos y confirmados**. El motor de US-045 se invoca en **modo síncrono** (no fire-and-forget):
+#### Atomicidad estado↔E4 (conservada para la liquidación)
 
-1. Se preparan y verifican los PDFs adjuntos (ambos `pdf_url` existentes).
-2. Se asignan los `numero_factura = F-YYYY-NNNN` (reutilizando la numeración de US-022: `MAX+1`, retry ante `P2002`, nunca locks distribuidos).
+El patrón D-1 de US-028 se conserva solo para la liquidación:
+
+1. Se prepara y verifica el `pdf_url` de la factura de liquidación.
+2. Se asigna `numero_factura = F-YYYY-NNNN`.
 3. Se llama al motor de email E4 de forma **síncrona esperando la confirmación del proveedor**.
-4. **Solo si E4 se confirma**: se commitea el conjunto `numero_factura asignado + estado = 'enviada' (ambas facturas) + liquidacion_status = 'facturada' + fianza_status = 'recibo_enviado' + marcado RESERVA_EXTRA + COMUNICACION E4 enviado + AUDIT_LOG`.
-5. **Si E4 falla**: rollback total; ningún estado cambia; el `numero_factura` del intento no queda consolidado; se devuelve `502/503` recuperable.
+4. **Solo si E4 se confirma**: se commitea `numero_factura + estado = 'enviada' + liquidacion_status = 'facturada' + COMUNICACION E4 enviado + AUDIT_LOG`.
+5. **Si E4 falla**: rollback total; `liquidacion_status` sin cambio.
 
-En `test`/CI el transporte es `FakeEmailAdapter` (confirmación simulada, sin red), manteniendo la misma semántica.
+En `test`/CI el transporte es `FakeEmailAdapter` (confirmación simulada, sin red).
 
-#### Campo `esReenvio` en `Comunicacion` (migración D-4)
+#### Fianza pasiva (UC-22)
 
-Para permitir múltiples `COMUNICACION E4` por reserva cuando el Gestor reenvía la factura, se añadió el campo `esReenvio Boolean @default(false)` al modelo `Comunicacion`. El índice UNIQUE parcial de US-045 se actualizó con la condición adicional `AND es_reenvio = false` (D-4). Posteriormente, D-5 de US-046 añadió `AND codigo_email <> 'manual'`, y el change `historial-completo-comunicaciones` amplió la clave a la terna `(reserva_id, codigo_email, subtipo)` con `NULLS NOT DISTINCT` y añadió `AND estado = 'enviado'`. El índice en su estado actual es:
+La fianza deja de ser una FACTURA emitida. El gestor sube el comprobante de transferencia recibida (`POST /reservas/{id}/fianza/comprobante`): crea `DOCUMENTO(tipo='comprobante_fianza')` y actualiza `RESERVA.fianza_status = 'cobrada'`, `RESERVA.fianza_comprobante_fecha = now()`. Sin PAGO, sin recibo, sin email al cliente en este paso.
+
+`RegistrarCobroFianzaUseCase`, `EnviarReciboFianzaUseCase`, la política "Negociable" y el endpoint `POST /reservas/{id}/facturas/fianza/cobro` han sido eliminados.
+
+#### Devolución + email E10 (UC-26)
+
+`POST /reservas/{id}/fianza/devolver`: transición `fianza_status → 'devuelta'` + `fianza_devuelta_fecha = now()` en una transacción atómica. Post-commit best-effort: dispara E10 ("fianza devuelta", CA/ES) al cliente. `motivo_retencion`, `fianza_devuelta_eur` y `CLIENTE.iban_devolucion` eliminados del modelo.
+
+#### Campo `esReenvio` en `Comunicacion`
+
+El campo `esReenvio Boolean @default(false)` (introducido en US-028) se mantiene. Los reenvíos de E4 siguen usando `esReenvio = true`. El índice UNIQUE parcial actualizado en su estado actual es:
 
 ```
 uq_comunicacion_reserva_codigo (reserva_id, codigo_email, subtipo) NULLS NOT DISTINCT
   WHERE reserva_id IS NOT NULL AND es_reenvio = false AND codigo_email <> 'manual' AND estado = 'enviado'
 ```
 
-Los reenvíos (`esReenvio = true`) quedan fuera del constraint, permitiendo trazabilidad de cada envío sin violar la idempotencia del envío original.
+#### Actualización de DT-EMAIL-02 (E4, E5, E8, E10)
 
-#### Envío separado del recibo de fianza (D-3)
+E4 activa (solo liquidación, texto CA/ES nuevo, change `fix-liquidacion-fianza-independientes`). E5 y E8 **eliminadas** (no pendientes: retiradas definitivamente). E10 **añadida y activa** (fianza devuelta, CA/ES, post-commit best-effort).
 
-El recibo de fianza puede enviarse de forma independiente de la liquidación. `EnviarReciboFianzaUseCase` registra el email con `codigo_email = 'manual'` (no E4), por lo que no colisiona con la idempotencia `(reserva_id, E4)`. Si la fianza ya se envió por separado antes de aprobar la liquidación, `AprobarYEnviarLiquidacionUseCase` incluye solo la factura de liquidación en E4 y no sobreescribe `fianza_status = 'recibo_enviado'` (ya establecido).
+#### Migraciones de esquema (change `fix-liquidacion-fianza-independientes`)
 
-#### Módulo backend (extensión del módulo `facturacion`)
-
-```
-apps/api/src/facturacion/
-  application/
-    aprobar-enviar-liquidacion.use-case.ts   Atomicidad D-1
-    enviar-recibo-fianza.use-case.ts          D-3
-    reenviar-liquidacion.use-case.ts          D-4
-  infrastructure/
-    (6 nuevos adaptadores de infraestructura de facturación)
-```
-
-**Regla de dependencia hexagonal:** el dominio no importa el SDK del proveedor de email ni Prisma. El motor `DespacharEmailService` de US-045 se invoca en modo síncrono; el transport (real/fake) se inyecta.
-
-#### Actualización de DT-EMAIL-02 (E4 — RESUELTA)
-
-E4 pasa de "diseñada/inactiva" a activa con US-028. El trigger se cablea en `AprobarYEnviarLiquidacionUseCase` (modo síncrono con confirmación). Pendientes: E3→US-023, E5→US-034, E8→US-035. Ver `§2.9 DT-EMAIL-02`.
-
-#### Sin migración de FACTURA ni de RESERVA
-
-US-028 no añade columnas a `FACTURA` ni a `RESERVA`. Las únicas mutaciones de esquema son:
-1. **Campo `esReenvio`** en `COMUNICACION` (`Boolean @default(false)`).
-2. **Actualización del predicado** del índice UNIQUE parcial de `COMUNICACION` (añadido `AND es_reenvio = false`).
+1. `TipoFactura`: eliminar valor `fianza`.
+2. `FianzaStatus`: reducir a `pendiente | cobrada | devuelta` (eliminar `recibo_enviado`, `retenida_parcial`).
+3. `CodigoEmail`: añadir `E10`; eliminar `E5`, `E8`.
+4. `TipoDocumento`: añadir `comprobante_fianza`.
+5. `RESERVA`: eliminar `motivo_retencion`, `fianza_devuelta_eur`; añadir `fianza_comprobante_fecha`.
+6. `CLIENTE`: eliminar `iban_devolucion`.
 
 ---
 
@@ -1169,7 +1166,7 @@ graph TB
 
     subgraph services["AWS — Servicios Gestionados"]
         S3["S3 · PDFs · Documentos · Imágenes"]
-        SES["SES · Email transaccional (E1-E8)"]
+        SES["SES · Email transaccional (E1-E4, E6-E7, E9-E10)"]
         EB["EventBridge Scheduler · Cron"]
         COGNITO["Cognito · Auth + JWT"]
         SM["Secrets Manager"]
@@ -1255,7 +1252,7 @@ DATA LAYER (inside VPC, private subnets):
 
 MANAGED SERVICES (outside VPC):
 - Amazon S3: storage for PDFs, signed documents, images
-- Amazon SES: transactional email (templates E1-E8 and manual emails)
+- Amazon SES: transactional email (templates E1-E4, E6-E7, E9-E10 and manual emails; E5/E8 removed in change fix-liquidacion-fianza-independientes)
 - Amazon EventBridge Scheduler: cron triggers for Lambda jobs
 - Amazon Cognito: user authentication and JWT issuance
 - AWS Secrets Manager: database credentials and API keys
@@ -1320,7 +1317,7 @@ EXTERNAL MANAGED SERVICES:
 - PostgreSQL (managed): single database, multi-tenant Row-Level Security,
   UNIQUE(tenant_id, date) constraint for atomic date locking, full-text search
 - Object storage (hosting-provided): PDFs, payment receipts, documents
-- Email provider (e.g. Resend): transactional emails (templates E1-E8)
+- Email provider (e.g. Resend): transactional emails (templates E1-E4, E6-E7, E9-E10; E5/E8 removed)
 - Error monitoring (e.g. Sentry)
 
 --- CONNECTIONS ---

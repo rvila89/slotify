@@ -97,14 +97,11 @@ export const DetalleSecciones = ({ reserva }: { reserva: ReservaDetalle }) => {
           {reserva.fianzaEur && (
             <DetalleDato etiqueta="Fianza" valor={formatearImporte(reserva.fianzaEur)} />
           )}
-          {reserva.fianzaDevueltaEur && (
+          {reserva.fianzaDevueltaFecha && (
             <DetalleDato
               etiqueta="Fianza devuelta"
-              valor={formatearImporte(reserva.fianzaDevueltaEur)}
+              valor={formatearImporte(reserva.fianzaEur)}
             />
-          )}
-          {reserva.motivoRetencion && (
-            <DetalleDato etiqueta="Motivo de retención" valor={reserva.motivoRetencion} />
           )}
           {typeof reserva.condPartFirmadas === 'boolean' && (
             <DetalleDato

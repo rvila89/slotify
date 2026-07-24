@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api-client';
+import { comunicacionesReservaQueryKey } from '@/features/comunicaciones';
 import { normalizarErrorLiquidacion } from './normalizarErrorLiquidacion';
+import { facturaLiquidacionQueryKey } from './useFacturaLiquidacion';
 import { facturasReservaQueryKey } from './useFacturasReserva';
 import type { LiquidacionError, ReenviarLiquidacionResponse } from '../model/types';
 
@@ -38,9 +40,9 @@ export const useReenviarLiquidacion = () => {
       throw normalizarErrorLiquidacion(response?.status, error, 'reenviar');
     },
     onSuccess: (_data, { reservaId }) => {
-      void queryClient.invalidateQueries({
-        queryKey: facturasReservaQueryKey(reservaId),
-      });
+      void queryClient.invalidateQueries({ queryKey: facturaLiquidacionQueryKey(reservaId) });
+      void queryClient.invalidateQueries({ queryKey: facturasReservaQueryKey(reservaId) });
+      void queryClient.invalidateQueries({ queryKey: comunicacionesReservaQueryKey(reservaId) });
     },
   });
 };
