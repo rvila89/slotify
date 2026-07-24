@@ -257,10 +257,11 @@ El sistema SHALL (DEBE), como efecto **posterior al commit** de la transición d
 factura_id IS NULL)` de esa reserva. `RESERVA.importe_liquidacion` viene **congelado** de US-021
 (`importe_total − importe_senal`, 60 % MVP): el sistema NO recalcula el porcentaje ni la tarifa,
 y **suma** los `subtotal` ya congelados por línea sin recalcularlos. El sistema NO marca los
-`RESERVA_EXTRA` con `factura_id` en la fase de borrador (ese marcado ocurre al emitir, US-028).
-El fallo de esta generación NO revierte la confirmación ya realizada. (Fuente: `US-027 §Historia`,
-`§Happy Path`, `§Reglas de negocio`, `§Reglas de Validación`; UC-21; `er-diagram.md §3.12 FACTURA`,
-`§3.10 RESERVA_EXTRA`.)
+`RESERVA_EXTRA` con `factura_id` en la fase de borrador (ese marcado ocurre al emitir). El sistema
+**NO genera** ningún borrador ni recibo de fianza (la fianza deja de ser una FACTURA que se emite;
+ver requisitos de fianza pasiva). El fallo de esta generación NO revierte la confirmación ya
+realizada. (Fuente: plan §Liquidación standalone / §Fianza pasiva; `US-027 §Historia`, `§Happy Path`;
+UC-21; `er-diagram.md §3.12 FACTURA`, `§3.10 RESERVA_EXTRA`.)
 
 #### Scenario: Liquidación con extras pendientes suma el 60 % y los extras con factura_id nulo
 
@@ -270,12 +271,12 @@ El fallo de esta generación NO revierte la confirmación ya realizada. (Fuente:
 - **THEN** se crea una FACTURA con `tipo = 'liquidacion'`, `estado = 'borrador'`, `numero_factura
   = NULL`, `total = 4.100,00 €`, `reserva_id` de la RESERVA y `tenant_id` correcto
 
-#### Scenario: Liquidación sin extras pendientes es solo el 60 %
+#### Scenario: La activación de los sub-procesos no genera ningún borrador de fianza
 
-- **GIVEN** una RESERVA `reserva_confirmada` con `importe_liquidacion = 3.600,00 €` sin ningún
-  `RESERVA_EXTRA` con `factura_id IS NULL`
-- **WHEN** el sistema genera la factura de liquidación
-- **THEN** la FACTURA de liquidación tiene `total = 3.600,00 €` (solo el 60 % sin extras)
+- **GIVEN** una RESERVA que ha transitado a `reserva_confirmada` con `fianza_status = 'pendiente'`
+- **WHEN** el sistema activa los sub-procesos tras el commit
+- **THEN** se genera únicamente el borrador de la factura de liquidación
+- **AND** no se crea ninguna FACTURA de tipo `fianza` ni ningún recibo
 
 ### Requirement: Desglose fiscal de la factura de liquidación con IVA 21 % y redondeo contable
 
@@ -295,251 +296,69 @@ Validación` IVA 21 %; `er-diagram.md §3.12` base/iva derivados.)
 - **THEN** `iva_porcentaje = 21,00`, `base_imponible = 3.388,43 €`, `iva_importe = 711,57 €`
 - **AND** `base_imponible + iva_importe = total` exactamente
 
-### Requirement: Generación automática del recibo de fianza en borrador
-
-El sistema SHALL (DEBE), al activar los sub-procesos de una RESERVA `reserva_confirmada` con
-`fianza_status = 'pendiente'` y `TENANT_SETTINGS.fianza_default_eur > 0`, crear **una** FACTURA
-con `tipo = 'fianza'`, `estado = 'borrador'`, `reserva_id`, `tenant_id`, `numero_factura = NULL`
-y `total = TENANT_SETTINGS.fianza_default_eur`. La generación del recibo de fianza es
-**independiente** de la de la factura de liquidación: la ausencia de una no impide la otra.
-(Fuente: `US-027 §Happy Path`, `§Reglas de negocio`; `er-diagram.md §TENANT_SETTINGS
-fianza_default_eur`.)
-
-#### Scenario: Recibo de fianza en borrador por el importe por defecto del tenant
-
-- **GIVEN** una RESERVA `reserva_confirmada` con `fianza_status = 'pendiente'` y
-  `TENANT_SETTINGS.fianza_default_eur = 1.000,00 €`
-- **WHEN** el sistema activa los sub-procesos
-- **THEN** se crea una FACTURA con `tipo = 'fianza'`, `estado = 'borrador'`, `numero_factura =
-  NULL` y `total = 1.000,00 €`
-
-### Requirement: Omisión del recibo de fianza cuando el importe por defecto es cero
-
-El sistema SHALL (DEBE), si `TENANT_SETTINGS.fianza_default_eur = 0`, **NO generar** la FACTURA
-de tipo `fianza`; `RESERVA.fianza_status` **permanece `pendiente`** (no se marca como facturado
-ni se crea documento) y la alerta al Gestor menciona **solo** la factura de liquidación. El
-Gestor podrá generar el recibo manualmente con un importe negociado en una US posterior. La
-factura de liquidación se genera igualmente. (Fuente: `US-027 §TENANT_SETTINGS.fianza_default_eur
-= 0`.)
-
-#### Scenario: Fianza por defecto cero no genera recibo y deja fianza_status pendiente
-
-- **GIVEN** una RESERVA `reserva_confirmada` con `TENANT_SETTINGS.fianza_default_eur = 0`
-- **WHEN** el sistema activa los sub-procesos
-- **THEN** NO se crea ninguna FACTURA de tipo `fianza`
-- **AND** `RESERVA.fianza_status` permanece `pendiente` y la alerta al Gestor menciona solo la
-  factura de liquidación
-
 ### Requirement: Numeración diferida a la emisión — numero_factura nulo en borrador
 
-El sistema SHALL (DEBE) crear los borradores de liquidación y de fianza con `numero_factura =
-NULL`. La asignación del `numero_factura` con formato `F-YYYY-NNNN` (secuencial y único por
-`tenant_id` + año) se produce **solo al emitir/enviar** el documento (US-028), reutilizando la
-numeración ya definida en `facturacion` (US-022). En borrador, la ausencia de `numero_factura`
-NO viola la unicidad `UNIQUE(tenant_id, numero_factura)`, que solo aplica a valores no nulos.
-(Fuente: `US-027 §Reglas de negocio` `numero_factura` no se asigna en borrador, `§Reglas de
-Validación`.)
+El sistema SHALL (DEBE) crear el borrador de liquidación con `numero_factura = NULL`. La asignación
+del `numero_factura` con formato `F-YYYY-NNNN` (secuencial y único por `tenant_id` + año) se produce
+**solo al emitir/enviar** la liquidación, reutilizando la numeración ya definida en `facturacion`
+(US-022). En borrador, la ausencia de `numero_factura` NO viola la unicidad `UNIQUE(tenant_id,
+numero_factura)`, que solo aplica a valores no nulos. (Fuente: plan §Liquidación standalone; `US-027
+§Reglas de negocio` `numero_factura` no se asigna en borrador.)
 
-#### Scenario: Los borradores de liquidación y fianza no llevan número de factura
+#### Scenario: El borrador de liquidación no lleva número de factura
 
-- **GIVEN** una RESERVA `reserva_confirmada` para la que se generan los borradores de liquidación
-  y fianza
-- **WHEN** el sistema crea ambas FACTURA en `borrador`
-- **THEN** ambas tienen `numero_factura = NULL` y solo recibirán `F-YYYY-NNNN` al emitirse (US-028)
+- **GIVEN** una RESERVA `reserva_confirmada` para la que se genera el borrador de liquidación
+- **WHEN** el sistema crea la FACTURA en `borrador`
+- **THEN** tiene `numero_factura = NULL` y solo recibirá `F-YYYY-NNNN` al emitirse
 
 ### Requirement: Idempotencia — una única liquidación y un único recibo de fianza por reserva
 
 El sistema SHALL (DEBE) garantizar que exista **como máximo una** FACTURA con `tipo =
-'liquidacion'` y **como máximo una** con `tipo = 'fianza'` por `reserva_id` en estado `borrador`
-o `enviada`. Antes de crear cada documento, el sistema comprueba si ya existe una FACTURA con ese
-`reserva_id` y ese `tipo`; si existe, **NO crea un duplicado** (operación idempotente, sin efecto
-secundario). La unicidad la refuerza en BD la restricción `UNIQUE(reserva_id, tipo)` ya
-introducida en US-022 (cubre `senal`, `liquidacion` y `fianza`): una reinvocación concurrente del
-trigger que sortee la guarda aborta por `P2002` y recupera la existente. (Fuente: `US-027
-§Idempotencia — trigger duplicado`, `§Reglas de Validación`.)
+'liquidacion'` por `reserva_id` en estado `borrador` o `enviada`. Antes de crear el borrador de
+liquidación, el sistema comprueba si ya existe una FACTURA con ese `reserva_id` y `tipo =
+'liquidacion'`; si existe, **NO crea un duplicado** (operación idempotente, sin efecto secundario).
+La unicidad la refuerza en BD la restricción `UNIQUE(reserva_id, tipo)` ya introducida en US-022
+(cubre `senal` y `liquidacion`; el tipo `fianza` **deja de existir**): una reinvocación concurrente
+del trigger que sortee la guarda aborta por `P2002` y recupera la existente. **Ya no existe recibo de
+fianza** cuya unicidad garantizar (la fianza pasa a un flujo pasivo de comprobante). (Fuente: plan
+§Fianza pasiva; `US-027 §Idempotencia — trigger duplicado`, `§Reglas de Validación`.)
 
-#### Scenario: Reinvocación del trigger no duplica los borradores de liquidación ni de fianza
+#### Scenario: Reinvocación del trigger no duplica el borrador de liquidación
 
-- **GIVEN** una RESERVA que ya tiene una FACTURA `tipo = 'liquidacion'` y una `tipo = 'fianza'`
-  en `borrador`
+- **GIVEN** una RESERVA que ya tiene una FACTURA `tipo = 'liquidacion'` en `borrador`
 - **WHEN** el trigger de activación de sub-procesos se ejecuta de nuevo para esa RESERVA
-- **THEN** el sistema detecta los borradores existentes y **no** crea documentos duplicados
-- **AND** la operación no tiene efecto secundario (idempotente)
+- **THEN** el sistema detecta el borrador existente y **no** crea un documento duplicado
+- **AND** la operación no tiene efecto secundario (idempotente) y no crea ninguna FACTURA de fianza
 
 ### Requirement: Alerta al Gestor de documentos pendientes de revisión
 
-El sistema SHALL (DEBE), tras generar los borradores, alertar al Gestor en la UI con el texto
-"Documentos de liquidación y fianza pendientes de revisión". Si el recibo de fianza se omitió
-por `fianza_default_eur = 0`, la alerta menciona **solo** la factura de liquidación. La alerta es
-una señal de UI (no un email: E4 se dispara en US-028 tras la aprobación del Gestor). (Fuente:
-`US-027 §Happy Path`, `§TENANT_SETTINGS.fianza_default_eur = 0`, `§Email relacionado`.)
+El sistema SHALL (DEBE), tras generar el borrador de liquidación, alertar al Gestor en la UI con el
+texto "Factura de liquidación pendiente de revisión". La alerta menciona **solo** la factura de
+liquidación (la fianza deja de generar documento y por tanto no aparece en la alerta). La alerta es
+una señal de UI (no un email: E4 se dispara tras la aprobación del Gestor). (Fuente: plan §Fianza
+pasiva; `US-027 §Happy Path`, `§Email relacionado`.)
 
-#### Scenario: Con liquidación y fianza generadas, la alerta cita ambos documentos
+#### Scenario: La alerta cita solo la factura de liquidación
 
-- **GIVEN** una RESERVA para la que se han generado el borrador de liquidación y el de fianza
+- **GIVEN** una RESERVA para la que se ha generado el borrador de liquidación
 - **WHEN** el sistema completa la generación
-- **THEN** el Gestor recibe la alerta "Documentos de liquidación y fianza pendientes de revisión"
-
-#### Scenario: Con la fianza omitida, la alerta cita solo la liquidación
-
-- **GIVEN** una RESERVA con `fianza_default_eur = 0` para la que solo se generó el borrador de
-  liquidación
-- **WHEN** el sistema completa la generación
-- **THEN** la alerta al Gestor menciona solo la factura de liquidación
+- **THEN** el Gestor recibe la alerta "Factura de liquidación pendiente de revisión" (sin mención a
+  la fianza)
 
 ### Requirement: Auditoría de la creación de los borradores de liquidación y fianza
 
 El sistema SHALL (DEBE) registrar en `AUDIT_LOG` una entrada con `accion = 'crear'`, `entidad =
-'FACTURA'` y el `entidad_id` de la factura creada por **cada** documento generado (liquidación y,
-si procede, fianza). Si el recibo de fianza se omitió (`fianza_default_eur = 0`), solo se registra
-la creación de la liquidación. (Fuente: `US-027 §Happy Path` "ambas acciones quedan registradas en
-AUDIT_LOG con accion = crear".)
+'FACTURA'` y el `entidad_id` de la FACTURA de liquidación creada. **No** se registra ninguna creación
+de FACTURA de fianza: la fianza deja de generarse como FACTURA (pasa a un flujo pasivo de comprobante),
+por lo que solo se audita la creación de la liquidación. (Fuente: plan §Fianza pasiva; `US-027 §Happy
+Path`.)
 
-#### Scenario: Crear cada borrador registra un AUDIT_LOG de creación
+#### Scenario: Crear el borrador de liquidación registra un AUDIT_LOG de creación
 
-- **GIVEN** una RESERVA para la que se generan los borradores de liquidación y fianza
-- **WHEN** el sistema crea ambas FACTURA
-- **THEN** `AUDIT_LOG` registra dos entradas con `accion = 'crear'`, `entidad = 'FACTURA'`, cada
-  una con el `entidad_id` de la factura correspondiente
-
-### Requirement: Emisión de la factura de liquidación al aprobar y enviar (borrador → enviada con número asignado)
-
-El sistema SHALL (DEBE), cuando el Gestor pulsa "Aprobar y enviar" sobre una FACTURA con `tipo =
-'liquidacion'` en `estado = 'borrador'` y `RESERVA.liquidacion_status = 'pendiente'`, **emitir**
-la factura: asignar `numero_factura` con formato `F-YYYY-NNNN` (secuencial y único por
-`tenant_id` + año, **reutilizando la numeración de US-022** con `UNIQUE(tenant_id,
-numero_factura)` + reintento aplicativo ante `P2002`, **nunca** locks distribuidos) **en el
-momento de la emisión** (nunca en borrador), fijar `fecha_emision` con el timestamp actual,
-pasar `FACTURA.estado = 'enviada'`, marcar los `RESERVA_EXTRA` de la reserva que se sumaron al
-borrador con el `factura_id` de la liquidación emitida, y transicionar `RESERVA.liquidacion_status
-= 'facturada'`. Todo ello ocurre solo si el envío del email E4 se confirma (ver atomicidad). El
-sistema DEBE registrar `AUDIT_LOG` con `accion = 'actualizar'`, `datos_anteriores.estado =
-'borrador'` y `datos_nuevos.estado = 'enviada'`. (Fuente: `US-028 §Happy Path`, `§Reglas de
-negocio`, `§Reglas de Validación`; UC-21 pasos 3–6; `er-diagram.md §3.12 FACTURA`, `§3.10
-RESERVA_EXTRA`.)
-
-### Requirement: Nomenclatura personalizada de los adjuntos PDF de factura (E4 y envío separado)
-
-El sistema SHALL (DEBE) nombrar los ficheros adjuntos de los emails de facturación con el
-**número de factura** y el **nombre del cliente**, siguiendo el patrón
-`{numeroFactura} {clienteNombre} {clienteApellidos}.pdf`. Cuando `numero_factura` sea `null`
-(caso inesperado / borrador histórico), el prefijo SHALL ser el tipo de documento en español
-(`Liquidación`, `Fianza`). Esta nomenclatura aplica a:
-- Adjunto de **liquidación** en E4: `F-YYYY-NNNN {nombre} {apellidos}.pdf`
-  (p. ej. `F-2026-0042 Mercè Escribano.pdf`)
-- Adjunto de **recibo de fianza** en E4 y en el envío separado:
-  `F-YYYY-NNNN {nombre} {apellidos}.pdf` (p. ej. `F-2026-0009 Mercè Escribano.pdf`)
-- Adjunto de **señal** en E3 y su reenvío: ya implementado con el mismo patrón
-  (change `factura-senal-pdf-idioma-email-ux`)
-
-#### Scenario: El adjunto de liquidación lleva el número y el nombre del cliente
-
-- **GIVEN** una emisión de liquidación con `numero_factura = 'F-2026-0042'` y un cliente
-  con nombre `Mercè` y apellidos `Escribano`
-- **WHEN** se envía el E4
-- **THEN** el adjunto de liquidación tiene `nombre = 'F-2026-0042 Mercè Escribano.pdf'`
-
-#### Scenario: El adjunto de fianza lleva su propio número y el nombre del cliente
-
-- **GIVEN** un recibo de fianza con `numero_factura = 'F-2026-0043'` y el mismo cliente
-- **WHEN** se envía el E4 (o el envío separado del recibo)
-- **THEN** el adjunto de fianza tiene `nombre = 'F-2026-0043 Mercè Escribano.pdf'`
-
-#### Scenario: Aprobar y enviar emite la liquidación con número y la deja enviada
-
-- **GIVEN** una FACTURA `tipo = 'liquidacion'` en `estado = 'borrador'` con `numero_factura =
-  NULL`, PDF disponible y datos fiscales válidos, y `RESERVA.liquidacion_status = 'pendiente'`
-- **WHEN** el Gestor pulsa "Aprobar y enviar" y el envío de E4 se confirma
-- **THEN** `FACTURA.estado = 'enviada'`, `numero_factura = 'F-{año}-NNNN'` (secuencial, único
-  por `tenant_id` + año), `fecha_emision` con el timestamp actual
-- **AND** `RESERVA.liquidacion_status = 'facturada'` y los `RESERVA_EXTRA` sumados al borrador
-  quedan marcados con el `factura_id` de la liquidación
-- **AND** `AUDIT_LOG` registra `accion = 'actualizar'` con `datos_anteriores.estado = 'borrador'`
-  y `datos_nuevos.estado = 'enviada'`
-
-#### Scenario: El número de factura se asigna solo en la emisión, nunca en borrador
-
-- **GIVEN** una FACTURA `tipo = 'liquidacion'` en `borrador` con `numero_factura = NULL`
-- **WHEN** el Gestor todavía no ha aprobado
-- **THEN** `numero_factura` permanece `NULL`
-- **AND** solo al emitir (aprobar y enviar con E4 confirmado) recibe su `F-{año}-NNNN`
-
-### Requirement: Atomicidad entre la transición de estado y el envío de E4 (rollback ante fallo)
-
-El sistema SHALL (DEBE) hacer **atómicos** la transición de estado de la emisión y el envío del
-email E4: la asignación de `numero_factura`, `FACTURA (liquidacion).estado = 'enviada'`,
-`RESERVA.liquidacion_status = 'facturada'`, el marcado de los `RESERVA_EXTRA`, la emisión del
-recibo de fianza (`FACTURA (fianza).estado = 'enviada'`, `RESERVA.fianza_status =
-'recibo_enviado'`) y el registro de `COMUNICACION` E4 se consolidan **solo si el envío de E4 se
-confirma**. Si la **generación del PDF** de cualquiera de los adjuntos o el **envío de E4**
-falla, el sistema DEBE hacer **rollback** de todos los cambios de estado: ambas FACTURA
-**permanecen en `borrador`**, `numero_factura` **NO se asigna** (permanece `NULL`),
-`RESERVA.liquidacion_status` permanece `pendiente`, los `RESERVA_EXTRA` **no** se marcan; el
-sistema muestra un **error recuperable** y el Gestor puede **reintentar**. Esta atomicidad
-**invierte** deliberadamente el patrón "post-commit, fallo no revierte" de E2/E6/E7 (US-045),
-porque US-028 exige que si E4 falla los estados no cambien. (Fuente: `US-028 §Reglas de negocio`
-atomicidad, `§Fallo en la generación del PDF o en el envío del email`, `§Reglas de Validación`;
-`design.md §D-1`.)
-
-#### Scenario: Fallo del PDF o del email deja todo en borrador y permite reintento
-
-- **GIVEN** una FACTURA `tipo = 'liquidacion'` en `borrador` y una `tipo = 'fianza'` en
-  `borrador`, con `RESERVA.liquidacion_status = 'pendiente'`
-- **WHEN** el Gestor pulsa "Aprobar y enviar" pero la generación del PDF del adjunto o el envío
-  de E4 falla
-- **THEN** ambas FACTURA permanecen en `estado = 'borrador'` con `numero_factura = NULL`
-- **AND** `RESERVA.liquidacion_status` permanece `pendiente` y los `RESERVA_EXTRA` siguen sin
-  `factura_id`
-- **AND** el sistema muestra un error recuperable y el Gestor puede reintentar
-
-#### Scenario: Solo con E4 confirmado se consolidan los cambios de estado
-
-- **GIVEN** una emisión de liquidación en curso cuyo envío de E4 aún no se ha confirmado
-- **WHEN** el proveedor de email confirma el envío de E4
-- **THEN** se consolidan `estado = 'enviada'`, `numero_factura`, `liquidacion_status =
-  'facturada'`, la emisión de la fianza y el `COMUNICACION` E4
-- **AND** si el proveedor no confirma, no se consolida ninguno de esos cambios
-
-### Requirement: Emisión del recibo de fianza como efecto del envío de E4
-
-El sistema SHALL (DEBE), como **efecto del envío de E4** (que adjunta el recibo de fianza junto
-con la factura de liquidación), emitir el recibo de fianza en la **misma operación atómica**:
-`FACTURA (fianza).estado = 'enviada'` y `RESERVA.fianza_status = 'recibo_enviado'`. Si el recibo
-de fianza ya fue enviado por separado previamente (ver requisito de envío separado), E4 **no**
-vuelve a cambiar `fianza_status` ni el estado de la fianza (ya `enviada`/`recibo_enviado`), y su
-adjunto en E4 puede omitirse. (Fuente: `US-028 §Happy Path`, `§Envío del recibo de fianza por
-separado`; `design.md §D-3`.)
-
-#### Scenario: Aprobar y enviar deja el recibo de fianza enviado
-
-- **GIVEN** una emisión de liquidación cuyo envío de E4 se confirma, con la FACTURA `tipo =
-  'fianza'` en `borrador` y `RESERVA.fianza_status = 'pendiente'`
-- **WHEN** se consolida la emisión (E4 confirmado)
-- **THEN** `FACTURA (fianza).estado = 'enviada'` y `RESERVA.fianza_status = 'recibo_enviado'`
-
-#### Scenario: Fianza ya enviada por separado no se re-emite con E4
-
-- **GIVEN** una RESERVA con `fianza_status = 'recibo_enviado'` (recibo ya enviado por separado)
-- **WHEN** el Gestor aprueba y envía la liquidación (E4)
-- **THEN** `fianza_status` permanece `recibo_enviado` y el estado de la fianza no cambia
-- **AND** E4 incluye solo la factura de liquidación
-
-### Requirement: Envío del recibo de fianza por separado (sin la liquidación)
-
-El sistema SHALL (DEBE) permitir al Gestor enviar el **recibo de fianza por separado** desde la
-ficha de la reserva, con solo el recibo de fianza adjunto. Al hacerlo, `FACTURA (fianza).estado
-= 'enviada'` y `RESERVA.fianza_status = 'recibo_enviado'`; `RESERVA.liquidacion_status` **no
-cambia**. Este envío se trata como **email manual SIN código E** (no usa E4); su registro en
-`COMUNICACION` usa `codigo_email = 'manual'` (ver delta de `comunicaciones`). (Fuente: `US-028
-§Envío del recibo de fianza por separado`; `design.md §D-3`.)
-
-#### Scenario: El envío separado marca la fianza sin tocar la liquidación
-
-- **GIVEN** una RESERVA con `fianza_status = 'pendiente'` y `liquidacion_status = 'pendiente'`,
-  con el recibo de fianza en `borrador`
-- **WHEN** el Gestor selecciona "Enviar recibo de fianza por separado"
-- **THEN** `FACTURA (fianza).estado = 'enviada'` y `RESERVA.fianza_status = 'recibo_enviado'`
-- **AND** `RESERVA.liquidacion_status` permanece `pendiente` (la liquidación no se ve afectada)
+- **GIVEN** una RESERVA para la que se genera el borrador de liquidación
+- **WHEN** el sistema crea la FACTURA
+- **THEN** `AUDIT_LOG` registra una única entrada con `accion = 'crear'`, `entidad = 'FACTURA'` con
+  el `entidad_id` de la liquidación
 
 ### Requirement: Reenvío de la factura de liquidación ya emitida sin reasignar número ni estado
 
@@ -719,417 +538,6 @@ modela en US-031. (Fuente: `US-029 §Reglas de negocio`; `er-diagram.md §guarda
 - **THEN** `RESERVA.liquidacion_status = 'cobrada'` queda disponible como precondición del inicio del
   evento
 - **AND** `RESERVA.estado` permanece `reserva_confirmada` (la transición a `evento_en_curso` es de US-031)
-
-### Requirement: Registro del cobro de la fianza (creación de PAGO y transición a cobrada)
-
-El sistema SHALL (DEBE), cuando el Gestor registra el cobro de la fianza sobre una RESERVA con
-`fianza_status = 'recibo_enviado'` y su `FACTURA (tipo = 'fianza')` en `estado = 'enviada'`, en una
-**única unidad transaccional atómica**: crear un registro `PAGO` con `factura_id` del recibo de fianza,
-`importe` (el importe real cobrado), `fecha_cobro` y, si el Gestor adjunta un justificante,
-`justificante_doc_id`; establecer `RESERVA.fianza_eur = importe` cobrado y `RESERVA.fianza_cobrada_fecha
-= fecha_cobro`; transicionar `FACTURA (fianza).estado = 'cobrada'`; y transicionar `RESERVA.fianza_status
-= 'cobrada'`. El sistema DEBE registrar `AUDIT_LOG` con `accion = 'crear'` para el `PAGO` (y para el
-`DOCUMENTO` del justificante si se adjunta) y con `accion = 'actualizar'` para la transición de estados
-de la FACTURA y de la RESERVA (incluidos `fianza_eur` y `fianza_cobrada_fecha`). El `PAGO` NO recalcula
-el desglose fiscal de la factura (inmutable desde la emisión). (Fuente: `US-030 §Happy Path`, `§Reglas de
-negocio`; UC-22 pasos 5–9; `er-diagram.md §3.13 PAGO`, `§3.12 FACTURA`.)
-
-#### Scenario: Registrar el cobro con justificante deja la fianza cobrada
-
-- **GIVEN** una RESERVA con `fianza_status = 'recibo_enviado'`, `fecha_evento = 2026-07-12` y una
-  `FACTURA (tipo = 'fianza')` en `estado = 'enviada'`
-- **WHEN** el Gestor registra el cobro con `fecha_cobro = 2026-07-10` (dos días antes del evento),
-  `importe = 1.000,00 €` y adjunta el justificante de transferencia (PDF)
-- **THEN** se crea un `PAGO` con `factura_id` del recibo de fianza, `importe = 1.000,00 €`, `fecha_cobro
-  = 2026-07-10`
-- **AND** el justificante se almacena como `DOCUMENTO (tipo = 'justificante_pago')` y
-  `PAGO.justificante_doc_id` referencia su `id_documento`
-- **AND** `RESERVA.fianza_eur = 1000.00` y `RESERVA.fianza_cobrada_fecha = 2026-07-10`
-- **AND** `FACTURA (fianza).estado = 'cobrada'` y `RESERVA.fianza_status = 'cobrada'`
-- **AND** `AUDIT_LOG` registra la creación del `PAGO` y la transición de estados
-
-### Requirement: El justificante de pago de la fianza es opcional
-
-El sistema SHALL (DEBE) permitir registrar el cobro de la fianza **sin** adjuntar justificante (por
-ejemplo, cuando el Gestor recibe la fianza en efectivo el día del evento). En ese caso el `PAGO` se crea
-con `justificante_doc_id = NULL` y el estado avanza igualmente a `cobrada` (`FACTURA (fianza).estado =
-'cobrada'`, `RESERVA.fianza_status = 'cobrada'`, con `fianza_eur` y `fianza_cobrada_fecha` actualizados).
-El cobro es válido sin justificante. (Fuente: `US-030 §Cobro sin justificante`, `§Reglas de negocio`.)
-
-#### Scenario: Cobro de fianza sin justificante avanza igualmente a cobrada
-
-- **GIVEN** una RESERVA con `fianza_status = 'recibo_enviado'` y su recibo de fianza en `enviada`, y el
-  Gestor recibe la fianza en efectivo sin justificante digital
-- **WHEN** el Gestor registra el cobro sin adjuntar ningún documento
-- **THEN** se crea el `PAGO` con `justificante_doc_id = NULL`
-- **AND** `FACTURA (fianza).estado = 'cobrada'`, `RESERVA.fianza_status = 'cobrada'`, y `fianza_eur` /
-  `fianza_cobrada_fecha` quedan registrados
-
-### Requirement: El cobro de la fianza se admite en cualquier fecha hasta el día del evento
-
-El sistema SHALL (DEBE) admitir el registro del cobro de la fianza en cualquier momento **antes o el
-mismo día del evento**, sin fecha mínima: cualquier `fecha_cobro ≤ RESERVA.fecha_evento` es válida,
-incluida `fecha_cobro = fecha_evento` (cobro en T-0), que se procesa **sin diferencia** respecto al
-happy path. (Fuente: `US-030 §Cobro el mismo día del evento (T-0)`, `§Reglas de Validación`.)
-
-#### Scenario: Cobro el mismo día del evento (T-0) se acepta como el happy path
-
-- **GIVEN** una RESERVA con `fianza_status = 'recibo_enviado'` y `fecha_evento = hoy`
-- **WHEN** el Gestor registra el cobro con `fecha_cobro = hoy` (T-0)
-- **THEN** el sistema acepta el cobro sin diferencia respecto al happy path
-- **AND** `FACTURA (fianza).estado = 'cobrada'` y `RESERVA.fianza_status = 'cobrada'`
-
-### Requirement: Guarda contra el doble cobro de la fianza
-
-El sistema SHALL (DEBE), si `RESERVA.fianza_status = 'cobrada'` (el cobro ya fue registrado), **rechazar**
-un nuevo intento de registrar el cobro de fianza con un error informativo ("La fianza ya está marcada como
-cobrada") y **NO crear ningún `PAGO` adicional**. La guarda se evalúa **dentro de la transacción**
-releyendo el estado de la RESERVA con bloqueo de fila (`SELECT ... FOR UPDATE`) de PostgreSQL, de modo que
-dos peticiones concurrentes se serializan y solo la primera registra el cobro; la segunda ve `cobrada` y
-aborta. La serialización es del motor SQL (lock de fila), **nunca** mediante locks distribuidos
-(Redis/Redlock). (Fuente: `US-030 §Intento de doble cobro`, `§Reglas de Validación`; `CLAUDE.md §Regla
-crítica: bloqueo atómico`; `design.md §D-1`.)
-
-#### Scenario: Segundo intento de cobro sobre fianza ya cobrada se rechaza
-
-- **GIVEN** una RESERVA con `fianza_status = 'cobrada'` (el cobro ya fue registrado con su `PAGO`)
-- **WHEN** el Gestor intenta registrar otro cobro de fianza
-- **THEN** el sistema rechaza la acción con "La fianza ya está marcada como cobrada"
-- **AND** no se crea ningún `PAGO` adicional
-
-#### Scenario: Dos registros de cobro de fianza concurrentes solo crean un PAGO
-
-- **GIVEN** una RESERVA con `fianza_status = 'recibo_enviado'` sobre la que llegan dos peticiones de
-  registro de cobro de fianza concurrentes
-- **WHEN** ambas transacciones intentan registrar el cobro a la vez
-- **THEN** el bloqueo de fila (`SELECT ... FOR UPDATE`) serializa las transacciones: la primera crea el
-  `PAGO` y deja `fianza_status = 'cobrada'`; la segunda ve `cobrada` y aborta
-- **AND** existe **un único** `PAGO` para la fianza, sin doble cobro
-
-### Requirement: Política "Negociable" — el cobro con fianza pendiente avisa pero no bloquea
-
-El sistema SHALL (DEBE), si `RESERVA.fianza_status = 'pendiente'` (el recibo de fianza nunca fue enviado
-al cliente), **NO bloquear de forma dura** el registro del cobro, sino aplicar la política **"Negociable"**:
-emitir un **aviso** ("El recibo de fianza no ha sido enviado al cliente. ¿Desea registrar el cobro
-igualmente?") y requerir una **confirmación explícita** del Gestor. Si el Gestor **confirma**, el cobro se
-registra igualmente (crea el `PAGO`, avanza `FACTURA (fianza).estado = 'cobrada'` y `RESERVA.fianza_status
-= 'cobrada'`, actualiza `fianza_eur`/`fianza_cobrada_fecha`) y el flujo excepcional queda **trazado en
-`AUDIT_LOG`** (cobro registrado sobre fianza no enviada). Si el Gestor **cancela**, el sistema **no
-realiza ninguna acción** (no crea `PAGO` ni cambia el estado). Este comportamiento **diverge** del de la
-liquidación (US-029), donde el estado `pendiente` bloquea de forma dura.
-
-En el flujo "Negociable" confirmado (`confirmarSinRecibo = true` sobre `fianza_status = 'pendiente'`), el
-tratamiento de la `FACTURA (tipo = 'fianza')` queda **RESUELTO por la decisión humana D-2(b)** (Gate SDD
-aprobado), sin depender de que el recibo se haya emitido:
-
-1. **Si existe una `FACTURA (fianza)` en `estado = 'borrador'`** (recibo generado pero nunca emitido,
-   `fianza_status = 'pendiente'`): el cobro confirmado la lleva **DIRECTAMENTE a `cobrada`**
-   (`borrador → cobrada`, sin pasar por `enviada`), y el sistema DEBE documentar en `AUDIT_LOG` el **salto
-   de estado** de la FACTURA (`borrador → cobrada`) además de la traza del cobro sobre fianza no enviada.
-2. **Si NO existe ninguna `FACTURA (fianza)`** (fianza omitida porque `RESERVA.fianza_default_eur = 0`):
-   el sistema DEBE **crear al vuelo** una `FACTURA (tipo = 'fianza')` para la reserva y marcarla
-   directamente `estado = 'cobrada'`, dejando la correspondiente traza de **creación** de la FACTURA en
-   `AUDIT_LOG` (además de la del cobro sobre fianza no enviada).
-
-En ambos casos el resto del cobro es idéntico al happy path (se crea el `PAGO` conciliado contra esa
-FACTURA(fianza), `RESERVA.fianza_status = 'cobrada'`, `fianza_eur = importe`, `fianza_cobrada_fecha =
-fecha_cobro`). La ausencia del flag (`confirmarSinRecibo` no presente o `false`) sobre `pendiente` sigue
-devolviendo "confirmación requerida" y **NO** crea `PAGO` ni FACTURA. (Fuente: `US-030 §Cobro con
-fianza_status = pendiente`; `design.md §D-2` — **decisión D-2(b) aprobada en el Gate SDD**.)
-
-#### Scenario: Cobro con fianza pendiente confirmado por el Gestor se registra con traza
-
-- **GIVEN** una RESERVA con `fianza_status = 'pendiente'` (el recibo de fianza nunca fue enviado)
-- **WHEN** el Gestor intenta registrar el cobro y **confirma** el aviso "El recibo de fianza no ha sido
-  enviado al cliente. ¿Desea registrar el cobro igualmente?"
-- **THEN** el cobro se registra: se crea el `PAGO`, `FACTURA (fianza).estado = 'cobrada'`,
-  `RESERVA.fianza_status = 'cobrada'` y `fianza_eur` / `fianza_cobrada_fecha` quedan actualizados
-- **AND** `AUDIT_LOG` registra el flujo excepcional (cobro sobre fianza no enviada)
-
-#### Scenario: Cobro con fianza pendiente cancelado por el Gestor no realiza ninguna acción
-
-- **GIVEN** una RESERVA con `fianza_status = 'pendiente'`
-- **WHEN** el Gestor recibe el aviso "Negociable" y **cancela** en lugar de confirmar
-- **THEN** el sistema no crea ningún `PAGO` y el `fianza_status` permanece `'pendiente'`
-
-#### Scenario: Cobro confirmado con FACTURA(fianza) en borrador salta directamente a cobrada (D-2b)
-
-- **GIVEN** una RESERVA con `fianza_status = 'pendiente'` cuya `FACTURA (tipo = 'fianza')` existe en
-  `estado = 'borrador'` (recibo generado pero nunca emitido)
-- **WHEN** el Gestor registra el cobro con `confirmarSinRecibo = true`
-- **THEN** la `FACTURA (fianza)` transiciona **directamente** `borrador → cobrada` (sin pasar por
-  `enviada`), se crea el `PAGO` conciliado contra ella, `RESERVA.fianza_status = 'cobrada'` y
-  `fianza_eur` / `fianza_cobrada_fecha` quedan actualizados
-- **AND** `AUDIT_LOG` documenta el **salto de estado** de la FACTURA (`borrador → cobrada`) además de la
-  traza del cobro sobre fianza no enviada
-
-#### Scenario: Cobro confirmado sin FACTURA(fianza) crea la factura al vuelo y la marca cobrada (D-2b)
-
-- **GIVEN** una RESERVA con `fianza_status = 'pendiente'` y **sin** `FACTURA (tipo = 'fianza')` porque la
-  fianza se omitió (`RESERVA.fianza_default_eur = 0`)
-- **WHEN** el Gestor registra el cobro con `confirmarSinRecibo = true`
-- **THEN** el sistema **crea al vuelo** una `FACTURA (tipo = 'fianza')` para la reserva y la marca
-  directamente `estado = 'cobrada'`, crea el `PAGO` conciliado contra ella, `RESERVA.fianza_status =
-  'cobrada'` y `fianza_eur` / `fianza_cobrada_fecha` quedan actualizados
-- **AND** `AUDIT_LOG` registra la **creación** de la `FACTURA (fianza)` (`accion = 'crear'`) además de la
-  traza del cobro sobre fianza no enviada
-
-### Requirement: Validación de fecha de cobro no posterior al evento e importe positivo
-
-El sistema SHALL (DEBE) validar, antes de crear el `PAGO`, que `PAGO.fecha_cobro` sea una fecha válida
-**≤ `RESERVA.fecha_evento`** (no se puede registrar el cobro de la fianza después del evento) y que
-`PAGO.importe` sea **> 0**. Si alguna validación falla, el sistema DEBE **rechazar** el registro sin crear
-`PAGO` ni cambiar el estado, devolviendo un error de validación. `RESERVA.fianza_eur` y
-`RESERVA.fianza_cobrada_fecha` se actualizan **simultáneamente** con el `PAGO`; `FACTURA (fianza).estado`
-solo pasa a `cobrada` cuando se crea el `PAGO` correspondiente (en la misma transacción). Estas
-validaciones son lógica de **dominio puro**. (Fuente: `US-030 §Reglas de Validación`; `design.md §D-1`.)
-
-#### Scenario: Fecha de cobro posterior al evento se rechaza
-
-- **GIVEN** una RESERVA con `fianza_status = 'recibo_enviado'` y `fecha_evento = 2026-07-12`
-- **WHEN** el Gestor introduce una `fecha_cobro = 2026-07-13` (posterior al evento)
-- **THEN** el sistema rechaza el registro con un error de validación y no crea `PAGO` ni cambia el estado
-
-#### Scenario: Importe de fianza no positivo se rechaza
-
-- **GIVEN** una RESERVA con `fianza_status = 'recibo_enviado'`
-- **WHEN** el Gestor introduce `importe = 0` (o negativo)
-- **THEN** el sistema rechaza el registro con un error de validación y no crea `PAGO` ni cambia el estado
-
-### Requirement: El cobro de la fianza habilita la tercera precondición del inicio del evento sin transicionar la reserva
-
-El sistema SHALL (DEBE), al dejar `RESERVA.fianza_status = 'cobrada'`, habilitar la **tercera de las tres
-precondiciones** de la futura transición `reserva_confirmada → evento_en_curso` (las otras dos son
-`pre_evento_status = 'cerrado'` y `liquidacion_status = 'cobrada'`, US-031). Este requisito **NO**
-transiciona por sí mismo el `RESERVA.estado` a `evento_en_curso` ni evalúa las otras precondiciones: la
-transición se modela en US-031. Adicionalmente, si en el día del evento `fianza_status ≠ 'cobrada'`, la
-política hardcoded "Negociable" implica que la verificación de precondiciones del inicio del evento genera
-una **alerta crítica no bloqueante** ("⚠️ Fianza pendiente de cobro. Puede registrarla ahora o proceder
-sin ella"): el inicio del evento **no se bloquea** por fianza impagada; el Gestor decide manualmente. La
-integración de esa alerta en el flujo de transición pertenece a US-031. (Fuente: `US-030 §Reglas de
-negocio`, `§Evento en T-0 con fianza sin cobrar (FA-01)`; `er-diagram.md §guarda evento_en_curso`.)
-
-#### Scenario: Tras el cobro de la fianza, el estado de la reserva no avanza a evento_en_curso
-
-- **GIVEN** una RESERVA `reserva_confirmada` cuyo cobro de fianza se acaba de registrar (`fianza_status =
-  'cobrada'`)
-- **WHEN** el sistema completa el registro del cobro
-- **THEN** `RESERVA.fianza_status = 'cobrada'` queda disponible como la tercera precondición del inicio
-  del evento
-- **AND** `RESERVA.estado` permanece `reserva_confirmada` (la transición a `evento_en_curso` es de US-031)
-
-#### Scenario: Evento en T-0 con fianza sin cobrar genera alerta no bloqueante (FA-01)
-
-- **GIVEN** una RESERVA con `fecha_evento = hoy` y `fianza_status = 'recibo_enviado'` (fianza no cobrada)
-- **WHEN** el sistema verifica las precondiciones para el inicio del evento
-- **THEN** el sistema muestra una alerta crítica **no bloqueante** ("⚠️ Fianza pendiente de cobro. Puede
-  registrarla ahora o proceder sin ella (política Negociable)")
-- **AND** el inicio del evento no se bloquea por la fianza impagada; el Gestor decide manualmente
-
-### Requirement: Registro de la devolución de la fianza con derivación del estado final y auditoría
-
-El sistema SHALL (DEBE) permitir al **Gestor** registrar en Slotify la **devolución de la fianza** que
-ha ejecutado externamente en su banca, sobre una RESERVA en `estado = 'post_evento'` con
-`fianza_status = 'cobrada'` y `CLIENTE.iban_devolucion IS NOT NULL`, indicando `importe_devuelto` y
-`fecha_cobro` (la fecha real del abono). En una **única unidad transaccional atómica**, el sistema
-SHALL (DEBE): establecer `RESERVA.fianza_devuelta_eur = importe_devuelto` y
-`RESERVA.fianza_devuelta_fecha = fecha_cobro`; **derivar** y establecer el estado final de la fianza
-según el importe (`importe_devuelto == fianza_eur` ⇒ `fianza_status = 'devuelta'`; `importe_devuelto <
-fianza_eur`, incluido `0,00 €`, ⇒ `fianza_status = 'retenida_parcial'`); y registrar `AUDIT_LOG` con
-`accion = 'actualizar'`, `entidad = 'RESERVA'`, `datos_anteriores = {fianza_status: 'cobrada',
-fianza_devuelta_eur: null, fianza_devuelta_fecha: null}` y `datos_nuevos = {fianza_status:
-<devuelta|retenida_parcial>, fianza_devuelta_eur, fianza_devuelta_fecha}`. La derivación del estado
-final es lógica de **dominio puro** y **no** la elige el Gestor. La acción **no** genera ninguna
-FACTURA nueva (la FACTURA de tipo `fianza` ya existe desde US-030) y **no** dispara ningún email
-automático (no hay código E asignado en §9.3). La acción se ejecuta bajo el contexto RLS del `tenant`
-del Gestor autenticado (JWT), nunca cross-tenant. (Fuente: `US-036 §Historia`, `§Happy Path`,
-`§Reglas de negocio`, `§Reglas de Validación`; UC-27 pasos 4–8; `er-diagram.md §RESERVA fianza`;
-`CLAUDE.md §Multi-tenancy`.)
-
-#### Scenario: Devolución completa deja la fianza en estado devuelta y audita
-
-- **GIVEN** una RESERVA en `estado = 'post_evento'`, `fianza_status = 'cobrada'`, `fianza_eur =
-  1000.00`, `fianza_cobrada_fecha = 2026-05-15` y `CLIENTE.iban_devolucion = 'ES9121000418450200051332'`
-- **WHEN** el Gestor registra `importe_devuelto = 1000.00` y `fecha_cobro = 2026-06-05`
-- **THEN** el sistema deriva `fianza_status = 'devuelta'` (importe igual a la fianza cobrada)
-- **AND** establece `RESERVA.fianza_devuelta_eur = 1000.00` y `RESERVA.fianza_devuelta_fecha = 2026-06-05`
-- **AND** registra en `AUDIT_LOG` `accion = 'actualizar'`, `entidad = 'RESERVA'`,
-  `datos_anteriores = {fianza_status: 'cobrada', fianza_devuelta_eur: null, fianza_devuelta_fecha: null}`,
-  `datos_nuevos = {fianza_status: 'devuelta', fianza_devuelta_eur: 1000.00, fianza_devuelta_fecha: 2026-06-05}`
-
-#### Scenario: El estado final se deriva del importe, no lo elige el Gestor
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_status = 'cobrada'` y `fianza_eur = 1500.00`
-- **WHEN** el Gestor registra `importe_devuelto = 1500.00`
-- **THEN** el sistema deriva `fianza_status = 'devuelta'` sin que el Gestor seleccione el estado
-- **AND** cualquier `importe_devuelto < 1500.00` derivaría `fianza_status = 'retenida_parcial'`
-
-### Requirement: Devolución parcial o retención total deja la fianza en retenida_parcial con motivo
-
-El sistema SHALL (DEBE), cuando `importe_devuelto < fianza_eur` (devolución parcial por desperfectos,
-FA-01) o `importe_devuelto = 0,00 €` (retención total), derivar `fianza_status = 'retenida_parcial'`,
-establecer `RESERVA.fianza_devuelta_eur = importe_devuelto` (`0,00 €` es un valor **válido**) y
-`RESERVA.fianza_devuelta_fecha = fecha_cobro`, y **exigir** un **motivo de retención** (texto libre)
-que SHALL (DEBE) quedar **persistido en el expediente de la RESERVA** (destino concreto —campo
-`notas` vs. campo dedicado— fijado en el gate, `design.md §D-2`) y reflejado en `AUDIT_LOG`. En
-`retenida_parcial`, la ausencia del motivo SHALL (DEBE) rechazar el registro con un error de
-validación. (Fuente: `US-036 §FA-01`, `§Reglas de negocio` motivo de retención, `§Reglas de
-Validación` retención total válida.)
-
-#### Scenario: Devolución parcial por desperfectos deja la fianza en retenida_parcial (FA-01)
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_status = 'cobrada'` y `fianza_eur = 1500.00`
-- **WHEN** el Gestor registra `importe_devuelto = 1000.00`, `motivo_retencion = 'Daños en vajilla
-  valorados en 500 €'` y `fecha_cobro = 2026-06-06`
-- **THEN** el sistema deriva `fianza_status = 'retenida_parcial'`
-- **AND** establece `RESERVA.fianza_devuelta_eur = 1000.00` y `RESERVA.fianza_devuelta_fecha = 2026-06-06`
-- **AND** el motivo de retención queda persistido en el expediente de la RESERVA
-- **AND** `AUDIT_LOG` registra `datos_nuevos = {fianza_status: 'retenida_parcial', fianza_devuelta_eur: 1000.00, ...}`
-
-#### Scenario: Retención total (importe 0,00 €) también deja la fianza en retenida_parcial
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_status = 'cobrada'` y `fianza_eur = 1000.00`
-- **WHEN** el Gestor registra `importe_devuelto = 0.00` con un motivo de retención de toda la fianza
-- **THEN** el sistema acepta `fianza_devuelta_eur = 0.00` como valor válido
-- **AND** deriva `fianza_status = 'retenida_parcial'`
-
-#### Scenario: Devolución parcial sin motivo de retención se rechaza
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_status = 'cobrada'` y `fianza_eur = 1500.00`
-- **WHEN** el Gestor registra `importe_devuelto = 1000.00` **sin** indicar un motivo de retención
-- **THEN** el sistema rechaza el registro con un error de validación (motivo de retención requerido)
-- **AND** no se modifica ningún campo de `RESERVA`
-
-### Requirement: Validación del importe devuelto no superior a la fianza cobrada
-
-El sistema SHALL (DEBE) validar, **antes de cualquier escritura**, que `importe_devuelto ≤
-RESERVA.fianza_eur` (no se puede devolver más de lo cobrado) y que `importe_devuelto ≥ 0`. Si la
-validación falla, el sistema DEBE **rechazar** el registro con un error de validación ("El importe a
-devolver no puede superar la fianza cobrada"), **sin** modificar ningún campo de `RESERVA` y **sin**
-crear `DOCUMENTO`. La comparación se realiza con precisión **decimal de 2 posiciones** (no coma
-flotante). Esta validación es lógica de **dominio puro**. (Fuente: `US-036 §FA-02`, `§Reglas de
-Validación`.)
-
-#### Scenario: Importe superior a la fianza cobrada se rechaza (FA-02)
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_status = 'cobrada'` y `fianza_eur = 1000.00`
-- **WHEN** el Gestor introduce `importe_devuelto = 1500.00`
-- **THEN** el sistema rechaza el registro con "El importe a devolver (1.500,00 €) no puede superar la
-  fianza cobrada (1.000,00 €)"
-- **AND** ningún campo de `RESERVA` se modifica y no se crea `DOCUMENTO`
-
-### Requirement: Validación de la fecha de devolución no anterior a la fecha de cobro de la fianza
-
-El sistema SHALL (DEBE) validar, **antes de cualquier escritura**, que `fecha_cobro` (la fecha real
-del abono de la devolución) sea **≥ `RESERVA.fianza_cobrada_fecha`** (no se puede devolver antes de
-haber cobrado la fianza). `fecha_cobro` es **obligatoria**. Si la validación falla, el sistema DEBE
-**rechazar** el registro con un error de validación ("La fecha de devolución no puede ser anterior a
-la fecha de cobro de la fianza"), sin modificar `RESERVA` ni crear `DOCUMENTO`. Esta validación es
-lógica de **dominio puro**. (Fuente: `US-036 §FA-03`, `§Reglas de Validación`.)
-
-#### Scenario: Fecha de devolución anterior al cobro de la fianza se rechaza (FA-03)
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_status = 'cobrada'` y `fianza_cobrada_fecha =
-  2026-05-15`
-- **WHEN** el Gestor introduce `fecha_cobro = 2026-05-10` (anterior al cobro de la fianza)
-- **THEN** el sistema rechaza el registro con "La fecha de devolución no puede ser anterior a la fecha
-  de cobro de la fianza (15/05/2026)"
-- **AND** ningún campo de `RESERVA` se modifica
-
-### Requirement: El justificante de la devolución es un DOCUMENTO opcional (tipo justificante_pago)
-
-El sistema SHALL (DEBE) permitir adjuntar al registro de la devolución un **justificante** (imagen o
-PDF de la transferencia), que se almacena como `DOCUMENTO` con `tipo = 'justificante_pago'`,
-`reserva_id` de la RESERVA, `url`, `mime_type`, `nombre_archivo` y `tenant_id` correcto, creado en la
-misma transacción y auditado con `accion = 'crear'`. El justificante es **recomendado pero no
-bloqueante en MVP** (FA-04): si el Gestor **no** lo adjunta, la devolución se registra **igualmente**
-(el `fianza_status` avanza al estado final derivado y los campos `fianza_devuelta_*` se establecen),
-**no** se crea `DOCUMENTO`, y el sistema DEBE presentar una advertencia indicando que puede adjuntarse
-más tarde desde la ficha de documentos de la RESERVA. (Fuente: `US-036 §Happy Path` documento,
-`§FA-04`, `§Reglas de negocio`; reutiliza la entidad `DOCUMENTO` polimórfica de US-024/US-029/US-030.)
-
-#### Scenario: Registro con justificante crea el DOCUMENTO tipo justificante_pago
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_status = 'cobrada'` y `fianza_eur = 1000.00`
-- **WHEN** el Gestor registra `importe_devuelto = 1000.00`, `fecha_cobro = 2026-06-05` y adjunta el
-  justificante PDF de la transferencia
-- **THEN** se crea un `DOCUMENTO` con `tipo = 'justificante_pago'`, `reserva_id = <id>`,
-  `mime_type = 'application/pdf'` y `url = <url del PDF subido>`
-- **AND** `AUDIT_LOG` registra la creación del `DOCUMENTO`
-
-#### Scenario: Registro sin justificante se permite con advertencia (FA-04)
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_status = 'cobrada'` y el Gestor no tiene el PDF
-  del justificante disponible
-- **WHEN** el Gestor completa la devolución sin adjuntar justificante y confirma
-- **THEN** el sistema registra la devolución igualmente (`fianza_status` avanza al estado final y
-  `fianza_devuelta_eur` / `fianza_devuelta_fecha` quedan establecidos)
-- **AND** no se crea ningún `DOCUMENTO`
-- **AND** el sistema muestra la advertencia "⚠️ Devolución registrada sin justificante. Puedes
-  adjuntarlo más tarde desde la ficha de documentos de la reserva."
-
-### Requirement: Precondición triple de disponibilidad del registro de devolución
-
-El sistema SHALL (DEBE) permitir el registro de la devolución **únicamente** cuando `RESERVA.estado =
-'post_evento'` **Y** `RESERVA.fianza_status = 'cobrada'` **Y** `CLIENTE.iban_devolucion IS NOT NULL`.
-Si falta cualquiera de las tres condiciones, el backend DEBE **rechazar** la acción con un error de
-conflicto de estado (fuera de `post_evento` / fianza no cobrada / sin IBAN de devolución), **sin**
-modificar `RESERVA` ni crear `DOCUMENTO`. El backend NO DEBE confiar en que la UI oculte la acción:
-DEBE validar la precondición en el servidor. La UI DEBE, de forma complementaria, condicionar la
-**visibilidad/habilitación** de la acción a que se cumplan las tres condiciones. (Fuente: `US-036
-§Reglas de negocio` disponibilidad, `§Reglas de Validación`; dependencias US-034/US-030/US-035.)
-
-#### Scenario: Fianza no cobrada rechaza el registro de devolución
-
-- **GIVEN** una RESERVA en `estado = 'post_evento'` con `fianza_status = 'recibo_enviado'` (fianza aún
-  no cobrada)
-- **WHEN** se intenta registrar una devolución sobre esa RESERVA
-- **THEN** el sistema rechaza la acción como conflicto de estado (fianza no cobrada)
-- **AND** ningún campo de `RESERVA` se modifica y no se crea `DOCUMENTO`
-
-#### Scenario: Sin IBAN de devolución rechaza el registro
-
-- **GIVEN** una RESERVA en `post_evento` con `fianza_status = 'cobrada'` y `CLIENTE.iban_devolucion IS
-  NULL`
-- **WHEN** se intenta registrar una devolución sobre esa RESERVA
-- **THEN** el sistema rechaza la acción (falta el IBAN de devolución del cliente)
-- **AND** ningún campo de `RESERVA` se modifica
-
-#### Scenario: Registro fuera de post_evento se rechaza como conflicto de estado
-
-- **GIVEN** una RESERVA cuyo `estado ≠ 'post_evento'` (p. ej. `evento_en_curso`)
-- **WHEN** se intenta registrar una devolución sobre esa RESERVA
-- **THEN** el sistema rechaza la acción como conflicto de estado
-- **AND** ningún campo de `RESERVA` se modifica
-
-### Requirement: Guarda contra el doble registro de la devolución e irreversibilidad del estado final
-
-El sistema SHALL (DEBE), si `RESERVA.fianza_status ∈ {'devuelta', 'retenida_parcial'}` (la devolución
-ya fue registrada), **rechazar** un nuevo intento de registro de devolución con un error informativo
-("La devolución de la fianza ya está registrada") y **NO** modificar `RESERVA` ni crear un segundo
-`DOCUMENTO`. La guarda se evalúa **dentro de la transacción** releyendo el estado de la RESERVA con
-bloqueo de fila (`SELECT ... FOR UPDATE`) de PostgreSQL, de modo que dos peticiones concurrentes se
-serializan y solo la primera registra la devolución; la segunda ve el estado final y aborta. La
-serialización es del motor SQL (lock de fila), **nunca** mediante locks distribuidos (Redis/Redlock).
-Una vez alcanzado `devuelta` o `retenida_parcial`, el estado **es final** y **no retrocede** a
-`cobrada`: la acción es **irreversible** en MVP. (Fuente: `US-036 §Reglas de negocio` irreversible,
-`§Reglas de Validación`; `CLAUDE.md §Regla crítica: bloqueo atómico`; `design.md §D-4`.)
-
-#### Scenario: Segundo intento de registro sobre fianza ya devuelta se rechaza
-
-- **GIVEN** una RESERVA con `fianza_status = 'devuelta'` (la devolución ya fue registrada)
-- **WHEN** el Gestor intenta registrar otra devolución
-- **THEN** el sistema rechaza la acción con "La devolución de la fianza ya está registrada"
-- **AND** no se modifica `RESERVA` ni se crea ningún `DOCUMENTO` adicional
-
-#### Scenario: Dos registros de devolución concurrentes solo aplican uno
-
-- **GIVEN** una RESERVA con `fianza_status = 'cobrada'` sobre la que llegan dos peticiones de registro
-  de devolución concurrentes
-- **WHEN** ambas transacciones intentan registrar la devolución a la vez
-- **THEN** el bloqueo de fila (`SELECT ... FOR UPDATE`) serializa las transacciones: la primera aplica
-  el estado final y la segunda ve un estado final y aborta
-- **AND** la RESERVA queda con **un único** registro de devolución, sin doble aplicación
 
 ### Requirement: Emisión y envío de la factura de señal al aprobar y enviar E3 (borrador → enviada)
 
@@ -1354,4 +762,130 @@ congelado; `US-027` borrador de liquidación; `US-029` cobro; `calculo-total-liq
 - **WHEN** el mismo recálculo (mismo aforo/duración) se aplica de nuevo
 - **THEN** el estado final es idéntico (`importe_total = 3600,00`, `importe_liquidacion =
   2400,00`, `importe_senal = 1200,00`) y no se duplican FACTURAS
+
+### Requirement: Subida pasiva del comprobante de la fianza recibida
+
+El sistema SHALL (DEBE) permitir al Gestor **subir el comprobante** de la transferencia de fianza
+recibida del cliente sobre una RESERVA en `estado ∈ {reserva_confirmada, evento_en_curso,
+post_evento}`, siguiendo el patrón pasivo de `condiciones_particulares` (capability `confirmacion`):
+en una **única transacción atómica** (bajo contexto RLS del tenant del JWT), el sistema DEBE subir
+el fichero al almacén de documentos y **crear una fila `DOCUMENTO`** con `tipo =
+'comprobante_fianza'`, `reserva_id`, `tenant_id`, `url`, `mime_type`, `nombre_archivo` y
+`tamano_bytes`; establecer `RESERVA.fianza_status = 'cobrada'` (comprobante recibido),
+`RESERVA.fianza_cobrada_fecha = now()` y la referencia al comprobante
+(`RESERVA.fianza_comprobante_fecha`, análoga a `cond_part_firmadas_fecha`); y registrar `AUDIT_LOG`
+con `accion = 'actualizar'`. La subida es **opcional** (no requerida para ningún avance de estado),
+acepta `mime_type ∈ {image/jpeg, image/png, application/pdf}` y tamaño ≤ 10 MB, y **NO** genera
+ninguna FACTURA, recibo, numeración ni email. La subida **no es una transición** de la máquina de
+estados. Es **re-subible** conservando el histórico de `DOCUMENTO` (la fila más reciente es la de
+referencia). (Fuente: plan §Fianza pasiva; patrón `US-024 condiciones-firmadas`; `er-diagram.md
+§3.15 DOCUMENTO`, `§RESERVA fianza_*`.)
+
+#### Scenario: Subir el comprobante crea el DOCUMENTO y marca la fianza como cobrada
+
+- **GIVEN** una RESERVA en `reserva_confirmada` con `fianza_status = 'pendiente'` bajo el tenant
+  del JWT
+- **WHEN** el Gestor sube el comprobante de la transferencia (PDF ≤ 10 MB)
+- **THEN** se crea una fila `DOCUMENTO` con `tipo = 'comprobante_fianza'`, `reserva_id`, `tenant_id`,
+  `url` y `mime_type`
+- **AND** `RESERVA.fianza_status = 'cobrada'`, `RESERVA.fianza_cobrada_fecha` y
+  `RESERVA.fianza_comprobante_fecha` quedan con el timestamp actual
+- **AND** no se crea ninguna FACTURA de fianza ni se envía ningún email
+- **AND** `AUDIT_LOG` registra `accion = 'actualizar'`
+
+#### Scenario: La subida del comprobante es opcional y no bloquea el avance del evento
+
+- **GIVEN** una RESERVA en `reserva_confirmada` con `fianza_status = 'pendiente'` sin comprobante
+- **WHEN** se evalúa el avance del evento (ver capability `ficha-operativa`)
+- **THEN** la ausencia del comprobante de fianza **no** bloquea la transición a `evento_en_curso`
+
+#### Scenario: Re-subir el comprobante conserva el histórico
+
+- **GIVEN** una RESERVA con `fianza_status = 'cobrada'` y un comprobante ya subido
+- **WHEN** el Gestor sube una versión más legible del comprobante
+- **THEN** se crea una **nueva** fila `DOCUMENTO` `tipo = 'comprobante_fianza'` (la anterior
+  permanece) y `RESERVA.fianza_comprobante_fecha` se actualiza al nuevo timestamp
+
+### Requirement: Emisión standalone de la factura de liquidación (flujo espejo de la señal)
+
+El sistema SHALL (DEBE) permitir al Gestor **aprobar y enviar** la factura de liquidación como un
+flujo **independiente** de la fianza y **espejo del flujo de la señal** (US-023), sobre una FACTURA
+`tipo = 'liquidacion'` en `estado = 'borrador'`: pasar `FACTURA(liquidacion).estado = 'enviada'`,
+asignar `numero_factura` `F-YYYY-NNNN` **en la emisión** (secuencial y único por `tenant_id` + año,
+reutilizando la numeración de US-022 con `UNIQUE(tenant_id, numero_factura)` + reintento ante
+`P2002`, **nunca** locks distribuidos), fijar `fecha_emision = now()`, marcar los `RESERVA_EXTRA`
+sumados al borrador con el `factura_id` de la liquidación, y transicionar
+`RESERVA.liquidacion_status = 'facturada'`, **solo si el envío del email E4 se confirma** (E4 = solo
+liquidación; ver capability `comunicaciones`). El sistema DEBE registrar `AUDIT_LOG` con `accion =
+'actualizar'`, `datos_anteriores.estado = 'borrador'`, `datos_nuevos.estado = 'enviada'`. Este flujo
+**NO** emite ningún recibo de fianza, **NO** toca `RESERVA.fianza_status` y **NO** adjunta ningún PDF
+de fianza. La ficha DEBE mostrar un **banner permanente** "Liquidación enviada el {fecha/hora}"
+(derivado de `fecha_emision`), espejo del banner de la señal. (Fuente: plan §Liquidación standalone;
+patrón `US-023 §Emisión y envío de la factura de señal`; `er-diagram.md §3.12 FACTURA`.)
+
+#### Scenario: Aprobar y enviar la liquidación la emite con número y la deja enviada (solo liquidación)
+
+- **GIVEN** una FACTURA `tipo = 'liquidacion'` en `estado = 'borrador'` con `numero_factura = NULL`,
+  PDF disponible y datos fiscales válidos
+- **WHEN** el Gestor aprueba y envía la liquidación y el envío de E4 se confirma
+- **THEN** `FACTURA(liquidacion).estado = 'enviada'`, `numero_factura = 'F-{año}-NNNN'` y
+  `fecha_emision` con el timestamp actual
+- **AND** `RESERVA.liquidacion_status = 'facturada'` y los `RESERVA_EXTRA` sumados quedan marcados
+  con el `factura_id`
+- **AND** `RESERVA.fianza_status` no cambia y no se emite ningún recibo ni PDF de fianza
+- **AND** `AUDIT_LOG` registra `accion = 'actualizar'` con `datos_anteriores.estado = 'borrador'` y
+  `datos_nuevos.estado = 'enviada'`
+
+#### Scenario: El banner permanente muestra la fecha y hora de envío de la liquidación
+
+- **GIVEN** una FACTURA `tipo = 'liquidacion'` en `estado = 'enviada'` con `fecha_emision` informado
+- **WHEN** se lee la ficha de la reserva
+- **THEN** la sección de liquidación muestra un banner permanente "Liquidación enviada el
+  {fecha/hora}" derivado de `fecha_emision`
+
+### Requirement: Registro de la devolución completa de la fianza con email de confirmación
+
+El sistema SHALL (DEBE) permitir al Gestor registrar la **devolución completa** de la fianza sobre
+una RESERVA en `estado = 'post_evento'` con `fianza_status = 'cobrada'`, con una **única acción**
+("Devolver fianza") **sin** pedir IBAN, importe ni motivo. En una **única transacción atómica** (bajo
+contexto RLS del tenant del JWT), el sistema DEBE: establecer `RESERVA.fianza_status = 'devuelta'` y
+`RESERVA.fianza_devuelta_fecha = now()` (la devolución es siempre por el importe completo
+`fianza_eur`, no se persiste un importe devuelto parcial); y registrar `AUDIT_LOG` con `accion =
+'actualizar'`, `entidad = 'RESERVA'`, `datos_anteriores = {fianza_status: 'cobrada',
+fianza_devuelta_fecha: null}`, `datos_nuevos = {fianza_status: 'devuelta', fianza_devuelta_fecha}`.
+Como efecto **posterior al commit** y **best-effort** (patrón `disparar-e8.adapter.ts`), el sistema
+DEBE disparar el **email nuevo de "fianza devuelta"** al `CLIENTE.email` (capability
+`comunicaciones`): su fallo **no revierte** el registro de la devolución (la RESERVA permanece en
+`devuelta`) y es **reintentable**. La acción **no** genera ninguna FACTURA. El estado `devuelta` es
+**final e irreversible** en MVP. (Fuente: plan §Devolución simplificada; UC-27; patrón post-commit
+best-effort `US-035 disparar-e8`; `er-diagram.md §RESERVA fianza_*`, `§3.16 COMUNICACION`.)
+
+#### Scenario: Devolver fianza deja la fianza en devuelta y dispara el email de confirmación
+
+- **GIVEN** una RESERVA en `post_evento` con `fianza_status = 'cobrada'`, `fianza_eur = 500.00` y
+  `fianza_cobrada_fecha` informado
+- **WHEN** el Gestor pulsa "Devolver fianza"
+- **THEN** `RESERVA.fianza_status = 'devuelta'` y `RESERVA.fianza_devuelta_fecha` queda con el
+  timestamp actual
+- **AND** el sistema dispara, post-commit, el email de "fianza devuelta" al `CLIENTE.email` con el
+  importe `fianza_eur`
+- **AND** `AUDIT_LOG` registra `accion = 'actualizar'` con `datos_anteriores.fianza_status =
+  'cobrada'` y `datos_nuevos.fianza_status = 'devuelta'`
+- **AND** no se genera ninguna FACTURA y no se pide IBAN, importe ni motivo
+
+#### Scenario: El fallo del email post-commit no revierte la devolución
+
+- **GIVEN** una RESERVA cuya devolución de fianza acaba de registrarse (`fianza_status = 'devuelta'`,
+  commit realizado)
+- **WHEN** el envío del email de "fianza devuelta" falla en el proveedor
+- **THEN** la RESERVA permanece en `fianza_status = 'devuelta'` (el registro no se revierte)
+- **AND** la `COMUNICACION` queda en `fallido` y el email es reintentable desde la ficha
+
+#### Scenario: Segundo intento de devolución sobre fianza ya devuelta se rechaza
+
+- **GIVEN** una RESERVA con `fianza_status = 'devuelta'` (la devolución ya fue registrada)
+- **WHEN** el Gestor intenta registrar otra devolución
+- **THEN** el sistema rechaza la acción ("La devolución de la fianza ya está registrada") sin
+  modificar `RESERVA` (la guarda se evalúa dentro de la transacción con `SELECT ... FOR UPDATE`,
+  nunca con locks distribuidos)
 
