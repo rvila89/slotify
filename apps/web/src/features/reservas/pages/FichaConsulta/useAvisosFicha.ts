@@ -39,6 +39,9 @@ export const useAvisosFicha = () => {
   const [edicionConsulta, setEdicionConsulta] = useState<string | null>(null);
   /** Factura de señal enviada exitosamente (E3 inicial): banner arriba de la ficha. */
   const [facturaEnviada, setFacturaEnviada] = useState(false);
+  /** Borrador de solicitud de datos fiscales creado (change
+      solicitud-datos-presupuesto-borrador): banner arriba de la ficha. */
+  const [solicitudDatos, setSolicitudDatos] = useState(false);
 
   // Limpia TODOS los avisos. Es la base del invariante: cada `mostrarX` la invoca
   // antes de fijar el suyo, de modo que solo el último queda no nulo.
@@ -59,6 +62,7 @@ export const useAvisosFicha = () => {
     setFirma(null);
     setEdicionConsulta(null);
     setFacturaEnviada(false);
+    setSolicitudDatos(false);
   }, []);
 
   const mostrarResultado = useCallback(
@@ -167,6 +171,10 @@ export const useAvisosFicha = () => {
     cerrar();
     setFacturaEnviada(true);
   }, [cerrar]);
+  const mostrarSolicitudDatosBorrador = useCallback(() => {
+    cerrar();
+    setSolicitudDatos(true);
+  }, [cerrar]);
 
   return {
     resultado,
@@ -201,6 +209,8 @@ export const useAvisosFicha = () => {
     facturaEnviada,
     mostrarEdicionConsulta,
     mostrarFacturaSenalEnviada,
+    solicitudDatos,
+    mostrarSolicitudDatosBorrador,
     cerrar,
   };
 };

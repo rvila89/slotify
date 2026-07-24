@@ -15,6 +15,7 @@ const SUBTIPO_EMAIL_LABEL: Record<SubtipoEmail, string> = {
   fecha_confirmada: 'Fecha confirmada',
   cola_espera: 'En cola de espera',
   cambio_fecha: 'Cambio de fecha',
+  solicitud_datos: 'Solicitud de datos para presupuesto',
 };
 
 /**

@@ -105,6 +105,7 @@ const renderDialog = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onConfirmado = vi.fn();
   const onAbiertoChange = vi.fn();
+  const onSolicitarDatos = vi.fn();
   render(
     <QueryClientProvider client={queryClient}>
       <GenerarPresupuestoDialog
@@ -112,10 +113,11 @@ const renderDialog = () => {
         abierto
         onAbiertoChange={onAbiertoChange}
         onConfirmado={onConfirmado}
+        onSolicitarDatos={onSolicitarDatos}
       />
     </QueryClientProvider>,
   );
-  return { onConfirmado, onAbiertoChange };
+  return { onConfirmado, onAbiertoChange, onSolicitarDatos };
 };
 
 beforeEach(() => {

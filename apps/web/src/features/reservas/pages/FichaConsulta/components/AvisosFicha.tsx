@@ -12,6 +12,7 @@ import { AvisoDescarte } from './AvisoDescarte';
 import { AvisoEdicionConsulta } from './AvisoEdicionConsulta';
 import { AvisoCondicionesFirmadas } from '@/features/condiciones-firmadas';
 import { AvisoFacturaSenalEnviada } from './AvisoFacturaSenalEnviada';
+import { AvisoSolicitudDatosBorrador } from './AvisoSolicitudDatosBorrador';
 import type { PendienteInvitadosResultado, Reserva } from '../../../model/types';
 import type { components } from '@/api-client';
 
@@ -37,35 +38,25 @@ type Props = {
   senal: ConfirmarSenalResponse | null;
   forzar: ForzarInicioEventoResponse | null;
   finalizar: FinalizarEventoResponse | null;
-  onCerrarResultado: () => void;
-  onCerrarInvitados: () => void;
-  onCerrarVisita: () => void;
-  onCerrarInteresado: () => void;
-  onCerrarReservaInmediata: () => void;
-  onCerrarExtension: () => void;
-  onCerrarPresupuesto: () => void;
-  onCerrarEdicion: () => void;
-  onCerrarSenal: () => void;
-  onCerrarForzar: () => void;
-  onCerrarFinalizar: () => void;
   /** Envío manual del borrador E1 confirmado (mejoras-detalle-consulta §D-3). */
   emailEnviado: boolean;
-  onCerrarEmailEnviado: () => void;
   /** Desenlace terminal de descarte (consulta US-013 / pre-reserva): aviso inline verde
       en la cabecera, en sustitución del toast de Sonner. */
   descarte: { reserva: Reserva; tipo: 'consulta' | 'prereserva' } | null;
-  onCerrarDescarte: () => void;
   /** Firma de condicions particulars registrada (Mejora C): banner inline verde en la
       cabecera, en sustitución del toast de Sonner. */
   firma: 'registrada' | 'reregistrada' | null;
-  onCerrarFirma: () => void;
   /** Edición exitosa de campos simples de la consulta (US-051 §Punto 2): banner
       inline verde con el código de la consulta. */
   edicionConsulta: string | null;
-  onCerrarEdicionConsulta: () => void;
   /** Factura de señal enviada al cliente (E3 inicial): banner inline verde. */
   facturaEnviada: boolean;
-  onCerrarFacturaEnviada: () => void;
+  /** Borrador de solicitud de datos fiscales creado desde el modal de presupuesto
+      (change solicitud-datos-presupuesto-borrador): banner inline verde. */
+  solicitudDatos: boolean;
+  /** Cierra el aviso visible. Único por el invariante "un solo aviso a la vez": todos
+      los avisos comparten el mismo `useAvisosFicha().cerrar`, que limpia todo el estado. */
+  onCerrar: () => void;
 };
 
 export const AvisosFicha = ({
@@ -80,63 +71,42 @@ export const AvisosFicha = ({
   senal,
   forzar,
   finalizar,
-  onCerrarResultado,
-  onCerrarInvitados,
-  onCerrarVisita,
-  onCerrarInteresado,
-  onCerrarReservaInmediata,
-  onCerrarExtension,
-  onCerrarPresupuesto,
-  onCerrarEdicion,
-  onCerrarSenal,
-  onCerrarForzar,
-  onCerrarFinalizar,
   emailEnviado,
-  onCerrarEmailEnviado,
   descarte,
-  onCerrarDescarte,
   firma,
-  onCerrarFirma,
   edicionConsulta,
-  onCerrarEdicionConsulta,
   facturaEnviada,
-  onCerrarFacturaEnviada,
+  solicitudDatos,
+  onCerrar,
 }: Props) => (
   <>
-    {emailEnviado && <AvisoEmailEnviado onCerrar={onCerrarEmailEnviado} />}
-    {firma && <AvisoCondicionesFirmadas tipo={firma} onCerrar={onCerrarFirma} />}
-    {edicionConsulta && (
-      <AvisoEdicionConsulta codigo={edicionConsulta} onCerrar={onCerrarEdicionConsulta} />
-    )}
+    {emailEnviado && <AvisoEmailEnviado onCerrar={onCerrar} />}
+    {firma && <AvisoCondicionesFirmadas tipo={firma} onCerrar={onCerrar} />}
+    {edicionConsulta && <AvisoEdicionConsulta codigo={edicionConsulta} onCerrar={onCerrar} />}
     {descarte && (
-      <AvisoDescarte
-        tipo={descarte.tipo}
-        codigo={descarte.reserva.codigo}
-        onCerrar={onCerrarDescarte}
-      />
+      <AvisoDescarte tipo={descarte.tipo} codigo={descarte.reserva.codigo} onCerrar={onCerrar} />
     )}
-    {resultado && <AvisosTransicion resultado={resultado} onCerrar={onCerrarResultado} />}
-    {invitados && <AvisoPendienteInvitados resultado={invitados} onCerrar={onCerrarInvitados} />}
-    {visita && <AvisoVisitaProgramada reserva={visita} onCerrar={onCerrarVisita} />}
-    {interesado && <AvisoResultadoVisita reserva={interesado} onCerrar={onCerrarInteresado} />}
+    {resultado && <AvisosTransicion resultado={resultado} onCerrar={onCerrar} />}
+    {invitados && <AvisoPendienteInvitados resultado={invitados} onCerrar={onCerrar} />}
+    {visita && <AvisoVisitaProgramada reserva={visita} onCerrar={onCerrar} />}
+    {interesado && <AvisoResultadoVisita reserva={interesado} onCerrar={onCerrar} />}
     {reservaInmediata && (
-      <AvisoReservaInmediata reserva={reservaInmediata} onCerrar={onCerrarReservaInmediata} />
+      <AvisoReservaInmediata reserva={reservaInmediata} onCerrar={onCerrar} />
     )}
-    {extension && <AvisoBloqueoExtendido reserva={extension} onCerrar={onCerrarExtension} />}
+    {extension && <AvisoBloqueoExtendido reserva={extension} onCerrar={onCerrar} />}
     <AvisosEdicionPresupuesto
       presupuesto={presupuesto}
       edicion={edicion}
       senal={senal}
       forzar={forzar}
       finalizar={finalizar}
-      onCerrarPresupuesto={onCerrarPresupuesto}
-      onCerrarEdicion={onCerrarEdicion}
-      onCerrarSenal={onCerrarSenal}
-      onCerrarForzar={onCerrarForzar}
-      onCerrarFinalizar={onCerrarFinalizar}
+      onCerrarPresupuesto={onCerrar}
+      onCerrarEdicion={onCerrar}
+      onCerrarSenal={onCerrar}
+      onCerrarForzar={onCerrar}
+      onCerrarFinalizar={onCerrar}
     />
-    {facturaEnviada && (
-      <AvisoFacturaSenalEnviada onCerrar={onCerrarFacturaEnviada} />
-    )}
+    {facturaEnviada && <AvisoFacturaSenalEnviada onCerrar={onCerrar} />}
+    {solicitudDatos && <AvisoSolicitudDatosBorrador onCerrar={onCerrar} />}
   </>
 );
