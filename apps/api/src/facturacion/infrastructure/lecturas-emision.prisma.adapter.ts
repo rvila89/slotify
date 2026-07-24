@@ -29,12 +29,10 @@ import type {
 } from '../application/enviar-factura-senal.use-case';
 import type { VerificarE3EnviadoPort } from '../application/obtener-factura-senal.use-case';
 import type {
-  BuscarDocumentoCondicionesPort,
   BuscarE3PreviaPort,
   CargarFacturaSenalReenvioPort,
   CargarReservaReenvioE3Port,
   ComunicacionE3PreviaReenvio,
-  DocumentoCondicionesReenvio,
   FacturaSenalReenvio,
   ReservaReenvioE3,
 } from '../application/reenviar-e3.use-case';
@@ -58,6 +56,7 @@ export class CargarReservaEmisionPrismaAdapter {
           liquidacionStatus: true,
           fianzaStatus: true,
           fianzaEur: true,
+          condPartFirmadas: true,
           cliente: { select: { email: true, nombre: true, apellidos: true } },
         },
       });
@@ -74,6 +73,7 @@ export class CargarReservaEmisionPrismaAdapter {
       liquidacionStatus: fila.liquidacionStatus,
       fianzaStatus: fila.fianzaStatus,
       fianzaEur: fila.fianzaEur === null ? null : fila.fianzaEur.toFixed(2),
+      condPartFirmadas: fila.condPartFirmadas,
       clienteEmail: fila.cliente.email ?? '',
       clienteNombre: fila.cliente.nombre,
       clienteApellidos: fila.cliente.apellidos ?? '',
@@ -302,43 +302,6 @@ export class BuscarE3PreviaPrismaAdapter {
   };
 }
 
-/** Busca el DOCUMENTO de condiciones ya persistido (GAP 1) de la reserva, para reutilizarlo. */
-@Injectable()
-export class BuscarDocumentoCondicionesPrismaAdapter {
-  constructor(private readonly prisma: PrismaService) {}
-
-  readonly buscar: BuscarDocumentoCondicionesPort = async (params) => {
-    const fila = await this.prisma.$transaction(async (tx) => {
-      await this.prisma.fijarTenant(tx, params.tenantId);
-      return tx.documento.findFirst({
-        where: {
-          reservaId: params.reservaId,
-          tenantId: params.tenantId,
-          tipo: 'condiciones_particulares',
-        },
-        select: {
-          idDocumento: true,
-          tenantId: true,
-          reservaId: true,
-          url: true,
-          mimeType: true,
-        },
-      });
-    });
-    if (fila === null) {
-      return null;
-    }
-    const documento: DocumentoCondicionesReenvio = {
-      idDocumento: fila.idDocumento,
-      tipo: 'condiciones_particulares',
-      reservaId: fila.reservaId ?? params.reservaId,
-      tenantId: fila.tenantId,
-      url: fila.url,
-      mimeType: fila.mimeType,
-    };
-    return documento;
-  };
-}
 
 /** Carga la FACTURA de liquidación de una reserva (para el reenvío). */
 @Injectable()

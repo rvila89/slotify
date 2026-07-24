@@ -4,8 +4,6 @@
  * `FacturaSenalEnvioError` con el envío inicial; aquí solo se observan los `codigo` relevantes al
  * reenvío:
  *  - 409 `E3_NO_ENVIADO_PREVIAMENTE`: no hay un E3 enviado previamente que reenviar.
- *  - 409 `CONDICIONES_NO_CONFIGURADAS`: el tenant no tiene condiciones particulares configuradas
- *    (endurecido en GAP 2); hay que configurarlas para poder enviar E3.
  *  - 404 `FACTURA_SENAL_NO_ENCONTRADA`: no existe factura de señal en la reserva/tenant.
  *  - 502 / 503 `EMISION_ENVIO_FALLIDO`: fallo RECUPERABLE del reenvío (rollback total, reintentable).
  * Incluye fallback por status para no perder el desenlace si el `codigo` no llega.
@@ -15,7 +13,6 @@ import type { ErrorResponse, ReenvioE3Error } from '../model/types';
 type CodigoError =
   | 'FACTURA_SENAL_NO_ENCONTRADA'
   | 'E3_NO_ENVIADO_PREVIAMENTE'
-  | 'CONDICIONES_NO_CONFIGURADAS'
   | 'EMISION_ENVIO_FALLIDO';
 
 type CuerpoError = ErrorResponse & {
@@ -47,14 +44,6 @@ export const normalizarErrorReenvioE3 = (
           cuerpo.motivo ??
           primerMensaje(cuerpo) ??
           'No hay un E3 enviado previamente que reenviar.',
-      };
-    case 'CONDICIONES_NO_CONFIGURADAS':
-      return {
-        tipo: 'condiciones-no-configuradas',
-        mensaje:
-          cuerpo.motivo ??
-          primerMensaje(cuerpo) ??
-          'Configura las condiciones particulares del espacio para poder enviar E3.',
       };
     case 'FACTURA_SENAL_NO_ENCONTRADA':
       return {

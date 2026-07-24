@@ -71,6 +71,9 @@ const reservaEmision = (
   clienteNombre: 'Marta',
   clienteApellidos: 'Soler',
   fianzaEur: '500.00',
+  // change condiciones-…-liquidacion: gobierna el recordatorio condicional de E4. El campo
+  // aún no existe en `ReservaLiquidacionEmision` (RED); se añade vía cast.
+  ...(({ condPartFirmadas: false }) as unknown as Partial<ReservaLiquidacionEmision>),
   ...over,
 });
 
@@ -289,6 +292,44 @@ describe('EnviarFacturaLiquidacion — camino feliz (solo liquidación)', () => 
     await useCase.ejecutar(comando());
 
     expect(uow.ejecutar).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ===========================================================================
+// RECORDATORIO CONDICIONAL DE E4 (change condiciones-…-recordatorio-liquidacion):
+//   El email E4 recuerda al cliente que las CONDICIONES PARTICULARES FIRMADAS están
+//   pendientes de devolver SI Y SOLO SI `RESERVA.cond_part_firmadas = false`. El use-case
+//   propaga `recordarCondicionesPendientes = !condPartFirmadas` a `EnviarE4EmisionParams`.
+//   OJO: es `cond_part_firmadas` (lo RECIBIDO), NO `cond_part_enviadas_fecha` (lo enviado).
+// RED: `ReservaLiquidacionEmision` aún no tiene `condPartFirmadas` ni el use-case propaga el
+// flag → estos asserts FALLAN. GREEN es de `backend-developer`.
+// ===========================================================================
+
+describe('EnviarFacturaLiquidacion — recordatorio condicional de condiciones en E4', () => {
+  it('debe_propagar_recordarCondicionesPendientes_true_cuando_cond_part_firmadas_es_false', async () => {
+    const { useCase, enviarE4 } = montar({
+      reserva: reservaEmision({
+        ...(({ condPartFirmadas: false }) as unknown as Partial<ReservaLiquidacionEmision>),
+      }),
+    });
+
+    await useCase.ejecutar(comando());
+
+    const args = enviarE4.mock.calls[0][0] as Record<string, unknown>;
+    expect(args.recordarCondicionesPendientes).toBe(true);
+  });
+
+  it('debe_propagar_recordarCondicionesPendientes_false_cuando_cond_part_firmadas_es_true', async () => {
+    const { useCase, enviarE4 } = montar({
+      reserva: reservaEmision({
+        ...(({ condPartFirmadas: true }) as unknown as Partial<ReservaLiquidacionEmision>),
+      }),
+    });
+
+    await useCase.ejecutar(comando());
+
+    const args = enviarE4.mock.calls[0][0] as Record<string, unknown>;
+    expect(args.recordarCondicionesPendientes).toBe(false);
   });
 });
 

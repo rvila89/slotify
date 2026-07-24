@@ -217,13 +217,6 @@ export interface PresupuestoRepositoryPort {
 export interface TransicionarAPrereservaParams {
   idReserva: string;
   ttlExpiracion: Date;
-  /**
-   * Mejora B: al confirmar el presupuesto se envían las condiciones en E2, de modo que la
-   * RESERVA fija `cond_part_enviadas_fecha = now()` y `cond_part_firmadas = false` DENTRO de
-   * la misma transacción de la pre_reserva.
-   */
-  condPartEnviadasFecha: Date;
-  condPartFirmadas: false;
 }
 
 /** Repositorio tx-bound de la RESERVA: aplica la transición a `pre_reserva`. */
@@ -318,17 +311,6 @@ export interface DispararE2Port {
   }): Promise<void>;
 }
 
-/**
- * Puerto de generación del PDF de condicions particulars (Mejora B). Se invoca ANTES de
- * abrir la transacción: si degrada a `null` (tenant sin config/secciones) la confirmación
- * ABORTA con `CondicionesNoConfiguradasError` (409) sin efectos (ni PRESUPUESTO ni
- * transición). El `idioma` selecciona el texto bilingüe y la clave del PDF (Mejora A). El
- * envío del adjunto en E2 lo hace el adaptador de E2 (post-commit).
- */
-export interface GenerarCondicionesPort {
-  generar(params: { tenantId: string; idioma: 'es' | 'ca' }): Promise<string | null>;
-}
-
 /** Puerto de generación del PDF del presupuesto (infraestructura: Puppeteer/react-pdf). */
 export interface GenerarPdfPresupuestoPort {
   (params: {
@@ -378,11 +360,6 @@ export interface GenerarPresupuestoDeps {
   cargarCliente: CargarClientePort;
   generarPdf: GenerarPdfPresupuestoPort;
   clock: ClockPort;
-  /**
-   * Mejora B: puerto de generación del PDF de condiciones. Se consulta PRE-TX como guarda
-   * dura (null → 409). Opcional en tests unitarios previos que no ejercitan la guarda.
-   */
-  generarCondicionesPort?: GenerarCondicionesPort;
   /** Disparo del E2 post-commit (opcional en tests unitarios sin BD). */
   dispararE2?: DispararE2Port;
   /** Persistencia best-effort de `pdf_url` (opcional en tests unitarios sin BD). */
@@ -502,23 +479,6 @@ export class MetodoPagoRequeridoError extends Error {
   constructor() {
     super('El método de pago es obligatorio y debe ser transferencia o efectivo');
     this.name = 'MetodoPagoRequeridoError';
-  }
-}
-
-/**
- * Mejora B: el tenant no tiene condicions particulars configuradas (o sin secciones), de
- * modo que el PDF de condiciones degrada a `null`. Las condiciones son requisito DURO del
- * envío E2: la confirmación ABORTA sin efectos (ni PRESUPUESTO ni transición a pre_reserva
- * ni bloqueo de fecha). Mapea a HTTP 409 `CONDICIONES_NO_CONFIGURADAS`.
- */
-export class CondicionesNoConfiguradasError extends Error {
-  readonly codigo = 'CONDICIONES_NO_CONFIGURADAS' as const;
-  readonly reservaId: string;
-
-  constructor(reservaId: string) {
-    super('Configura las condiciones particulares del espacio para poder confirmar el presupuesto');
-    this.name = 'CondicionesNoConfiguradasError';
-    this.reservaId = reservaId;
   }
 }
 
@@ -648,12 +608,6 @@ export class GenerarPresupuestoUseCase {
     const ttlExpiracion = new Date(ahora.getTime() + settings.ttlPrereservaDias * DIA_MS);
     const tarifaId = tarifa.tarifaAConsultar ? null : tarifa.tarifaId;
 
-    // Mejora B: GUARDA DURA de condiciones ANTES de abrir la transacción. Las condiciones
-    // se envían ahora en E2 (confirmar presupuesto), no en E3. Si el PDF degrada a `null`
-    // (tenant sin config/secciones) se ABORTA con 409 sin efectos: la RESERVA NO transiciona
-    // ni se crea PRESUPUESTO (la UoW ni se invoca). El idioma sale de la reserva.
-    await this.asegurarCondicionesConfiguradas(comando, reserva);
-
     // Transacción única (all-or-nothing). Las precondiciones bajo lock (presupuesto
     // previo, re-guarda de origen implícita por el bloqueo) resuelven el doble clic /
     // la carrera D4; cualquier rechazo se propaga para que la UoW revierta. La numeración
@@ -707,13 +661,10 @@ export class GenerarPresupuestoUseCase {
       });
 
       // (b) Transición de la RESERVA a pre_reserva (ttl = now()+ttl_prereserva_dias).
-      //     Mejora B: en la misma tx fija cond_part_enviadas_fecha=now() y
-      //     cond_part_firmadas=false (las condiciones se envían en E2 post-commit).
+      //     Las condiciones se envían en E3 (change condiciones-…-senal-…), no aquí.
       await repos.reservas.transicionarAPrereserva({
         idReserva: comando.reservaId,
         ttlExpiracion,
-        condPartEnviadasFecha: ahora,
-        condPartFirmadas: false,
       });
 
       // (c) Bloqueo insert-o-update a 7 d (mismo TTL que la RESERVA). El UNIQUE /
@@ -845,29 +796,6 @@ export class GenerarPresupuestoUseCase {
         clienteId: reserva.clienteId,
       })) ?? null;
     return { reserva, cliente };
-  }
-
-  /**
-   * Mejora B: guarda dura de condiciones PRE-TX. Genera (o reutiliza) el PDF de condicions
-   * particulars en el idioma de la reserva; si degrada a `null` (tenant sin config/secciones)
-   * ABORTA con `CondicionesNoConfiguradasError` (409) sin efectos. Sin puerto configurado
-   * (tests unitarios previos) es un no-op para no romper esas baterías.
-   */
-  private async asegurarCondicionesConfiguradas(
-    comando: ConfirmarPresupuestoComando,
-    reserva: ReservaPresupuesto,
-  ): Promise<void> {
-    if (this.deps.generarCondicionesPort === undefined) {
-      return;
-    }
-    const idioma: 'es' | 'ca' = reserva.idioma === 'ca' ? 'ca' : 'es';
-    const urlCondiciones = await this.deps.generarCondicionesPort.generar({
-      tenantId: comando.tenantId,
-      idioma,
-    });
-    if (urlCondiciones === null) {
-      throw new CondicionesNoConfiguradasError(comando.reservaId);
-    }
   }
 
   /** Lee los settings del tenant (nunca hardcodeados). */

@@ -32,6 +32,7 @@ import {
   AuditoriaSenalEmisionPrismaRepository,
   ComunicacionSenalEmisionPrismaRepository,
   FacturaSenalEmisionPrismaRepository,
+  ReservaSenalEmisionPrismaRepository,
 } from './senal-emision-repository.prisma.adapter';
 
 @Injectable()
@@ -68,6 +69,7 @@ export class SenalEmisionUoWPrismaAdapter implements UnidadDeTrabajoSenalEmision
       await this.prisma.fijarTenant(tx, tenantId);
       const repos: RepositoriosSenalEmision = {
         facturas: new FacturaSenalEmisionPrismaRepository(tx),
+        reservas: new ReservaSenalEmisionPrismaRepository(tx),
         comunicaciones: new ComunicacionSenalEmisionPrismaRepository(tx),
         auditoria: new AuditoriaSenalEmisionPrismaRepository(tx),
       };

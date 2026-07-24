@@ -18,8 +18,12 @@ import {
 import type { EnviarEmailPort } from '../comunicaciones/domain/enviar-email.port';
 import type { CatalogoPlantillasPort } from '../comunicaciones/domain/catalogo-plantillas.port';
 import { DocumentosModule } from '../documentos/documentos.module';
-import { ALMACEN_DOCUMENTOS_PORT } from '../documentos/documentos.tokens';
+import {
+  ALMACEN_DOCUMENTOS_PORT,
+  GENERAR_PDF_CONDICIONES_PORT,
+} from '../documentos/documentos.tokens';
 import type { AlmacenDocumentosPort } from '../documentos/domain/almacen-documentos.port';
+import type { GenerarPdfCondicionesPort } from '../documentos/domain/generar-pdf-condiciones.port';
 import { renderizarDocumentoFacturaABytes } from '../documentos/presentation/documento-factura.render';
 import {
   GenerarFacturaSenalUseCase,
@@ -85,7 +89,6 @@ import {
 } from './application/reenviar-liquidacion.use-case';
 import {
   ReenviarE3UseCase,
-  type BuscarDocumentoCondicionesPort,
   type BuscarE3PreviaPort,
   type CargarFacturaSenalReenvioPort,
   type CargarReservaReenvioE3Port,
@@ -129,7 +132,6 @@ import {
   SenalEmisionUoWPrismaAdapter,
 } from './infrastructure/emision-uow.prisma.adapter';
 import {
-  BuscarDocumentoCondicionesPrismaAdapter,
   BuscarE3PreviaPrismaAdapter,
   CargarFacturaSenalReenvioPrismaAdapter,
   CargarLiquidacionReenvioPrismaAdapter,
@@ -218,7 +220,6 @@ import {
   CARGAR_RESERVA_REENVIO_E3_PORT,
   CARGAR_FACTURA_SENAL_REENVIO_PORT,
   BUSCAR_E3_PREVIA_PORT,
-  BUSCAR_DOCUMENTO_CONDICIONES_PORT,
   REENVIAR_E3_PORT,
   REGISTRAR_COMUNICACION_REENVIO_E3_PORT,
   FIJAR_CONDICIONES_ENVIADAS_REENVIO_PORT,
@@ -460,12 +461,6 @@ type CargarFacturaFn = (params: {
       inject: [PrismaService],
       useFactory: (prisma: PrismaService): BuscarE3PreviaPort =>
         new BuscarE3PreviaPrismaAdapter(prisma).buscar,
-    },
-    {
-      provide: BUSCAR_DOCUMENTO_CONDICIONES_PORT,
-      inject: [PrismaService],
-      useFactory: (prisma: PrismaService): BuscarDocumentoCondicionesPort =>
-        new BuscarDocumentoCondicionesPrismaAdapter(prisma).buscar,
     },
     {
       provide: REENVIAR_E3_PORT,
@@ -757,20 +752,23 @@ type CargarFacturaFn = (params: {
         UNIDAD_DE_TRABAJO_SENAL_EMISION_PORT,
         CARGAR_RESERVA_SENAL_EMISION_PORT,
         ENVIAR_E3_EMISION_PORT,
+        GENERAR_PDF_CONDICIONES_PORT,
         FACTURACION_CLOCK_PORT,
       ],
-      // Mejora B: E3 ya no envía condiciones (van en E2); el use-case no inyecta el PDF
-      // de condiciones ni toca la RESERVA.
+      // change condiciones-…-senal-…: E3 vuelve a llevar las condiciones (degradables); el
+      // use-case genera el PDF PRE-TX y fija `cond_part_enviadas_fecha` en la tx.
       useFactory: (
         unidadDeTrabajo: UnidadDeTrabajoSenalEmisionPort,
         cargarReserva: CargarReservaSenalEmisionPort,
         enviarE3: EnviarE3EmisionPort,
+        generarCondiciones: GenerarPdfCondicionesPort,
         clock: ClockSenalPort,
       ) =>
         new EnviarFacturaSenalUseCase({
           unidadDeTrabajo,
           cargarReserva,
           enviarE3,
+          generarCondiciones,
           clock,
         }),
     },
@@ -780,18 +778,20 @@ type CargarFacturaFn = (params: {
         CARGAR_RESERVA_REENVIO_E3_PORT,
         CARGAR_FACTURA_SENAL_REENVIO_PORT,
         BUSCAR_E3_PREVIA_PORT,
-        BUSCAR_DOCUMENTO_CONDICIONES_PORT,
+        GENERAR_PDF_CONDICIONES_PORT,
         REENVIAR_E3_PORT,
         REGISTRAR_COMUNICACION_REENVIO_E3_PORT,
         FIJAR_CONDICIONES_ENVIADAS_REENVIO_PORT,
         REGISTRAR_AUDITORIA_REENVIO_E3_PORT,
         FACTURACION_CLOCK_PORT,
       ],
+      // change condiciones-…-senal-…: el reenvío REGENERA el PDF de condiciones en blanco vía
+      // `GenerarPdfCondicionesPort` en vez de buscar un DOCUMENTO persistido (stale).
       useFactory: (
         cargarReserva: CargarReservaReenvioE3Port,
         cargarFacturaSenal: CargarFacturaSenalReenvioPort,
         buscarE3Previa: BuscarE3PreviaPort,
-        buscarDocumentoCondiciones: BuscarDocumentoCondicionesPort,
+        generarCondiciones: GenerarPdfCondicionesPort,
         reenviarE3: ReenviarE3Port,
         registrarComunicacion: RegistrarComunicacionReenvioE3Port,
         fijarCondicionesEnviadas: FijarCondicionesEnviadasReenvioPort,
@@ -802,7 +802,7 @@ type CargarFacturaFn = (params: {
           cargarReserva,
           cargarFacturaSenal,
           buscarE3Previa,
-          buscarDocumentoCondiciones,
+          generarCondiciones,
           reenviarE3,
           registrarComunicacion,
           fijarCondicionesEnviadas,

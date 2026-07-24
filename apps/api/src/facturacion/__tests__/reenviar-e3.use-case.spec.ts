@@ -33,7 +33,6 @@ import {
   type FacturaSenalReenvio,
   type ReservaReenvioE3,
   type ComunicacionE3PreviaReenvio,
-  type DocumentoCondicionesReenvio,
   type ClockPort,
 } from '../application/reenviar-e3.use-case';
 
@@ -88,18 +87,6 @@ const e3Previa = (
   ...over,
 });
 
-const documentoCondiciones = (
-  over: Partial<DocumentoCondicionesReenvio> = {},
-): DocumentoCondicionesReenvio => ({
-  idDocumento: 'doc-cond-1',
-  tipo: 'condiciones_particulares',
-  reservaId: RESERVA_ID,
-  tenantId: TENANT,
-  url: URL_PDF_CONDICIONES,
-  mimeType: 'application/pdf',
-  ...over,
-});
-
 // ---------------------------------------------------------------------------
 // Montaje del use-case con dobles de puertos. Intencionadamente SIN puertos de
 // emisión/renumeración de factura ni de transición de la RESERVA: el reenvío
@@ -111,20 +98,26 @@ const montar = (opciones: {
   reserva?: ReservaReenvioE3 | null;
   /** COMUNICACION E3 previa, o null si no hay ninguna (→ 409). */
   e3Previa?: ComunicacionE3PreviaReenvio | null;
-  documento?: DocumentoCondicionesReenvio | null;
+  /** Comportamiento del generador de condiciones: url (config) | null (degrada). */
+  condiciones?: 'url' | 'null';
   /** El proveedor de email falla en el reenvío. */
   reenvioFalla?: boolean;
 } = {}) => {
   const reserva = 'reserva' in opciones ? opciones.reserva : reservaReenvio();
   const senal = 'senal' in opciones ? opciones.senal : facturaSenalEmitida();
   const comE3 = 'e3Previa' in opciones ? opciones.e3Previa : e3Previa();
-  const documento = 'documento' in opciones ? opciones.documento : documentoCondiciones();
 
   const cargarReserva = jest.fn(async () => reserva);
   const cargarFacturaSenal = jest.fn(async () => senal);
   const buscarE3Previa = jest.fn(async () => comE3);
-  const buscarDocumentoCondiciones = jest.fn(async () => documento);
-  const generarCondiciones = jest.fn(async () => URL_PDF_CONDICIONES);
+  // Puerto NUEVO: el reenvío REGENERA el PDF en blanco vía `GenerarPdfCondicionesPort`
+  // (change condiciones-…-senal-…), en vez de buscar un DOCUMENTO persistido (código stale
+  // tras la Mejora B). Modo configurable: url (config) | null (degrada).
+  const generarCondiciones = {
+    generar: jest.fn(async (_params: { tenantId: string; idioma: 'es' | 'ca' }) =>
+      opciones.condiciones === 'null' ? null : URL_PDF_CONDICIONES,
+    ),
+  };
   const reenviarE3 = jest.fn(async (_params: Record<string, unknown>) => {
     if (opciones.reenvioFalla) throw new Error('PROVEEDOR_EMAIL_CAIDO');
     return { idComunicacion: 'com-e3-reenvio-1', estado: 'enviado' as const, fechaEnvio: AHORA };
@@ -136,23 +129,25 @@ const montar = (opciones: {
   const fijarCondicionesEnviadas = jest.fn(async () => undefined);
   const registrarAuditoria = jest.fn(async () => undefined);
 
-  const deps: ReenviarE3Deps = {
+  // `buscarDocumentoCondiciones` desaparece (código stale). Se inyecta vía cast porque en RED
+  // la firma viva de `ReenviarE3Deps` aún lo declara; el backend-developer lo sustituye por
+  // `generarCondiciones`.
+  const deps = {
     cargarReserva,
     cargarFacturaSenal,
     buscarE3Previa,
-    buscarDocumentoCondiciones,
+    generarCondiciones,
     reenviarE3,
     registrarComunicacion,
     fijarCondicionesEnviadas,
     registrarAuditoria,
     clock: relojFijo,
-  };
+  } as unknown as ReenviarE3Deps;
   return {
     useCase: new ReenviarE3UseCase(deps),
     cargarReserva,
     cargarFacturaSenal,
     buscarE3Previa,
-    buscarDocumentoCondiciones,
     generarCondiciones,
     reenviarE3,
     registrarComunicacion,
@@ -193,19 +188,33 @@ describe('ReenviarE3 — reenvío reutilizando documentos existentes (3.5)', () 
     expect(args.tenantId).toBe(TENANT);
   });
 
-  it('debe_reutilizar_los_documentos_existentes_sin_regenerar_ni_duplicar', async () => {
-    const { useCase, generarCondiciones, buscarDocumentoCondiciones, reenviarE3 } = montar();
+  it('debe_REGENERAR_el_PDF_de_condiciones_via_GenerarPdfCondicionesPort_no_buscar_documento_stale', async () => {
+    const { useCase, generarCondiciones, reenviarE3 } = montar();
 
     await useCase.ejecutar(comando());
 
-    // NO regenera el PDF de condiciones (reutiliza el DOCUMENTO ya persistido).
-    expect(generarCondiciones).not.toHaveBeenCalled();
-    expect(buscarDocumentoCondiciones).toHaveBeenCalledTimes(1);
-    // El reenvío adjunta la señal ya emitida y las condiciones ya persistidas.
+    // El reenvío REGENERA el PDF en blanco (change condiciones-…-senal-…) en vez de buscar un
+    // DOCUMENTO persistido (que tras mover las condiciones de E2 a E3 ya no existe).
+    expect(generarCondiciones.generar).toHaveBeenCalledTimes(1);
+    expect(generarCondiciones.generar).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: TENANT }),
+    );
+    // El reenvío adjunta la señal ya emitida y las condiciones regeneradas.
     const adjuntos = reenviarE3.mock.calls[0][0].adjuntos as ReadonlyArray<{ pdfUrl: string }>;
     expect(adjuntos.map((a) => a.pdfUrl)).toEqual(
       expect.arrayContaining([URL_PDF_SENAL, URL_PDF_CONDICIONES]),
     );
+  });
+
+  it('debe_reenviar_SOLO_la_senal_cuando_el_generador_de_condiciones_degrada_a_null', async () => {
+    const { useCase, reenviarE3 } = montar({ condiciones: 'null' });
+
+    await useCase.ejecutar(comando());
+
+    const adjuntos = reenviarE3.mock.calls[0][0].adjuntos as ReadonlyArray<{ clave: string }>;
+    expect(adjuntos).toHaveLength(1);
+    expect(adjuntos[0].clave).toBe('senal');
+    expect(adjuntos.some((a) => a.clave === 'condiciones')).toBe(false);
   });
 
   it('debe_actualizar_cond_part_enviadas_fecha_al_nuevo_timestamp', async () => {
@@ -230,9 +239,12 @@ describe('ReenviarE3 — reenvío reutilizando documentos existentes (3.5)', () 
     expect(registro.renumerar).toBeUndefined();
     expect(registro.transicionarReserva).toBeUndefined();
     expect(registro.avanzarEstado).toBeUndefined();
-    // Tampoco crea/regenera documentos.
+    // No crea/duplica documentos, pero SÍ REGENERA el PDF de condiciones vía el puerto
+    // (change condiciones-…-senal-…): `buscarDocumentoCondiciones` (stale) desaparece y
+    // `generarCondiciones` pasa a ser dependencia.
     expect(registro.crearDocumento).toBeUndefined();
-    expect(registro.generarCondiciones).toBeUndefined();
+    expect(registro.buscarDocumentoCondiciones).toBeUndefined();
+    expect(registro.generarCondiciones).toBeDefined();
   });
 
   it('debe_devolver_la_nueva_fecha_de_envio_del_reenvio', async () => {

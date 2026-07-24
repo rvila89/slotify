@@ -207,6 +207,9 @@ const crearUowFake = (
   ),
 });
 
+/** URL canónica del PDF de condiciones que devuelve el generador en el camino feliz. */
+const URL_CONDICIONES = 'https://storage.local/condiciones/tenant-1-es.pdf';
+
 const montar = (opciones: {
   senal?: FacturaSenalEmitible | null;
   reserva?: ReservaSenalEmision | null;
@@ -231,18 +234,30 @@ const montar = (opciones: {
     if (opciones.e3Falla) throw new Error('PROVEEDOR_EMAIL_CAIDO');
     return { idComunicacion: 'com-e3-1', estado: 'enviado' as const, fechaEnvio: AHORA };
   });
-  const deps: EnviarFacturaSenalDeps = {
+  const modoCondiciones = opciones.condiciones ?? 'url';
+  // Puerto NUEVO `GenerarPdfCondicionesPort` (change condiciones-…-senal-…): genera el PDF de
+  // condiciones PRE-TX. En RED aún no es dependencia de `EnviarFacturaSenalDeps`; se inyecta
+  // vía cast para expresar la intención. `generar({ tenantId, idioma }) → string | null`.
+  const generarCondiciones = {
+    generar: jest.fn(async (_params: { tenantId: string; idioma: 'es' | 'ca' }) => {
+      if (modoCondiciones === 'throw') throw new Error('fallo de render react-pdf');
+      return modoCondiciones === 'null' ? null : URL_CONDICIONES;
+    }),
+  };
+  const deps = {
     unidadDeTrabajo: uow,
     cargarReserva,
     enviarE3,
     clock: relojFijo,
-  };
+    generarCondiciones,
+  } as unknown as EnviarFacturaSenalDeps;
   return {
     useCase: new EnviarFacturaSenalUseCase(deps),
     repos,
     uow,
     cargarReserva,
     enviarE3,
+    generarCondiciones,
     deps,
   };
 };
@@ -486,61 +501,110 @@ describe('EnviarFacturaSenal — idempotencia de E3 (3.5)', () => {
 });
 
 // ===========================================================================
-// MEJORA B (change `condiciones-idioma-e2-firma-banner`) — las CONDICIONES se
-// envían ahora en E2 (confirmar presupuesto), NO en E3. `EnviarFacturaSenalUseCase`
-// deja de tener nada que ver con condiciones:
-//   · El array de adjuntos de E3 contiene SOLO `{ clave: 'senal', ... }`
-//     (sin `{ clave: 'condiciones' }`).
-//   · `repos.reservas.fijarCondicionesEnviadas` NUNCA se llama (deja de existir en
-//     el repositorio tx-bound de reservas del E3).
-//   · El use-case ya no depende de `generarCondiciones`.
-// RED: la implementación viva (6.4b/GAP2) SÍ adjunta condiciones y SÍ llama a
-// `fijarCondicionesEnviadas`; estos asserts FALLAN. GREEN es de `backend-developer`.
+// CONDICIONES EN E3 (change `condiciones-particulares-senal-y-recordatorio-liquidacion`)
+// — las CONDICIONS PARTICULARS vuelven a E3 (dejan E2), de forma DEGRADABLE:
+//   · Con condiciones configuradas (`GenerarPdfCondicionesPort` → URL): E3 lleva DOS
+//     adjuntos (`senal` + `condiciones`), se fija `cond_part_enviadas_fecha` DENTRO de la tx
+//     vía `fijarCondicionesEnviadas`, y `condicionesAdjuntas: true` viaja a los params de E3.
+//   · Sin condiciones (`GenerarPdfCondicionesPort` → null): E3 lleva SOLO la señal, NO se
+//     llama a `fijarCondicionesEnviadas`, `condicionesAdjuntas: false`, y no hay 409.
+//   · Fallo del generador (lanza): `.catch(() => null)` degrada igual que `null`.
+// El PDF de condiciones se genera PRE-TX (degradable). RED: la implementación viva (Mejora B)
+// NO adjunta condiciones ni depende de `generarCondiciones`; estos asserts FALLAN. GREEN es de
+// `backend-developer`.
 // ===========================================================================
 
-/**
- * Monta el use-case SIN el puerto `generarCondiciones` (post-Mejora B, ya no es
- * dependencia). El `enviarE3` y el `cargarReserva` se mantienen; los repos se reusan.
- * Se inyecta vía cast porque en RED la firma `EnviarFacturaSenalDeps` aún incluye
- * `generarCondiciones`; la firma reducida la aplica el backend-developer.
- */
-const montarSinCondiciones = () => {
-  const repos = crearReposFake();
-  const uow = crearUowFake(repos);
-  const cargarReserva = jest.fn(async () => reservaEmision());
-  const enviarE3 = jest.fn(async (_params: Record<string, unknown>) => ({
-    idComunicacion: 'com-e3-1',
-    estado: 'enviado' as const,
-    fechaEnvio: AHORA,
-  }));
-  const deps = {
-    unidadDeTrabajo: uow,
-    cargarReserva,
-    enviarE3,
-    clock: relojFijo,
-  } as unknown as EnviarFacturaSenalDeps;
-  return { useCase: new EnviarFacturaSenalUseCase(deps), repos, uow, enviarE3 };
-};
+/** Extrae los params con los que se invocó `enviarE3`. */
+const paramsE3 = (
+  enviarE3: jest.Mock,
+): Record<string, unknown> => enviarE3.mock.calls[0][0];
 
-describe('EnviarFacturaSenal — sin condiciones en E3 (Mejora B)', () => {
-  it('debe_enviar_E3_con_UN_solo_adjunto_de_clave_senal_sin_condiciones', async () => {
-    const { useCase, enviarE3 } = montarSinCondiciones();
+describe('EnviarFacturaSenal — condiciones adjuntas en E3 con condiciones configuradas', () => {
+  it('debe_adjuntar_la_senal_y_las_condiciones_generando_el_PDF_con_el_idioma_de_la_reserva', async () => {
+    const { useCase, enviarE3, generarCondiciones } = montar({ condiciones: 'url' });
 
     await useCase.ejecutar(comando());
 
-    expect(enviarE3).toHaveBeenCalledTimes(1);
-    const adjuntos = enviarE3.mock.calls[0][0].adjuntos as ReadonlyArray<{ clave: string }>;
-    // SOLO la señal: ni una entrada de condiciones.
+    // El generador se invoca con el tenant y el idioma de la reserva.
+    expect(generarCondiciones.generar).toHaveBeenCalledTimes(1);
+    expect(generarCondiciones.generar).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: TENANT }),
+    );
+    // E3 lleva DOS adjuntos: la señal y las condiciones.
+    const adjuntos = paramsE3(enviarE3).adjuntos as ReadonlyArray<{
+      clave: string;
+      nombre: string;
+      pdfUrl: string;
+    }>;
+    expect(adjuntos.map((a) => a.clave)).toEqual(
+      expect.arrayContaining(['senal', 'condiciones']),
+    );
+    const condiciones = adjuntos.find((a) => a.clave === 'condiciones');
+    // idioma 'es' → nombre 'condiciones-particulares.pdf'; pdfUrl = la generada.
+    expect(condiciones?.nombre).toBe('condiciones-particulares.pdf');
+    expect(condiciones?.pdfUrl).toBe(URL_CONDICIONES);
+  });
+
+  it('debe_fijar_cond_part_enviadas_fecha_dentro_de_la_tx_cuando_se_adjuntan_condiciones', async () => {
+    const { useCase, repos } = montar({ condiciones: 'url' });
+
+    await useCase.ejecutar(comando());
+
+    expect(repos.reservas.fijarCondicionesEnviadas).toHaveBeenCalledTimes(1);
+    expect(repos.reservas.fijarCondicionesEnviadas).toHaveBeenCalledWith(
+      expect.objectContaining({ reservaId: RESERVA_ID, condPartEnviadasFecha: AHORA }),
+    );
+  });
+
+  it('debe_propagar_condicionesAdjuntas_true_a_los_params_de_E3', async () => {
+    const { useCase, enviarE3 } = montar({ condiciones: 'url' });
+
+    await useCase.ejecutar(comando());
+
+    expect(paramsE3(enviarE3).condicionesAdjuntas).toBe(true);
+  });
+});
+
+describe('EnviarFacturaSenal — degradación sin condiciones configuradas (null)', () => {
+  it('debe_enviar_E3_con_solo_la_senal_cuando_el_generador_devuelve_null', async () => {
+    const { useCase, enviarE3 } = montar({ condiciones: 'null' });
+
+    await useCase.ejecutar(comando());
+
+    const adjuntos = paramsE3(enviarE3).adjuntos as ReadonlyArray<{ clave: string }>;
     expect(adjuntos).toHaveLength(1);
     expect(adjuntos[0].clave).toBe('senal');
     expect(adjuntos.some((a) => a.clave === 'condiciones')).toBe(false);
   });
 
-  it('NUNCA_debe_llamar_a_fijarCondicionesEnviadas_al_enviar_E3', async () => {
-    const { useCase, repos } = montarSinCondiciones();
+  it('NO_debe_fijar_cond_part_enviadas_fecha_cuando_no_hay_condiciones_adjuntas', async () => {
+    const { useCase, repos } = montar({ condiciones: 'null' });
 
     await useCase.ejecutar(comando());
 
+    expect(repos.reservas.fijarCondicionesEnviadas).not.toHaveBeenCalled();
+  });
+
+  it('debe_propagar_condicionesAdjuntas_false_y_no_lanzar_ningun_409', async () => {
+    const { useCase, enviarE3 } = montar({ condiciones: 'null' });
+
+    // No lanza (degradación): la señal se emite igual.
+    await expect(useCase.ejecutar(comando())).resolves.toBeDefined();
+    expect(paramsE3(enviarE3).condicionesAdjuntas).toBe(false);
+  });
+});
+
+describe('EnviarFacturaSenal — degradación cuando el generador de condiciones lanza', () => {
+  it('debe_atrapar_el_error_del_generador_y_enviar_E3_con_solo_la_senal', async () => {
+    const { useCase, enviarE3, repos } = montar({ condiciones: 'throw' });
+
+    // El `.catch(() => null)` degrada: la señal se envía igual, sin condiciones.
+    await expect(useCase.ejecutar(comando())).resolves.toBeDefined();
+
+    const adjuntos = paramsE3(enviarE3).adjuntos as ReadonlyArray<{ clave: string }>;
+    expect(adjuntos).toHaveLength(1);
+    expect(adjuntos[0].clave).toBe('senal');
+    expect(paramsE3(enviarE3).condicionesAdjuntas).toBe(false);
     expect(repos.reservas.fijarCondicionesEnviadas).not.toHaveBeenCalled();
   });
 });

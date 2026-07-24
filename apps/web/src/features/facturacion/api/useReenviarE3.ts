@@ -25,7 +25,6 @@ export type ReenviarE3Vars = {
  *  - 200: `ReenviarE3Response` (factura sin cambios + nueva COMUNICACION de reenvío + fecha).
  *  - 404 `FACTURA_SENAL_NO_ENCONTRADA` → no existe factura de señal.
  *  - 409 `E3_NO_ENVIADO_PREVIAMENTE` → no hay un E3 previo que reenviar.
- *  - 409 `CONDICIONES_NO_CONFIGURADAS` → el tenant no tiene condiciones configuradas (GAP 2).
  *  - 502 / 503 `EMISION_ENVIO_FALLIDO` → fallo recuperable, reintentable (rollback total).
  *
  * Tras éxito invalida la factura de señal y la colección de facturas de la reserva para reflejar la

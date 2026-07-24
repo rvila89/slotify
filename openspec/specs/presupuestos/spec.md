@@ -612,56 +612,6 @@ migra en 6.2; su migración a este mecanismo es 6.3). (Fuente:
 - **AND** un `P2002` de la fecha D4 (`UNIQUE(tenant_id, fecha)`) NO se reintenta
   y propaga como "fecha no disponible" (409)
 
-### Requirement: El email de presupuesto (E2) adjunta las Condicions particulars
-
-El disparo del email de presupuesto (E2, US-014 §D-7) SHALL (DEBE) adjuntar,
-además del PDF del presupuesto, el PDF de **"Condicions particulars"** del
-tenant **en el idioma de la reserva** (`RESERVA.idioma`, normalizado a `'es' | 'ca'`).
-El adaptador de disparo (`DispararE2Adapter`) DEBE obtener la URL del
-documento de condiciones vía el puerto **`GenerarPdfCondicionesPort`** con
-`{ tenantId, idioma }` (capability `documentos`) y, cuando la URL no sea `null`,
-**añadir** el adjunto
-`{ clave: 'condiciones', nombre: 'condicions-particulars.pdf', pdfUrl }` al array
-de adjuntos del E2. El disparo es **fire-and-forget post-commit**: si el
-documento de condiciones devuelve `null` post-commit (fallo transitorio — la guarda
-pre-tx garantiza que la config existe), el adjunto de condiciones se **OMITE sin romper**
-el despacho del E2. La **idempotencia** del E2 (índice UNIQUE parcial
-`(reserva_id, codigo_email=E2)`) se mantiene. (Fuente:
-`epico-6-documentos-pdf-roadmap` §6.4a Bloque B; `presupuestos` 6.1b
-`DispararE2Adapter`; US-014 / UC-14 §D-7; change `condiciones-idioma-e2-firma-banner`
-Mejora A+B.)
-
-#### Scenario: E2 adjunta presupuesto y condiciones en el idioma de la reserva
-
-- **GIVEN** un tenant con configuración de documento, una RESERVA con `idioma = 'es'`,
-  un presupuesto con `pdf_url` válida y `numero_presupuesto = '2026019'`, y un cliente
-  con nombre `Mercè` y apellidos `Escribano`
-- **WHEN** se dispara el E2 post-commit
-- **THEN** el motor de email recibe dos adjuntos: `presupuesto`
-  (`P{numeroPresupuesto} {nombre} {apellidos}.pdf`, p. ej. `P2026019 Mercè Escribano.pdf`) y `condiciones` (`condicions-particulars.pdf`)
-- **AND** el PDF de condiciones es el generado con `idioma = 'es'`
-
-#### Scenario: El nombre del adjunto usa el número de presupuesto y el nombre del cliente
-
-- **GIVEN** un presupuesto con `numero_presupuesto = '2026019'` y un cliente con
-  nombre `Mercè` y apellidos `Escribano`
-- **WHEN** se dispara el E2 post-commit
-- **THEN** el adjunto del presupuesto tiene `nombre = 'P2026019 Mercè Escribano.pdf'`
-
-#### Scenario: El nombre del adjunto usa fallback cuando no hay número de presupuesto
-
-- **GIVEN** un presupuesto histórico sin `numero_presupuesto` (`null`) y un cliente con
-  nombre `Mercè` y apellidos `Escribano`
-- **WHEN** se dispara el E2 post-commit
-- **THEN** el adjunto del presupuesto tiene `nombre = 'Presupuesto Mercè Escribano.pdf'`
-
-#### Scenario: E2 omite condiciones si el documento devuelve null post-commit
-
-- **GIVEN** un tenant cuyo documento de condiciones devuelve `null` (fallo transitorio post-commit)
-- **WHEN** se dispara el E2 post-commit con un presupuesto válido
-- **THEN** el motor de email recibe únicamente el adjunto `presupuesto`
-- **AND** el despacho del E2 no falla
-
 ### Requirement: Precondición de edición — pre_reserva y presupuesto no aceptado
 
 El sistema SHALL (DEBE) validar en el servidor, **antes** de cualquier cálculo o
@@ -1030,62 +980,6 @@ y E2-CA permanece `['nombre', 'codigoReserva']` (`esEdicion` NO es requerida). (
   variante CA) y NO se inserta el párrafo de "presupuesto actualizado"
 - **AND** `variablesRequeridas` sigue siendo `['nombre', 'codigoReserva']`
 
-### Requirement: Confirmar presupuesto requiere condicions particulars configuradas
-
-El sistema SHALL (DEBE) verificar que el tenant tiene condicions particulars configuradas
-**antes** de iniciar la transacción de BD al confirmar el presupuesto (`confirmar()` en
-`GenerarPresupuestoUseCase`). Si `generarCondicionesPort.generar({ tenantId, idioma })`
-devuelve `null` (tenant sin config o sin secciones), el sistema SHALL (DEBE) rechazar la
-operación con error `CondicionesNoConfiguradasError` (HTTP 409 `CONDICIONES_NO_CONFIGURADAS`)
-sin crear PRESUPUESTO ni transicionar la RESERVA.
-
-La guarda pre-tx MUST (DEBE) ser solo un check de existencia (presencia de config y
-secciones), no una generación definitiva del PDF: la generación real (render + subida)
-ocurre post-commit en `DispararE2Adapter`.
-
-#### Scenario: Confirmar presupuesto sin condicions configuradas falla con 409
-
-- **GIVEN** un tenant sin condicions particulars configuradas (o con secciones vacías) y
-  una RESERVA en estado origen válido
-- **WHEN** el gestor intenta confirmar el presupuesto
-- **THEN** el sistema responde 409 `CONDICIONES_NO_CONFIGURADAS`
-- **AND** no se crea ningún PRESUPUESTO
-- **AND** la RESERVA permanece en su estado original
-- **AND** `cond_part_enviadas_fecha` sigue siendo NULL
-
-#### Scenario: La guarda pre-tx no genera el PDF en el almacén
-
-- **GIVEN** un tenant con condicions configuradas
-- **WHEN** el sistema ejecuta la guarda pre-tx
-- **THEN** solo verifica la existencia de config y secciones sin subir ningún PDF al almacén
-
----
-
-### Requirement: Confirmar presupuesto fija cond_part_enviadas_fecha en la transacción
-
-El sistema SHALL (DEBE) fijar `RESERVA.cond_part_enviadas_fecha = now()` y
-`RESERVA.cond_part_firmadas = false` dentro de la transacción de `confirmar()` (misma
-unidad de trabajo que crea el PRESUPUESTO y transiciona la RESERVA a `pre_reserva`). La
-respuesta de `confirmar` MUST (DEBE) incluir `condPartFechaEnvio` (timestamp del envío
-de condiciones) para que el frontend refleje inmediatamente que las condicions fueron
-enviadas.
-
-#### Scenario: Confirmar presupuesto con condicions configuradas fija cond_part_enviadas_fecha
-
-- **GIVEN** un tenant con condicions configuradas y una RESERVA en estado origen válido
-- **WHEN** el gestor confirma el presupuesto
-- **THEN** el sistema crea el PRESUPUESTO, transiciona la RESERVA a `pre_reserva`
-- **AND** `RESERVA.cond_part_enviadas_fecha` queda fijado con el timestamp de la operación
-- **AND** `RESERVA.cond_part_firmadas = false`
-- **AND** el E2 se dispara post-commit con el PDF de condicions en el idioma de la reserva
-
-#### Scenario: cond_part_enviadas_fecha ya está fijado cuando llega E3
-
-- **GIVEN** una RESERVA cuyo presupuesto ya fue confirmado (cond_part_enviadas_fecha fijado)
-- **WHEN** el gestor envía la factura de señal (E3)
-- **THEN** E3 no modifica `cond_part_enviadas_fecha`
-- **AND** la tarjeta de firma de condicions en la ficha muestra estado "pendiente de firma"
-
 ### Requirement: Presupuesto de modificación tras confirmar (pago inicial fijo + liquidación restante)
 
 El sistema SHALL (DEBE), cuando se recalcula el precio de una RESERVA dentro de la ventana viva
@@ -1137,4 +1031,44 @@ use-case.ts`; `er-diagram.md §PRESUPUESTO`.)
 - **WHEN** el nuevo total pasa a `3600,00`
 - **THEN** "Pago inicial ya realizado" sigue siendo `1200,00` (NO se recalcula como 40 % de
   `3600,00`)
+
+### Requirement: El email de presupuesto (E2) adjunta solo el PDF del presupuesto
+
+El disparo del email de presupuesto (E2, US-014 §D-7) SHALL (DEBE) adjuntar
+**únicamente el PDF del presupuesto** de la reserva, referenciado por
+`PRESUPUESTO.pdf_url`. El E2 **NO** adjunta el PDF de "Condicions particulars" (que pasa a
+adjuntarse en la factura de la señal, E3 — ver capability `facturacion`) y el disparo del
+E2 **NO** invoca `GenerarPdfCondicionesPort` ni depende de él. El nombre del adjunto del
+presupuesto se compone con el número de presupuesto y el nombre del cliente
+(`P{numeroPresupuesto} {nombre} {apellidos}.pdf`, con fallback `Presupuesto {nombre}
+{apellidos}.pdf` cuando no hay número). El disparo es **fire-and-forget post-commit** y la
+**idempotencia** del E2 (índice UNIQUE parcial `(reserva_id, codigo_email=E2)`) se
+mantiene. (Fuente: `US-014` / UC-14 §D-7; `presupuestos` 6.1b `DispararE2Adapter`; change
+`condiciones-particulares-senal-y-recordatorio-liquidacion` — revierte la parte E2 de la
+Mejora B de `condiciones-idioma-e2-firma-banner`.)
+
+#### Scenario: E2 adjunta solo el presupuesto, sin condiciones
+
+- **GIVEN** un tenant con configuración de documento, una RESERVA con `idioma = 'es'`, un
+  presupuesto con `pdf_url` válida y `numero_presupuesto = '2026019'`, y un cliente con
+  nombre `Mercè` y apellidos `Escribano`
+- **WHEN** se dispara el E2 post-commit
+- **THEN** el motor de email recibe **un único** adjunto: `presupuesto`
+  (`P2026019 Mercè Escribano.pdf`)
+- **AND** el disparo del E2 **no** invoca `GenerarPdfCondicionesPort` ni adjunta ningún
+  documento de condiciones
+
+#### Scenario: El nombre del adjunto usa el número de presupuesto y el nombre del cliente
+
+- **GIVEN** un presupuesto con `numero_presupuesto = '2026019'` y un cliente con nombre
+  `Mercè` y apellidos `Escribano`
+- **WHEN** se dispara el E2 post-commit
+- **THEN** el adjunto del presupuesto tiene `nombre = 'P2026019 Mercè Escribano.pdf'`
+
+#### Scenario: El nombre del adjunto usa fallback cuando no hay número de presupuesto
+
+- **GIVEN** un presupuesto histórico sin `numero_presupuesto` (`null`) y un cliente con
+  nombre `Mercè` y apellidos `Escribano`
+- **WHEN** se dispara el E2 post-commit
+- **THEN** el adjunto del presupuesto tiene `nombre = 'Presupuesto Mercè Escribano.pdf'`
 

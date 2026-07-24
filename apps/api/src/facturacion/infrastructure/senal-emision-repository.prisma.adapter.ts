@@ -24,6 +24,7 @@ import type {
   FacturaSenalEmitible,
   FacturasSenalEmisionPort,
   RegistroAuditoriaSenalEmision,
+  ReservasSenalEmisionPort,
 } from '../application/enviar-factura-senal.use-case';
 import type { TipoFactura } from '../domain/factura';
 
@@ -140,6 +141,27 @@ export class ComunicacionSenalEmisionPrismaRepository
       estado: fila.estado,
       fechaEnvio: fila.fechaEnvio,
     };
+  }
+}
+
+/**
+ * Repositorio tx-bound de la RESERVA: fija `cond_part_enviadas_fecha` (y `cond_part_firmadas
+ * = false`) cuando E3 adjunta las condicions particulars (change condiciones-…-senal-…).
+ */
+export class ReservaSenalEmisionPrismaRepository implements ReservasSenalEmisionPort {
+  constructor(private readonly tx: Prisma.TransactionClient) {}
+
+  async fijarCondicionesEnviadas(params: {
+    reservaId: string;
+    condPartEnviadasFecha: Date;
+  }): Promise<void> {
+    await this.tx.reserva.update({
+      where: { idReserva: params.reservaId },
+      data: {
+        condPartEnviadasFecha: params.condPartEnviadasFecha,
+        condPartFirmadas: false,
+      },
+    });
   }
 }
 

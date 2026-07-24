@@ -13,7 +13,6 @@ import { AvisoErrorReenvioE3 } from './AvisoErrorReenvioE3';
  *  - Éxito (200): toast "E3 reenviado" (las queries de facturas se invalidan en el hook).
  *  - Error:
  *      - 409 `E3_NO_ENVIADO_PREVIAMENTE` → info "No hay un E3 enviado previamente que reenviar".
- *      - 409 `CONDICIONES_NO_CONFIGURADAS` → alerta "Configura las condiciones particulares…".
  *      - 502/503 `EMISION_ENVIO_FALLIDO` → advertencia reintentable (rollback total).
  *      - resto → error. El detalle inline lo muestra `AvisoErrorReenvioE3`.
  *
@@ -43,10 +42,6 @@ export const AccionReenviarE3 = ({ reservaId }: Props) => {
             notify.warning('Error de reenvío, reintenta', { description: error.mensaje });
           } else if (error.tipo === 'no-enviado-previamente') {
             notify.info(error.mensaje);
-          } else if (error.tipo === 'condiciones-no-configuradas') {
-            notify.warning('Condiciones particulares no configuradas', {
-              description: error.mensaje,
-            });
           } else {
             notify.error(error.mensaje);
           }

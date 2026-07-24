@@ -15,12 +15,6 @@ describe('normalizarErrorReenvioE3', () => {
     expect(e.mensaje).toContain('E3 enviado previamente');
   });
 
-  it('CONDICIONES_NO_CONFIGURADAS_409', () => {
-    const e = normalizarErrorReenvioE3(409, { codigo: 'CONDICIONES_NO_CONFIGURADAS' });
-    expect(e.tipo).toBe('condiciones-no-configuradas');
-    expect(e.mensaje).toContain('condiciones particulares');
-  });
-
   it('FACTURA_SENAL_NO_ENCONTRADA_404', () => {
     const e = normalizarErrorReenvioE3(404, { codigo: 'FACTURA_SENAL_NO_ENCONTRADA' });
     expect(e.tipo).toBe('no-encontrada');

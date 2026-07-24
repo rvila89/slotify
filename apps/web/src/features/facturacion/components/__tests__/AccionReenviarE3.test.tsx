@@ -9,8 +9,8 @@ import { AccionReenviarE3 } from '../AccionReenviarE3';
  * US-023 · GAP 3 — acción "Reenviar E3". Consume el SDK generado
  * (`apiClient.POST('/reservas/{id}/facturas/senal/reenviar')`, operación `reenviarE3`), aquí
  * DOBLADO; ningún test toca la red. Verifica: 200 → toast de éxito; 409
- * `E3_NO_ENVIADO_PREVIAMENTE` → aviso inline informativo; 409 `CONDICIONES_NO_CONFIGURADAS` →
- * alerta de configurar condiciones; 502 `EMISION_ENVIO_FALLIDO` → aviso reintentable.
+ * `E3_NO_ENVIADO_PREVIAMENTE` → aviso inline informativo; 502 `EMISION_ENVIO_FALLIDO` → aviso
+ * reintentable.
  */
 const postMock = vi.fn();
 vi.mock('@/api-client', () => ({
@@ -90,18 +90,6 @@ describe('AccionReenviarE3', () => {
     expect(aviso).toHaveAttribute('data-error-tipo', 'no-enviado-previamente');
     expect(aviso).toHaveTextContent('No hay un E3 enviado previamente que reenviar');
     expect(toastMock.info).toHaveBeenCalledTimes(1);
-  });
-
-  it('409_CONDICIONES_NO_CONFIGURADAS_muestra_alerta_de_configurar', async () => {
-    postMock.mockResolvedValue(fallo(409, 'CONDICIONES_NO_CONFIGURADAS'));
-    renderAccion();
-
-    await userEvent.click(screen.getByTestId('reenviar-e3'));
-
-    const aviso = await screen.findByTestId('aviso-error-reenvio-e3');
-    expect(aviso).toHaveAttribute('data-error-tipo', 'condiciones-no-configuradas');
-    expect(aviso).toHaveTextContent('Configura las condiciones particulares');
-    expect(toastMock.warning).toHaveBeenCalledTimes(1);
   });
 
   it('502_EMISION_ENVIO_FALLIDO_muestra_aviso_reintentable', async () => {

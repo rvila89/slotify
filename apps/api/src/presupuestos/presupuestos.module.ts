@@ -21,12 +21,8 @@ import { ComunicacionesModule } from '../comunicaciones/comunicaciones.module';
 import { DespacharEmailService } from '../comunicaciones/application/despachar-email.service';
 import { DocumentosModule } from '../documentos/documentos.module';
 import { ObtenerConfiguracionDocumentoService } from '../documentos/application/obtener-configuracion-documento.service';
-import {
-  ALMACEN_DOCUMENTOS_PORT,
-  GENERAR_PDF_CONDICIONES_PORT,
-} from '../documentos/documentos.tokens';
+import { ALMACEN_DOCUMENTOS_PORT } from '../documentos/documentos.tokens';
 import type { AlmacenDocumentosPort } from '../documentos/domain/almacen-documentos.port';
-import type { GenerarPdfCondicionesPort } from '../documentos/domain/generar-pdf-condiciones.port';
 import { renderizarDocumentoPresupuestoABytes } from '../documentos/presentation/documento-presupuesto.render';
 import {
   GenerarPresupuestoUseCase,
@@ -155,12 +151,9 @@ import {
     },
     {
       provide: DISPARAR_E2_PORT,
-      inject: [DespacharEmailService, PrismaService, GENERAR_PDF_CONDICIONES_PORT],
-      useFactory: (
-        motor: DespacharEmailService,
-        prisma: PrismaService,
-        generarCondiciones: GenerarPdfCondicionesPort,
-      ) => new DispararE2Adapter(motor, prisma, generarCondiciones),
+      inject: [DespacharEmailService, PrismaService],
+      useFactory: (motor: DespacharEmailService, prisma: PrismaService) =>
+        new DispararE2Adapter(motor, prisma),
     },
     { provide: PRESUPUESTOS_CLOCK_PORT, useClass: SistemaClockAdapter },
     {
@@ -181,8 +174,6 @@ import {
         PRESUPUESTOS_CLOCK_PORT,
         DISPARAR_E2_PORT,
         GUARDAR_PDF_URL_PRESUPUESTO_PORT,
-        // Mejora B: guarda dura de condiciones PRE-TX (mismo adapter de PDF de condiciones).
-        GENERAR_PDF_CONDICIONES_PORT,
       ],
       useFactory: (
         motorTarifa: CalculadoraTarifaService,
@@ -194,7 +185,6 @@ import {
         clock: ClockPort,
         dispararE2: DispararE2Port,
         guardarPdfUrl: GuardarPdfUrlPresupuestoPort,
-        generarCondicionesPort: GenerarPdfCondicionesPort,
       ) =>
         new GenerarPresupuestoUseCase({
           motorTarifa,
@@ -206,7 +196,6 @@ import {
           clock,
           dispararE2,
           guardarPdfUrl,
-          generarCondicionesPort,
         }),
     },
     // -----------------------------------------------------------------------

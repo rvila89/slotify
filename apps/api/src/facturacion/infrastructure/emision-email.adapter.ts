@@ -58,6 +58,7 @@ export class EnviarE4EmisionAdapter {
       nombre: params.nombre ?? '',
       fianzaEur: params.fianzaEur ?? '',
       codigoReserva: params.codigoReserva,
+      recordarCondicionesPendientes: params.recordarCondicionesPendientes === true,
     });
     await this.enviarEmail.enviar({
       destinatario: params.destinatario,
@@ -92,6 +93,7 @@ export class EnviarE3EmisionAdapter {
     const rendered = plantilla.render({
       nombre: params.nombre ?? '',
       codigoReserva: params.codigoReserva,
+      condicionesAdjuntas: params.condicionesAdjuntas === true,
     });
     await this.enviarEmail.enviar({
       destinatario: params.destinatario,
@@ -126,6 +128,7 @@ export class ReenviarE4Adapter {
       nombre: params.nombre ?? '',
       fianzaEur: params.fianzaEur ?? '',
       codigoReserva: params.codigoReserva,
+      recordarCondicionesPendientes: params.recordarCondicionesPendientes === true,
     });
     await this.enviarEmail.enviar({
       destinatario: params.destinatario,
@@ -160,6 +163,7 @@ export class ReenviarE3Adapter {
     const rendered = plantilla.render({
       nombre: params.nombre ?? '',
       codigoReserva: params.codigoReserva,
+      condicionesAdjuntas: params.condicionesAdjuntas === true,
     });
     await this.enviarEmail.enviar({
       destinatario: params.destinatario,
