@@ -3389,6 +3389,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reservas/{id}/comunicaciones/solicitar-datos-presupuesto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Solicitar al cliente los datos fiscales para el presupuesto (borrador E1 solicitud_datos)
+         * @description [change solicitud-datos-presupuesto-borrador] Deja **EN BORRADOR** una `COMUNICACION`
+         *     (`codigoEmail='E1'`, `subtipo='solicitud_datos'`, `estado='borrador'`, `fechaEnvio=null`)
+         *     que solicita al cliente los datos fiscales (nombre y apellidos, DNI/NIF, dirección y
+         *     población) necesarios para generar el presupuesto. El cuerpo y el asunto se **renderizan en
+         *     el backend** reutilizando **verbatim** la plantilla del E1 "disponible"
+         *     (`renderMensajeTransicionFecha({ tipo: 'disponible', … })`); el **idioma** sale de
+         *     `Reserva.idioma` (`'ca'` → catalán; cualquier otro → castellano). **Sin body**: el gestor no
+         *     redacta nada. El borrador aparece en el listado de comunicaciones y se revisa/envía con el
+         *     flujo de borradores existente (`enviar`). Scoped por el tenant del JWT (RLS); el `tenant_id`
+         *     NUNCA viaja en el path. Registra `AUDIT_LOG`.
+         *
+         *     **Idempotencia (una sola vez)**:
+         *     - `201` — no existía la terna `(reservaId, 'E1', 'solicitud_datos')`: se **crea** el borrador.
+         *     - `200` — ya existe un **borrador** sin enviar de esa terna: se **reutiliza** (no se duplica).
+         *     - `409` — ya existe una fila de esa terna en `estado='enviado'`: no se puede reenviar
+         *       (`ComunicacionDuplicadaError`, respaldado por el índice UNIQUE parcial sobre la terna con
+         *       predicado `estado='enviado'`). Sin efectos.
+         *     - `422` — los datos fiscales del cliente ya están **completos** (`dniNif`, `direccion`,
+         *       `codigoPostal`, `poblacion`, `provincia`): no procede solicitar; no se crea ninguna fila
+         *       (defensa en profundidad; el botón ya no debería mostrarse en el frontend).
+         *
+         *     **Invariantes**: no auto-envía (borrador), no muta `RESERVA.estado` ni `FECHA_BLOQUEADA`.
+         */
+        post: operations["solicitarDatosPresupuesto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/documentos": {
         parameters: {
             query?: never;
@@ -5199,10 +5243,10 @@ export interface components {
          */
         EstadoComunicacion: "borrador" | "enviado" | "fallido";
         /**
-         * @description Subtipo del email E1 que distingue el evento del ciclo de vida que lo generó (respuesta a consulta exploratoria, asignación de fecha disponible, confirmación de fecha, entrada en cola o cambio de fecha). `NULL` para E2–E8 y `manual`.
+         * @description Subtipo del email E1 que distingue el evento del ciclo de vida que lo generó (respuesta a consulta exploratoria, asignación de fecha disponible, confirmación de fecha, entrada en cola, cambio de fecha o solicitud de datos de presupuesto). `NULL` para E2–E8 y `manual`. `solicitud_datos` (change solicitud-datos-presupuesto-borrador) es el E1 que pide al cliente los datos fiscales cuando aportó la fecha en la primera consulta sin pasar por la transición `2a → 2b`; su terna `(reservaId, 'E1', 'solicitud_datos')` es independiente de `fecha_disponible`/`cola_espera` y no colisiona con ellas en el índice de idempotencia.
          * @enum {string}
          */
-        SubtipoEmail: "consulta_exploratoria" | "fecha_disponible" | "fecha_confirmada" | "cola_espera" | "cambio_fecha";
+        SubtipoEmail: "consulta_exploratoria" | "fecha_disponible" | "fecha_confirmada" | "cola_espera" | "cambio_fecha" | "solicitud_datos";
         Comunicacion: {
             /** Format: uuid */
             idComunicacion: string;
@@ -5256,6 +5300,14 @@ export interface components {
         ComunicacionProveedorError: components["schemas"]["ErrorResponse"] & {
             /** @enum {string} */
             codigo: "PROVEEDOR_EMAIL_FALLIDO";
+        };
+        ComunicacionDuplicadaError: components["schemas"]["ErrorResponse"] & {
+            /** @enum {string} */
+            codigo: "COMUNICACION_DUPLICADA";
+        };
+        ComunicacionDatosCompletosError: components["schemas"]["ErrorResponse"] & {
+            /** @enum {string} */
+            codigo: "DATOS_FISCALES_COMPLETOS";
         };
         Documento: {
             /** Format: uuid */
@@ -7840,6 +7892,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ComunicacionProveedorError"];
+                };
+            };
+        };
+    };
+    solicitarDatosPresupuesto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID de la reserva */
+                id: components["parameters"]["IdReserva"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description Borrador ya existente reutilizado. Devuelve la `COMUNICACION` en `estado='borrador'`
+             *     (`codigoEmail='E1'`, `subtipo='solicitud_datos'`, `fechaEnvio` nulo).
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comunicacion"];
+                };
+            };
+            /**
+             * @description Borrador de solicitud de datos creado. Devuelve la `COMUNICACION` creada
+             *     (`codigoEmail='E1'`, `subtipo='solicitud_datos'`, `estado='borrador'`, `fechaEnvio` nulo).
+             */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comunicacion"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Conflicto (409). Ya existe una `COMUNICACION` de la terna
+             *     `(reservaId, 'E1', 'solicitud_datos')` en `estado='enviado'`: la solicitud ya se envió y
+             *     no se puede reenviar (una sola vez). Sin efectos.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComunicacionDuplicadaError"];
+                };
+            };
+            /**
+             * @description No procede (422). Los datos fiscales del cliente ya están completos (`dniNif`,
+             *     `direccion`, `codigoPostal`, `poblacion`, `provincia`): no hay datos que solicitar. No se
+             *     crea ninguna `COMUNICACION`.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComunicacionDatosCompletosError"];
                 };
             };
         };

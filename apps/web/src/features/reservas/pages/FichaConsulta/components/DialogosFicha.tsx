@@ -71,6 +71,10 @@ type Props = {
   onResueltoReservaInmediata: (reserva: Reserva) => void;
   onResueltoExtension: (reserva: Reserva) => void;
   onConfirmadoPresupuesto: (resultado: ConfirmarPresupuestoResponse) => void;
+  /** Solicitud de datos fiscales al cliente dejada EN BORRADOR desde el modal de
+      presupuesto (change solicitud-datos-presupuesto-borrador): la página muestra el
+      banner y hace scroll al inicio (patrón `onConfirmadoPresupuesto`). */
+  onSolicitarDatosPresupuesto: () => void;
   onEditadoPresupuesto: (resultado: EdicionPresupuestoResponse) => void;
   onReenviadoPresupuesto: (resultado: ReenviarPresupuestoResponse) => void;
   onConfirmadoSenal: (resultado: ConfirmarSenalResponse) => void;
@@ -96,6 +100,7 @@ export const DialogosFicha = ({
   onResueltoReservaInmediata,
   onResueltoExtension,
   onConfirmadoPresupuesto,
+  onSolicitarDatosPresupuesto,
   onEditadoPresupuesto,
   onReenviadoPresupuesto,
   onConfirmadoSenal,
@@ -158,6 +163,7 @@ export const DialogosFicha = ({
       abierto={dialogos.presupuesto[0]}
       onAbiertoChange={dialogos.presupuesto[1]}
       onConfirmado={onConfirmadoPresupuesto}
+      onSolicitarDatos={onSolicitarDatosPresupuesto}
     />
     <EditarPresupuestoDialog
       reservaId={reservaId}

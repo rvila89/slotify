@@ -28,6 +28,7 @@ import { TenantSettingsIdiomaPrismaAdapter } from './infrastructure/tenant-setti
 import { SistemaClockAdapter } from './infrastructure/sistema-clock.adapter';
 import { CargarComunicacionPrismaAdapter } from './infrastructure/cargar-comunicacion.prisma.adapter';
 import { CargarReservaContextoPrismaAdapter } from './infrastructure/cargar-reserva-contexto.prisma.adapter';
+import { CargarReservaPresupuestoContextoPrismaAdapter } from './infrastructure/cargar-reserva-presupuesto-contexto.prisma.adapter';
 import {
   DespacharEmailService,
   type ClockPort,
@@ -41,6 +42,10 @@ import {
   CrearEmailManualUseCase,
   type CargarReservaContextoPort,
 } from './application/crear-email-manual.use-case';
+import {
+  SolicitarDatosPresupuestoUseCase,
+  type CargarReservaPresupuestoContextoPort,
+} from './application/solicitar-datos-presupuesto.use-case';
 import { ComunicacionesController } from './interface/comunicaciones.controller';
 import type { CatalogoPlantillasPort } from './domain/catalogo-plantillas.port';
 import type { ComunicacionRepositoryPort } from './domain/comunicacion.repository.port';
@@ -50,6 +55,7 @@ import type { AuditLogPort as AuditLogPortAlias } from '../shared/audit/audit-lo
 import {
   CARGAR_COMUNICACION_PORT,
   CARGAR_RESERVA_CONTEXTO_PORT,
+  CARGAR_RESERVA_PRESUPUESTO_CONTEXTO_PORT,
   CATALOGO_PLANTILLAS_PORT,
   COMUNICACION_REPOSITORY_PORT,
   COMUNICACIONES_CLOCK_PORT,
@@ -217,6 +223,34 @@ import {
           enviarEmail,
           auditoria,
           clock,
+        }),
+    },
+    // change solicitud-datos-presupuesto-borrador — carga de la RESERVA + CLIENTE
+    // (contexto de presupuesto) scoped por tenant (RLS).
+    {
+      provide: CARGAR_RESERVA_PRESUPUESTO_CONTEXTO_PORT,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) =>
+        new CargarReservaPresupuestoContextoPrismaAdapter(prisma),
+    },
+    // change solicitud-datos-presupuesto-borrador — solicitar datos de presupuesto:
+    // deja EN BORRADOR un E1 `solicitud_datos` reutilizando la plantilla del E1 disponible.
+    {
+      provide: SolicitarDatosPresupuestoUseCase,
+      inject: [
+        CARGAR_RESERVA_PRESUPUESTO_CONTEXTO_PORT,
+        COMUNICACION_REPOSITORY_PORT,
+        AuditLogPrismaAdapter,
+      ],
+      useFactory: (
+        cargarReserva: CargarReservaPresupuestoContextoPort,
+        comunicaciones: ComunicacionRepositoryPort,
+        auditoria: AuditLogPortAlias,
+      ) =>
+        new SolicitarDatosPresupuestoUseCase({
+          cargarReserva,
+          comunicaciones,
+          auditoria,
         }),
     },
   ],

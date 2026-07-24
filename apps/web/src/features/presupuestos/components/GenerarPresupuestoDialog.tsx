@@ -2,36 +2,35 @@ import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { FileText, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { cn } from '@/lib/utils';
 import { useReserva } from '@/features/reservas';
 import { useConfirmarPresupuesto } from '../api/useConfirmarPresupuesto';
 import { useExtras } from '../api/useExtras';
 import { useBorradorPresupuesto } from '../lib/useBorradorPresupuesto';
+import { useSolicitarDatosBoton } from '../lib/useSolicitarDatosBoton';
 import { AvisoErrorPresupuesto } from './AvisoErrorPresupuesto';
 import { DesglosePresupuesto } from './DesglosePresupuesto';
 import { SelectorExtras } from './SelectorExtras';
 import { SelectorMetodoPago } from './SelectorMetodoPago';
+import { PresupuestoDialogFooter } from './PresupuestoDialogFooter';
 import { METODO_PAGO_POR_DEFECTO, etiquetaRegimenIva } from '../lib/metodoPago';
 import {
   DatosFiscalesClienteSection,
   type DatosFiscalesHandle,
 } from './DatosFiscalesClienteSection';
-import { camposFiscalesFaltantes, type CampoFiscalCliente } from '../lib/datosFiscalesCampos';
 import {
-  claseBotonPrimario,
-  claseBotonSecundario,
-  claseInput,
-  claseLabel,
-} from '../lib/estilos';
+  camposFiscalesFaltantes,
+  datosFiscalesIncompletos,
+  type CampoFiscalCliente,
+} from '../lib/datosFiscalesCampos';
+import { claseInput, claseLabel } from '../lib/estilos';
 import type { ConfirmarPresupuestoResponse, PresupuestoExtraInput } from '../model/types';
 
 /**
@@ -53,6 +52,9 @@ type Props = {
   onAbiertoChange: (abierto: boolean) => void;
   /** Se invoca con la respuesta de confirmación tras un 201 (RESERVA en pre_reserva). */
   onConfirmado: (resultado: ConfirmarPresupuestoResponse) => void;
+  /** Se invoca tras dejar EN BORRADOR la solicitud de datos al cliente (éxito 200/201).
+      La página cierra el modal, hace scroll al inicio y muestra el banner de confirmación. */
+  onSolicitarDatos: () => void;
 };
 
 const MENSAJE_NO_NEGATIVO = 'Introduce un importe válido (0 o superior)';
@@ -78,6 +80,7 @@ export const GenerarPresupuestoDialog = ({
   abierto,
   onAbiertoChange,
   onConfirmado,
+  onSolicitarDatos,
 }: Props) => {
   const {
     register,
@@ -109,6 +112,19 @@ export const GenerarPresupuestoDialog = ({
   const confirmar = useConfirmarPresupuesto();
 
   const { reset: resetConfirmar } = confirmar;
+
+  // Datos fiscales incompletos del CLIENTE: si falta alguno de los 5 campos fiscales,
+  // se ofrece "Solicitar datos al cliente". Se calcula desde `reserva.cliente` (no del
+  // contrato de error) con `datosFiscalesIncompletos` (misma validación que D-5).
+  const datosIncompletos = datosFiscalesIncompletos(reserva?.cliente);
+
+  // "Solicitar datos al cliente": deja EN BORRADOR el email de solicitud. En éxito
+  // (200/201) cierra el modal y delega el scroll + banner en la página; en 409/422
+  // muestra `avisoSolicitud` inline SIN cerrar. La mutación y su estado viven en el hook.
+  const solicitud = useSolicitarDatosBoton(reservaId, abierto, () => {
+    onSolicitarDatos();
+    onAbiertoChange(false);
+  });
 
   // Handle imperativo de la sección de datos fiscales (guardar + enfocar faltantes)
   // y los campos que el backend reporta como faltantes (bucle de resolución D-5).
@@ -315,26 +331,24 @@ export const GenerarPresupuestoDialog = ({
             )
           )}
 
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => onAbiertoChange(false)}
-              disabled={confirmar.isPending}
-              data-testid="cancelar-presupuesto"
-              className={claseBotonSecundario}
+          {datosIncompletos && solicitud.aviso && (
+            <p
+              role="alert"
+              data-testid="aviso-solicitud-datos-error"
+              className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 font-body text-[13px] text-amber-900"
             >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={confirmarDeshabilitado}
-              data-testid="confirmar-presupuesto"
-              className={cn(claseBotonPrimario)}
-            >
-              <FileText aria-hidden className="size-5" />
-              {confirmar.isPending ? 'Confirmando…' : 'Confirmar presupuesto'}
-            </button>
-          </DialogFooter>
+              {solicitud.aviso}
+            </p>
+          )}
+
+          <PresupuestoDialogFooter
+            datosIncompletos={datosIncompletos}
+            solicitando={solicitud.cargando}
+            onSolicitarDatos={solicitud.solicitarDatos}
+            onCancelar={() => onAbiertoChange(false)}
+            confirmando={confirmar.isPending}
+            confirmarDeshabilitado={confirmarDeshabilitado}
+          />
         </form>
       </DialogContent>
     </Dialog>

@@ -30,3 +30,18 @@ const esCampoFiscal = (campo: CampoFiscalFaltante): campo is CampoFiscalCliente 
 export const camposFiscalesFaltantes = (
   camposFaltantes: readonly CampoFiscalFaltante[],
 ): CampoFiscalCliente[] => camposFaltantes.filter(esCampoFiscal);
+
+/** Cliente con (al menos) los 5 campos fiscales opcionales que evalúa el presupuesto. */
+type ClienteFiscal = Partial<Record<CampoFiscalCliente, string | null>> | null | undefined;
+
+/**
+ * `true` si al cliente le falta alguno de los 5 campos fiscales (vacío o ausente). Fija
+ * la visibilidad del botón "Solicitar datos al cliente" del modal de presupuesto (change
+ * solicitud-datos-presupuesto-borrador), reutilizando la misma validación
+ * `DATOS_FISCALES_INCOMPLETOS` que el bucle de resolución D-5.
+ */
+export const datosFiscalesIncompletos = (cliente: ClienteFiscal): boolean =>
+  CAMPOS_FISCALES.some((campo) => {
+    const valor = cliente?.[campo];
+    return valor == null || valor.trim() === '';
+  });

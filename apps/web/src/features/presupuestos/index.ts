@@ -18,6 +18,11 @@ export { useConfirmarPresupuesto } from './api/useConfirmarPresupuesto';
 export type { ConfirmarPresupuestoVars } from './api/useConfirmarPresupuesto';
 export { useActualizarDatosFiscales } from './api/useActualizarDatosFiscales';
 export type { ActualizarDatosFiscalesVars } from './api/useActualizarDatosFiscales';
+export { useSolicitarDatosPresupuesto } from './api/useSolicitarDatosPresupuesto';
+export type {
+  SolicitarDatosPresupuestoVars,
+  SolicitarDatosPresupuestoError,
+} from './api/useSolicitarDatosPresupuesto';
 export type {
   ConfirmarPresupuestoResponse,
   PresupuestoPreviewResponse,

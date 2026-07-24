@@ -28,9 +28,11 @@ import {
   NotFoundException,
   Param,
   Post,
+  Res,
   UnprocessableEntityException,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -58,6 +60,12 @@ import {
   CrearEmailManualUseCase,
   ReservaNoEncontradaError,
 } from '../application/crear-email-manual.use-case';
+import {
+  SolicitarDatosPresupuestoUseCase,
+  ComunicacionDuplicadaError,
+  DatosFiscalesCompletosError,
+  ReservaNoEncontradaError as ReservaPresupuestoNoEncontradaError,
+} from '../application/solicitar-datos-presupuesto.use-case';
 import { COMUNICACION_REPOSITORY_PORT } from '../comunicaciones.tokens';
 import {
   ComunicacionListItemResponseDto,
@@ -78,6 +86,7 @@ export class ComunicacionesController {
     private readonly enviarBorrador: EnviarBorradorUseCase,
     private readonly descartarBorrador: DescartarBorradorUseCase,
     private readonly crearEmailManual: CrearEmailManualUseCase,
+    private readonly solicitarDatosPresupuesto: SolicitarDatosPresupuestoUseCase,
   ) {}
 
   @Get(':id/comunicaciones')
@@ -220,6 +229,74 @@ export class ComunicacionesController {
     }
   }
 
+  @Post(':id/comunicaciones/solicitar-datos-presupuesto')
+  @ApiOperation({
+    summary:
+      'Solicitar al cliente los datos fiscales para el presupuesto (borrador E1 solicitud_datos)',
+    operationId: 'solicitarDatosPresupuesto',
+  })
+  @ApiResponse({ status: 201, type: ComunicacionResponseDto })
+  @ApiResponse({ status: 200, type: ComunicacionResponseDto })
+  @ApiResponse({ status: 409, description: 'Ya existe una solicitud enviada (una sola vez).' })
+  @ApiResponse({ status: 422, description: 'Los datos fiscales del cliente ya están completos.' })
+  async solicitarDatos(
+    @Param('id') reservaId: string,
+    @CurrentUser() usuario: UsuarioAutenticado,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ComunicacionResponseDto> {
+    try {
+      const resultado = await this.solicitarDatosPresupuesto.ejecutar({
+        // tenant/usuario SIEMPRE del JWT, jamás del path/body.
+        tenantId: usuario.tenantId,
+        usuarioId: usuario.sub,
+        reservaId,
+      });
+      // 201 si se creó el borrador; 200 si se reutilizó uno pendiente (contrato).
+      res.status(resultado.reutilizado ? HttpStatus.OK : HttpStatus.CREATED);
+      // Enriquecer la respuesta al schema `Comunicacion` desde el listado de la reserva
+      // (asunto/cuerpo/subtipo/esReenvio de la fila borrador), scoped por el tenant del JWT.
+      const filas = await this.comunicaciones.listarPorReserva({
+        tenantId: usuario.tenantId,
+        reservaId,
+      });
+      const fila = filas.find(
+        (f) => f.idComunicacion === resultado.idComunicacion,
+      );
+      if (fila === undefined) {
+        return {
+          idComunicacion: resultado.idComunicacion,
+          reservaId: resultado.reservaId,
+          clienteId: resultado.clienteId,
+          codigoEmail: resultado.codigoEmail,
+          asunto: '',
+          cuerpo: null,
+          destinatarioEmail: null,
+          estado: resultado.estado,
+          subtipo: 'solicitud_datos',
+          esReenvio: false,
+          fechaCreacion: new Date(),
+          fechaEnvio: resultado.fechaEnvio,
+        };
+      }
+      return {
+        idComunicacion: fila.idComunicacion,
+        reservaId,
+        clienteId: fila.clienteId,
+        codigoEmail: fila.codigoEmail,
+        asunto: fila.asunto,
+        cuerpo: fila.cuerpo,
+        destinatarioEmail: fila.destinatarioEmail,
+        estado: fila.estado,
+        subtipo: fila.subtipo,
+        esReenvio: fila.esReenvio,
+        fechaCreacion: fila.fechaCreacion,
+        fechaEnvio: fila.fechaEnvio,
+      };
+    } catch (error) {
+      this.aHttp(error);
+    }
+  }
+
   private aListItemResponse(
     fila: ComunicacionListItem,
     reservaId: string,
@@ -244,12 +321,31 @@ export class ComunicacionesController {
   private aHttp(error: unknown): never {
     if (
       error instanceof ComunicacionNoEncontradaError ||
-      error instanceof ReservaNoEncontradaError
+      error instanceof ReservaNoEncontradaError ||
+      error instanceof ReservaPresupuestoNoEncontradaError
     ) {
       throw new NotFoundException({
         statusCode: HttpStatus.NOT_FOUND,
         error: 'Not Found',
         message: error.message,
+      });
+    }
+    // change solicitud-datos-presupuesto-borrador — el `codigo` del envelope HTTP debe
+    // coincidir con el del contrato (MAYÚSCULAS), aunque el error de dominio use otro string.
+    if (error instanceof ComunicacionDuplicadaError) {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        error: 'Conflict',
+        message: error.message,
+        codigo: 'COMUNICACION_DUPLICADA',
+      });
+    }
+    if (error instanceof DatosFiscalesCompletosError) {
+      throw new UnprocessableEntityException({
+        statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+        error: 'Unprocessable Entity',
+        message: error.message,
+        codigo: 'DATOS_FISCALES_COMPLETOS',
       });
     }
     if (error instanceof EstadoNoBorradorError) {
