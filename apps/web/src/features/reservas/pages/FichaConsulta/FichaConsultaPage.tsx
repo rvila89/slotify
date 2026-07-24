@@ -83,22 +83,21 @@ export const FichaConsultaPage = () => {
   const esReserva = (ESTADOS_RESERVA as readonly string[]).includes(reserva.estado);
   const tituloFicha = esReserva ? 'Reserva' : 'Consulta';
 
+  // Ejecuta el efecto (mostrar aviso) y desplaza la vista al inicio para que el gestor
+  // vea el banner (§D-4). SSR-safe. Centraliza el patrón repetido `mostrar* + scrollTo`.
+  const conScroll = (fn: () => void) => {
+    fn();
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   // US-051 §D-2: la fecha se gestiona por el flujo atómico según el sub-estado —
   // `2a` (sin fecha) usa "Añadir fecha" (`POST /fecha`); `2b/2c/2v` (fecha ya
   // bloqueada) usa el cambio atómico (`POST /cambiar-fecha`). El editor se cierra
   // antes de abrir el diálogo de fecha para no anidar diálogos.
   // Desenlace de la transición de fecha (US-005 / cambio atómico): además de alimentar
   // el aviso 2b/2d, desplaza la vista al aviso para que el gestor lo vea (§D-4). SSR-safe.
-  const mostrarResultadoFecha = (r: Reserva | null) => {
-    if (!r) {
-      avisos.cerrar();
-      return;
-    }
-    avisos.mostrarResultado(r);
-    if (typeof window !== 'undefined') {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
+  const mostrarResultadoFecha = (r: Reserva | null) =>
+    r ? conScroll(() => avisos.mostrarResultado(r)) : avisos.cerrar();
 
   return (
     <div className="flex flex-col gap-6">
@@ -128,27 +127,13 @@ export const FichaConsultaPage = () => {
         senal={avisos.senal}
         forzar={avisos.forzar}
         finalizar={avisos.finalizar}
-        onCerrarResultado={avisos.cerrar}
-        onCerrarInvitados={avisos.cerrar}
-        onCerrarVisita={avisos.cerrar}
-        onCerrarInteresado={avisos.cerrar}
-        onCerrarReservaInmediata={avisos.cerrar}
-        onCerrarExtension={avisos.cerrar}
-        onCerrarPresupuesto={avisos.cerrar}
-        onCerrarEdicion={avisos.cerrar}
-        onCerrarSenal={avisos.cerrar}
-        onCerrarForzar={avisos.cerrar}
-        onCerrarFinalizar={avisos.cerrar}
         emailEnviado={avisos.emailEnviado}
-        onCerrarEmailEnviado={avisos.cerrar}
         descarte={avisos.descarte}
-        onCerrarDescarte={avisos.cerrar}
         firma={avisos.firma}
-        onCerrarFirma={avisos.cerrar}
         edicionConsulta={avisos.edicionConsulta}
-        onCerrarEdicionConsulta={avisos.cerrar}
         facturaEnviada={avisos.facturaEnviada}
-        onCerrarFacturaEnviada={avisos.cerrar}
+        solicitudDatos={avisos.solicitudDatos}
+        onCerrar={avisos.cerrar}
       />
 
       <section className={claseSeccion} aria-labelledby="ficha-cliente">
@@ -264,24 +249,9 @@ export const FichaConsultaPage = () => {
         <SeccionesFicha
           reservaId={id}
           reserva={reserva}
-          onEmailEnviado={() => {
-            avisos.mostrarEmailEnviado();
-            if (typeof window !== 'undefined') {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-          }}
-          onFirmaRegistrada={(tipo) => {
-            avisos.mostrarFirma(tipo);
-            if (typeof window !== 'undefined') {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-          }}
-          onFacturaSenalEnviada={() => {
-            avisos.mostrarFacturaSenalEnviada();
-            if (typeof window !== 'undefined') {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-          }}
+          onEmailEnviado={() => conScroll(avisos.mostrarEmailEnviado)}
+          onFirmaRegistrada={(tipo) => conScroll(() => avisos.mostrarFirma(tipo))}
+          onFacturaSenalEnviada={() => conScroll(avisos.mostrarFacturaSenalEnviada)}
         />
       )}
 
@@ -311,45 +281,33 @@ export const FichaConsultaPage = () => {
           }}
           onResuelto={mostrarResultadoFecha}
           onCambiadaFecha={mostrarResultadoFecha}
-          onEditado={() => {
-            avisos.mostrarEdicionConsulta(reserva.codigo);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
+          onEditado={() => conScroll(() => avisos.mostrarEdicionConsulta(reserva.codigo))}
           onResueltoInvitados={avisos.mostrarInvitados}
           onResueltoVisita={avisos.mostrarVisita}
           onResueltoInteresado={avisos.mostrarInteresado}
           onResueltoReservaInmediata={avisos.mostrarReservaInmediata}
           onResueltoExtension={avisos.mostrarExtension}
-          onConfirmadoPresupuesto={(resultado) => {
-            avisos.mostrarPresupuesto(resultado);
-            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          onEditadoPresupuesto={(datos) => {
-            avisos.mostrarEdicion({ clase: 'edicion', datos });
-            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          onReenviadoPresupuesto={(datos) => {
-            avisos.mostrarEdicion({ clase: 'reenvio', datos });
-            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          onConfirmadoSenal={(resultado) => {
-            avisos.mostrarSenal(resultado);
-            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
+          onConfirmadoPresupuesto={(resultado) => conScroll(() => avisos.mostrarPresupuesto(resultado))}
+          onSolicitarDatosPresupuesto={() => conScroll(avisos.mostrarSolicitudDatosBorrador)}
+          onEditadoPresupuesto={(datos) =>
+            conScroll(() => avisos.mostrarEdicion({ clase: 'edicion', datos }))
+          }
+          onReenviadoPresupuesto={(datos) =>
+            conScroll(() => avisos.mostrarEdicion({ clase: 'reenvio', datos }))
+          }
+          onConfirmadoSenal={(resultado) => conScroll(() => avisos.mostrarSenal(resultado))}
           onForzado={avisos.mostrarForzar}
           onFinalizado={avisos.mostrarFinalizar}
           // Desenlaces terminales (archivado US-038 / descarte US-013): el descarte
           // muestra un aviso inline verde en la cabecera (en sustitución del toast de
           // Sonner) y desplaza la vista al inicio para que el gestor lo vea.
           onArchivado={() => {}}
-          onDescartado={(reserva) => {
-            avisos.mostrarDescarte({ reserva, tipo: 'consulta' });
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          onDescartadoPreReserva={(reserva) => {
-            avisos.mostrarDescarte({ reserva, tipo: 'prereserva' });
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
+          onDescartado={(reserva) =>
+            conScroll(() => avisos.mostrarDescarte({ reserva, tipo: 'consulta' }))
+          }
+          onDescartadoPreReserva={(reserva) =>
+            conScroll(() => avisos.mostrarDescarte({ reserva, tipo: 'prereserva' }))
+          }
         />
       )}
     </div>

@@ -176,6 +176,7 @@ enum SubtipoEmail {
   fecha_confirmada
   cola_espera
   cambio_fecha
+  solicitud_datos
 }
 
 enum AccionAudit {

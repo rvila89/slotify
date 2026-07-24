@@ -84,6 +84,7 @@ export class ComunicacionResponseDto {
       'fecha_confirmada',
       'cola_espera',
       'cambio_fecha',
+      'solicitud_datos',
     ],
     nullable: true,
     required: false,

@@ -24,3 +24,9 @@ export const COMUNICACIONES_CLOCK_PORT = Symbol('ComunicacionesClockPort');
 export const CARGAR_COMUNICACION_PORT = Symbol('CargarComunicacionPort');
 /** Carga de la RESERVA + CLIENTE para el email manual (scoped por tenant, RLS). */
 export const CARGAR_RESERVA_CONTEXTO_PORT = Symbol('CargarReservaContextoPort');
+
+// change solicitud-datos-presupuesto-borrador — solicitud de datos de presupuesto (E1)
+/** Carga de la RESERVA + CLIENTE (contexto de presupuesto) scoped por tenant (RLS). */
+export const CARGAR_RESERVA_PRESUPUESTO_CONTEXTO_PORT = Symbol(
+  'CargarReservaPresupuestoContextoPort',
+);

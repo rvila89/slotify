@@ -20,7 +20,12 @@ export type SubtipoEmail =
   | 'fecha_disponible'
   | 'fecha_confirmada'
   | 'cola_espera'
-  | 'cambio_fecha';
+  | 'cambio_fecha'
+  // `solicitud_datos` (change solicitud-datos-presupuesto-borrador): el E1 que pide al
+  // cliente los datos fiscales para el presupuesto cuando aportó la fecha en la primera
+  // consulta sin pasar por la transición 2a → 2b. Su terna `(reservaId, 'E1',
+  // 'solicitud_datos')` es independiente de `('E1', 'fecha_disponible')`.
+  | 'solicitud_datos';
 
 /** `tipoE1` del alta (`renderizarE1` de `alta-consulta.use-case`). */
 export type TipoE1 = 'sin_fecha' | 'fecha_disponible' | 'fecha_confirmada' | 'fecha_cola';

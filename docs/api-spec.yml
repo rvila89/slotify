@@ -4121,6 +4121,79 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ComunicacionProveedorError' }
 
+  # [change solicitud-datos-presupuesto-borrador / UC-36] Acción del gestor desde el modal
+  # "Generar presupuesto": deja EN BORRADOR un E1 (`subtipo='solicitud_datos'`) que pide al
+  # cliente los datos fiscales cuando aportó la fecha en la primera consulta sin pasar por la
+  # transición `2a → 2b`. Reutiliza la plantilla del E1 "disponible" (idioma de `Reserva.idioma`).
+  # Sub-recurso de la RESERVA, coherente con el resto de `/reservas/{id}/comunicaciones/...`.
+  /reservas/{id}/comunicaciones/solicitar-datos-presupuesto:
+    parameters:
+      - { $ref: '#/components/parameters/IdReserva' }
+    post:
+      tags: [Comunicaciones]
+      summary: Solicitar al cliente los datos fiscales para el presupuesto (borrador E1 solicitud_datos)
+      operationId: solicitarDatosPresupuesto
+      description: |
+        [change solicitud-datos-presupuesto-borrador] Deja **EN BORRADOR** una `COMUNICACION`
+        (`codigoEmail='E1'`, `subtipo='solicitud_datos'`, `estado='borrador'`, `fechaEnvio=null`)
+        que solicita al cliente los datos fiscales (nombre y apellidos, DNI/NIF, dirección y
+        población) necesarios para generar el presupuesto. El cuerpo y el asunto se **renderizan en
+        el backend** reutilizando **verbatim** la plantilla del E1 "disponible"
+        (`renderMensajeTransicionFecha({ tipo: 'disponible', … })`); el **idioma** sale de
+        `Reserva.idioma` (`'ca'` → catalán; cualquier otro → castellano). **Sin body**: el gestor no
+        redacta nada. El borrador aparece en el listado de comunicaciones y se revisa/envía con el
+        flujo de borradores existente (`enviar`). Scoped por el tenant del JWT (RLS); el `tenant_id`
+        NUNCA viaja en el path. Registra `AUDIT_LOG`.
+
+        **Idempotencia (una sola vez)**:
+        - `201` — no existía la terna `(reservaId, 'E1', 'solicitud_datos')`: se **crea** el borrador.
+        - `200` — ya existe un **borrador** sin enviar de esa terna: se **reutiliza** (no se duplica).
+        - `409` — ya existe una fila de esa terna en `estado='enviado'`: no se puede reenviar
+          (`ComunicacionDuplicadaError`, respaldado por el índice UNIQUE parcial sobre la terna con
+          predicado `estado='enviado'`). Sin efectos.
+        - `422` — los datos fiscales del cliente ya están **completos** (`dniNif`, `direccion`,
+          `codigoPostal`, `poblacion`, `provincia`): no procede solicitar; no se crea ninguna fila
+          (defensa en profundidad; el botón ya no debería mostrarse en el frontend).
+
+        **Invariantes**: no auto-envía (borrador), no muta `RESERVA.estado` ni `FECHA_BLOQUEADA`.
+      responses:
+        '200':
+          description: |
+            Borrador ya existente reutilizado. Devuelve la `COMUNICACION` en `estado='borrador'`
+            (`codigoEmail='E1'`, `subtipo='solicitud_datos'`, `fechaEnvio` nulo).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Comunicacion' }
+        '201':
+          description: |
+            Borrador de solicitud de datos creado. Devuelve la `COMUNICACION` creada
+            (`codigoEmail='E1'`, `subtipo='solicitud_datos'`, `estado='borrador'`, `fechaEnvio` nulo).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Comunicacion' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            Conflicto (409). Ya existe una `COMUNICACION` de la terna
+            `(reservaId, 'E1', 'solicitud_datos')` en `estado='enviado'`: la solicitud ya se envió y
+            no se puede reenviar (una sola vez). Sin efectos.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComunicacionDuplicadaError' }
+        '422':
+          description: |
+            No procede (422). Los datos fiscales del cliente ya están completos (`dniNif`,
+            `direccion`, `codigoPostal`, `poblacion`, `provincia`): no hay datos que solicitar. No se
+            crea ninguna `COMUNICACION`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComunicacionDatosCompletosError' }
+
   # ============================ DOCUMENTOS ============================
   /documentos:
     post:
@@ -7586,11 +7659,15 @@ components:
         la descartó (distinguible por AUDIT_LOG).
     SubtipoEmail:
       type: string
-      enum: [consulta_exploratoria, fecha_disponible, fecha_confirmada, cola_espera, cambio_fecha]
+      enum: [consulta_exploratoria, fecha_disponible, fecha_confirmada, cola_espera, cambio_fecha, solicitud_datos]
       description: >-
         Subtipo del email E1 que distingue el evento del ciclo de vida que lo generó
         (respuesta a consulta exploratoria, asignación de fecha disponible, confirmación de fecha,
-        entrada en cola o cambio de fecha). `NULL` para E2–E8 y `manual`.
+        entrada en cola, cambio de fecha o solicitud de datos de presupuesto). `NULL` para E2–E8 y
+        `manual`. `solicitud_datos` (change solicitud-datos-presupuesto-borrador) es el E1 que pide
+        al cliente los datos fiscales cuando aportó la fecha en la primera consulta sin pasar por la
+        transición `2a → 2b`; su terna `(reservaId, 'E1', 'solicitud_datos')` es independiente de
+        `fecha_disponible`/`cola_espera` y no colisiona con ellas en el índice de idempotencia.
     Comunicacion:
       type: object
       required: [idComunicacion, clienteId, codigoEmail, asunto, estado, esReenvio, fechaCreacion]
@@ -7690,6 +7767,26 @@ components:
           required: [codigo]
           properties:
             codigo: { type: string, enum: [PROVEEDOR_EMAIL_FALLIDO] }
+    ComunicacionDuplicadaError:
+      # 409 (change solicitud-datos-presupuesto-borrador): ya existe una COMUNICACION de la terna
+      # (reservaId, 'E1', 'solicitud_datos') en estado='enviado'. La solicitud ya se envió y no se
+      # puede reenviar (una sola vez), respaldado por el índice UNIQUE parcial. Sin efectos. Mismo
+      # patrón allOf ErrorResponse + `codigo` que el resto del contrato.
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo]
+          properties:
+            codigo: { type: string, enum: [COMUNICACION_DUPLICADA] }
+    ComunicacionDatosCompletosError:
+      # 422 (change solicitud-datos-presupuesto-borrador): los datos fiscales del cliente ya están
+      # completos, no procede solicitarlos (defensa en profundidad). No se crea ninguna COMUNICACION.
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [codigo]
+          properties:
+            codigo: { type: string, enum: [DATOS_FISCALES_COMPLETOS] }
 
     # -------- Documento --------
     Documento:
